@@ -254,7 +254,8 @@ backends:
   #   # api_key passed into connector initialization (e.g. from YAML) overrides NVIDIA_API_KEY,
   #   # which is only used when no api_key is supplied in init kwargs.
   #   # api_url: null
-  #   # timeout: 120
+  #   # timeout: 120  # Also raises httpx *read* (inter-SSE-chunk) timeout; connector enforces
+  #   # a floor (~300s) vs the shared pool default so long reasoning pauses do not abort streams.
   #   # models: []  # Optional static allowlist; with no API key and no models list, discovery is empty
 
   anthropic:

@@ -26,16 +26,25 @@ def sanitize_openai_compatible_sse_payload_inplace(payload: dict[str, Any]) -> N
 
     Covers escape hatches that ``json.dumps`` dicts without ``SSESerializer`` (error
     passthrough, backend stream formatting, injected terminal chunks).
+
+    **Call contract:** Only invoke this on payloads that are already intended to be
+    OpenAI Chat Completions / SSE-compatible (same paths for every backend that
+    speaks that wire format). It is not used for Anthropic-native or other
+    non-OpenAI-shaped event payloads.
     """
 
     obj = payload.get("object")
     has_choices = "choices" in payload
     is_chat_object = isinstance(obj, str) and obj.startswith("chat.completion")
+    # Terminal usage frames from some OpenAI-compatible hosts (incl. certain NIM
+    # deployments) carry ``usage`` but omit ``choices`` and sometimes ``object``.
+    # Without this branch, numeric/null top-level ``id`` reaches strict clients unchanged.
+    has_usage_dict = isinstance(payload.get("usage"), dict)
     has_error = isinstance(payload.get("error"), dict)
     raw_id = payload.get("id")
     bad_id = "id" in payload and not isinstance(raw_id, str)
 
-    if not (has_choices or is_chat_object or (has_error and bad_id)):
+    if not (has_choices or is_chat_object or has_usage_dict or (has_error and bad_id)):
         return
 
     payload["id"] = coerce_openai_completion_id(

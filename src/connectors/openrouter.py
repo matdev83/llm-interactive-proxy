@@ -1,11 +1,8 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import logging
-import time
-import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, cast
 
 import httpx
@@ -32,6 +29,9 @@ from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
 from src.core.services.streaming.error_mapping import handle_streaming_error
+from src.core.services.streaming.processed_stream_idle_keepalive import (
+    wrap_processed_stream_with_idle_keepalive,
+)
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -105,14 +105,7 @@ class OpenRouterBackend(OpenAIConnector):
         idle_timeout: float | None,
         cancel_callback: Callable[[], Awaitable[None]] | None,
     ) -> AsyncIterator[ProcessedResponse]:
-        iterator = stream.__aiter__()
-        pending: asyncio.Task[ProcessedResponse] | None = asyncio.create_task(
-            cast(Coroutine[Any, Any, ProcessedResponse], anext(iterator))
-        )
-        last_activity = time.monotonic()
-        keepalive_id = f"chatcmpl-keepalive-{uuid.uuid4().hex}"
-
-        async def _build_timeout_error_chunk() -> ProcessedResponse:
+        async def _on_idle_timeout() -> ProcessedResponse:
             if cancel_callback is not None:
                 with contextlib.suppress(Exception):
                     await cancel_callback()
@@ -131,47 +124,19 @@ class OpenRouterBackend(OpenAIConnector):
                 metadata=error_chunk.metadata,
             )
 
-        try:
-            while True:
-                if pending is None:
-                    break
-
-                done, _ = await asyncio.wait({pending}, timeout=keepalive_interval)
-                if pending in done:
-                    try:
-                        chunk = pending.result()
-                    except StopAsyncIteration:
-                        break
-                    last_activity = time.monotonic()
-                    yield chunk
-                    pending = asyncio.create_task(
-                        cast(Coroutine[Any, Any, ProcessedResponse], anext(iterator))
-                    )
-                    continue
-
-                elapsed = time.monotonic() - last_activity
-                if idle_timeout is not None and elapsed >= idle_timeout:
-                    yield await _build_timeout_error_chunk()
-                    break
-
-                yield ProcessedResponse(
-                    content="",
-                    metadata={
-                        "_keepalive": True,
-                        "id": keepalive_id,
-                        "model": model_name or "openrouter",
-                        "created": int(time.time()),
-                        "session_id": stream_id,
-                        "stream_id": stream_id,
-                    },
-                )
-        except asyncio.CancelledError:
-            if pending is not None:
-                pending.cancel()
-            raise
-        finally:
-            if pending is not None and not pending.done():
-                pending.cancel()
+        async for chunk in wrap_processed_stream_with_idle_keepalive(
+            stream,
+            keepalive_interval=keepalive_interval,
+            idle_timeout=idle_timeout,
+            stream_id=stream_id,
+            model_name=model_name or "openrouter",
+            on_idle_timeout=(
+                _on_idle_timeout
+                if idle_timeout is not None and idle_timeout > 0
+                else None
+            ),
+        ):
+            yield chunk
 
     @staticmethod
     def _authorization_includes_api_key(

@@ -6,6 +6,7 @@ import httpx
 import pytest
 from src.connectors.nvidia import NVIDIA_DEFAULT_BASE_URL, NvidiaConnector
 from src.core.config.app_config import AppConfig
+from src.core.config.models.backends import BackendConfig, BackendSettings
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
 
@@ -216,6 +217,60 @@ async def test_connector_uses_dedicated_http11_client_when_httpx_real() -> None:
         assert connector.client is not shared
         assert connector._nvidia_http11_client is connector.client
         assert not connector.client.is_closed
+    finally:
+        await connector.close()
+        await shared.aclose()
+
+
+@pytest.mark.asyncio
+async def test_dedicated_http11_client_extends_read_timeout_for_long_reasoning_gaps() -> (
+    None
+):
+    """Integrator can pause >60s between SSE chunks; pool read timeout must not apply."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "meta/x"}]})
+
+    transport = httpx.MockTransport(handler)
+    shared = httpx.AsyncClient(
+        http2=True,
+        transport=transport,
+        trust_env=False,
+        timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+    )
+    connector = NvidiaConnector(shared, AppConfig())
+    try:
+        await connector.initialize(api_key="k")
+        assert isinstance(connector.client.timeout, httpx.Timeout)
+        assert connector.client.timeout.read is not None
+        assert float(connector.client.timeout.read) >= 300.0
+    finally:
+        await connector.close()
+        await shared.aclose()
+
+
+@pytest.mark.asyncio
+async def test_dedicated_http11_client_respects_backends_nvidia_timeout_floor() -> None:
+    """``backends.nvidia.timeout`` raises the inter-chunk read cap when above defaults."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "meta/x"}]})
+
+    transport = httpx.MockTransport(handler)
+    shared = httpx.AsyncClient(
+        http2=True,
+        transport=transport,
+        trust_env=False,
+        timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+    )
+    cfg = AppConfig(
+        backends=BackendSettings(nvidia=BackendConfig(timeout=900, api_key="k")),
+    )
+    connector = NvidiaConnector(shared, cfg)
+    try:
+        await connector.initialize(api_key="k")
+        assert isinstance(connector.client.timeout, httpx.Timeout)
+        assert float(connector.client.timeout.read) >= 900.0
     finally:
         await connector.close()
         await shared.aclose()

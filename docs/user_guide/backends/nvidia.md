@@ -12,6 +12,7 @@ The proxy registers backend type `nvidia`. It uses the same OpenAI-style chat co
 - Outbound requests map `max_completion_tokens` to `max_tokens` when needed: the hosted NIM integrator uses a strict request schema and rejects `max_completion_tokens` as an unknown field
 - The connector omits `stream_options` (for example `include_usage`) from outbound chat bodies: the same strict schema often rejects that nested object even though other OpenAI-compatible providers accept it
 - Outbound HTTP uses **HTTP/1.1** on a dedicated `httpx` client (not the process-wide HTTP/2 pool). The hosted integrator often closes HTTP/2 streams abruptly (`RemoteProtocolError: Server disconnected` in large or long-running chat requests); HTTP/1.1 avoids that failure mode for the same payloads.
+- **Streaming keep-alives:** while the upstream model is silent (extended reasoning with no SSE bytes yet, or long gaps between chunks), the proxy emits periodic OpenAI-shaped keepalive frames so clients, SDKs, and reverse proxies do not treat the response as hung and close the connection mid-completion. Interval follows global `failure_handling.keepalive_interval` (CLI `--keepalive-interval` / env `FAILURE_HANDLING_KEEPALIVE_INTERVAL`, default 8 seconds).
 - Default hosted base URL `https://integrate.api.nvidia.com/v1` (overridable for self-hosted NIM)
 - API key via environment variable `NVIDIA_API_KEY` when no key is supplied through higher-precedence initialization (see [Configuration](#configuration))
 

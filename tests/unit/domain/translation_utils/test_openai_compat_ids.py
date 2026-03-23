@@ -75,6 +75,19 @@ def test_sanitize_openai_compatible_sse_payload_inplace_error_dict_numeric_id() 
     assert err["id"] == "99"
 
 
+def test_sanitize_openai_compatible_sse_payload_inplace_usage_only_chunk() -> None:
+    """Some gateways emit a final frame with ``usage`` but no ``choices`` / ``object``."""
+
+    payload = {
+        "id": None,
+        "model": "vendor/model",
+        "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+    }
+    sanitize_openai_compatible_sse_payload_inplace(payload)
+    assert isinstance(payload["id"], str)
+    assert payload["id"].startswith("chatcmpl-")
+
+
 def test_openai_to_domain_stream_chunk_accepts_null_top_level_id() -> None:
     import json
 

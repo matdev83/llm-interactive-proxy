@@ -3,7 +3,8 @@
 This test verifies that the OpenAI connector properly limits SSE buffer size
 to prevent DoS attacks through malicious streaming responses without SSE separators.
 
-Fixed: Added MAX_SSE_BUFFER_SIZE limit (16KB) to prevent unbounded buffer growth.
+Fixed: Added MAX_SSE_BUFFER_SIZE cap to prevent unbounded buffer growth (raised to
+256KiB so large single ``data:`` lines from reasoning models stay parseable).
 """
 
 from collections.abc import AsyncGenerator
@@ -153,8 +154,8 @@ class TestOpenAISSEBufferOverflowDoSRegression:
 
     def test_max_buffer_size_constant(self) -> None:
         """Test that MAX_SSE_BUFFER_SIZE constant is defined correctly."""
-        # Verify the constant exists and has reasonable value
-        assert (
-            MAX_SSE_BUFFER_SIZE == 16384
-        ), f"MAX_SSE_BUFFER_SIZE ({MAX_SSE_BUFFER_SIZE}) should be 16KB (16384 bytes)"
+        assert MAX_SSE_BUFFER_SIZE == 262_144, (
+            f"MAX_SSE_BUFFER_SIZE ({MAX_SSE_BUFFER_SIZE}) should be 256KiB for "
+            "reasoning-heavy SSE lines while still bounding memory."
+        )
         assert MAX_SSE_BUFFER_SIZE > 0, "MAX_SSE_BUFFER_SIZE should be positive"

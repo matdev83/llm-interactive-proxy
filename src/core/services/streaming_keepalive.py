@@ -15,6 +15,9 @@ from collections.abc import AsyncGenerator
 from pydantic.types import JsonValue
 
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.streaming.processed_stream_idle_keepalive import (
+    wrap_processed_stream_with_idle_keepalive,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -219,4 +222,5 @@ __all__ = [
     "generate_keepalive_chunks",
     "generate_keepalive_with_status",
     "KeepAliveGenerator",
+    "wrap_processed_stream_with_idle_keepalive",
 ]

@@ -48,8 +48,10 @@ from src.core.services.translation_service import TranslationService
 
 from .base import LLMBackend, add_vendor_prefix
 
-# Maximum SSE buffer size to prevent DoS attacks (16KB)
-MAX_SSE_BUFFER_SIZE = 16384
+# Maximum SSE buffer size to prevent DoS attacks. Reasoning-heavy models can emit
+# large single ``data:`` JSON lines; a tiny cap truncates incomplete frames and
+# stalls or truncates streams (see NVIDIA / NIM long-reasoning traffic).
+MAX_SSE_BUFFER_SIZE = 262_144
 
 # Internal-only keys passed via CanonicalChatRequest.extra_body so streaming uses the
 # same resolved URL and headers as the canonical chat_completions path. Stripped from

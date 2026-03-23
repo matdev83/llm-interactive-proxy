@@ -251,7 +251,12 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
                 if stream_id:
                     err_metadata["stream_id"] = stream_id
                 if "id" in event_data:
-                    err_metadata["id"] = event_data["id"]
+                    err_metadata["id"] = coerce_openai_completion_id(
+                        event_data["id"],
+                        created_fallback=_event_created_fallback(
+                            event_data.get("created")
+                        ),
+                    )
                 if "model" in event_data:
                     err_metadata["model"] = event_data["model"]
 
@@ -286,7 +291,12 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
                 if "model" in event_data:
                     fallback_metadata["model"] = event_data["model"]
                 if "id" in event_data:
-                    fallback_metadata["id"] = event_data["id"]
+                    fallback_metadata["id"] = coerce_openai_completion_id(
+                        event_data["id"],
+                        created_fallback=_event_created_fallback(
+                            event_data.get("created")
+                        ),
+                    )
                 if "created" in event_data:
                     fallback_metadata["created"] = event_data["created"]
                 return self.create_normalized_chunk(
