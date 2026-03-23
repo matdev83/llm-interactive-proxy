@@ -92,29 +92,34 @@ def test_is_codex_model_detection(connector: OpenAICodexConnector) -> None:
     """Test that _is_codex_model only recognizes supported Codex models.
 
     Supported models are explicitly listed in SUPPORTED_CODEX_MODELS:
+    - gpt-5.4
+    - gpt-5.3-codex
     - gpt-5.2-codex
     - gpt-5.2
     - gpt-5.1-codex-max
     - gpt-5.1-codex
     - gpt-5.1-codex-mini
-    - codex-mini-latest
     - gpt-5.1
+    - gpt-5-codex
+    - gpt-5-codex-mini
+    - gpt-5
+    - gpt-oss-120b
+    - gpt-oss-20b
     """
     # Valid models (with and without vendor prefix)
+    assert connector._is_codex_model("gpt-5.4") is True
+    assert connector._is_codex_model("gpt-5.3-codex") is True
     assert connector._is_codex_model("gpt-5.2-codex") is True
     assert connector._is_codex_model("gpt-5.2") is True
     assert connector._is_codex_model("gpt-5.1-codex-max") is True
     assert connector._is_codex_model("gpt-5.1-codex") is True
     assert connector._is_codex_model("gpt-5.1-codex-mini") is True
-    assert connector._is_codex_model("codex-mini-latest") is True
+    assert connector._is_codex_model("gpt-5-codex-mini") is True
     assert connector._is_codex_model("gpt-5.1") is True
     assert connector._is_codex_model("openai/gpt-5.1-codex-max") is True
     assert connector._is_codex_model("openai/gpt-5.1") is True
 
     # Invalid models
-    assert (
-        connector._is_codex_model("gpt-5-codex") is False
-    )  # Old naming (no .1), not supported
     assert connector._is_codex_model("gpt-4.1") is False
     assert connector._is_codex_model("gpt-4") is False
     assert connector._is_codex_model("claude-3") is False

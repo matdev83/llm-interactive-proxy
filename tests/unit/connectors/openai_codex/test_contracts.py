@@ -232,19 +232,16 @@ class TestCodexInitOptions:
         options = CodexInitOptions(
             openai_codex_path="/path/to/auth.json",
             openai_api_base_url="https://api.example.com/v1",
-            enable_openai_codex_backend_debugging_override=True,
             backend_extras={"key": "value"},
         )
         assert options.openai_codex_path == "/path/to/auth.json"
         assert options.openai_api_base_url == "https://api.example.com/v1"
-        assert options.enable_openai_codex_backend_debugging_override is True
 
     def test_create_with_none_options(self):
         """Test creating CodexInitOptions with None values."""
         options = CodexInitOptions()
         assert options.openai_codex_path is None
         assert options.openai_api_base_url is None
-        assert options.enable_openai_codex_backend_debugging_override is None
         assert options.backend_extras is None
 
 

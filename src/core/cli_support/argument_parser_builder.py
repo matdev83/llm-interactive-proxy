@@ -887,12 +887,6 @@ class ArgumentParserBuilder:
             help="Enable the Qwen OAuth backend connector for debugging. Reserved for internal development.",
         )
         debugging_overrides_group.add_argument(
-            "--enable-openai-codex-backend-debugging-override",
-            action="store_true",
-            default=False,
-            help="Enable the OpenAI Codex backend connector for debugging. Reserved for internal development.",
-        )
-        debugging_overrides_group.add_argument(
             "--enable-anthropic-oauth-backend-debugging-override",
             action="store_true",
             default=False,

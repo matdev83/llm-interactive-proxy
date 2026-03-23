@@ -324,7 +324,6 @@ class BackendApplicator:
                 "gemini_oauth_plan",
             ),
             ("enable_qwen_oauth_backend_debugging_override", "qwen_oauth"),
-            ("enable_openai_codex_backend_debugging_override", "openai_codex"),
             ("enable_anthropic_oauth_backend_debugging_override", "anthropic_oauth"),
             (
                 "enable_gemini_oauth_auto_backend_debugging_override",

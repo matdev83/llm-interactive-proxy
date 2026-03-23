@@ -145,7 +145,6 @@ class CodexInitOptions(BaseModel):
 
     openai_codex_path: str | None = None
     openai_api_base_url: str | None = None
-    enable_openai_codex_backend_debugging_override: bool | None = None
     backend_extras: dict[str, object] | None = None
 
 

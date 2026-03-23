@@ -199,9 +199,7 @@ cat ~/.codex/auth.json | jq .
 **Test with the proxy**:
 ```bash
 # Start the proxy with Codex backend
-python -m src.core.cli \
-  --enable-openai-codex-backend-debugging-override \
-  --default-backend openai-codex:o1-mini
+python -m src.core.cli --default-backend openai-codex:o1-mini
 
 # In another terminal, test a request
 curl http://localhost:8000/v1/chat/completions \
@@ -324,7 +322,7 @@ codex auth login
 Get-Content "$env:USERPROFILE\.codex\auth.json" | ConvertFrom-Json | Select user
 
 # 6. Test with proxy
-python -m src.core.cli --enable-openai-codex-backend-debugging-override
+python -m src.core.cli
 ```
 
 ```bash
@@ -345,7 +343,7 @@ codex auth login
 cat ~/.codex/auth.json | jq .user
 
 # 6. Test with proxy
-python -m src.core.cli --enable-openai-codex-backend-debugging-override
+python -m src.core.cli
 ```
 
 ---

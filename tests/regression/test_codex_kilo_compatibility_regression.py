@@ -84,44 +84,38 @@ class TestCanonicalInstructionProtection:
         """
         from src.core.domain.chat import ChatMessage, ChatRequest
 
-        # Mock the HTTP client to simulate Codex rejection of modified instructions
-        mock_response = httpx.Response(
-            status_code=400,
-            json={
-                "error": {
-                    "message": "Invalid system instructions",
-                    "type": "invalid_request_error",
-                    "code": "invalid_instructions",
-                }
-            },
+        request = ChatRequest(
+            model="gpt-5-codex",
+            messages=[ChatMessage(role="user", content="Hello")],
+            max_tokens=50,
         )
 
+        # Mock _call_codex_responses_api to simulate Codex rejection
         with patch.object(
-            codex_connector.client,
-            "post",
-            return_value=mock_response,
+            codex_connector,
+            "_call_codex_responses_api",
+            side_effect=HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "message": "Invalid system instructions",
+                        "type": "invalid_request_error",
+                        "code": "invalid_instructions",
+                    }
+                },
+            ),
         ):
-            # Attempt to send request
-            request = ChatRequest(
-                model="gpt-5-codex",
-                messages=[ChatMessage(role="user", content="Hello")],
-                max_tokens=50,
-            )
-
             # The connector should handle Codex rejection properly
             # This test verifies that 400 errors from Codex are properly handled
-            with pytest.raises(
-                (HTTPException, httpx.HTTPStatusError, Exception)
-            ) as exc_info:
+            with pytest.raises(HTTPException) as exc_info:
                 await codex_connector.chat_completions(
                     request_data=request,
                     processed_messages=[ChatMessage(role="user", content="Hello")],
                     effective_model="gpt-5-codex",
                 )
 
-            # Verify it's a 400-level error or properly handled
-            # The exact exception type depends on implementation
-            assert exc_info.value is not None
+            # Verify it's a 400-level error
+            assert exc_info.value.status_code == 400
 
     @pytest.mark.asyncio
     async def test_canonical_instructions_preserved_with_kilocode_client(

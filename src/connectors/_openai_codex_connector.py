@@ -23,7 +23,7 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -91,23 +91,26 @@ OPENAI_VENDOR_PREFIX = "openai"
 
 class OpenAICodexConnector(OpenAIConnector):
     backend_type: str = "openai-codex"
-    _DEBUG_OVERRIDE_DEFAULT = os.environ.get(
-        "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
-    ).lower() not in {"0", "false", "no"}
 
     @property
     def has_static_credentials(self) -> bool:
         return False
 
-    # Supported Codex models - exhaustive list
+    # Supported Codex models - sourced from official Codex CLI models.json
     SUPPORTED_CODEX_MODELS: tuple[str, ...] = (
+        "gpt-5.4",
+        "gpt-5.3-codex",
         "gpt-5.2-codex",
         "gpt-5.2",
         "gpt-5.1-codex-max",
         "gpt-5.1-codex",
         "gpt-5.1-codex-mini",
-        "codex-mini-latest",
         "gpt-5.1",
+        "gpt-5-codex",
+        "gpt-5-codex-mini",
+        "gpt-5",
+        "gpt-oss-120b",
+        "gpt-oss-20b",
     )
     # Pre-computed lowercased set for O(1) lookup
     _SUPPORTED_CODEX_MODELS_LOWER: frozenset[str] = frozenset(
@@ -117,11 +120,21 @@ class OpenAICodexConnector(OpenAIConnector):
     # Reasoning effort levels supported by Codex backend
     REASONING_EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
     DEFAULT_REASONING_EFFORT: str = "medium"
-    # Only gpt-5.1-codex-max supports xhigh reasoning effort
+    # All current models support xhigh reasoning effort
     XHIGH_SUPPORTED_MODELS: tuple[str, ...] = (
-        "gpt-5.2",
+        "gpt-5.4",
+        "gpt-5.3-codex",
         "gpt-5.2-codex",
+        "gpt-5.2",
         "gpt-5.1-codex-max",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-mini",
+        "gpt-5.1",
+        "gpt-5-codex",
+        "gpt-5-codex-mini",
+        "gpt-5",
+        "gpt-oss-120b",
+        "gpt-oss-20b",
     )
     # Pre-computed lowercased set for O(1) lookup
     _XHIGH_SUPPORTED_MODELS_LOWER: frozenset[str] = frozenset(
@@ -156,7 +169,6 @@ class OpenAICodexConnector(OpenAIConnector):
         )
         self.disable_health_check()
         self.name = "openai-codex"
-        self._enable_codex_backend_debugging_override = self._DEBUG_OVERRIDE_DEFAULT
 
         self._working_directory: str | None = None
 
@@ -1684,20 +1696,6 @@ class OpenAICodexConnector(OpenAIConnector):
         if isinstance(base, str) and base:
             self.api_base_url = base
 
-        self._enable_codex_backend_debugging_override = kwargs.get(
-            "enable_openai_codex_backend_debugging_override",
-            self._enable_codex_backend_debugging_override,
-        )
-        backend_config = getattr(self.config.backends, "openai_codex", None)
-        if backend_config and hasattr(backend_config, "extra"):
-            extras = (
-                backend_config.extra
-                if isinstance(backend_config.extra, Mapping)
-                else {}
-            )
-            if extras.get("enable_openai_codex_backend_debugging_override"):
-                self._enable_codex_backend_debugging_override = True
-
         dir_override = kwargs.get("openai_codex_path")
         if isinstance(dir_override, str) and dir_override:
             self._oauth_dir_override = Path(dir_override)
@@ -1784,20 +1782,6 @@ class OpenAICodexConnector(OpenAIConnector):
             request_data._codex_resolved_reasoning_effort = resolved_reasoning_effort
         elif isinstance(request_data, dict):
             request_data["_codex_resolved_reasoning_effort"] = resolved_reasoning_effort
-
-        if not self._enable_codex_backend_debugging_override:
-            logger.warning(
-                "Blocked attempt to use OpenAI Codex backend without debugging override flag."
-            )
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Forbidden: This backend is reserved for internal development and "
-                    "debugging. To enable it, use the "
-                    "--enable-openai-codex-backend-debugging-override CLI flag. "
-                    "See documentation for legal disclaimers and usage restrictions."
-                ),
-            )
 
         ok = await self._validate_runtime_credentials()
         errors = self.get_validation_errors()

@@ -218,7 +218,6 @@ class TestMultiUserModeOAuthFlags:
             "enable_gemini_oauth_plan_backend_debugging_override",
             "enable_qwen_oauth_backend_debugging_override",
             "enable_anthropic_oauth_backend_debugging_override",
-            "enable_openai_codex_backend_debugging_override",
             "enable_opencode_zen_backend_debugging_override",
             "enable_kiro_oauth_auto_backend_debugging_override",
         ],
@@ -261,23 +260,6 @@ class TestMultiUserModeOAuthFlags:
             in error_msg
         )
 
-    def test_multi_user_mode_rejects_openai_codex_flag(
-        self, validator: AccessModeValidator, multi_user_config: AppConfig
-    ):
-        """Test Multi User Mode specifically rejects openai-codex OAuth flag."""
-        args = argparse.Namespace(enable_openai_codex_backend_debugging_override=True)
-
-        with pytest.raises(ValueError) as exc_info:
-            validator.validate(multi_user_config, args)
-
-        error_msg = str(exc_info.value)
-        assert (
-            "OAuth debugging override flags are not allowed in Multi User Mode"
-            in error_msg
-        )
-        assert "--enable-openai-codex-backend-debugging-override" in error_msg
-        assert "OAuth connectors are blocked in production deployments" in error_msg
-
     def test_multi_user_mode_rejects_opencode_zen_flag(
         self, validator: AccessModeValidator, multi_user_config: AppConfig
     ):
@@ -299,7 +281,9 @@ class TestMultiUserModeOAuthFlags:
         self, validator: AccessModeValidator, multi_user_config: AppConfig
     ):
         """Test Multi User Mode specifically rejects kiro-oauth-auto OAuth flag."""
-        args = argparse.Namespace(enable_kiro_oauth_auto_backend_debugging_override=True)
+        args = argparse.Namespace(
+            enable_kiro_oauth_auto_backend_debugging_override=True
+        )
 
         with pytest.raises(ValueError) as exc_info:
             validator.validate(multi_user_config, args)
