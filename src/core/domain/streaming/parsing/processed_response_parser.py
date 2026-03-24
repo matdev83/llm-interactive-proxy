@@ -137,6 +137,18 @@ class ProcessedResponseParser(IParserStrategy):
                 )
             )
 
+        # Pydantic / domain stream chunks (e.g. CanonicalStreamChunk from TranslationService).
+        # Without this branch, str(content_val) destroys choices/tool_calls and clients see {}.
+        model_dump = getattr(content_val, "model_dump", None)
+        if callable(model_dump) and not isinstance(content_val, dict | str | bytes):
+            try:
+                dumped = model_dump(exclude_none=True)
+            except (TypeError, ValueError):
+                dumped = None
+            if isinstance(dumped, dict):
+                parsed = StreamingContent.from_raw(dumped)
+                return _finalize(parsed)
+
         # Handle dict, str, bytes, bytearray, list - delegate to parser chain
         if isinstance(content_val, dict | str | bytes | bytearray | list):
             # Recursively parse using StreamingContent.from_raw which delegates to RawChunkParser.

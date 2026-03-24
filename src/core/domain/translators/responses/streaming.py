@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import json
 import logging
+import shlex
+from contextvars import ContextVar
 from typing import Any, cast
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.chat import FunctionCall, ToolCall
 from src.core.domain.tool_text_renderer import render_tool_call
 from src.core.domain.translation_utils.tool_call_state import (
+    accumulate_tool_call_arguments,
     assign_tool_call_index,
     cache_function_name,
-    get_cached_function_name,
+    clear_tool_call_arguments,
+    get_accumulated_tool_call_arguments,
     reset_tool_call_state,
 )
 from src.core.domain.translators.responses.streaming_parse import (
@@ -18,6 +22,151 @@ from src.core.domain.translators.responses.streaming_parse import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _local_shell_item_to_arguments_json(item: dict[str, Any]) -> str:
+    """Serialize Codex ``local_shell_call`` output items to function ``arguments`` JSON.
+
+    Upstream often sends shell fields on the item itself (``command``, ``description``)
+    while ``action`` is missing or ``{}``. Mapping only ``action`` produced ``"{}"``,
+    which surfaces in OpenAI-compatible clients as bash/tool calls with empty input.
+    """
+    action = item.get("action")
+    if isinstance(action, str) and action.strip():
+        try:
+            json.loads(action)
+            return action
+        except json.JSONDecodeError:
+            desc = item.get("description")
+            return json.dumps(
+                {
+                    "command": action.strip(),
+                    "description": desc if isinstance(desc, str) else "",
+                },
+                ensure_ascii=False,
+            )
+    if isinstance(action, dict) and action:
+        return json.dumps(action, ensure_ascii=False)
+
+    for key in ("arguments", "input"):
+        raw = item.get(key)
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    return json.dumps(parsed, ensure_ascii=False)
+            except json.JSONDecodeError:
+                desc = item.get("description")
+                return json.dumps(
+                    {
+                        "command": raw.strip(),
+                        "description": desc if isinstance(desc, str) else "",
+                    },
+                    ensure_ascii=False,
+                )
+
+    cmd = item.get("command")
+    desc_val = item.get("description")
+    if desc_val is None:
+        desc_val = item.get("summary") or item.get("reason") or ""
+    if cmd is not None and cmd != "":
+        if isinstance(cmd, str):
+            command_str = cmd
+        elif isinstance(cmd, list | tuple):
+            try:
+                command_str = shlex.join(str(x) for x in cmd)
+            except (TypeError, ValueError):
+                command_str = " ".join(str(x) for x in cmd)
+        else:
+            command_str = str(cmd)
+        payload: dict[str, Any] = {
+            "command": command_str,
+            "description": desc_val.strip() if isinstance(desc_val, str) else "",
+        }
+        for src_key, dest_key in (
+            ("working_directory", "working_directory"),
+            ("workdir", "working_directory"),
+            ("cwd", "working_directory"),
+        ):
+            v = item.get(src_key)
+            if v is not None and v != "":
+                payload[dest_key] = v
+                break
+        return json.dumps(payload, ensure_ascii=False)
+
+    nested = item.get("shell") or item.get("local_shell")
+    if isinstance(nested, dict):
+        return _local_shell_item_to_arguments_json(nested)
+
+    return "{}"
+
+
+def _openai_client_shell_tool_name(tool_name: str) -> str:
+    """Map Codex-native ``shell`` to ``bash`` for OpenAI-compatible clients (e.g. OpenCode)."""
+    lname = (tool_name or "").strip().lower()
+    if lname == "shell":
+        return "bash"
+    return tool_name
+
+
+def _normalize_shell_like_tool_arguments_json(
+    tool_name: str, arguments_json: str
+) -> str:
+    """Coerce Codex shell payloads to OpenAI-client-friendly ``bash``-style JSON.
+
+    Codex native tools use ``command`` as a string array. Clients such as OpenCode
+    validate a ``bash`` tool with **string** ``command`` and **string**
+    ``description``; array-shaped ``command`` or a missing ``description`` yields
+    ``undefined`` field errors even when JSON parses successfully.
+    """
+    lname = (tool_name or "").strip().lower()
+    if lname not in ("shell", "bash"):
+        return arguments_json
+    try:
+        obj = json.loads(arguments_json)
+    except json.JSONDecodeError:
+        return arguments_json
+    if not isinstance(obj, dict):
+        return arguments_json
+
+    cmd = obj.get("command")
+    if isinstance(cmd, list | tuple):
+        try:
+            cmd_str = shlex.join(str(x) for x in cmd)
+        except (TypeError, ValueError):
+            cmd_str = " ".join(str(x) for x in cmd)
+    elif isinstance(cmd, str):
+        cmd_str = cmd
+    elif cmd is None:
+        cmd_str = ""
+    else:
+        cmd_str = str(cmd)
+
+    desc = obj.get("description")
+    if desc is None:
+        desc = obj.get("summary") or obj.get("reason") or ""
+    if not isinstance(desc, str):
+        desc = str(desc)
+
+    wd = obj.get("workdir") or obj.get("working_directory") or obj.get("cwd")
+    if wd is not None and str(wd).strip():
+        wd_s = str(wd).strip()
+        base = desc.strip()
+        desc = f"{base} [cwd: {wd_s}]" if base else f"[cwd: {wd_s}]"
+
+    return json.dumps({"command": cmd_str, "description": desc}, ensure_ascii=False)
+
+
+# Correlates Responses SSE events that omit `response.id` / top-level `id` with the
+# active stream (set from `response.created` or any event that carries an explicit id).
+_active_responses_stream_id: ContextVar[str | None] = ContextVar(
+    "active_responses_stream_id", default=None
+)
+
+
+def reset_active_responses_stream_context() -> None:
+    """Clear active Responses stream id (tests, teardown, or error recovery)."""
+    _active_responses_stream_id.set(None)
 
 
 def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
@@ -53,15 +202,35 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
 
     response_payload = chunk.get("response")
     if isinstance(response_payload, dict):
-        chunk_id = response_payload.get("id")
+        response_nested_id = response_payload.get("id")
         created = response_payload.get("created")
         model = response_payload.get("model")
     else:
-        chunk_id = None
+        response_nested_id = None
         created = None
         model = None
 
-    chunk_id = chunk_id or chunk.get("id") or f"resp-{uuid.uuid4().hex[:16]}"
+    event_type_hint = (chunk.get("type") or event_type_from_sse or "").strip()
+    explicit_stream_id: str | None = None
+    if isinstance(response_nested_id, str) and response_nested_id:
+        explicit_stream_id = response_nested_id
+    if explicit_stream_id is None:
+        top_id = chunk.get("id")
+        if (
+            isinstance(top_id, str)
+            and top_id
+            and (event_type_hint or top_id.startswith("resp_"))
+        ):
+            # Prefer SSE/body `type` when present. Also accept OpenAI-style ids (`resp_…`);
+            # synthetic heartbeats use `resp-` + hex and must not override stream context.
+            explicit_stream_id = top_id
+
+    if explicit_stream_id is not None:
+        _active_responses_stream_id.set(explicit_stream_id)
+        chunk_id = explicit_stream_id
+    else:
+        from_context = _active_responses_stream_id.get()
+        chunk_id = from_context or f"resp-{uuid.uuid4().hex[:16]}"
     created = created or chunk.get("created") or int(time.time())
     model = model or chunk.get("model") or "unknown"
     object_type = chunk.get("object") or "response.chunk"
@@ -142,9 +311,18 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         tool_index = assign_tool_call_index(
             chunk_id, chunk.get("output_index"), call_id
         )
-        function_payload: dict[str, Any] = {"arguments": arguments_fragment}
+        # Cache the function name if provided
+        if name and call_id:
+            cache_function_name(call_id, name)
+        # Accumulate arguments fragments for later use in done events
+        if call_id and arguments_fragment:
+            accumulate_tool_call_arguments(call_id, arguments_fragment)
+        # Send tool call metadata but NOT partial arguments fragments.
+        # Partial JSON (like just "{") cannot be parsed by clients.
+        # Complete arguments will be sent in the response.function_call_arguments.done event.
+        function_payload: dict[str, Any] = {"arguments": ""}
         if name:
-            function_payload["name"] = name
+            function_payload["name"] = _openai_client_shell_tool_name(name)
         delta = {
             "tool_calls": [
                 {
@@ -160,37 +338,20 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     if event_type == "response.function_call_arguments.done":
         call_id = chunk.get("item_id") or chunk.get("call_id")
         name = chunk.get("name") or ""
-        if not name and call_id:
-            name = get_cached_function_name(call_id)
         arguments = chunk.get("arguments")
-        if isinstance(arguments, dict | list):
-            arguments = json.dumps(arguments)
-        elif arguments is None:
-            arguments = "{}"
-        else:
-            arguments = str(arguments)
-        tool_index = assign_tool_call_index(
-            chunk_id, chunk.get("output_index"), call_id
-        )
-        tool_call_obj = ToolCall(
-            id=call_id or "",
-            type="function",
-            function=FunctionCall(name=name, arguments=arguments),
-        )
-        tool_text = render_tool_call(tool_call_obj)
-        delta = {
-            "tool_calls": [
-                {
-                    "index": tool_index,
-                    "id": call_id or "",
-                    "type": "function",
-                    "function": {"name": name, "arguments": arguments},
-                }
-            ]
-        }
-        if tool_text:
-            delta["_tool_call_text"] = tool_text  # type: ignore[assignment]
-        return _build_chunk(delta, "tool_calls")
+        # Cache the function name if provided
+        if name and call_id:
+            cache_function_name(call_id, name)
+        # The complete tool call will be sent in response.output_item.done event.
+        # Just return an empty chunk here to let the client know the event happened.
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "response.function_call_arguments.done: call_id=%s, name=%r, arguments=%r",
+                call_id,
+                name,
+                (str(arguments)[:100] if arguments is not None else None),
+            )
+        return _build_chunk()
 
     if event_type == "response.output_item.done":
         item = chunk.get("item") or {}
@@ -219,19 +380,46 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             return _build_chunk()
 
         if item_type == "function_call":
+
+            def _needs_accumulated_tool_arguments(val: Any) -> bool:
+                return (
+                    val is None
+                    or val == ""
+                    or val == "{}"
+                    or (isinstance(val, dict) and len(val) == 0)
+                )
+
             arguments = item.get("arguments", "{}")
-            if not isinstance(arguments, str):
-                arguments = json.dumps(arguments)
             call_id = (
                 item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:8]}"
             )
+            # If arguments is None, empty, just "{}", or empty dict, try accumulated
+            # arguments from deltas (API sometimes omits payload on output_item.done).
+            if _needs_accumulated_tool_arguments(arguments):
+                if call_id:
+                    accumulated = get_accumulated_tool_call_arguments(call_id)
+                    clear_tool_call_arguments(call_id)
+                    if accumulated and accumulated != "{}":
+                        arguments = accumulated
+                    else:
+                        arguments = "{}"
+                else:
+                    arguments = "{}"
+            elif call_id:
+                # We have arguments from the item, clear accumulated state
+                clear_tool_call_arguments(call_id)
+            if not isinstance(arguments, str):
+                arguments = json.dumps(arguments) if arguments else "{}"
+            tool_name = item.get("name", "")
+            arguments = _normalize_shell_like_tool_arguments_json(tool_name, arguments)
+            emit_name = _openai_client_shell_tool_name(tool_name)
             tool_index = assign_tool_call_index(
                 chunk_id, chunk.get("output_index"), call_id
             )
             tool_call_obj = ToolCall(
                 id=call_id,
                 type="function",
-                function=FunctionCall(name=item.get("name", ""), arguments=arguments),
+                function=FunctionCall(name=emit_name, arguments=arguments),
             )
             tool_text = render_tool_call(tool_call_obj)
             delta = {
@@ -241,7 +429,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                         "index": tool_index,
                         "type": "function",
                         "function": {
-                            "name": item.get("name", ""),
+                            "name": emit_name,
                             "arguments": arguments,
                         },
                     }
@@ -290,8 +478,8 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             return _build_chunk(delta)
 
         if item_type == "local_shell_call":
-            action = item.get("action") or {}
-            arguments = action if isinstance(action, str) else json.dumps(action)
+            arguments = _local_shell_item_to_arguments_json(item)
+            arguments = _normalize_shell_like_tool_arguments_json("shell", arguments)
             call_id = (
                 item.get("call_id") or item.get("id") or f"shell_{uuid.uuid4().hex[:8]}"
             )
@@ -301,7 +489,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             tool_call_obj = ToolCall(
                 id=call_id,
                 type="function",
-                function=FunctionCall(name="shell", arguments=arguments),
+                function=FunctionCall(name="bash", arguments=arguments),
             )
             tool_text = render_tool_call(tool_call_obj)
             delta = {
@@ -310,7 +498,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                         "id": call_id,
                         "index": tool_index,
                         "type": "function",
-                        "function": {"name": "shell", "arguments": arguments},
+                        "function": {"name": "bash", "arguments": arguments},
                     }
                 ]
             }
@@ -331,6 +519,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         if response_id:
             result["response_id"] = response_id
             reset_tool_call_state(response_id)
+        _active_responses_stream_id.set(None)
         return result
 
     if event_type == "response.created":
@@ -348,6 +537,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         response_info = chunk.get("response") or {}
         error_payload = response_info.get("error") or chunk.get("error") or {}
         reset_tool_call_state(response_info.get("id") or chunk_id)
+        _active_responses_stream_id.set(None)
         return {"error": "Responses stream reported failure", "details": error_payload}
 
     if event_type == "response.output_item.added":
@@ -359,6 +549,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:8]}"
             )
             name = item.get("name", "")
+            emit_name = _openai_client_shell_tool_name(name)
 
             cache_function_name(call_id, name)
 
@@ -371,7 +562,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                         "index": tool_index,
                         "id": call_id,
                         "type": "function",
-                        "function": {"name": name, "arguments": ""},
+                        "function": {"name": emit_name, "arguments": ""},
                     }
                 ]
             }

@@ -84,6 +84,7 @@ class DroidToolTranslator:
         "read_file": "Read",
         "list_dir": "LS",
         "shell": "Execute",
+        "bash": "Execute",
         "grep_files": "Grep",
         "apply_patch": "Edit",
         "view_image": "Read",  # Map view_image to Read as fallback
@@ -235,6 +236,12 @@ class DroidToolTranslator:
             droid_tool_name="Execute",
             droid_arguments={"command": command_str},
         )
+
+    def _reverse_translate_bash(
+        self, codex_args: dict[str, Any]
+    ) -> ReverseTranslationResult:
+        """Same as shell; streaming layer may emit ``bash`` for OpenCode-style clients."""
+        return self._reverse_translate_shell(codex_args)
 
     def _reverse_translate_list_dir(
         self, codex_args: dict[str, Any]

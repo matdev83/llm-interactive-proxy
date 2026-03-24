@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from src.core.domain.translation import Translation
 
@@ -7,7 +9,7 @@ from src.core.domain.translation import Translation
 @pytest.mark.parametrize(
     "event_type",
     [
-        "response.function_call_arguments.done",
+        # Tool call payload is emitted on output_item.done; arguments.done is a no-op delta.
         "response.output_item.done",
     ],
 )
@@ -71,5 +73,8 @@ def test_stream_adapter_cleanup_removes_rendered_tool_text_from_content(
         assert len(delta["tool_calls"]) == 1
         tool_call = delta["tool_calls"][0]
         assert tool_call["id"] == "call_123"
-        assert tool_call["function"]["name"] == "shell"
-        assert tool_call["function"]["arguments"] == '{"command": "ls -l"}'
+        assert tool_call["function"]["name"] == "bash"
+        assert json.loads(tool_call["function"]["arguments"]) == {
+            "command": "ls -l",
+            "description": "",
+        }

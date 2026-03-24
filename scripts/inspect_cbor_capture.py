@@ -1052,6 +1052,7 @@ def print_entries(
     backend_filter: str | None = None,
     verbose: bool = False,
     search_term: str | None = None,
+    session_substring: str | None = None,
     show_hex: bool = False,
     entry_range: tuple[int, int] | None = None,
     show_last: bool = False,
@@ -1073,6 +1074,16 @@ def print_entries(
 
         if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
             continue
+
+        if session_substring:
+            ss = session_substring.lower()
+            meta = e.get("meta", {})
+            if not isinstance(meta, dict):
+                meta = {}
+            asid = str(meta.get("asid") or meta.get("sid") or "").lower()
+            bsid = str(meta.get("bsid") or "").lower()
+            if ss not in asid and ss not in bsid:
+                continue
 
         data = e.get("data", b"")
 
@@ -1524,6 +1535,14 @@ def main() -> int:
         help="Filter entries containing the search term (case-insensitive)",
     )
     parser.add_argument(
+        "--session-substring",
+        metavar="TEXT",
+        help=(
+            "Only entries whose capture session id (asid/sid or bsid) contains TEXT "
+            "(case-insensitive), e.g. OpenCode session suffix"
+        ),
+    )
+    parser.add_argument(
         "--hex",
         action="store_true",
         help="Show hex dump of data instead of text preview",
@@ -1746,6 +1765,7 @@ def main() -> int:
     show_entries = (
         args.entries > 0
         or args.search
+        or args.session_substring
         or args.last
         or args.range
         or args.around is not None
@@ -1758,7 +1778,7 @@ def main() -> int:
             max_entries = args.last
         elif args.entries > 0:
             max_entries = args.entries
-        elif args.search:
+        elif args.search or args.session_substring:
             max_entries = len(entries)  # Show all matches
         else:
             max_entries = 20  # Default
@@ -1771,6 +1791,7 @@ def main() -> int:
             backend_filter=backend_filter,
             verbose=args.verbose,
             search_term=args.search,
+            session_substring=args.session_substring,
             show_hex=args.hex,
             entry_range=entry_range,
             show_last=args.last is not None,

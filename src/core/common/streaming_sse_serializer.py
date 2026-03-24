@@ -30,6 +30,33 @@ from src.core.domain.translation_utils.openai_compat_ids import (
 logger = logging.getLogger(__name__)
 
 
+def _tool_call_dicts_have_meaningful_arguments(
+    tool_calls: list[dict[str, Any]]
+) -> bool:
+    """True if any tool call carries non-empty JSON/object arguments (not ``{}``)."""
+    for tc in tool_calls:
+        fn = tc.get("function")
+        if not isinstance(fn, dict):
+            continue
+        args = fn.get("arguments")
+        if args is None:
+            continue
+        if isinstance(args, str):
+            s = args.strip()
+            if not s or s == "{}":
+                continue
+            try:
+                obj = json.loads(s)
+                if obj in (None, {}, []):
+                    continue
+            except json.JSONDecodeError:
+                return True
+            return True
+        if isinstance(args, dict | list) and args:
+            return True
+    return False
+
+
 class SSESerializer:
     """Serializer for converting StreamingContent to SSE bytes."""
 
@@ -467,7 +494,9 @@ class SSESerializer:
                 if sanitized_dict:
                     sanitized_calls.append(sanitized_dict)
 
-            if sanitized_calls:
+            if sanitized_calls and _tool_call_dicts_have_meaningful_arguments(
+                sanitized_calls
+            ):
                 delta = get_first_delta(content_copy)
                 if delta:
                     delta["tool_calls"] = sanitized_calls
@@ -535,8 +564,18 @@ class SSESerializer:
                 tool_calls_dicts.append(tc.model_dump(exclude_none=True))
             elif isinstance(tc, dict):
                 tool_calls_dicts.append(tc)
-        if tool_calls_dicts:
-            delta["tool_calls"] = self._sanitize_tool_calls(tool_calls_dicts)
+        if not tool_calls_dicts:
+            return
+        existing = delta.get("tool_calls")
+        if (
+            isinstance(existing, list)
+            and existing
+            and not _tool_call_dicts_have_meaningful_arguments(tool_calls_dicts)
+        ):
+            # Metadata often carries placeholder arguments from early deltas; do not
+            # clobber delta.tool_calls that already hold merged upstream payloads.
+            return
+        delta["tool_calls"] = self._sanitize_tool_calls(tool_calls_dicts)
 
     def _serialize_openai_formatted_dict(
         self,

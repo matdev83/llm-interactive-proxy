@@ -233,6 +233,56 @@ class TestSSESerializerEmptyCompletions:
 class TestSSESerializerToolCallSanitization:
     """Test tool-call sanitization."""
 
+    def test_metadata_empty_arguments_does_not_clobber_delta_tool_calls(self) -> None:
+        """Placeholder metadata.tool_calls must not replace richer delta.tool_calls."""
+        serializer = SSESerializer()
+        chunk = StreamingContent(
+            content={
+                "id": "chatcmpl-proof",
+                "object": "chat.completion.chunk",
+                "created": 1,
+                "model": "gpt-test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "index": 0,
+                                    "id": "fc1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "shell",
+                                        "arguments": (
+                                            '{"command":"git log -1","description":"d"}'
+                                        ),
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            metadata={
+                "id": "chatcmpl-proof",
+                "created": 1,
+                "model": "gpt-test",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "fc1",
+                        "type": "function",
+                        "function": {"name": "shell", "arguments": ""},
+                    }
+                ],
+            },
+            is_done=False,
+        )
+
+        result = serializer.serialize(chunk).decode("utf-8")
+        assert "git log -1" in result
+
     def test_tool_calls_sanitize_internal_markers(self) -> None:
         """Tool calls should have internal markers removed."""
         serializer = SSESerializer()

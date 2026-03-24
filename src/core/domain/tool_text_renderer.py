@@ -32,7 +32,7 @@ class XmlRenderer(ToolTextRenderer):
     """Renders tool calls as XML, similar to the legacy Kilo/Cline format."""
 
     def render(self, tool_call: ToolCall) -> str | None:
-        if tool_call.function.name == "shell":
+        if tool_call.function.name in ("shell", "bash"):
             try:
                 args = json.loads(tool_call.function.arguments or "{}")
                 command_arg = args.get("command", [])
@@ -87,7 +87,7 @@ class MarkdownRenderer(ToolTextRenderer):
     def render(self, tool_call: ToolCall) -> str | None:
         name = tool_call.function.name
         args = self._load_arguments(tool_call)
-        if name == "shell":
+        if name in ("shell", "bash"):
             command_value = args.get("command", [])
             if isinstance(command_value, list | tuple):
                 command_str = " ".join(str(part) for part in command_value)

@@ -11,6 +11,11 @@ codex_tool_call_item_index: MutableMapping[str, dict[str, int]] = TTLCache(
     maxsize=1000, ttl=600
 )
 codex_function_name_cache: MutableMapping[str, str] = TTLCache(maxsize=1000, ttl=600)
+# Fragments keyed only by tool call id. Upstream events often omit a stable response id
+# per SSE message; call_ids from the API are unique enough for correlation within TTL.
+codex_tool_call_arguments_by_call_id: MutableMapping[str, str] = TTLCache(
+    maxsize=5000, ttl=600
+)
 _tool_state_lock = threading.Lock()
 
 
@@ -20,6 +25,47 @@ def reset_tool_call_state(response_id: str | None) -> None:
     with _tool_state_lock:
         codex_tool_call_index_base.pop(response_id, None)
         codex_tool_call_item_index.pop(response_id, None)
+
+
+def accumulate_tool_call_arguments(call_id: str, arguments_fragment: str) -> None:
+    """Accumulate partial tool call arguments from streaming deltas.
+
+    Args:
+        call_id: The tool call ID
+        arguments_fragment: The partial arguments string
+    """
+    if not call_id or not arguments_fragment:
+        return
+    with _tool_state_lock:
+        prev = codex_tool_call_arguments_by_call_id.get(call_id, "")
+        codex_tool_call_arguments_by_call_id[call_id] = prev + arguments_fragment
+
+
+def get_accumulated_tool_call_arguments(call_id: str) -> str:
+    """Get accumulated tool call arguments.
+
+    Args:
+        call_id: The tool call ID
+
+    Returns:
+        The accumulated arguments string, or "{}" if not found
+    """
+    if not call_id:
+        return "{}"
+    with _tool_state_lock:
+        return codex_tool_call_arguments_by_call_id.get(call_id, "{}")
+
+
+def clear_tool_call_arguments(call_id: str) -> None:
+    """Clear accumulated arguments for a specific tool call.
+
+    Args:
+        call_id: The tool call ID
+    """
+    if not call_id:
+        return
+    with _tool_state_lock:
+        codex_tool_call_arguments_by_call_id.pop(call_id, None)
 
 
 def cache_function_name(call_id: str, name: str) -> None:

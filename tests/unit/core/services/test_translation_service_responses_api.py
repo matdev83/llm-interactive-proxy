@@ -6,6 +6,7 @@ parsing and repair functionality.
 """
 
 import json
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -26,6 +27,9 @@ from src.core.domain.responses_api import (
     ResponsesRequest,
 )
 from src.core.domain.translation import Translation
+from src.core.domain.translators.responses.streaming import (
+    reset_active_responses_stream_context,
+)
 from src.core.services.tool_text_renderer import OverrideRenderer
 from src.core.services.translation_service import TranslationService
 
@@ -35,6 +39,7 @@ class TestResponsesApiTranslation:
 
     def setup_method(self):
         """Set up test fixtures."""
+        reset_active_responses_stream_context()
         self.service = TranslationService()
 
         # Sample JSON schema for testing
@@ -245,6 +250,8 @@ class TestResponsesApiTranslation:
                 '<execute_command><command>bash -lc "ls"</command></execute_command>'
             )
 
+            # response.function_call_arguments.done returns empty chunk
+            # (tool_calls come from response.output_item.done instead)
             done_payload = {
                 "id": response_id,
                 "type": "response.function_call_arguments.done",
@@ -257,10 +264,10 @@ class TestResponsesApiTranslation:
                 f"data: {json.dumps(done_payload)}\n\n"
             )
             done_domain = self.service.to_domain_stream_chunk(done_chunk, "responses")
-            done_tool = done_domain.choices[0].delta.tool_calls[0]
-            assert done_tool.index == 0
-            assert done_domain.choices[0].finish_reason == "tool_calls"
+            # response.function_call_arguments.done now returns empty chunk
+            assert done_domain.choices[0].delta.tool_calls is None
 
+            # The complete tool call comes from response.output_item.done
             final_payload = {
                 "id": response_id,
                 "type": "response.output_item.done",
@@ -279,6 +286,11 @@ class TestResponsesApiTranslation:
             final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
             final_tool = final_domain.choices[0].delta.tool_calls[0]
             assert final_tool.index == 0
+            assert final_tool.function.name == "bash"
+            assert json.loads(final_tool.function.arguments) == {
+                "command": "bash -lc ls",
+                "description": "",
+            }
             assert final_domain.choices[0].finish_reason == "tool_calls"
 
             # Access extra field via dict access
@@ -303,6 +315,134 @@ class TestResponsesApiTranslation:
         assert completed_domain.choices[0].finish_reason == "stop"
         assert response_id not in Translation._codex_tool_call_index_base
         assert response_id not in Translation._codex_tool_call_item_index
+
+    def test_responses_local_shell_call_maps_top_level_command_to_arguments(self):
+        """Codex ``local_shell_call`` items often omit ``action``; use top-level fields."""
+        reset_active_responses_stream_context()
+        from src.core.domain.translation import Translation
+
+        response_id = "resp_local_shell_top_level"
+        Translation._reset_tool_call_state(response_id)
+        created = (
+            "event: response.created\n"
+            f"data: {json.dumps({'type': 'response.created', 'response': {'id': response_id}})}\n\n"
+        )
+        self.service.to_domain_stream_chunk(created, "responses")
+
+        item = {
+            "type": "local_shell_call",
+            "id": "sh_1",
+            "command": ["git", "log", "-1", "--oneline"],
+            "description": "Show last commit subject",
+            "cwd": "/repo",
+        }
+        payload = {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": item,
+        }
+        sse = f"event: response.output_item.done\ndata: {json.dumps(payload)}\n\n"
+        with patch(
+            "src.core.domain.translators.responses.streaming.render_tool_call",
+            return_value="",
+        ):
+            domain = self.service.to_domain_stream_chunk(sse, "responses")
+        tc = domain.choices[0].delta.tool_calls[0]
+        assert tc.function.name == "bash"
+        parsed = json.loads(tc.function.arguments)
+        assert "git" in parsed["command"] and "log" in parsed["command"]
+        assert "Show last commit subject" in parsed["description"]
+        assert "/repo" in parsed["description"]
+
+    def test_responses_tool_call_deltas_without_chunk_ids_use_created_response_id(self):
+        """Deltas may omit response/top-level id; correlate via prior response.created."""
+        from src.core.domain.translation import Translation
+
+        response_id = "resp_corr_opencode_style"
+        Translation._reset_tool_call_state(response_id)
+
+        created = (
+            "event: response.created\n"
+            f"data: {json.dumps({'type': 'response.created', 'response': {'id': response_id}})}\n\n"
+        )
+        self.service.to_domain_stream_chunk(created, "responses")
+
+        frag = '{"command":["bash","-lc","git log -1 --oneline"]}'
+        delta_body = {
+            "item_id": "fc_corr",
+            "output_index": 1,
+            "delta": frag,
+        }
+        delta_sse = (
+            "event: response.function_call_arguments.delta\n"
+            f"data: {json.dumps(delta_body)}\n\n"
+        )
+        self.service.to_domain_stream_chunk(delta_sse, "responses")
+
+        final_payload = {
+            "type": "response.output_item.done",
+            "output_index": 1,
+            "item": {
+                "id": "fc_corr",
+                "type": "function_call",
+                "name": "shell",
+                "arguments": "{}",
+            },
+        }
+        final_sse = (
+            "event: response.output_item.done\n"
+            f"data: {json.dumps(final_payload)}\n\n"
+        )
+        final_domain = self.service.to_domain_stream_chunk(final_sse, "responses")
+        tool = final_domain.choices[0].delta.tool_calls[0]
+        assert "git log" in tool.function.arguments
+
+        completed = (
+            "event: response.completed\n"
+            f"data: {json.dumps({'type': 'response.completed', 'response': {'id': response_id}})}\n\n"
+        )
+        self.service.to_domain_stream_chunk(completed, "responses")
+
+    def test_responses_tool_arguments_merge_by_call_id_despite_random_chunk_ids(self):
+        """Each SSE line may carry a new ephemeral id; fragments still merge by call_id."""
+        from src.core.domain.translation import Translation
+
+        Translation._reset_tool_call_state("resp_placeholder")
+        reset_active_responses_stream_context()
+
+        call_id = "fc_merge_by_call_id_only"
+        for frag in ('{"command":', '"bash"}'):
+            payload = {
+                "id": f"resp-{uuid.uuid4().hex[:16]}",
+                "type": "response.function_call_arguments.delta",
+                "item_id": call_id,
+                "output_index": 1,
+                "delta": frag,
+            }
+            chunk = (
+                "event: response.function_call_arguments.delta\n"
+                f"data: {json.dumps(payload)}\n\n"
+            )
+            self.service.to_domain_stream_chunk(chunk, "responses")
+
+        final_payload = {
+            "id": f"resp-{uuid.uuid4().hex[:16]}",
+            "type": "response.output_item.done",
+            "output_index": 1,
+            "item": {
+                "id": call_id,
+                "type": "function_call",
+                "name": "shell",
+                "arguments": "{}",
+            },
+        }
+        final_sse = (
+            "event: response.output_item.done\n"
+            f"data: {json.dumps(final_payload)}\n\n"
+        )
+        final_domain = self.service.to_domain_stream_chunk(final_sse, "responses")
+        args = final_domain.choices[0].delta.tool_calls[0].function.arguments
+        assert json.loads(args) == {"command": "bash", "description": ""}
 
     def test_tool_text_renderer_none_disables_text(self):
         """Renderer override 'none' should suppress textual tool output."""
@@ -333,7 +473,7 @@ class TestResponsesApiTranslation:
         # Verify extra field is not present
         assert "_tool_call_text" not in delta
         tool_calls = delta.tool_calls
-        assert tool_calls[0].function.name == "shell"
+        assert tool_calls[0].function.name == "bash"
 
     def test_to_domain_stream_chunk_responses_completed_event(self):
         """Completed events should mark finish_reason 'stop'."""

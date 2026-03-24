@@ -3,6 +3,13 @@ Tests for the streaming normalizer and related components.
 """
 
 import pytest
+from src.core.domain.chat import (
+    CanonicalStreamChunk,
+    StreamingChatCompletionChoice,
+    StreamingChatCompletionChoiceDelta,
+    StreamingFunctionCall,
+    StreamingToolCall,
+)
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
@@ -75,6 +82,43 @@ class TestStreamingContent:
         assert content.metadata["session_id"] == "abc123"
         # Usage is forwarded when provided
         assert content.usage == {"prompt_tokens": 12}
+
+    def test_from_raw_processed_response_canonical_stream_chunk_preserves_tool_calls(
+        self,
+    ) -> None:
+        """TranslationService yields CanonicalStreamChunk; parser must not stringify it."""
+        canonical = CanonicalStreamChunk(
+            id="chatcmpl-tool",
+            model="gpt-test",
+            created=1700000000,
+            choices=[
+                StreamingChatCompletionChoice(
+                    index=0,
+                    delta=StreamingChatCompletionChoiceDelta(
+                        tool_calls=[
+                            StreamingToolCall(
+                                index=0,
+                                id="fc_1",
+                                function=StreamingFunctionCall(
+                                    name="shell",
+                                    arguments='{"command":["bash","-lc","git log -1"]}',
+                                ),
+                            )
+                        ]
+                    ),
+                    finish_reason="tool_calls",
+                )
+            ],
+        )
+        processed = ProcessedResponse(content=canonical, metadata={"session_id": "s1"})
+        content = StreamingContent.from_raw(processed)
+        tcs = content.metadata.get("tool_calls")
+        assert isinstance(tcs, list) and len(tcs) == 1
+        fn = tcs[0].get("function") if isinstance(tcs[0], dict) else None
+        assert isinstance(fn, dict)
+        assert fn.get("name") == "shell"
+        assert "git log" in str(fn.get("arguments", ""))
+        assert content.metadata.get("session_id") == "s1"
 
     def test_from_raw_str(self) -> None:
         """Test creating StreamingContent from a string."""
