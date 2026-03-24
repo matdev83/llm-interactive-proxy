@@ -120,10 +120,45 @@ class TestSessionDetectorMetadataDetection:
         assert result.detection_method == "metadata"
 
     @pytest.mark.asyncio
-    async def test_non_kilocode_agent_not_detected(self):
-        """Test that non-KiloCode agents are not detected."""
+    async def test_detect_cline_from_metadata(self):
+        """Test that Cline is treated as part of the Cline-like XML family."""
         detector = SessionDetector()
         metadata = {"agent": "cline"}
+        request_data = MagicMock()
+
+        result = await detector.detect(
+            request_data=request_data,
+            metadata=metadata,
+            session_id="test_session",
+            backend="openai-codex",
+        )
+
+        assert result.is_kilocode is True
+        assert result.detection_method == "metadata"
+        assert result.confidence == 1.0
+
+    @pytest.mark.asyncio
+    async def test_detect_roocode_from_metadata(self):
+        """Test that RooCode is treated as part of the Cline-like XML family."""
+        detector = SessionDetector()
+        metadata = {"agent": "roocode"}
+        request_data = MagicMock()
+
+        result = await detector.detect(
+            request_data=request_data,
+            metadata=metadata,
+            session_id="test_session",
+            backend="openai-codex",
+        )
+
+        assert result.is_kilocode is True
+        assert result.detection_method == "metadata"
+
+    @pytest.mark.asyncio
+    async def test_non_cline_like_agent_not_detected(self):
+        """Test that unrelated agents are not detected."""
+        detector = SessionDetector()
+        metadata = {"agent": "cursor"}
         request_data = MagicMock()
 
         result = await detector.detect(
@@ -213,8 +248,26 @@ class TestSessionDetectorHeaderDetection:
         assert result.detection_method == "header"
 
     @pytest.mark.asyncio
-    async def test_non_kilocode_user_agent_not_detected(self):
-        """Test that non-KiloCode User-Agent is not detected."""
+    async def test_detect_cline_from_user_agent(self):
+        """Test header detection for Cline user-agent."""
+        detector = SessionDetector()
+        request_data = MagicMock()
+        request_data.headers = {"User-Agent": "cline/3.14.0"}
+        metadata = {}
+
+        result = await detector.detect(
+            request_data=request_data,
+            metadata=metadata,
+            session_id="test_session",
+            backend="openai-codex",
+        )
+
+        assert result.is_kilocode is True
+        assert result.detection_method == "header"
+
+    @pytest.mark.asyncio
+    async def test_non_cline_like_user_agent_not_detected(self):
+        """Test that unrelated User-Agent is not detected."""
         detector = SessionDetector()
         request_data = MagicMock()
         request_data.headers = {"User-Agent": "Mozilla/5.0"}

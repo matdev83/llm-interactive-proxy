@@ -100,7 +100,7 @@ async def test_response_processor_stores_steering_without_modifying_content(
             self, request, stream=False, allow_failover=True, context=None
         ):
             self.requests.append(request)
-            assert request.stream is False
+            assert request.stream is True
             assert request.messages[-1].role == "assistant"
             assert request.messages[-1].content == "initial"
             return type("R", (), {"content": "<steering>Fix it</steering>"})()
@@ -158,12 +158,18 @@ async def test_response_processor_quality_verifier_invalid_output_soft_fails(
     proc._app_state = app_state
 
     class DummyBackendService:
+        def __init__(self) -> None:
+            self.call_count = 0
+
         async def chat_completions(self, request, *args, **kwargs):
+            self.call_count += 1
             return type("R", (), {"content": "free form"})()
+
+    backend = DummyBackendService()
 
     class DummyProvider:
         def get_required_service(self, t):
-            return DummyBackendService()
+            return backend
 
         def get_service(self, t):
             return None
@@ -191,6 +197,7 @@ async def test_response_processor_quality_verifier_invalid_output_soft_fails(
     assert pr.content == "initial"
 
     await asyncio.sleep(0)
+    assert backend.call_count == 2
     pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
     assert pending == {}
 

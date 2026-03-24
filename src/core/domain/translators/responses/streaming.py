@@ -15,6 +15,7 @@ from src.core.domain.translation_utils.tool_call_state import (
     cache_function_name,
     clear_tool_call_arguments,
     get_accumulated_tool_call_arguments,
+    get_cached_function_name,
     reset_tool_call_state,
 )
 from src.core.domain.translators.responses.streaming_parse import (
@@ -107,6 +108,18 @@ def _openai_client_shell_tool_name(tool_name: str) -> str:
     if lname == "shell":
         return "bash"
     return tool_name
+
+
+def _should_buffer_partial_tool_call(tool_name: str) -> bool:
+    """Return True when early placeholder deltas should be suppressed.
+
+    Some OpenAI-compatible coding clients validate tool arguments as soon as the
+    first tool delta is seen. Emitting placeholder shell/function-call chunks
+    with empty arguments causes immediate client-side validation failures before
+    the final `response.output_item.done` event can supply complete arguments.
+    """
+    lname = (tool_name or "").strip().lower()
+    return lname in {"shell", "bash", "local_shell_call"}
 
 
 def _normalize_shell_like_tool_arguments_json(
@@ -301,6 +314,8 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     if event_type == "response.function_call_arguments.delta":
         call_id = chunk.get("item_id") or chunk.get("call_id")
         name = chunk.get("name") or ""
+        if not name and isinstance(call_id, str) and call_id:
+            name = get_cached_function_name(call_id)
         delta_payload = chunk.get("delta") or {}
         if isinstance(delta_payload, str):
             arguments_fragment = delta_payload
@@ -317,9 +332,19 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         # Accumulate arguments fragments for later use in done events
         if call_id and arguments_fragment:
             accumulate_tool_call_arguments(call_id, arguments_fragment)
+        # If the provider still hasn't supplied a tool name, never emit a partial
+        # tool-call delta. Strict clients reject unnamed function chunks.
+        if not str(name).strip():
+            return _build_chunk()
+        # Do not emit placeholder tool-call deltas for shell-like tools.
+        # Clients such as OpenCode validate tool arguments immediately and reject
+        # `bash` calls with empty arguments before the final done event arrives.
+        if _should_buffer_partial_tool_call(str(name)):
+            return _build_chunk()
+
         # Send tool call metadata but NOT partial arguments fragments.
         # Partial JSON (like just "{") cannot be parsed by clients.
-        # Complete arguments will be sent in the response.function_call_arguments.done event.
+        # Complete arguments will be sent in the response.output_item.done event.
         function_payload: dict[str, Any] = {"arguments": ""}
         if name:
             function_payload["name"] = _openai_client_shell_tool_name(name)
@@ -338,6 +363,8 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     if event_type == "response.function_call_arguments.done":
         call_id = chunk.get("item_id") or chunk.get("call_id")
         name = chunk.get("name") or ""
+        if not name and isinstance(call_id, str) and call_id:
+            name = get_cached_function_name(call_id)
         arguments = chunk.get("arguments")
         # Cache the function name if provided
         if name and call_id:
@@ -549,6 +576,9 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:8]}"
             )
             name = item.get("name", "")
+            if _should_buffer_partial_tool_call(str(name)):
+                cache_function_name(call_id, name)
+                return _build_chunk()
             emit_name = _openai_client_shell_tool_name(name)
 
             cache_function_name(call_id, name)

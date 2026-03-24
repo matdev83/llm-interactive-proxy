@@ -230,8 +230,9 @@ class TestResponsesApiTranslation:
             "id": response_id,
             "type": "response.function_call_arguments.delta",
             "item_id": "fc_1",
+            "name": "do_work",
             "output_index": 1,
-            "delta": '{"command":["bash","-lc","ls"]}',
+            "delta": '{"path":"README.md"}',
         }
         delta_chunk = (
             "event: response.function_call_arguments.delta\n"
@@ -247,7 +248,7 @@ class TestResponsesApiTranslation:
             "src.core.domain.translators.responses.streaming.render_tool_call"
         ) as mock_render:
             mock_render.return_value = (
-                '<execute_command><command>bash -lc "ls"</command></execute_command>'
+                '<do_work><path>README.md</path></do_work>'
             )
 
             # response.function_call_arguments.done returns empty chunk
@@ -257,7 +258,7 @@ class TestResponsesApiTranslation:
                 "type": "response.function_call_arguments.done",
                 "item_id": "fc_1",
                 "output_index": 1,
-                "arguments": '{"command":["bash","-lc","ls"]}',
+                "arguments": '{"path":"README.md"}',
             }
             done_chunk = (
                 "event: response.function_call_arguments.done\n"
@@ -275,8 +276,8 @@ class TestResponsesApiTranslation:
                 "item": {
                     "id": "fc_1",
                     "type": "function_call",
-                    "name": "shell",
-                    "arguments": '{"command":["bash","-lc","ls"]}',
+                    "name": "do_work",
+                    "arguments": '{"path":"README.md"}',
                 },
             }
             final_chunk = (
@@ -286,18 +287,15 @@ class TestResponsesApiTranslation:
             final_domain = self.service.to_domain_stream_chunk(final_chunk, "responses")
             final_tool = final_domain.choices[0].delta.tool_calls[0]
             assert final_tool.index == 0
-            assert final_tool.function.name == "bash"
-            assert json.loads(final_tool.function.arguments) == {
-                "command": "bash -lc ls",
-                "description": "",
-            }
+            assert final_tool.function.name == "do_work"
+            assert json.loads(final_tool.function.arguments) == {"path": "README.md"}
             assert final_domain.choices[0].finish_reason == "tool_calls"
 
             # Access extra field via dict access
             final_tool_text = final_domain.choices[0].delta["_tool_call_text"]
-            assert final_tool_text.startswith("<execute_command>")
-            assert final_tool_text.endswith("</execute_command>")
-            assert '<command>bash -lc "ls"</command>' in final_tool_text
+            assert final_tool_text.startswith("<do_work>")
+            assert final_tool_text.endswith("</do_work>")
+            assert "<path>README.md</path>" in final_tool_text
 
         # Content should be None
         assert final_domain.choices[0].delta.content is None
@@ -402,6 +400,137 @@ class TestResponsesApiTranslation:
             f"data: {json.dumps({'type': 'response.completed', 'response': {'id': response_id}})}\n\n"
         )
         self.service.to_domain_stream_chunk(completed, "responses")
+
+    def test_responses_shell_deltas_are_buffered_until_done(self):
+        """Shell-like tool calls should not emit empty placeholder bash calls."""
+        reset_active_responses_stream_context()
+
+        created = (
+            "event: response.created\n"
+            f"data: {json.dumps({'type': 'response.created', 'response': {'id': 'resp_shell_buffer'}})}\n\n"
+        )
+        self.service.to_domain_stream_chunk(created, "responses")
+
+        added_payload = {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {"type": "function_call", "id": "fc_shell_1", "name": "shell"},
+        }
+        added_sse = (
+            "event: response.output_item.added\n"
+            f"data: {json.dumps(added_payload)}\n\n"
+        )
+        added_domain = self.service.to_domain_stream_chunk(added_sse, "responses")
+        assert added_domain.choices[0].delta.tool_calls is None
+
+        delta_payload = {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_shell_1",
+            "name": "shell",
+            "output_index": 0,
+            "delta": '{"command":["git","status","--short"]}',
+        }
+        delta_sse = (
+            "event: response.function_call_arguments.delta\n"
+            f"data: {json.dumps(delta_payload)}\n\n"
+        )
+        delta_domain = self.service.to_domain_stream_chunk(delta_sse, "responses")
+        assert delta_domain.choices[0].delta.tool_calls is None
+
+        done_payload = {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "id": "fc_shell_1",
+                "name": "shell",
+                "arguments": "{}",
+            },
+        }
+        done_sse = (
+            f"event: response.output_item.done\ndata: {json.dumps(done_payload)}\n\n"
+        )
+        done_domain = self.service.to_domain_stream_chunk(done_sse, "responses")
+        tool_call = done_domain.choices[0].delta.tool_calls[0]
+        assert tool_call.function.name == "bash"
+        assert "git status --short" in tool_call.function.arguments
+
+    def test_responses_shell_delta_without_name_uses_cached_name_and_stays_buffered(
+        self,
+    ):
+        """Shell argument deltas may omit name; use cached name before emitting."""
+        reset_active_responses_stream_context()
+
+        created = (
+            "event: response.created\n"
+            f"data: {json.dumps({'type': 'response.created', 'response': {'id': 'resp_shell_cached_name'}})}\n\n"
+        )
+        self.service.to_domain_stream_chunk(created, "responses")
+
+        added_payload = {
+            "type": "response.output_item.added",
+            "output_index": 0,
+            "item": {"type": "function_call", "id": "fc_shell_cached", "name": "shell"},
+        }
+        added_sse = (
+            "event: response.output_item.added\n"
+            f"data: {json.dumps(added_payload)}\n\n"
+        )
+        self.service.to_domain_stream_chunk(added_sse, "responses")
+
+        delta_payload = {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_shell_cached",
+            "output_index": 0,
+            "delta": '{"command":["git","diff","--stat"]}',
+        }
+        delta_sse = (
+            "event: response.function_call_arguments.delta\n"
+            f"data: {json.dumps(delta_payload)}\n\n"
+        )
+        delta_domain = self.service.to_domain_stream_chunk(delta_sse, "responses")
+        assert delta_domain.choices[0].delta.tool_calls is None
+
+        done_payload = {
+            "type": "response.output_item.done",
+            "output_index": 0,
+            "item": {
+                "type": "function_call",
+                "id": "fc_shell_cached",
+                "name": "shell",
+                "arguments": "{}",
+            },
+        }
+        done_sse = (
+            f"event: response.output_item.done\ndata: {json.dumps(done_payload)}\n\n"
+        )
+        done_domain = self.service.to_domain_stream_chunk(done_sse, "responses")
+        tool_call = done_domain.choices[0].delta.tool_calls[0]
+        assert tool_call.function.name == "bash"
+        assert "git diff --stat" in tool_call.function.arguments
+
+    def test_responses_unnamed_function_delta_is_buffered(self):
+        """Unnamed function deltas must not emit malformed tool_calls."""
+        reset_active_responses_stream_context()
+
+        created = (
+            "event: response.created\n"
+            f"data: {json.dumps({'type': 'response.created', 'response': {'id': 'resp_unnamed_delta'}})}\n\n"
+        )
+        self.service.to_domain_stream_chunk(created, "responses")
+
+        delta_payload = {
+            "type": "response.function_call_arguments.delta",
+            "item_id": "fc_unknown_name",
+            "output_index": 0,
+            "delta": '{"foo":"bar"}',
+        }
+        delta_sse = (
+            "event: response.function_call_arguments.delta\n"
+            f"data: {json.dumps(delta_payload)}\n\n"
+        )
+        delta_domain = self.service.to_domain_stream_chunk(delta_sse, "responses")
+        assert delta_domain.choices[0].delta.tool_calls is None
 
     def test_responses_tool_arguments_merge_by_call_id_despite_random_chunk_ids(self):
         """Each SSE line may carry a new ephemeral id; fragments still merge by call_id."""

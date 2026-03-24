@@ -56,6 +56,7 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
+from src.core.services.quality_verifier_service import QualityVerifierService
 
 logger = logging.getLogger(__name__)
 
@@ -546,16 +547,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 quality_verifier_ttft_timeout_seconds = 30.0
 
             # Optional per-request eligible turn counter and skip flag
-
             eligible_turn_value = context.extensions.get(
                 "quality_verifier_eligible_turn_count", None
             )
-            if eligible_turn_value is not None:
-                try:
-                    if isinstance(eligible_turn_value, int | float | str):
-                        eligible_turn_count = int(eligible_turn_value)
-                except (TypeError, ValueError):
-                    eligible_turn_count = None
+            eligible_turn_count = QualityVerifierService.coerce_eligible_turn_floor(
+                eligible_turn_value
+            )
 
             skip_value = context.extensions.get(
                 "quality_verifier_skip_verification", None
@@ -699,6 +696,14 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 or processing_context.session_id
             )
 
+        qv_eligible_raw: Any = None
+        try:
+            qv_eligible_raw = request_context.extensions.get(
+                "quality_verifier_eligible_turn_count"
+            )
+        except Exception:
+            qv_eligible_raw = None
+
         streaming_context: StreamingContext = {
             "session_id": processing_context.session_id,
             "stream_id": stream_id,
@@ -709,6 +714,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             "quality_verifier_cooldown_seconds": quality_verifier_cooldown_seconds,
             "quality_verifier_ttft_timeout_seconds": quality_verifier_ttft_timeout_seconds,
             "quality_verifier_eligible_turn_count": quality_verifier_eligible_turn_count,
+            "quality_verifier_eligible_turn_raw": qv_eligible_raw,
             "quality_verifier_skip_verification": quality_verifier_skip_verification,
         }
 

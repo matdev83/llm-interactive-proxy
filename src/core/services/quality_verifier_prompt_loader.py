@@ -26,7 +26,8 @@ FALLBACK_QUALITY_VERIFIER_PROMPT = (
     "Do NOT mention proxy mechanics (no 'blocked', 'intercepted', 'prevented from reaching the client', etc.).\n\n"
     "Steer only when it will materially improve the next 1-3 steps in an agentic coding workflow.\n"
     "High-signal reasons to steer: the assistant is stuck/guessing, violates safety constraints, claims verification without evidence, breaks contracts, or misses an obvious next action (inspect repo, run tests, validate assumptions).\n\n"
-    "Output protocol (strict): return exactly ONE of:\n"
+    "You have exactly one assistant reply in this call. You MUST NOT use or request tools, function calls, or any multi-step actions—only plain text in the required format.\n\n"
+    "Output protocol (strict): return EXACTLY ONE of the following XML forms. No extra text before or after. No Markdown fences.\n"
     "- <status>NO_STEERING_NEEDED</status>\n"
     "- <steering>...1-8 sentences, specific next actions + how to verify...</steering>\n"
 )

@@ -11,6 +11,11 @@ import logging
 import re
 from typing import Any, Protocol, cast, runtime_checkable
 
+from src.connectors.openai_codex.client_families import (
+    ClientFamilyRegistry,
+    DroidClientFamilyAdapter,
+    KiloClientFamilyAdapter,
+)
 from src.connectors.openai_codex.contracts import (
     CodexRequestContext,
     CodexToolSchema,
@@ -18,9 +23,7 @@ from src.connectors.openai_codex.contracts import (
     CompatibilityState,
     ProcessedMessage,
     ProviderStreamChunk,
-    ToolArguments,
     ToolCall,
-    ToolExecutionResult,
 )
 from src.connectors.openai_codex.interfaces import ICompatibilityLayer
 from src.connectors.openai_codex.tools import ToolExecutionService
@@ -68,6 +71,34 @@ class CompatibilityLayer(ICompatibilityLayer):
         self._droid_translator = droid_translator
         self._tool_execution_service = tool_execution_service
 
+        self._family_registry = self._build_family_registry()
+
+    def _build_family_registry(self) -> ClientFamilyRegistry:
+        return ClientFamilyRegistry(
+            adapters=[
+                KiloClientFamilyAdapter(
+                    session_detector=self._session_detector,
+                    kilo_translator=self._kilo_translator,
+                    tool_execution_service=self._tool_execution_service,
+                    translate_kilo_tools=self._translate_kilo_tools,
+                    clean_xml_from_message=self._clean_xml_from_message,
+                ),
+                DroidClientFamilyAdapter(
+                    droid_detector=self._droid_detector,
+                    droid_translator=self._droid_translator,
+                ),
+            ]
+        )
+
+    def _sync_family_registry(self) -> None:
+        """Rebuild adapter registry from current dependency fields.
+
+        Tests and runtime wiring may override detector/translator fields after
+        construction. Re-syncing preserves that behavior with the new modular
+        adapter architecture.
+        """
+        self._family_registry = self._build_family_registry()
+
     def create_state(self) -> CompatibilityState:
         """Create a new per-request compatibility state instance.
 
@@ -85,212 +116,15 @@ class CompatibilityLayer(ICompatibilityLayer):
         Returns:
             Compatibility result with tool lists and state
         """
+        self._sync_family_registry()
         state = self.create_state()
-
-        # Detect KiloCode client
-        if self._session_detector:
-            try:
-                detection_result = await self._session_detector.detect(
-                    request_data=context.request,
-                    metadata=context.metadata,
-                    session_id=context.session_id,
-                    backend="openai-codex",
-                )
-                state.is_kilocode = detection_result.is_kilocode
-
-                if state.is_kilocode:
-                    logger.info(
-                        "KiloCode client detected for session %s (method: %s, confidence: %.2f)",
-                        context.session_id,
-                        detection_result.detection_method,
-                        detection_result.confidence,
-                    )
-            except Exception as e:
-                logger.debug("KiloCode detection failed: %s", str(e), exc_info=True)
-
-        # Detect Droid client
-        if self._droid_detector is None:
-            try:
-                from src.connectors._openai_codex_droid_session_detector import (
-                    DroidSessionDetector,
-                )
-
-                self._droid_detector = DroidSessionDetector()
-            except ImportError:
-                logger.debug("Droid session detector not available")
-
-        if self._droid_detector:
-            try:
-                # Extract tools and messages for detection
-                # PERFORMANCE: Pre-convert Pydantic models to dicts to avoid
-                # repeated model_dump() calls in downstream detection logic
-                request_tools = getattr(context.request, "tools", []) or []
-                tools_for_detection = []
-                for tool in request_tools:
-                    if hasattr(tool, "model_dump"):
-                        tools_for_detection.append(tool.model_dump())
-                    elif isinstance(tool, dict):
-                        tools_for_detection.append(tool)
-
-                messages_for_detection = []
-                for msg in context.processed_messages:
-                    if isinstance(msg, ProcessedMessage):  # type: ignore
-                        msg_dict = (
-                            msg.model_dump() if hasattr(msg, "model_dump") else {}
-                        )
-                        messages_for_detection.append(msg_dict)
-                    elif isinstance(msg, dict):  # type: ignore
-                        messages_for_detection.append(msg)
-
-                # Extract headers from metadata if available (headers are HTTP-level
-                # and may not be available in domain request context)
-                headers: dict[str, str] | None = None
-                if context.metadata:
-                    headers_candidate = context.metadata.get("headers")
-                    if isinstance(headers_candidate, dict):
-                        # Convert to dict[str, str] if possible
-                        headers = {str(k): str(v) for k, v in headers_candidate.items()}
-
-                droid_detection = self._droid_detector.detect(
-                    headers=headers,  # Headers may not be available at domain layer
-                    messages=messages_for_detection,
-                    tools=tools_for_detection,
-                )
-                state.is_droid = droid_detection.is_droid
-
-                if state.is_droid:
-                    logger.info(
-                        "Droid client detected for session %s (method: %s, confidence: %.2f)",
-                        context.session_id,
-                        droid_detection.detection_method,
-                        droid_detection.confidence,
-                    )
-
-                    # Initialize Droid translator if not already set
-                    if self._droid_translator is None:
-                        try:
-                            from src.connectors._openai_codex_droid_tool_translator import (
-                                DroidToolTranslator,
-                            )
-
-                            self._droid_translator = DroidToolTranslator()
-                        except ImportError:
-                            logger.debug("Droid tool translator not available")
-            except Exception as e:
-                logger.debug("Droid detection failed: %s", str(e), exc_info=True)
-
-        # Translate KiloCode XML tools if detected
-        codex_tools: list[CodexToolSchema] = []
-        proxy_tools: list[CodexToolSchema] = []
-        mcp_tools: list[CodexToolSchema] = []
-        tool_results: list[ToolExecutionResult] = []
-
-        if state.is_kilocode and self._kilo_translator:
-            translated_tools = await self._translate_kilo_tools(
-                context.processed_messages, context.session_id
-            )
-
-            codex_tools = translated_tools["codex_tools"]
-            proxy_tools = translated_tools["proxy_tools"]
-            mcp_tools = translated_tools["mcp_tools"]
-
-            # Execute proxy tools
-            if self._tool_execution_service:
-                for tool in proxy_tools:
-                    try:
-                        result = await self._tool_execution_service.execute_proxy_tool(
-                            tool.name,
-                            ToolArguments(payload=tool.parameters or {}),
-                            context.session_id,
-                        )
-                        tool_results.append(result)
-                        logger.debug(
-                            "Executed proxy tool %s: success=%s",
-                            tool.name,
-                            result.success,
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "Failed to execute proxy tool %s: %s",
-                            tool.name,
-                            str(e),
-                            exc_info=True,
-                        )
-                        actual_tool_name = tool.name.replace("__proxy_", "")
-                        tool_results.append(
-                            ToolExecutionResult(
-                                success=False,
-                                result=f"[{actual_tool_name}] Error: {e!s}",
-                                error=str(e),
-                            )
-                        )
-
-                # Execute MCP tools
-                for tool in mcp_tools:
-                    try:
-                        result = await self._tool_execution_service.execute_mcp_tool(
-                            tool.name,
-                            ToolArguments(payload=tool.parameters or {}),
-                            context.session_id,
-                        )
-                        tool_results.append(result)
-                        logger.debug(
-                            "Executed MCP tool %s: success=%s",
-                            tool.name,
-                            result.success,
-                        )
-                    except Exception as e:
-                        logger.error(
-                            "Failed to execute MCP tool %s: %s",
-                            tool.name,
-                            str(e),
-                            exc_info=True,
-                        )
-                        mcp_tool_name = (tool.parameters or {}).get(
-                            "tool_name", "unknown"
-                        )
-                        tool_results.append(
-                            ToolExecutionResult(
-                                success=False,
-                                result=f"[{mcp_tool_name}] Error: {e!s}",
-                                error=str(e),
-                            )
-                        )
-
-            # Clean XML from messages
-            if codex_tools or proxy_tools or mcp_tools:
-                for message in context.processed_messages:
-                    if isinstance(message, ProcessedMessage):  # type: ignore
-                        content = message.content
-                        if (
-                            isinstance(content, str)
-                            and "<" in content
-                            and ">" in content
-                        ):
-                            cleaned_content = self._clean_xml_from_message(content)
-                            if cleaned_content != content:
-                                message.content = cleaned_content
-                                logger.debug(
-                                    "Cleaned XML from message (original: %d bytes, cleaned: %d bytes)",
-                                    len(content),
-                                    len(cleaned_content),
-                                )
-                    elif isinstance(message, dict):  # type: ignore
-                        content = message.get("content", "")
-                        if (
-                            isinstance(content, str)  # type: ignore
-                            and "<" in content
-                            and ">" in content
-                        ):
-                            cleaned_content = self._clean_xml_from_message(content)
-                            if cleaned_content != content:
-                                message["content"] = cleaned_content
-
+        await self._family_registry.detect_all(context, state)
+        merged = await self._family_registry.apply_all(context, state)
         return CompatibilityResult(
-            codex_tools=codex_tools,
-            proxy_tools=proxy_tools,
-            mcp_tools=mcp_tools,
-            tool_results=tool_results,
+            codex_tools=merged.codex_tools,
+            proxy_tools=merged.proxy_tools,
+            mcp_tools=merged.mcp_tools,
+            tool_results=merged.tool_results,
             state=state,
         )
 
@@ -315,159 +149,8 @@ class CompatibilityLayer(ICompatibilityLayer):
         Returns:
             Translated stream chunk
         """
-        if not state.is_droid or not self._droid_translator:
-            return chunk
-        droid_translator = self._droid_translator
-
-        try:
-            import json
-
-            def _translate_tool_call(
-                tc: dict[str, Any], finish_reason: str | None
-            ) -> None:
-                """Translate a single tool call dict in-place."""
-                if not isinstance(tc, dict) or "function" not in tc:  # type: ignore
-                    return
-
-                func = tc.get("function")
-                if not isinstance(func, dict):
-                    return
-
-                tc_id = tc.get("id", "")
-                original_name = func.get("name")
-                args_fragment = func.get("arguments", "")
-
-                # If we have a name, cache it and translate
-                if original_name:
-                    # Cache the original Codex name
-                    if tc_id:
-                        state.droid_tool_name_cache[tc_id] = original_name
-
-                    # Translate to Droid name
-                    try:
-                        trans_res = droid_translator.translate_codex_to_droid(
-                            original_name, {}
-                        )
-                        droid_name = trans_res.droid_tool_name
-                        func["name"] = droid_name
-                        logger.debug(
-                            "Translated tool name: %s -> %s (id=%s)",
-                            original_name,
-                            droid_name,
-                            tc_id,
-                        )
-
-                    except Exception as e:
-                        logger.debug(
-                            "Failed to translate tool %s: %s",
-                            original_name,
-                            e,
-                            exc_info=True,
-                        )
-
-                # Buffer argument fragments
-                if tc_id and args_fragment:
-                    if tc_id not in state.droid_tool_args_buffer:
-                        state.droid_tool_args_buffer[tc_id] = ""
-                    state.droid_tool_args_buffer[tc_id] += args_fragment
-
-                # When tool call is complete, translate arguments
-                if finish_reason == "tool_calls" and tc_id:
-                    codex_name = state.droid_tool_name_cache.get(tc_id, "")
-                    full_args_str = state.droid_tool_args_buffer.get(tc_id, "{}")
-
-                    if codex_name and full_args_str:
-                        try:
-                            codex_args = json.loads(full_args_str)
-                            trans_res = droid_translator.translate_codex_to_droid(
-                                codex_name, codex_args
-                            )
-                            droid_args = trans_res.droid_arguments
-                            # Replace arguments with translated version
-                            func["arguments"] = json.dumps(droid_args)
-
-                            logger.debug(
-                                "Translated tool args for %s (id=%s): %s -> %s",
-                                codex_name,
-                                tc_id,
-                                full_args_str[:100],
-                                func["arguments"][:100],
-                            )
-                        except json.JSONDecodeError as e:
-                            logger.debug(
-                                "Failed to parse tool args for %s: %s", tc_id, e
-                            )
-                        except Exception as e:
-                            logger.debug(
-                                "Failed to translate tool args for %s: %s",
-                                tc_id,
-                                e,
-                                exc_info=True,
-                            )
-
-                    # Clean up buffers for this tool call
-                    state.droid_tool_name_cache.pop(tc_id, None)
-                    state.droid_tool_args_buffer.pop(tc_id, None)
-
-            def _process_content(content: Any, finish_reason: str | None) -> None:
-                """Process content that may contain tool calls."""
-                # Handle CanonicalStreamChunk (Pydantic model with choices)
-                if hasattr(content, "choices") and content.choices:
-                    for choice in content.choices:
-                        fr = getattr(choice, "finish_reason", None) or finish_reason
-                        if hasattr(choice, "delta") and choice.delta:
-                            delta = choice.delta
-                            tool_calls = getattr(delta, "tool_calls", None)
-                            if tool_calls:
-                                for tc in tool_calls:
-                                    if isinstance(tc, dict):
-                                        _translate_tool_call(tc, fr)
-
-                # Handle dict-based content with choices
-                elif isinstance(content, dict) and "choices" in content:
-                    for choice in content.get("choices", []):
-                        fr = choice.get("finish_reason") or finish_reason
-                        delta = choice.get("delta", {})
-                        if delta and "tool_calls" in delta:
-                            for tc in delta["tool_calls"]:
-                                _translate_tool_call(tc, fr)
-
-            # Detect finish_reason from chunk
-            finish_reason = None
-            inner = chunk.raw
-
-            if hasattr(inner, "choices"):
-                choices_attr = getattr(inner, "choices", None)
-                if choices_attr:
-                    for choice in choices_attr:  # type: ignore[union-attr]
-                        fr = getattr(choice, "finish_reason", None)
-                        if fr:
-                            finish_reason = fr
-                            break
-            elif isinstance(inner, dict) and "choices" in inner:
-                for choice in inner.get("choices", []):
-                    fr = choice.get("finish_reason")
-                    if fr:
-                        finish_reason = fr
-                        break
-
-            # Handle ProcessedResponse wrapper - unwrap to get actual content
-            if hasattr(chunk.raw, "content"):
-                content_attr = getattr(chunk.raw, "content", None)
-                if content_attr is not None:
-                    _process_content(content_attr, finish_reason)
-                else:
-                    _process_content(chunk.raw, finish_reason)
-            else:
-                _process_content(chunk.raw, finish_reason)
-
-            return chunk
-
-        except Exception as e:
-            logger.debug(
-                "Droid stream chunk translation failed: %s", str(e), exc_info=True
-            )
-            return chunk
+        self._sync_family_registry()
+        return await self._family_registry.translate_stream_chunk(chunk, state)
 
     async def cleanup_state(self, state: CompatibilityState) -> None:
         """Release per-request state after streaming completes or on error.
@@ -475,11 +158,30 @@ class CompatibilityLayer(ICompatibilityLayer):
         Args:
             state: Compatibility state to clean up
         """
-        state.droid_tool_name_cache.clear()
-        state.droid_tool_args_buffer.clear()
+        self._sync_family_registry()
+        await self._family_registry.cleanup_state(state)
         state.pending_tool_calls.clear()
-        state.is_kilocode = False
-        state.is_droid = False
+
+    def detect_incompatible_tool_calls(
+        self,
+        tool_calls: list[dict[str, object]],
+        context: CodexRequestContext,
+    ) -> list[str]:
+        self._sync_family_registry()
+        return self._family_registry.detect_incompatible_tool_calls(tool_calls, context)
+
+    def append_incompatible_tool_steering(
+        self,
+        payload_dict: dict[str, object],
+        incompatible_tool_names: list[str],
+        context: CodexRequestContext,
+    ) -> dict[str, object]:
+        self._sync_family_registry()
+        return self._family_registry.append_incompatible_tool_steering(
+            payload_dict,
+            incompatible_tool_names,
+            context,
+        )
 
     async def _translate_kilo_tools(
         self, processed_messages: list[ProcessedMessage], session_id: str

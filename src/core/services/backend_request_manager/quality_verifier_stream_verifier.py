@@ -417,9 +417,9 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 )
             )
         )
-        eligible_turn_count: int | None = context.get(
-            "quality_verifier_eligible_turn_count"
-        )
+        eligible_turn_raw: Any = context.get("quality_verifier_eligible_turn_raw")
+        if eligible_turn_raw is None:
+            eligible_turn_raw = context.get("quality_verifier_eligible_turn_count")
         skip_verification: bool = bool(
             context.get("quality_verifier_skip_verification")
         )
@@ -451,16 +451,11 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 )
             except Exception:
                 freq_int = 10
-            if eligible_turn_count is not None:
-                try:
-                    eligible_int = int(eligible_turn_count)
-                except Exception:
-                    eligible_int = 0
-                should_run = eligible_int > 0 and (eligible_int % max(1, freq_int) == 0)
-            else:
-                should_run = QualityVerifierService.should_run_for_request(
-                    request, freq_int
-                )
+            should_run = QualityVerifierService.should_run_verification(
+                request,
+                freq_int,
+                eligible_turn_raw=eligible_turn_raw,
+            )
 
         if should_run and logger.isEnabledFor(logging.INFO):
             session_id = str(context.get("session_id") or "")
@@ -469,7 +464,7 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 "Quality Verifier scheduled (session=%s stream=%s eligible_turn=%s frequency=%s model=%s)",
                 session_id or "unknown",
                 stream_id or "unknown",
-                eligible_turn_count,
+                QualityVerifierService.coerce_eligible_turn_floor(eligible_turn_raw),
                 quality_verifier_frequency,
                 quality_verifier_model_spec,
             )
@@ -624,43 +619,50 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     request, combined_text
                 )
 
-                # Ensure Quality Verifier calls are captured and tagged
-                if request_context is not None:
-                    request_context.extensions["call_purpose"] = "quality_verifier"
-
-                try:
-                    verifier_response = await backend_service.chat_completions(
-                        verification_request,
-                        stream=True,
-                        allow_failover=True,
-                        context=request_context,
-                    )
-                except Exception:
-                    await svc.report_failure()
-                    return
-
-                if self._response_indicates_backend_error(verifier_response):
-                    await svc.report_failure()
-                    return
-
-                try:
-                    if isinstance(verifier_response, StreamingResponseEnvelope):
-                        verifier_text = await self._collect_streaming_quality_verifier_text(
-                            verifier_response,
-                            ttft_timeout_seconds=quality_verifier_ttft_timeout_seconds,
+                async def _call_verifier_once(qv_request: ChatRequest) -> str | None:
+                    if request_context is not None:
+                        request_context.extensions["call_purpose"] = "quality_verifier"
+                    try:
+                        verifier_response = await backend_service.chat_completions(
+                            qv_request,
+                            stream=True,
+                            allow_failover=True,
+                            context=request_context,
                         )
-                        if verifier_text is None:
-                            await svc.report_failure()
-                            return
-                    else:
-                        verifier_text = self._extract_text_from_response(
-                            verifier_response
-                        )
-                except asyncio.TimeoutError:
-                    await svc.report_failure()
-                    return
-                except Exception:
-                    await svc.report_failure()
+                    except Exception:
+                        await svc.report_failure()
+                        return None
+
+                    if self._response_indicates_backend_error(verifier_response):
+                        await svc.report_failure()
+                        return None
+
+                    try:
+                        if isinstance(verifier_response, StreamingResponseEnvelope):
+                            vtext = await self._collect_streaming_quality_verifier_text(
+                                verifier_response,
+                                ttft_timeout_seconds=quality_verifier_ttft_timeout_seconds,
+                            )
+                            if vtext is None:
+                                await svc.report_failure()
+                                return None
+                            return vtext
+                        return self._extract_text_from_response(verifier_response)
+                    except asyncio.TimeoutError:
+                        await svc.report_failure()
+                        return None
+                    except Exception:
+                        await svc.report_failure()
+                        return None
+
+                verifier_text = await _call_verifier_once(verification_request)
+                verifier_text = await svc.maybe_retry_verifier_for_valid_xml(
+                    verification_request,
+                    verifier_text,
+                    _call_verifier_once,
+                )
+
+                if verifier_text is None:
                     return
 
                 is_valid, _reason = svc.validate_quality_verifier_output_format(

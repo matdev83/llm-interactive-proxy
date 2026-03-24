@@ -1,4 +1,4 @@
-"""Session detection for KiloCode compatibility layer in OpenAI Codex connector."""
+"""Session detection for Cline-like XML compatibility in OpenAI Codex connector."""
 
 from __future__ import annotations
 
@@ -57,7 +57,13 @@ class CacheStats:
 
 @dataclass
 class DetectionResult:
-    """Result of KiloCode client detection."""
+    """Result of Cline-like client detection.
+
+    Note:
+    The public field name remains ``is_kilocode`` for backward compatibility with
+    the existing connector contracts and tests. Semantically it now means
+    "belongs to the Cline/KiloCode/RooCode XML client family".
+    """
 
     is_kilocode: bool
     detection_method: str  # "metadata", "header", "heuristic", "cached"
@@ -67,7 +73,7 @@ class DetectionResult:
 
 
 class SessionDetector:
-    """Detects KiloCode clients with caching for performance."""
+    """Detect Cline-like XML clients with caching for performance."""
 
     KILOCODE_ALIASES = {
         "kilocode",
@@ -76,6 +82,17 @@ class SessionDetector:
         "kilocode.ai",
         "kiloc",
         "kilo",
+    }
+    CLINE_LIKE_ALIASES = KILOCODE_ALIASES | {
+        "cline",
+        "cline.ai",
+        "roo",
+        "roocode",
+        "roo-code",
+        "roo_code",
+        "roo cline",
+        "roo-cline",
+        "roo_cline",
     }
 
     # XML tags that are characteristic of KiloCode clients
@@ -126,7 +143,7 @@ class SessionDetector:
         backend: str,
         agent: str | None = None,
     ) -> DetectionResult:
-        """Detect if request is from KiloCode client.
+        """Detect if request is from a Cline-like XML client.
 
         Args:
             request_data: The request data object
@@ -257,7 +274,7 @@ class SessionDetector:
 
             return result
 
-        # Not detected as KiloCode
+        # Not detected as a Cline-like XML client
         detection_time = (time.time() - start_time) * 1000
         logger.debug(
             "KiloCode not detected for session %s (%.2fms)", session_id, detection_time
@@ -288,7 +305,7 @@ class SessionDetector:
     def _check_metadata(
         self, metadata: Mapping[str, Any] | None
     ) -> DetectionResult | None:
-        """Check explicit agent metadata for KiloCode identification.
+        """Check explicit agent metadata for Cline-like client identification.
 
         Args:
             metadata: Request metadata dictionary
@@ -307,15 +324,9 @@ class SessionDetector:
         if not agent_lower:
             return None
 
-        # Normalize for comparison (remove separators)
-        normalized = agent_lower.replace("-", "").replace("_", "").replace(".", "")
+        normalized = self._normalize_agent_string(agent_lower)
 
-        # Check direct matches
-        if agent_lower in self.KILOCODE_ALIASES or normalized in {
-            "kilocode",
-            "kiloc",
-            "kilo",
-        }:
+        if self._is_cline_like_agent(agent_lower, normalized):
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="metadata",
@@ -324,8 +335,7 @@ class SessionDetector:
                 timestamp=time.time(),
             )
 
-        # Check if it starts with kilocode variants
-        if normalized.startswith("kilocode"):
+        if normalized.startswith(("kilocode", "roocode", "cline")):
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="metadata",
@@ -337,7 +347,7 @@ class SessionDetector:
         return None
 
     def _check_headers(self, request_data: Any) -> DetectionResult | None:
-        """Check HTTP User-Agent header for KiloCode identification.
+        """Check HTTP User-Agent header for Cline-like client identification.
 
         Args:
             request_data: The request data object
@@ -369,11 +379,9 @@ class SessionDetector:
         if not user_agent_lower:
             return None
 
-        # Normalize for comparison
-        normalized = user_agent_lower.replace("-", "").replace("_", "").replace(".", "")
+        normalized = self._normalize_agent_string(user_agent_lower)
 
-        # Check for KiloCode in User-Agent
-        if any(alias in user_agent_lower for alias in self.KILOCODE_ALIASES):
+        if self._contains_cline_like_alias(user_agent_lower, normalized):
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="header",
@@ -382,7 +390,7 @@ class SessionDetector:
                 timestamp=time.time(),
             )
 
-        if "kilocode" in normalized:
+        if any(token in normalized for token in ("kilocode", "roocode", "cline")):
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="header",
@@ -394,7 +402,7 @@ class SessionDetector:
         return None
 
     def _check_payload_heuristics(self, request_data: Any) -> DetectionResult | None:
-        """Check for KiloCode-specific XML tags in request payload.
+        """Check for Cline-like XML tags in request payload.
 
         Args:
             request_data: The request data object
@@ -435,7 +443,7 @@ class SessionDetector:
                     tag_count += 1
                     found_tags.add(tag)
 
-        # If we found enough tags, consider it KiloCode
+        # If we found enough tags, consider it a Cline-like XML client
         if tag_count >= self._heuristic_threshold:
             confidence = min(0.7 + (tag_count * 0.05), 0.95)
             logger.debug(
@@ -452,6 +460,39 @@ class SessionDetector:
             )
 
         return None
+
+    @staticmethod
+    def _normalize_agent_string(value: str) -> str:
+        return (
+            value.lower()
+            .replace("-", "")
+            .replace("_", "")
+            .replace(".", "")
+            .replace(" ", "")
+        )
+
+    def _is_cline_like_agent(self, agent_lower: str, normalized: str) -> bool:
+        if agent_lower in self.CLINE_LIKE_ALIASES:
+            return True
+        return normalized in {
+            "kilocode",
+            "kiloc",
+            "kilo",
+            "cline",
+            "roo",
+            "roocode",
+            "roocline",
+        }
+
+    def _contains_cline_like_alias(
+        self, user_agent_lower: str, normalized: str
+    ) -> bool:
+        if any(alias in user_agent_lower for alias in self.CLINE_LIKE_ALIASES):
+            return True
+        return any(
+            token in normalized
+            for token in ("kilocode", "kiloc", "cline", "roocode", "roocline")
+        )
 
     async def invalidate_cache(self, session_id: str, backend: str) -> None:
         """Clear cached detection result for a session.

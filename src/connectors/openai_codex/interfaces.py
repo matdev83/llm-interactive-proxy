@@ -417,6 +417,25 @@ class ICompatibilityLayer(ABC):
         """
         ...
 
+    @abstractmethod
+    def detect_incompatible_tool_calls(
+        self,
+        tool_calls: list[dict[str, object]],
+        context: CodexRequestContext,
+    ) -> list[str]:
+        """Return incompatible tool names that should be rejected server-side."""
+        ...
+
+    @abstractmethod
+    def append_incompatible_tool_steering(
+        self,
+        payload_dict: dict[str, object],
+        incompatible_tool_names: list[str],
+        context: CodexRequestContext,
+    ) -> dict[str, object]:
+        """Append family-specific steering for incompatible tool retry."""
+        ...
+
 
 class IToolExecutionService(ABC):
     """Interface for executing proxy and MCP tools.

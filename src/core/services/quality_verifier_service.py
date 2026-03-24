@@ -6,6 +6,7 @@ import re
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -23,6 +24,8 @@ from src.core.services.quality_verifier_prompt_loader import (
 )
 
 logger = logging.getLogger(__name__)
+
+VerifierTextCallFn = Callable[[ChatRequest], Awaitable[str | None]]
 
 # Global prompt loader instance with thread-safe initialization
 _prompt_loader: QualityVerifierPromptLoader | None = None
@@ -207,6 +210,73 @@ class QualityVerifierService:
         if user_turns <= 0:
             return False
         return user_turns % freq == 0
+
+    @staticmethod
+    def coerce_eligible_turn_floor(raw: Any) -> int | None:
+        """Convert stored eligible-turn counters (float/int/str) to a scheduling floor.
+
+        Returns None when the value is missing or unusable so callers can fall back
+        to :meth:`should_run_for_request`.
+        """
+        if raw is None or isinstance(raw, dict | list):
+            return None
+        if isinstance(raw, bool):
+            return None
+        try:
+            if isinstance(raw, str):
+                stripped = raw.strip()
+                if not stripped:
+                    return None
+                value = float(stripped)
+            else:
+                value = float(raw)
+        except (TypeError, ValueError):
+            return None
+        if value <= 0:
+            return None
+        return int(value)
+
+    @staticmethod
+    def should_run_verification(
+        request: ChatRequest,
+        frequency: int | None,
+        *,
+        eligible_turn_raw: Any = None,
+    ) -> bool:
+        """Whether Quality Verifier should run for this completion (scheduling only).
+
+        Prefer ``eligible_turn_raw`` from :attr:`RequestContext.extensions` (set by the
+        request processor). When it is missing, falls back to counting ``user`` messages
+        in ``request`` (legacy / tests).
+        """
+        try:
+            freq_int = int(frequency) if frequency is not None else 10
+        except (TypeError, ValueError):
+            freq_int = 10
+        if freq_int <= 0:
+            freq_int = 1
+
+        floor = QualityVerifierService.coerce_eligible_turn_floor(eligible_turn_raw)
+        if floor is not None:
+            return floor > 0 and (floor % freq_int == 0)
+        return QualityVerifierService.should_run_for_request(request, frequency)
+
+    async def maybe_retry_verifier_for_valid_xml(
+        self,
+        verification_request: ChatRequest,
+        first_text: str | None,
+        call_verifier: VerifierTextCallFn,
+    ) -> str | None:
+        """If the first verifier output is malformed, run one format-correction round trip."""
+        if first_text is None:
+            return None
+        ok, reason = self.validate_quality_verifier_output_format(first_text)
+        if ok:
+            return first_text
+        retry_req = self.build_invalid_format_retry_request(
+            verification_request, first_text, reason
+        )
+        return await call_verifier(retry_req)
 
     @staticmethod
     def is_tool_result_followup_request(request: ChatRequest) -> bool:
@@ -430,7 +500,8 @@ class QualityVerifierService:
             "Regenerate your output now. It must be EXACTLY one of:\n"
             "1) <status>NO_STEERING_NEEDED</status>\n"
             "2) <steering>...short actionable steering note...</steering>\n"
-            "Do not include any extra wrappers or prose outside the required XML tags."
+            "Do not include any extra wrappers or prose outside the required XML tags.\n"
+            "Do not call tools or request function calls; reply with plain text only."
         )
 
         retry_messages = [
@@ -440,7 +511,7 @@ class QualityVerifierService:
         ]
 
         return verification_request.model_copy(
-            update={"messages": retry_messages, "stream": False}
+            update={"messages": retry_messages, "stream": True}
         )
 
     def build_verification_request(
@@ -471,7 +542,7 @@ class QualityVerifierService:
                 model_info.backend_type, model_info.model_name
             ),
             messages=messages,
-            stream=False,
+            stream=True,
             # Pass through sampling parameters if provided in model spec
             temperature=_to_float(model_info.uri_params.get("temperature")),
             top_p=_to_float(model_info.uri_params.get("top_p")),
@@ -484,6 +555,12 @@ class QualityVerifierService:
     def build_correction_request(
         self, request: ChatRequest, original_response: Any, steering_text: str
     ) -> ChatRequest:
+        """Build a synthetic chat request embedding verifier feedback in-message.
+
+        Production steering uses ``quality_verifier_steering_store`` and the request
+        transform pipeline instead of this helper; it remains for tests and optional
+        alternate flows.
+        """
         normalized_response = self._normalize_assistant_content(original_response)
 
         # History stringification: convert tool calls/results to text for cross-backend compatibility.
@@ -506,7 +583,7 @@ class QualityVerifierService:
     def build_steering_payload(
         self, request: ChatRequest, original_response: Any, steering_text: str
     ) -> ChatRequest:
-        """Backward-compatible alias for building a correction request."""
+        """Alias for :meth:`build_correction_request` (not used by the live proxy path)."""
 
         return self.build_correction_request(request, original_response, steering_text)
 

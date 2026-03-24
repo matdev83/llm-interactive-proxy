@@ -9,8 +9,14 @@ import json
 import logging
 import uuid
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+from src.connectors.openai_codex.client_families import (
+    ClientFamilyRegistry,
+    DroidClientFamilyAdapter,
+    KiloClientFamilyAdapter,
+    OpenCodeClientFamilyAdapter,
+)
 from src.connectors.openai_codex.contracts import (
     CodexConnectorSettings,
     CodexInputItem,
@@ -69,6 +75,19 @@ class PayloadBuilder(IPayloadBuilder):
         self._tool_schema_resolver = tool_schema_resolver
         self._settings = settings
         self._message_to_text = message_to_text_converter
+        self._family_registry = ClientFamilyRegistry(
+            adapters=[
+                OpenCodeClientFamilyAdapter(),
+                KiloClientFamilyAdapter(
+                    session_detector=None,
+                    kilo_translator=None,
+                    tool_execution_service=None,
+                    translate_kilo_tools=self._noop_translate_kilo_tools,
+                    clean_xml_from_message=lambda content: content,
+                ),
+                DroidClientFamilyAdapter(),
+            ]
+        )
 
     def build_payload(self, context: CodexRequestContext) -> CodexPayload:
         """Build a Codex payload preserving passthrough rules.
@@ -199,6 +218,13 @@ class PayloadBuilder(IPayloadBuilder):
         if not passthrough_dict.get("include") and passthrough_dict.get("reasoning"):
             passthrough_dict["include"] = ["reasoning.encrypted_content"]
 
+        resolved_instructions = self._resolve_instructions(context)
+        passthrough_dict = self._family_registry.adapt_payload_dict(
+            passthrough_dict,
+            context,
+            resolved_instructions=resolved_instructions,
+        )
+
         # Convert to CodexPayload
         # Note: passthrough payload may have different structure, so we need to adapt
         return self.convert_dict_to_payload(passthrough_dict, context)
@@ -235,23 +261,61 @@ class PayloadBuilder(IPayloadBuilder):
         # Codex backend expects streaming SSE; Codex CLI always streams.
         stream_flag = True
 
+        payload_dict: dict[str, Any] = {
+            "model": context.effective_model,
+            "input": input_items,
+            "tools": tool_schemas,
+            "tool_choice": "auto",
+            "parallel_tool_calls": False,
+            "reasoning": reasoning,
+            "store": False,
+            "stream": bool(stream_flag),
+            "include": ["reasoning.encrypted_content"] if reasoning else [],
+            "prompt_cache_key": conversation_id,
+            "instructions": instructions,
+            "extras": None,
+        }
+        payload_dict = self._family_registry.adapt_payload_dict(
+            payload_dict,
+            context,
+            resolved_instructions=instructions,
+        )
+        model = cast(str, payload_dict["model"])
+        payload_input = cast(list[CodexInputItem], payload_dict["input"])
+        payload_tools = cast(list[CodexToolSchema], payload_dict["tools"])
+        tool_choice = cast(str, payload_dict["tool_choice"])
+        parallel_tool_calls = cast(bool, payload_dict["parallel_tool_calls"])
+        payload_reasoning = cast(ReasoningSpec | None, payload_dict["reasoning"])
+        store = cast(bool, payload_dict["store"])
+        stream = cast(bool, payload_dict["stream"])
+        include = cast(list[str], payload_dict["include"])
+        prompt_cache_key = cast(str, payload_dict["prompt_cache_key"])
+        payload_instructions = cast(str | None, payload_dict["instructions"])
+        extras = cast(dict[str, object] | None, payload_dict["extras"])
+
         # Build payload
         payload = CodexPayload(
-            model=context.effective_model,
-            input=input_items,
-            tools=tool_schemas,
-            tool_choice="auto",
-            parallel_tool_calls=False,
-            reasoning=reasoning,
-            store=False,
-            stream=bool(stream_flag),
-            include=["reasoning.encrypted_content"] if reasoning else [],
-            prompt_cache_key=conversation_id,
-            instructions=instructions,
-            extras=None,
+            model=model,
+            input=payload_input,
+            tools=payload_tools,
+            tool_choice=tool_choice,
+            parallel_tool_calls=parallel_tool_calls,
+            reasoning=payload_reasoning,
+            store=store,
+            stream=stream,
+            include=include,
+            prompt_cache_key=prompt_cache_key,
+            instructions=payload_instructions,
+            extras=extras,
         )
 
         return payload
+
+    @staticmethod
+    async def _noop_translate_kilo_tools(
+        processed_messages: list[Any], session_id: str
+    ) -> dict[str, list[CodexToolSchema]]:
+        return {"codex_tools": [], "proxy_tools": [], "mcp_tools": []}
 
     @staticmethod
     def _resolve_prompt_cache_key(

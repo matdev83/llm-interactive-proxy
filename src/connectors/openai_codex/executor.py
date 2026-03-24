@@ -204,6 +204,7 @@ class ResponseExecutor(IResponseExecutor):
         self._codex_url = codex_url
         self._compatibility_layer = compatibility_layer
         self._use_websocket = use_websocket
+        self._max_incompatible_tool_retries = 2
         self._transport = (
             transport
             if transport is not None
@@ -266,6 +267,7 @@ class ResponseExecutor(IResponseExecutor):
         # Retry logic for non-streaming requests with auth failures
         attempts_used = 0
         max_retries = max(0, self._max_retries)
+        incompatible_tool_retries = 0
 
         response_json: dict[str, Any] | None = None
         response: httpx.Response | None = None
@@ -430,6 +432,39 @@ class ResponseExecutor(IResponseExecutor):
 
                 # Success - break out of retry loop
                 response_json = response.json()
+                incompatible_tools = self._detect_incompatible_tool_calls(
+                    response_json,
+                    context,
+                )
+                if incompatible_tools:
+                    if incompatible_tool_retries < self._max_incompatible_tool_retries:
+                        incompatible_tool_retries += 1
+                        payload_dict = self._append_incompatible_tool_retry_steering(
+                            payload_dict,
+                            incompatible_tools,
+                            context,
+                        )
+                        logger.info(
+                            "Retrying non-streaming Codex request after incompatible tool calls: %s",
+                            ", ".join(incompatible_tools),
+                            extra={
+                                "backend": "openai-codex",
+                                "session_id": context.session_id,
+                                "model": context.effective_model,
+                                "retry_count": incompatible_tool_retries,
+                            },
+                        )
+                        response_json = None
+                        continue
+                    logger.warning(
+                        "Incompatible tool calls persisted after retries; returning final response.",
+                        extra={
+                            "backend": "openai-codex",
+                            "session_id": context.session_id,
+                            "model": context.effective_model,
+                            "tool_names": incompatible_tools,
+                        },
+                    )
                 break
 
             # Ensure response_json is set (MyPy type narrowing)
@@ -577,7 +612,9 @@ class ResponseExecutor(IResponseExecutor):
             """Streaming iterator with authentication retry logic."""
             attempts_used = 0
             max_retries = max(0, self._max_retries)
+            incompatible_tool_retries = 0
             current_headers = dict(headers)
+            current_payload_dict = dict(payload_dict)
 
             # Get compatibility state from context metadata if available
             # State should always be provided by the facade via CodexRequestContext.metadata
@@ -595,7 +632,7 @@ class ResponseExecutor(IResponseExecutor):
                         stream_handle = (
                             await self._transport.initiate_streaming_request(
                                 url,
-                                payload_dict,
+                                current_payload_dict,
                                 current_headers,
                                 context.session_id,
                             )
@@ -687,8 +724,50 @@ class ResponseExecutor(IResponseExecutor):
                         headers_holder.clear()
 
                     restart_stream = False
+                    retry_for_incompatible_tools = False
+                    visible_output_emitted = False
                     with OverrideRenderer(renderer_key):
                         async for processed_chunk in stream_handle.iterator:
+                            incompatible_tools = self._detect_incompatible_tool_calls(
+                                processed_chunk.content,
+                                context,
+                            )
+                            if incompatible_tools and not visible_output_emitted:
+                                if (
+                                    incompatible_tool_retries
+                                    < self._max_incompatible_tool_retries
+                                ):
+                                    retry_for_incompatible_tools = True
+                                    restart_stream = True
+                                    incompatible_tool_retries += 1
+                                    current_payload_dict = (
+                                        self._append_incompatible_tool_retry_steering(
+                                            current_payload_dict,
+                                            incompatible_tools,
+                                            context,
+                                        )
+                                    )
+                                    logger.info(
+                                        "Retrying streaming Codex request after incompatible tool calls: %s",
+                                        ", ".join(incompatible_tools),
+                                        extra={
+                                            "backend": "openai-codex",
+                                            "session_id": context.session_id,
+                                            "model": context.effective_model,
+                                            "retry_count": incompatible_tool_retries,
+                                        },
+                                    )
+                                    break
+                                logger.warning(
+                                    "Incompatible streaming tool calls persisted after retries; forwarding final stream.",
+                                    extra={
+                                        "backend": "openai-codex",
+                                        "session_id": context.session_id,
+                                        "model": context.effective_model,
+                                        "tool_names": incompatible_tools,
+                                    },
+                                )
+
                             if self._should_retry_for_auth_error(processed_chunk):
                                 restart_stream = True
                                 logger.info(
@@ -760,6 +839,8 @@ class ResponseExecutor(IResponseExecutor):
                                     )
                                     # Continue with original chunk on translation failure
 
+                            if self._chunk_has_client_visible_output(processed_chunk):
+                                visible_output_emitted = True
                             yield processed_chunk
 
                     # If stream completed successfully without auth errors, exit retry loop
@@ -770,6 +851,10 @@ class ResponseExecutor(IResponseExecutor):
                         if stream_handle.cancel_callback is not None:
                             with contextlib.suppress(Exception):
                                 await stream_handle.cancel_callback()
+
+                        if retry_for_incompatible_tools:
+                            current_cancel[0] = None
+                            continue
 
                         # Check retry limit before attempting refresh
                         # If we've already used all retries, raise exception
@@ -916,6 +1001,119 @@ class ResponseExecutor(IResponseExecutor):
             headers["chatgpt-account-id"] = account_id
 
         return headers
+
+    def _detect_incompatible_tool_calls(
+        self,
+        response_like: object,
+        context: CodexRequestContext,
+    ) -> list[str]:
+        if not self._compatibility_layer:
+            return []
+        tool_calls = self._extract_tool_calls(response_like)
+        if not tool_calls:
+            return []
+        return self._compatibility_layer.detect_incompatible_tool_calls(
+            tool_calls,
+            context,
+        )
+
+    def _append_incompatible_tool_retry_steering(
+        self,
+        payload_dict: dict[str, Any],
+        incompatible_tools: list[str],
+        context: CodexRequestContext,
+    ) -> dict[str, Any]:
+        if not self._compatibility_layer or not incompatible_tools:
+            return payload_dict
+        adapted = self._compatibility_layer.append_incompatible_tool_steering(
+            dict(payload_dict),
+            incompatible_tools,
+            context,
+        )
+        return dict(adapted)
+
+    @staticmethod
+    def _extract_tool_calls(response_like: object) -> list[dict[str, object]]:
+        if isinstance(response_like, Mapping):
+            item = response_like.get("item")
+            if isinstance(item, Mapping):
+                return ResponseExecutor._extract_tool_calls(item)
+
+            response_type = response_like.get("type")
+            name = response_like.get("name")
+            if (
+                isinstance(response_type, str)
+                and isinstance(name, str)
+                and response_type.lower()
+                in {"function_call", "custom_tool_call", "local_shell_call"}
+                and name.strip()
+            ):
+                return [{"function": {"name": name.strip()}}]
+
+            direct_calls = response_like.get("tool_calls")
+            if isinstance(direct_calls, list):
+                return [item for item in direct_calls if isinstance(item, dict)]
+
+            output = response_like.get("output")
+            if isinstance(output, list):
+                output_tool_calls: list[dict[str, object]] = []
+                for output_item in output:
+                    output_tool_calls.extend(
+                        ResponseExecutor._extract_tool_calls(output_item)
+                    )
+                if output_tool_calls:
+                    return output_tool_calls
+
+            choices = response_like.get("choices")
+            if isinstance(choices, list):
+                extracted: list[dict[str, object]] = []
+                for choice in choices:
+                    if not isinstance(choice, Mapping):
+                        continue
+                    for container_key in ("message", "delta"):
+                        container = choice.get(container_key)
+                        if not isinstance(container, Mapping):
+                            continue
+                        tool_calls = container.get("tool_calls")
+                        if isinstance(tool_calls, list):
+                            extracted.extend(
+                                item for item in tool_calls if isinstance(item, dict)
+                            )
+                return extracted
+
+        metadata = getattr(response_like, "metadata", None)
+        if isinstance(metadata, Mapping):
+            tool_calls = metadata.get("tool_calls")
+            if isinstance(tool_calls, list):
+                return [item for item in tool_calls if isinstance(item, dict)]
+        content = getattr(response_like, "content", None)
+        if content is not None and content is not response_like:
+            return ResponseExecutor._extract_tool_calls(content)
+        return []
+
+    @staticmethod
+    def _chunk_has_client_visible_output(chunk: ProcessedResponse) -> bool:
+        content = chunk.content
+        if isinstance(content, str):
+            return bool(content.strip())
+        if isinstance(content, bytes):
+            return bool(content.strip())
+        if not isinstance(content, Mapping):
+            return False
+        choices = content.get("choices")
+        if not isinstance(choices, list):
+            return False
+        for choice in choices:
+            if not isinstance(choice, Mapping):
+                continue
+            for container_key in ("delta", "message"):
+                container = choice.get(container_key)
+                if not isinstance(container, Mapping):
+                    continue
+                text = container.get("content")
+                if isinstance(text, str) and text.strip():
+                    return True
+        return False
 
     def _refresh_headers_auth(
         self, headers: dict[str, str], conversation_id: str, session_id: str

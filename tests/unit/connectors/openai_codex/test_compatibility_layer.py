@@ -139,6 +139,20 @@ class TestCompatibilityLayer:
         mock_session_detector.detect.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_apply_cline_detection_without_detector(
+        self, layer, mock_kilo_translator, sample_context
+    ):
+        """Direct metadata detection should activate the shared XML adapter."""
+        layer._session_detector = None
+        layer._kilo_translator = mock_kilo_translator
+        sample_context.metadata = {"agent": "cline"}
+
+        result = await layer.apply(sample_context)
+
+        assert isinstance(result, CompatibilityResult)
+        assert result.state.is_kilocode is True
+
+    @pytest.mark.asyncio
     async def test_apply_droid_detection(
         self, layer, mock_droid_detector, sample_context
     ):
@@ -155,6 +169,7 @@ class TestCompatibilityLayer:
     async def test_apply_no_detection(self, layer, sample_context):
         """Test apply when no compatibility clients are detected."""
         layer._session_detector = None
+        sample_context.metadata = {"agent": "cursor"}
 
         result = await layer.apply(sample_context)
 
@@ -322,3 +337,33 @@ class TestCompatibilityLayer:
             == "Execute"
         )
         mock_droid_translator.translate_codex_to_droid.assert_called()
+
+    def test_detect_incompatible_tool_calls_for_cline_like_client(self, layer):
+        """Cline-like XML clients should reject native Codex/OpenAI tool calls."""
+        from src.core.domain.chat import ChatMessage
+
+        context = CodexRequestContext(
+            request=CanonicalChatRequest(
+                model="gpt-5.1-codex",
+                messages=[ChatMessage(role="user", content="Test message")],
+                stream=False,
+            ),
+            processed_messages=[
+                ProcessedMessage(
+                    role="user",
+                    content="Test message",
+                    tool_calls=None,
+                )
+            ],
+            effective_model="gpt-5.1-codex",
+            capabilities=CodexClientCapabilities(),
+            session_id="test-session-123",
+            metadata={"agent": "roocode"},
+        )
+
+        incompatible = layer.detect_incompatible_tool_calls(
+            [{"function": {"name": "apply_patch"}}],
+            context,
+        )
+
+        assert incompatible == ["apply_patch"]

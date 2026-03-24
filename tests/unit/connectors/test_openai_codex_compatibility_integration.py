@@ -163,10 +163,10 @@ class TestCompatibilityLayerDetection:
         assert result.detection_method == "metadata"
 
     @pytest.mark.asyncio
-    async def test_non_kilocode_not_detected(
+    async def test_cline_detected_as_cline_like_family(
         self, codex_connector_compat_enabled: OpenAICodexConnector
     ):
-        """Test that non-KiloCode clients are not detected."""
+        """Test that Cline activates the shared XML compatibility family."""
         from unittest.mock import MagicMock
 
         detector = codex_connector_compat_enabled._session_detector
@@ -182,7 +182,29 @@ class TestCompatibilityLayerDetection:
             backend="openai-codex",
         )
 
-        assert result.is_kilocode is False
+        assert result.is_kilocode is True
+
+    @pytest.mark.asyncio
+    async def test_roocode_detected_as_cline_like_family(
+        self, codex_connector_compat_enabled: OpenAICodexConnector
+    ):
+        """Test that RooCode activates the shared XML compatibility family."""
+        from unittest.mock import MagicMock
+
+        detector = codex_connector_compat_enabled._session_detector
+        assert detector is not None
+
+        request_data = MagicMock()
+        metadata = {"agent": "roocode"}
+
+        result = await detector.detect(
+            request_data=request_data,
+            metadata=metadata,
+            session_id="test_session",
+            backend="openai-codex",
+        )
+
+        assert result.is_kilocode is True
 
     @pytest.mark.asyncio
     async def test_detection_caching_works(
@@ -384,10 +406,10 @@ class TestRequestFlowIntegration:
             pytest.skip("Compatibility layer not enabled in test fixture")
 
     @pytest.mark.asyncio
-    async def test_request_flow_with_non_kilocode_client(
+    async def test_request_flow_with_non_cline_like_client(
         self, codex_connector_compat_enabled: OpenAICodexConnector
     ):
-        """Test request flow with non-KiloCode client does not activate compatibility layer."""
+        """Test request flow with unrelated client does not activate compatibility layer."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
         # Create mock request data for non-KiloCode client
@@ -395,13 +417,13 @@ class TestRequestFlowIntegration:
         request_data.model = "gpt-5-codex"
         request_data.messages = [{"role": "user", "content": "Hello"}]
         request_data.stream = False
-        request_data.metadata = {"agent": "cline"}
+        request_data.metadata = {"agent": "cursor"}
 
         # Create mock domain request
         domain_request = MagicMock()
         domain_request.session_id = "test_session_456"
         domain_request.processing_context = {}
-        domain_request.metadata = {"agent": "cline"}
+        domain_request.metadata = {"agent": "cursor"}
 
         processed_messages = [{"role": "user", "content": "Hello"}]
 

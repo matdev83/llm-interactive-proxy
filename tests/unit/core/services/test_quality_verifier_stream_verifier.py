@@ -62,7 +62,7 @@ async def test_stream_verifier_passes_through_and_stores_steering() -> None:
 
         async def chat_completions(self, request, *args, **kwargs):
             self.requests.append(request)
-            assert request.stream is False
+            assert request.stream is True
             return type("R", (), {"content": "<steering>Fix result</steering>"})()
 
     backend_service = DummyBackendService()
@@ -169,6 +169,7 @@ async def test_stream_verifier_ignores_invalid_format_soft_fail() -> None:
     assert [c.content for c in out] == ["draft output"]
 
     await asyncio.sleep(0)
+    assert len(backend_service.requests) == 2
     pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
     assert pending == {}
 

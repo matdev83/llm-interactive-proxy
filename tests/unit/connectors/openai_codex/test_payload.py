@@ -246,6 +246,101 @@ class TestPayloadBuilder:
 
         assert payload.prompt_cache_key == "session-456"
 
+    def test_build_payload_passthrough_appends_opencode_bridge(
+        self, builder, mock_connector, mock_prompt_resolver, sample_context
+    ):
+        """OpenCode passthrough should inject bridge instructions when tools exist."""
+        passthrough_request = CanonicalChatRequest(
+            model="gpt-5.1-codex",
+            messages=[ChatMessage(role="user", content="Test message")],
+            stream=False,
+        )
+        object.__setattr__(
+            passthrough_request,
+            "extra_body",
+            {
+                "input": [{"type": "message", "role": "user", "content": "test"}],
+                "tools": [{"name": "bash", "type": "function", "parameters": {}}],
+                "store": False,
+                "stream": True,
+            },
+        )
+        sample_context.request = passthrough_request
+        sample_context.capabilities = CodexClientCapabilities(codex_passthrough=True)
+        sample_context.metadata = {"agent": "opencode"}
+        mock_connector._is_native_responses_payload.return_value = True
+        mock_prompt_resolver.resolve_system_prompt.return_value = "Codex instructions"
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.instructions is not None
+        assert "Codex instructions" in payload.instructions
+        assert "OpenCode compatibility mode" in payload.instructions
+
+    def test_build_payload_passthrough_normalizes_opencode_input(
+        self, builder, mock_connector, sample_context
+    ):
+        """OpenCode passthrough should normalize input history inside adapter."""
+        passthrough_request = CanonicalChatRequest(
+            model="gpt-5.1-codex",
+            messages=[ChatMessage(role="user", content="Test message")],
+            stream=False,
+        )
+        object.__setattr__(
+            passthrough_request,
+            "extra_body",
+            {
+                "input": [
+                    {"type": "item_reference", "id": "ref-1"},
+                    {
+                        "type": "message",
+                        "id": "msg-1",
+                        "role": "developer",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "OpenCode tool environment prompt",
+                            }
+                        ],
+                    },
+                    {
+                        "type": "function_call_output",
+                        "id": "out-1",
+                        "call_id": "missing-call",
+                        "output": {"status": "ok"},
+                    },
+                    {
+                        "type": "message",
+                        "id": "msg-2",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "test"}],
+                    },
+                ],
+                "tools": [{"name": "bash", "type": "function", "parameters": {}}],
+                "store": False,
+                "stream": True,
+            },
+        )
+        sample_context.request = passthrough_request
+        sample_context.capabilities = CodexClientCapabilities(codex_passthrough=True)
+        sample_context.metadata = {"agent": "opencode"}
+        mock_connector._is_native_responses_payload.return_value = True
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.input
+        assert payload.input[0].role == "developer"
+        first_content = payload.input[0].content
+        assert isinstance(first_content, list)
+        assert "OpenCode compatibility mode" in str(first_content[0]["text"])
+        assert all(item.type != "item_reference" for item in payload.input)
+        assert all(
+            "id" not in item.model_dump(exclude_none=True) for item in payload.input
+        )
+        normalized_text = "\n".join(str(item.content) for item in payload.input)
+        assert "OpenCode tool environment prompt" not in normalized_text
+        assert "Prior tool output" in normalized_text
+
     def test_build_payload_passthrough_generates_uuid(
         self, builder, mock_connector, sample_context
     ):
@@ -343,6 +438,71 @@ class TestPayloadBuilder:
 
         # Instructions should be sanitized version of system prompt
         assert payload.instructions == "System instructions"
+
+    def test_build_translated_payload_appends_opencode_bridge(
+        self,
+        builder,
+        mock_connector,
+        mock_prompt_resolver,
+        mock_tool_schema_resolver,
+        sample_context,
+    ):
+        """OpenCode sessions should receive bridge instructions for shell tools."""
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_prompt_resolver.resolve_system_prompt.return_value = "System instructions"
+        mock_tool_schema_resolver.resolve_tool_schema.return_value = [
+            CodexToolSchema(name="bash", parameters={})
+        ]
+        sample_context.metadata = {
+            "headers": {"user-agent": "opencode/1.2.26 ai-sdk/provider-utils/3.0.20"}
+        }
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.instructions is not None
+        assert "System instructions" in payload.instructions
+        assert "OpenCode compatibility mode" in payload.instructions
+        assert "string `command` and string `description`" in payload.instructions
+
+    def test_build_translated_payload_prepends_opencode_bridge_message(
+        self,
+        builder,
+        mock_connector,
+        mock_tool_schema_resolver,
+        sample_context,
+    ):
+        """Translated OpenCode payloads should prepend a developer bridge message."""
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_tool_schema_resolver.resolve_tool_schema.return_value = [
+            CodexToolSchema(name="bash", parameters={})
+        ]
+        sample_context.metadata = {"agent": "opencode"}
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.input
+        assert payload.input[0].type == "message"
+        assert payload.input[0].role == "developer"
+        assert "OpenCode compatibility mode" in str(payload.input[0].content)
+
+    def test_build_translated_payload_prepends_cline_like_bridge_message(
+        self,
+        builder,
+        mock_connector,
+        sample_context,
+    ):
+        """Cline-like XML clients should receive a developer bridge message."""
+        mock_connector._is_native_responses_payload.return_value = False
+        sample_context.metadata = {"agent": "cline"}
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.instructions is not None
+        assert "Cline-family XML compatibility mode" in payload.instructions
+        assert payload.input
+        assert payload.input[0].type == "message"
+        assert payload.input[0].role == "developer"
+        assert "Cline-family XML compatibility mode" in str(payload.input[0].content)
 
     def test_build_translated_payload_no_instructions_when_none(
         self, builder, mock_connector, mock_prompt_resolver, sample_context

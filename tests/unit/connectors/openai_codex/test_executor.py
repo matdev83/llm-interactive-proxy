@@ -20,6 +20,7 @@ from src.connectors.openai_codex.contracts import (
 )
 from src.connectors.openai_codex.executor import ResponseExecutor
 from src.connectors.openai_codex.interfaces import (
+    ICompatibilityLayer,
     ICredentialManager,
     IResponseExecutor,
 )
@@ -328,6 +329,67 @@ class TestResponseExecutor:
 
         # Should preserve usage as-is (translation service handles structure)
         assert result.usage == {"unexpected": "structure"}
+
+    @pytest.mark.asyncio
+    async def test_execute_non_streaming_retries_incompatible_tool_call(
+        self, executor, mock_base_connector, sample_context, non_streaming_payload
+    ):
+        """Unsupported Codex tool calls should be swallowed and retried server-side."""
+        compatibility_layer = MagicMock(spec=ICompatibilityLayer)
+        compatibility_layer.detect_incompatible_tool_calls.return_value = [
+            "apply_patch"
+        ]
+        compatibility_layer.append_incompatible_tool_steering.side_effect = (
+            lambda payload_dict, incompatible_tools, context: {
+                **payload_dict,
+                "instructions": "retry steering",
+            }
+        )
+        executor._compatibility_layer = compatibility_layer
+
+        first_response = MagicMock()
+        first_response.status_code = 200
+        first_response.json.return_value = {
+            "id": "resp-1",
+            "output": [{"type": "function_call", "name": "apply_patch"}],
+        }
+        first_response.headers = {}
+
+        second_response = MagicMock()
+        second_response.status_code = 200
+        second_response.json.return_value = {
+            "id": "resp-2",
+            "choices": [{"message": {"role": "assistant", "content": "final"}}],
+        }
+        second_response.headers = {}
+
+        posted_payloads: list[dict[str, object]] = []
+
+        async def post_side_effect(*args, **kwargs):
+            posted_payloads.append(dict(kwargs["json"]))
+            if len(posted_payloads) == 1:
+                return first_response
+            return second_response
+
+        mock_base_connector.client.post = AsyncMock(side_effect=post_side_effect)
+
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {"content": "final"}
+        domain_response.usage = None
+        mock_base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        result = await executor.execute(non_streaming_payload, sample_context)
+
+        assert isinstance(result, ResponseEnvelope)
+        assert len(posted_payloads) == 2
+        assert posted_payloads[1]["instructions"] == "retry steering"
+        compatibility_layer.detect_incompatible_tool_calls.assert_called()
+        compatibility_layer.append_incompatible_tool_steering.assert_called_once()
+        mock_base_connector.translation_service.to_domain_response.assert_called_once_with(
+            second_response.json.return_value, "openai"
+        )
 
     @pytest.mark.asyncio
     async def test_execute_streaming_success(
@@ -948,6 +1010,98 @@ class TestResponseExecutor:
         assert executor._get_retry_delay(1) == 0.2
         assert executor._get_retry_delay(2) == 0.2  # Uses last value
         assert executor._get_retry_delay(-1) == 0.0
+
+    def test_extract_tool_calls_reads_responses_output_items(self, executor):
+        """Responses-format output arrays should be inspected for tool calls."""
+        response_like = {
+            "output": [
+                {"type": "reasoning", "summary": []},
+                {"type": "function_call", "name": "apply_patch"},
+            ]
+        }
+
+        tool_calls = executor._extract_tool_calls(response_like)
+
+        assert tool_calls == [{"function": {"name": "apply_patch"}}]
+
+    def test_extract_tool_calls_reads_stream_event_item(self, executor):
+        """Streaming event items should surface Codex-native tool names."""
+        response_like = {
+            "type": "response.output_item.added",
+            "item": {"type": "local_shell_call", "name": "bash"},
+        }
+
+        tool_calls = executor._extract_tool_calls(response_like)
+
+        assert tool_calls == [{"function": {"name": "bash"}}]
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_retries_incompatible_tool_call_before_output(
+        self, executor, sample_context, streaming_payload
+    ):
+        """Unsupported tool calls should restart stream before any chunk is emitted."""
+        compatibility_layer = MagicMock(spec=ICompatibilityLayer)
+        compatibility_layer.detect_incompatible_tool_calls.return_value = [
+            "apply_patch"
+        ]
+        compatibility_layer.append_incompatible_tool_steering.side_effect = (
+            lambda payload_dict, incompatible_tools, context: {
+                **payload_dict,
+                "instructions": "retry steering",
+            }
+        )
+        executor._compatibility_layer = compatibility_layer
+
+        first_handle = MagicMock()
+        first_handle.headers = {}
+        first_handle.cancel_callback = AsyncMock()
+
+        async def first_iterator():
+            yield ProcessedResponse(
+                content={
+                    "type": "response.output_item.added",
+                    "item": {"type": "function_call", "name": "apply_patch"},
+                }
+            )
+
+        first_handle.iterator = first_iterator()
+
+        second_handle = MagicMock()
+        second_handle.headers = {}
+        second_handle.cancel_callback = AsyncMock()
+
+        async def second_iterator():
+            yield ProcessedResponse(
+                content={"choices": [{"delta": {"content": "ok"}}]},
+                metadata={},
+            )
+
+        second_handle.iterator = second_iterator()
+
+        captured_payloads: list[dict[str, object]] = []
+
+        async def streaming_side_effect(url, payload_dict, headers, session_id, *args):
+            captured_payloads.append(dict(payload_dict))
+            if len(captured_payloads) == 1:
+                return first_handle
+            return second_handle
+
+        executor._base_connector._handle_streaming_response = AsyncMock(
+            side_effect=streaming_side_effect
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        chunks = [
+            chunk
+            async for chunk in cast(AsyncIterator[ProcessedResponse], result.content)
+        ]
+
+        assert len(chunks) == 1
+        assert chunks[0].content == {"choices": [{"delta": {"content": "ok"}}]}
+        assert len(captured_payloads) == 2
+        assert captured_payloads[1]["instructions"] == "retry steering"
+        first_handle.cancel_callback.assert_awaited()
+        compatibility_layer.append_incompatible_tool_steering.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_execute_non_streaming_empty_choices_logs_debug(

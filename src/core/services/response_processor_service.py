@@ -342,29 +342,27 @@ class ResponseProcessor(IResponseProcessor):
 
             frequency = getattr(self, "_quality_verifier_frequency", 10)
 
-            # Prefer explicit per-request eligible turn counter (computed upstream).
-            eligible_turn_count: int | None = None
+            eligible_raw: Any = None
             if request_context is not None:
-                raw_count = request_context.extensions.get(
+                eligible_raw = request_context.extensions.get(
                     "quality_verifier_eligible_turn_count"
                 )
+            if eligible_raw is None and request_context is not None:
                 try:
-                    if isinstance(raw_count, int):
-                        eligible_turn_count = raw_count
-                    elif isinstance(raw_count, float | str):
-                        eligible_turn_count = int(raw_count)
+                    pc = request_context.processing_context
+                    if pc is not None:
+                        vals = getattr(pc, "values", None)
+                        if isinstance(vals, dict):
+                            eligible_raw = vals.get(
+                                "quality_verifier_eligible_turn_count"
+                            )
                 except Exception:
-                    eligible_turn_count = None
+                    pass
 
-            if eligible_turn_count is not None:
-                freq_int = int(frequency) if int(frequency) > 0 else 1
-                if eligible_turn_count <= 0 or (eligible_turn_count % freq_int) != 0:
-                    return {"action": "pass"}
-            else:
-                if not QualityVerifierService.should_run_for_request(
-                    original_request, frequency
-                ):
-                    return {"action": "pass"}
+            if not QualityVerifierService.should_run_verification(
+                original_request, frequency, eligible_turn_raw=eligible_raw
+            ):
+                return {"action": "pass"}
 
             verification_request = svc.build_verification_request(
                 original_request, content
@@ -605,7 +603,7 @@ class ResponseProcessor(IResponseProcessor):
             ) -> str | None:
                 try:
                     _ensure_quality_verifier_not_cancelled()
-                    
+
                     # Ensure Quality Verifier calls are captured and tagged
                     if request_context is not None:
                         request_context.extensions["call_purpose"] = "quality_verifier"
@@ -672,6 +670,11 @@ class ResponseProcessor(IResponseProcessor):
 
             quality_verifier_text = await _call_quality_verifier_once(
                 verification_request
+            )
+            quality_verifier_text = await svc.maybe_retry_verifier_for_valid_xml(
+                verification_request,
+                quality_verifier_text,
+                _call_quality_verifier_once,
             )
             if quality_verifier_text is None:
                 return {"action": "pass"}

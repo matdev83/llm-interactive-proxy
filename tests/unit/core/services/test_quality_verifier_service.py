@@ -137,7 +137,7 @@ def test_build_verification_request_uses_default_backend() -> None:
     )
     verification = svc.build_verification_request(request, "Draft reply")
     assert verification.model == "openai:gpt-4o-mini"
-    assert verification.stream is False
+    assert verification.stream is True
     assert verification.messages[0].role == "system"
     assert (
         verification.messages[0].content
@@ -307,9 +307,75 @@ def test_build_invalid_format_retry_request_appends_feedback_messages() -> None:
         "Missing decision tags",
     )
 
-    assert retry_request.stream is False
+    assert retry_request.stream is True
     assert retry_request.messages[-2].role == "assistant"
     assert retry_request.messages[-2].content == "Free-form answer without tags"
     assert retry_request.messages[-1].role == "user"
     assert "FORMAT CORRECTION" in str(retry_request.messages[-1].content)
     assert "Missing decision tags" in str(retry_request.messages[-1].content)
+    assert "Do not call tools" in str(retry_request.messages[-1].content)
+
+
+def test_coerce_eligible_turn_floor() -> None:
+    assert QualityVerifierService.coerce_eligible_turn_floor(None) is None
+    assert QualityVerifierService.coerce_eligible_turn_floor("10.7") == 10
+    assert QualityVerifierService.coerce_eligible_turn_floor(10.7) == 10
+    assert QualityVerifierService.coerce_eligible_turn_floor(0) is None
+    assert QualityVerifierService.coerce_eligible_turn_floor(True) is None
+
+
+def test_should_run_verification_prefers_eligible_raw() -> None:
+    req = ChatRequest(
+        model="x",
+        messages=[ChatMessage(role="user", content="a")],
+    )
+    assert QualityVerifierService.should_run_verification(
+        req, 10, eligible_turn_raw=10
+    )
+    assert not QualityVerifierService.should_run_verification(
+        req, 10, eligible_turn_raw=9
+    )
+    assert QualityVerifierService.should_run_verification(
+        req, 1, eligible_turn_raw=None
+    )
+
+
+async def test_maybe_retry_verifier_for_valid_xml_retries_once() -> None:
+    svc = QualityVerifierService("openai:gpt-4o-mini")
+    vreq = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="system", content="s")],
+        stream=True,
+    )
+    calls: list[int] = []
+
+    async def call_once(req: ChatRequest) -> str | None:
+        calls.append(len(calls))
+        if len(calls) == 1:
+            return "not xml"
+        return "<status>NO_STEERING_NEEDED</status>"
+
+    out = await svc.maybe_retry_verifier_for_valid_xml(vreq, "not xml", call_once)
+    assert out == "<status>NO_STEERING_NEEDED</status>"
+    assert len(calls) == 2
+
+
+async def test_maybe_retry_verifier_skips_second_call_when_first_valid() -> None:
+    svc = QualityVerifierService("openai:gpt-4o-mini")
+    vreq = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="system", content="s")],
+        stream=True,
+    )
+    calls = 0
+
+    async def call_once(req: ChatRequest) -> str | None:
+        nonlocal calls
+        calls += 1
+        return "<status>NO_STEERING_NEEDED</status>"
+
+    out = await svc.maybe_retry_verifier_for_valid_xml(
+        vreq, "<status>NO_STEERING_NEEDED</status>", call_once
+    )
+    assert out is not None and "NO_STEERING" in out
+    assert calls == 0
