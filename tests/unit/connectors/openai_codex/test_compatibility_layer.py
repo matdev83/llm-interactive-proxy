@@ -142,7 +142,7 @@ class TestCompatibilityLayer:
     async def test_apply_cline_detection_without_detector(
         self, layer, mock_kilo_translator, sample_context
     ):
-        """Direct metadata detection should activate the shared XML adapter."""
+        """Cline metadata must not activate the KiloCode XML adapter without a detector."""
         layer._session_detector = None
         layer._kilo_translator = mock_kilo_translator
         sample_context.metadata = {"agent": "cline"}
@@ -150,7 +150,7 @@ class TestCompatibilityLayer:
         result = await layer.apply(sample_context)
 
         assert isinstance(result, CompatibilityResult)
-        assert result.state.is_kilocode is True
+        assert result.state.is_kilocode is False
 
     @pytest.mark.asyncio
     async def test_apply_droid_detection(

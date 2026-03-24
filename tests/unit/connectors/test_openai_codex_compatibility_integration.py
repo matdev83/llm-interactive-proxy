@@ -163,10 +163,10 @@ class TestCompatibilityLayerDetection:
         assert result.detection_method == "metadata"
 
     @pytest.mark.asyncio
-    async def test_cline_detected_as_cline_like_family(
+    async def test_cline_not_detected_as_kilocode_compat_client(
         self, codex_connector_compat_enabled: OpenAICodexConnector
     ):
-        """Test that Cline activates the shared XML compatibility family."""
+        """Cline uses native Codex tooling; it must not activate KiloCode compat."""
         from unittest.mock import MagicMock
 
         detector = codex_connector_compat_enabled._session_detector
@@ -182,7 +182,7 @@ class TestCompatibilityLayerDetection:
             backend="openai-codex",
         )
 
-        assert result.is_kilocode is True
+        assert result.is_kilocode is False
 
     @pytest.mark.asyncio
     async def test_roocode_detected_as_cline_like_family(

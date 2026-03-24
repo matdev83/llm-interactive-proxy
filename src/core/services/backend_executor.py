@@ -168,7 +168,15 @@ class BackendExecutor(IBackendExecutor):
             raise
         finally:
             # Complete turn after response (or error) to update replacement state (Req 1.7)
-            if (not is_auxiliary_request) and self._replacement_service is not None:
+            skip_replacement_turn_completion = bool(
+                isinstance(getattr(context, "extensions", None), dict)
+                and context.extensions.get("replacement_skip_complete_turn")
+            )
+            if (
+                (not is_auxiliary_request)
+                and self._replacement_service is not None
+                and not skip_replacement_turn_completion
+            ):
                 replacement_session_id = context.extensions.get(
                     "replacement_effective_session_id"
                 )

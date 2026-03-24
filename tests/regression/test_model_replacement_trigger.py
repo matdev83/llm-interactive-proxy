@@ -375,8 +375,8 @@ async def test_quality_verifier_eligible_turn_count_continues_across_b2bua_sessi
     await processor.process_request(context_1, request_data_1)
     await processor.process_request(context_2, request_data_2)
 
-    assert context_1.extensions.get("quality_verifier_eligible_turn_count") == 1
-    assert context_2.extensions.get("quality_verifier_eligible_turn_count") == 2
+    assert context_1.extensions.get("quality_verifier_eligible_turn_count") == 1000
+    assert context_2.extensions.get("quality_verifier_eligible_turn_count") == 2000
     assert context_1.extensions.get(
         "replacement_effective_session_id"
     ) != context_2.extensions.get("replacement_effective_session_id")

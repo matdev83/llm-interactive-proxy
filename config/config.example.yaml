@@ -125,6 +125,8 @@ session:
   # Note: verification runs only on eligible turns (main-model turns). Tool-result
   # continuations and random replacement-model turns are excluded.
   quality_verifier_frequency: 10
+  # Eligible-turn increment per tool-result follow-up (0.0 = ignore tool steps; default 0.2)
+  quality_verifier_tool_followup_weight: 0.2
   # Truncate history for Quality Verifier to N messages (optional, default: unlimited)
   quality_verifier_max_history: null
   # Maximum consecutive failures for Quality Verifier model before tripping circuit breaker

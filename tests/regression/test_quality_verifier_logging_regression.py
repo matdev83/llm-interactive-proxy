@@ -519,6 +519,61 @@ async def test_no_debug_logs_when_debug_disabled(
     assert len(debug_logs) == 0
 
 
+@pytest.mark.asyncio
+async def test_quality_verifier_turn_bypasses_active_replacement(
+    processor_with_quality_verifier_and_replacement,
+    mock_replacement_service_active,
+) -> None:
+    """
+    On a Quality Verifier boundary turn, use the original model even when random
+    replacement is already active; do not treat this as a replacement turn.
+    """
+    session = MagicMock(spec=Session)
+    session.state.to_dict.return_value = {"quality_verifier_eligible_turn_count": 9}
+    session.state.with_multiple_updates = MagicMock(return_value=session.state)
+    session.update_state = MagicMock()
+
+    processor_with_quality_verifier_and_replacement._session_enricher.enrich.return_value = (
+        session,
+        ChatRequest(
+            model="openai:gpt-4o",
+            messages=[ChatMessage(role="user", content="test")],
+        ),
+    )
+    processor_with_quality_verifier_and_replacement._session_manager.get_session.return_value = (
+        session
+    )
+
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=MagicMock(),
+        app_state=MagicMock(),
+        client_host="127.0.0.1",
+        original_request=None,
+    )
+    request_data = ChatRequest(
+        model="openai:gpt-4o",
+        messages=[ChatMessage(role="user", content="test")],
+    )
+
+    await processor_with_quality_verifier_and_replacement.process_request(
+        context, request_data
+    )
+
+    exec_call = (
+        processor_with_quality_verifier_and_replacement._backend_executor.execute.call_args
+    )
+    assert exec_call is not None
+    ctx = exec_call[0][0]
+    backend_request = exec_call[0][3]
+    assert backend_request.model == "openai:gpt-4o"
+    assert ctx.extensions.get("replacement_skip_complete_turn") is True
+    assert ctx.extensions.get("replacement_suppressed_for_quality_verifier") is True
+    mock_replacement_service_active.get_effective_backend_model.assert_not_called()
+    mock_replacement_service_active.activate_replacement.assert_not_called()
+
+
 @pytest.mark.skip(
     reason="Test premise is flawed - tool_followup skip log only appears when verifier would otherwise run"
 )

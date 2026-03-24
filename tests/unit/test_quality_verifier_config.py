@@ -21,7 +21,10 @@ def test_cli_parses_quality_verifier_model() -> None:
         ]
     )
     cfg, _ = apply_cli_args(args, return_resolution=True)
-    assert cfg.session.quality_verifier_model == "anthropic:claude-3-5-sonnet?temperature=1"
+    assert (
+        cfg.session.quality_verifier_model
+        == "anthropic:claude-3-5-sonnet?temperature=1"
+    )
 
 
 def test_cli_overrides_env(monkeypatch) -> None:
@@ -39,7 +42,9 @@ def test_cli_overrides_env(monkeypatch) -> None:
 
 
 def test_config_file_value_is_loaded() -> None:
-    cfg = AppConfig(session=SessionConfig(quality_verifier_model="anthropic:claude-3-5-sonnet"))
+    cfg = AppConfig(
+        session=SessionConfig(quality_verifier_model="anthropic:claude-3-5-sonnet")
+    )
     assert cfg.session.quality_verifier_model == "anthropic:claude-3-5-sonnet"
 
 
@@ -51,7 +56,9 @@ def test_env_parses_quality_verifier_frequency(monkeypatch) -> None:
 
 def test_cli_sets_quality_verifier_frequency() -> None:
     parser = build_cli_parser()
-    args = parser.parse_args(["--command-prefix", "!/", "--quality-verifier-frequency", "7"])
+    args = parser.parse_args(
+        ["--command-prefix", "!/", "--quality-verifier-frequency", "7"]
+    )
     cfg, _ = apply_cli_args(args, return_resolution=True)
     assert cfg.session.quality_verifier_frequency == 7
 
@@ -69,7 +76,9 @@ def test_env_parses_quality_verifier_max_history(monkeypatch) -> None:
 
 def test_cli_sets_quality_verifier_max_history() -> None:
     parser = build_cli_parser()
-    args = parser.parse_args(["--command-prefix", "!/", "--quality-verifier-max-history", "9"])
+    args = parser.parse_args(
+        ["--command-prefix", "!/", "--quality-verifier-max-history", "9"]
+    )
     cfg, _ = apply_cli_args(args, return_resolution=True)
     assert cfg.session.quality_verifier_max_history == 9
 
@@ -97,3 +106,28 @@ def test_cli_sets_quality_verifier_ttft_timeout_seconds() -> None:
 def test_quality_verifier_ttft_timeout_defaults_to_thirty_seconds() -> None:
     cfg = AppConfig()
     assert cfg.session.quality_verifier_ttft_timeout_seconds == 30.0
+
+
+def test_quality_verifier_tool_followup_weight_defaults_to_point_two() -> None:
+    cfg = AppConfig()
+    assert cfg.session.quality_verifier_tool_followup_weight == 0.2
+
+
+def test_env_parses_quality_verifier_tool_followup_weight(monkeypatch) -> None:
+    monkeypatch.setenv("QUALITY_VERIFIER_TOOL_FOLLOWUP_WEIGHT", "0.35")
+    cfg = AppConfig.from_env()
+    assert cfg.session.quality_verifier_tool_followup_weight == 0.35
+
+
+def test_cli_sets_quality_verifier_tool_followup_weight() -> None:
+    parser = build_cli_parser()
+    args = parser.parse_args(
+        [
+            "--command-prefix",
+            "!/",
+            "--quality-verifier-tool-followup-weight",
+            "0.15",
+        ]
+    )
+    cfg, _ = apply_cli_args(args, return_resolution=True)
+    assert cfg.session.quality_verifier_tool_followup_weight == 0.15

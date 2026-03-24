@@ -296,9 +296,9 @@ class SessionConfig(DomainModel):
     # Tool followup turn weight for Quality Verifier turn counting.
     # Tool followup requests (requests with tool role messages after the last user message)
     # are counted as fractional turns to ensure Quality Verifier eventually runs even in
-    # tool-heavy coding sessions. A weight of 0.1 means 10 tool followups = 1 turn.
+    # tool-heavy coding sessions. A weight of 0.2 means 5 tool followups = 1 turn.
     # Set to 0.0 to exclude tool followups entirely from turn counting.
-    quality_verifier_tool_followup_weight: float = 0.1
+    quality_verifier_tool_followup_weight: float = 0.2
 
     # Optional history truncation for Quality Verifier.
     # Note: This is separate from model context-window settings and is applied only
@@ -332,7 +332,7 @@ class SessionConfig(DomainModel):
         try:
             weight = float(value)
         except (TypeError, ValueError):
-            return 0.1
+            return 0.2
         # Clamp between 0.0 and 1.0
         return max(0.0, min(1.0, weight))
 

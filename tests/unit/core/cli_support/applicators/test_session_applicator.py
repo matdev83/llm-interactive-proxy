@@ -43,6 +43,7 @@ class TestSessionApplicator:
             quality_verifier_model=None,
             quality_verifier_frequency=None,
             quality_verifier_ttft_timeout_seconds=None,
+            quality_verifier_tool_followup_weight=None,
             enable_planning_phase=None,
             planning_phase_strong_model=None,
             planning_phase_max_turns=None,
@@ -137,7 +138,8 @@ class TestSessionApplicator:
 
             assert "session" in overrides
             assert (
-                overrides["session"].get("quality_verifier_ttft_timeout_seconds") == 11.5
+                overrides["session"].get("quality_verifier_ttft_timeout_seconds")
+                == 11.5
             )
             assert os.environ.get("QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS") == "11.5"
 

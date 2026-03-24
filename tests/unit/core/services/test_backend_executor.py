@@ -129,6 +129,33 @@ async def test_happy_path_backend_execution(
 
 
 @pytest.mark.asyncio
+async def test_complete_turn_skipped_when_replacement_skip_flag_set(
+    backend_executor,
+    mock_backend_request_manager,
+    mock_session_manager,
+    mock_replacement_service,
+    sample_context,
+    sample_session,
+    sample_request,
+    sample_response,
+):
+    """Do not consume a replacement turn when QV bypassed replacement for this request."""
+    session_id = "test-session-123"
+    mock_backend_request_manager.process_backend_request.return_value = sample_response
+    sample_context.extensions["replacement_skip_complete_turn"] = True
+
+    await backend_executor.execute(
+        context=sample_context,
+        session=sample_session,
+        session_id=session_id,
+        request=sample_request,
+        original_request=sample_request,
+    )
+
+    mock_replacement_service.complete_turn.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_session_id_injection_when_absent(
     backend_executor,
     mock_backend_request_manager,

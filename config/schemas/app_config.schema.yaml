@@ -332,7 +332,7 @@ properties:
         type: number
         minimum: 0.0
         maximum: 1.0
-        default: 0.1
+        default: 0.2
       quality_verifier_max_history: { type: ["integer", "null"], minimum: 1 }
       quality_verifier_max_consecutive_failures: { type: integer, minimum: 1 }
       quality_verifier_cooldown_seconds: { type: integer, minimum: 0 }

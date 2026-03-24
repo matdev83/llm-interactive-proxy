@@ -305,6 +305,7 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | `--quality-verifier-max-consecutive-failures N` | `QUALITY_VERIFIER_MAX_CONSECUTIVE_FAILURES` | Trip the Angel circuit breaker after N consecutive failures (default: 5). |
 | `--quality-verifier-cooldown-seconds N` | `QUALITY_VERIFIER_COOLDOWN_SECONDS` | Cooldown period before Quality Verifier can retry (default: 300s). |
 | `--quality-verifier-ttft-timeout-seconds SECONDS` | `QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS` | Timeout for first token from Quality Verifier model before skipping (default: 30s). |
+| `--quality-verifier-tool-followup-weight WEIGHT` | `QUALITY_VERIFIER_TOOL_FOLLOWUP_WEIGHT` | Eligible-turn increment per tool-result follow-up, 0.0–1.0 (default: 0.2). |
 
 ### Tool Access Control
 

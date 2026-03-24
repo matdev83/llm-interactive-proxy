@@ -228,6 +228,19 @@ class SessionApplicator:
                 origin="--quality-verifier-ttft-timeout-seconds",
             )
 
+        if getattr(args, "quality_verifier_tool_followup_weight", None) is not None:
+            weight = float(args.quality_verifier_tool_followup_weight)
+            weight = max(0.0, min(1.0, weight))
+            session = overrides.setdefault("session", {})
+            session["quality_verifier_tool_followup_weight"] = weight
+            os.environ["QUALITY_VERIFIER_TOOL_FOLLOWUP_WEIGHT"] = str(weight)
+            resolution.record(
+                "session.quality_verifier_tool_followup_weight",
+                weight,
+                ParameterSource.CLI,
+                origin="--quality-verifier-tool-followup-weight",
+            )
+
     def _apply_planning_phase(
         self,
         args: CliArgs,

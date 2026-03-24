@@ -348,6 +348,13 @@ def apply_config_part1b(
             path="session.quality_verifier_ttft_timeout_seconds",
             resolution=resolution,
         ),
+        "quality_verifier_tool_followup_weight": _env_to_float(
+            "QUALITY_VERIFIER_TOOL_FOLLOWUP_WEIGHT",
+            0.2,
+            env,
+            path="session.quality_verifier_tool_followup_weight",
+            resolution=resolution,
+        ),
         "streaming_sampler": {
             "enabled": _env_to_bool(
                 "STREAMING_SAMPLER_ENABLED",

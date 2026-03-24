@@ -19,6 +19,7 @@ from src.core.domain.model_utils import (
     parse_model_with_params,
 )
 from src.core.domain.quality_verifier import QualityVerifierDecision
+from src.core.domain.quality_verifier_turns import QV_ELIGIBLE_TURN_SCALE
 from src.core.services.quality_verifier_prompt_loader import (
     QualityVerifierPromptLoader,
 )
@@ -213,7 +214,11 @@ class QualityVerifierService:
 
     @staticmethod
     def coerce_eligible_turn_floor(raw: Any) -> int | None:
-        """Convert stored eligible-turn counters (float/int/str) to a scheduling floor.
+        """Convert stored eligible-turn counters to a scheduling floor.
+
+        Values may be **scaled integers** (``logical * QV_ELIGIBLE_TURN_SCALE``),
+        legacy fractional floats (e.g. ``8.2`` logical), or small legacy ints
+        (whole logical turns).
 
         Returns None when the value is missing or unusable so callers can fall back
         to :meth:`should_run_for_request`.
@@ -222,6 +227,12 @@ class QualityVerifierService:
             return None
         if isinstance(raw, bool):
             return None
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            if raw <= 0:
+                return None
+            if raw >= QV_ELIGIBLE_TURN_SCALE:
+                return raw // QV_ELIGIBLE_TURN_SCALE
+            return int(raw)
         try:
             if isinstance(raw, str):
                 stripped = raw.strip()
@@ -234,6 +245,8 @@ class QualityVerifierService:
             return None
         if value <= 0:
             return None
+        if value >= float(QV_ELIGIBLE_TURN_SCALE) and abs(value - int(value)) < 1e-9:
+            return int(value) // QV_ELIGIBLE_TURN_SCALE
         return int(value)
 
     @staticmethod

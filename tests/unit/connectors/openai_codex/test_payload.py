@@ -485,15 +485,15 @@ class TestPayloadBuilder:
         assert payload.input[0].role == "developer"
         assert "OpenCode compatibility mode" in str(payload.input[0].content)
 
-    def test_build_translated_payload_prepends_cline_like_bridge_message(
+    def test_build_translated_payload_prepends_kilocode_family_bridge_message(
         self,
         builder,
         mock_connector,
         sample_context,
     ):
-        """Cline-like XML clients should receive a developer bridge message."""
+        """KiloCode/RooCode XML clients should receive a developer bridge message."""
         mock_connector._is_native_responses_payload.return_value = False
-        sample_context.metadata = {"agent": "cline"}
+        sample_context.metadata = {"agent": "roocode"}
 
         payload = builder.build_payload(sample_context)
 

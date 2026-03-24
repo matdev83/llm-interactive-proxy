@@ -18,6 +18,12 @@ from src.core.domain.model_utils import (
     has_explicit_backend_selector,
     parse_model_backend,
 )
+from src.core.domain.quality_verifier_turns import (
+    logical_floor_from_scaled,
+    migrate_legacy_eligible_turn_counter,
+    qv_tool_followup_increment_scaled,
+    qv_user_turn_increment_scaled,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -99,7 +105,7 @@ class RequestProcessor(IRequestProcessor):
         self._backend_executor = backend_executor
         self._app_state = app_state
         self._replacement_service = replacement_service
-        self._quality_verifier_turn_counts: OrderedDict[str, float] = OrderedDict()
+        self._quality_verifier_turn_counts: OrderedDict[str, int] = OrderedDict()
 
     @staticmethod
     def _is_tool_result_followup_request(request: ChatRequest) -> bool:
@@ -236,16 +242,21 @@ class RequestProcessor(IRequestProcessor):
 
         return session_id
 
-    def _get_quality_verifier_turn_count(self, session_key: str) -> float:
-        """Return in-memory Quality Verifier turn count for a continuity key."""
-        count = self._quality_verifier_turn_counts.get(session_key, 0.0)
+    def _get_quality_verifier_turn_count(self, session_key: str) -> int:
+        """Return in-memory Quality Verifier **scaled** turn counter for a continuity key."""
+        raw = self._quality_verifier_turn_counts.get(session_key, 0)
+        if isinstance(raw, float):
+            migrated = migrate_legacy_eligible_turn_counter(raw)
+            self._quality_verifier_turn_counts[session_key] = migrated
+            raw = migrated
+        count = int(raw) if isinstance(raw, int) else migrate_legacy_eligible_turn_counter(raw)
         if session_key in self._quality_verifier_turn_counts:
             self._quality_verifier_turn_counts.move_to_end(session_key, last=True)
-        return max(0.0, float(count))
+        return max(0, int(count))
 
-    def _set_quality_verifier_turn_count(self, session_key: str, count: float) -> None:
-        """Persist in-memory Quality Verifier turn count with bounded LRU size."""
-        self._quality_verifier_turn_counts[session_key] = max(0.0, float(count))
+    def _set_quality_verifier_turn_count(self, session_key: str, count: int) -> None:
+        """Persist in-memory Quality Verifier **scaled** turn count with bounded LRU size."""
+        self._quality_verifier_turn_counts[session_key] = max(0, int(count))
         self._quality_verifier_turn_counts.move_to_end(session_key, last=True)
         while (
             len(self._quality_verifier_turn_counts) > MAX_QUALITY_VERIFIER_TURN_STATES
@@ -425,7 +436,7 @@ class RequestProcessor(IRequestProcessor):
         quality_verifier_max_consecutive_failures: int = 5
         quality_verifier_cooldown_seconds: int = 300
         quality_verifier_ttft_timeout_seconds: float = 30.0
-        quality_verifier_tool_followup_weight: float = 0.1
+        quality_verifier_tool_followup_weight: float = 0.2
 
         try:
             if self._app_state is not None:
@@ -470,14 +481,14 @@ class RequestProcessor(IRequestProcessor):
                     quality_verifier_ttft_timeout_seconds = 30.0
 
                 raw_tool_followup_weight = getattr(
-                    session_cfg, "quality_verifier_tool_followup_weight", 0.1
+                    session_cfg, "quality_verifier_tool_followup_weight", 0.2
                 )
                 try:
                     quality_verifier_tool_followup_weight = float(
                         raw_tool_followup_weight
                     )
                 except (TypeError, ValueError):
-                    quality_verifier_tool_followup_weight = 0.1
+                    quality_verifier_tool_followup_weight = 0.2
                 # Clamp between 0.0 and 1.0
                 quality_verifier_tool_followup_weight = max(
                     0.0, min(1.0, quality_verifier_tool_followup_weight)
@@ -489,7 +500,7 @@ class RequestProcessor(IRequestProcessor):
             quality_verifier_max_consecutive_failures = 5
             quality_verifier_cooldown_seconds = 300
             quality_verifier_ttft_timeout_seconds = 30.0
-            quality_verifier_tool_followup_weight = 0.1
+            quality_verifier_tool_followup_weight = 0.2
 
         quality_verifier_enabled = bool(quality_verifier_model_spec)
         if quality_verifier_enabled:
@@ -522,28 +533,22 @@ class RequestProcessor(IRequestProcessor):
             context.extensions["quality_verifier_skip_verification"] = True
 
         quality_verifier_turn_incremented = False
-        current_eligible_turn_count = 0.0
-        in_memory_eligible_turn_count = self._get_quality_verifier_turn_count(
+        current_eligible_turn_scaled = 0
+        in_memory_eligible_turn_scaled = self._get_quality_verifier_turn_count(
             quality_verifier_session_id
         )
         try:
             state_dict = session.state.to_dict() if hasattr(session, "state") else {}
             raw_count = state_dict.get("quality_verifier_eligible_turn_count", 0)
-            if isinstance(raw_count, int | float):
-                current_eligible_turn_count = float(raw_count)
-            elif isinstance(raw_count, str):
-                try:
-                    current_eligible_turn_count = float(raw_count)
-                except (TypeError, ValueError):
-                    current_eligible_turn_count = 0.0
+            session_eligible_turn_scaled = migrate_legacy_eligible_turn_counter(
+                raw_count
+            )
         except Exception:
-            current_eligible_turn_count = 0.0
-        # Use the maximum of session state and in-memory count
-        current_eligible_turn_count = max(
-            0.0,
-            max(
-                float(current_eligible_turn_count), float(in_memory_eligible_turn_count)
-            ),
+            session_eligible_turn_scaled = 0
+        # Use the maximum of session state and in-memory count (both scaled integers)
+        current_eligible_turn_scaled = max(
+            0,
+            max(session_eligible_turn_scaled, in_memory_eligible_turn_scaled),
         )
 
         # Apply model replacement if enabled
@@ -613,24 +618,37 @@ class RequestProcessor(IRequestProcessor):
             # in Quality Verifier/correction flow.
             suppress_replacement_for_quality_verifier = False
             state = self._replacement_service.get_state(replacement_session_id)
-            if quality_verifier_enabled and not is_tool_followup and not state.active:
+            # Suppress replacement (no dice roll, no sticky replacement model) on turns
+            # where the main completion is scheduled for Quality Verifier — including when
+            # replacement is already active from a prior turn.
+            if quality_verifier_enabled and not is_tool_followup:
                 try:
                     freq = max(1, int(quality_verifier_frequency))
                 except (TypeError, ValueError):
                     freq = 10
-                # Calculate next turn considering fractional increments
-                # Use worst case (full turn) to determine if we should suppress replacement
-                next_eligible = max(0.0, float(current_eligible_turn_count)) + 1.0
-                next_eligible_floor = int(next_eligible)
+                # After this request, counter will increase by at least one full user turn
+                # (worst case) when replacement is not active — use scaled storage.
+                next_scaled = max(0, int(current_eligible_turn_scaled)) + qv_user_turn_increment_scaled()
+                next_eligible_floor = logical_floor_from_scaled(next_scaled)
                 if freq > 0 and (next_eligible_floor % freq) == 0:
                     suppress_replacement_for_quality_verifier = True
                     context.extensions[
                         "replacement_suppressed_for_quality_verifier"
                     ] = True
+                    if state.active:
+                        # BackendExecutor must not consume a replacement turn when we
+                        # intentionally routed this request to the original model for QV.
+                        context.extensions["replacement_skip_complete_turn"] = True
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            f"Replacement suppressed for quality verifier on turn {next_eligible} "
-                            f"(frequency={freq}, session={replacement_session_id})"
+                            "Replacement suppressed for quality verifier on logical_floor=%s "
+                            "(scaled_after_next_user_turn=%s frequency=%s session=%s "
+                            "had_active_replacement=%s)",
+                            next_eligible_floor,
+                            next_scaled,
+                            freq,
+                            replacement_session_id,
+                            state.active,
                         )
 
             should_replace = False
@@ -639,7 +657,9 @@ class RequestProcessor(IRequestProcessor):
                     replacement_session_id, context, original_backend, original_model
                 )
 
-            if should_replace or state.active:
+            if not suppress_replacement_for_quality_verifier and (
+                should_replace or state.active
+            ):
                 # Activate replacement if not already active
                 if should_replace and not state.active:
                     await self._replacement_service.activate_replacement(
@@ -671,8 +691,11 @@ class RequestProcessor(IRequestProcessor):
 
                 if logger.isEnabledFor(logging.DEBUG) and quality_verifier_enabled:
                     logger.debug(
-                        f"Quality verifier will be SKIPPED this turn due to active replacement "
-                        f"(session={replacement_session_id}, turn={current_eligible_turn_count})"
+                        "Quality verifier will be SKIPPED this turn due to active replacement "
+                        "(session=%s, scaled=%s logical_floor=%s)",
+                        replacement_session_id,
+                        current_eligible_turn_scaled,
+                        logical_floor_from_scaled(current_eligible_turn_scaled),
                     )
 
         # Prepare and validate backend request
@@ -687,7 +710,7 @@ class RequestProcessor(IRequestProcessor):
             """
 
             nonlocal quality_verifier_turn_incremented
-            nonlocal current_eligible_turn_count
+            nonlocal current_eligible_turn_scaled
             nonlocal quality_verifier_tool_followup_weight
 
             # Make replacement status explicit for the verifier.
@@ -712,21 +735,22 @@ class RequestProcessor(IRequestProcessor):
                 context.extensions.pop("quality_verifier_eligible_turn_count", None)
                 return
 
-            # Increment eligible counter exactly once per client request.
-            # Tool followups count as fractional turns (default 0.1) to ensure
-            # Quality Verifier eventually runs in tool-heavy coding sessions.
+            # Increment eligible counter exactly once per client request (scaled integer).
+            # Tool followups add a fractional slice of one logical turn.
             if not quality_verifier_turn_incremented:
                 if is_tool_followup:
-                    # Tool followup: increment by fractional weight (e.g., 0.1)
-                    increment = quality_verifier_tool_followup_weight
+                    increment_scaled = qv_tool_followup_increment_scaled(
+                        quality_verifier_tool_followup_weight
+                    )
                 else:
-                    # Regular user turn: increment by 1.0
-                    increment = 1.0
+                    increment_scaled = qv_user_turn_increment_scaled()
 
-                new_count = max(0.0, float(current_eligible_turn_count)) + increment
+                new_scaled = max(0, int(current_eligible_turn_scaled)) + int(
+                    increment_scaled
+                )
                 try:
                     new_state = session.state.with_multiple_updates(
-                        quality_verifier_eligible_turn_count=new_count
+                        quality_verifier_eligible_turn_count=new_scaled
                     )
                     session.update_state(new_state)
                 except Exception:
@@ -734,20 +758,25 @@ class RequestProcessor(IRequestProcessor):
                     pass
                 self._set_quality_verifier_turn_count(
                     quality_verifier_session_id,
-                    new_count,
+                    new_scaled,
                 )
-                current_eligible_turn_count = new_count
+                current_eligible_turn_scaled = new_scaled
                 quality_verifier_turn_incremented = True
 
-                # Log fractional increments for debugging
                 if logger.isEnabledFor(logging.DEBUG) and is_tool_followup:
+                    lf = logical_floor_from_scaled(new_scaled)
                     logger.debug(
-                        f"Quality Verifier turn count: session={quality_verifier_session_id}, "
-                        f"count={new_count:.2f} (tool followup +{increment:.2f})"
+                        "Quality Verifier: counter incremented for tool follow-up "
+                        "(scaled=%s logical_floor=%s tool_increment_scaled=%s); "
+                        "stream verification skipped on this request (tool-result continuation — "
+                        "verifier runs on completions that are not tool-follow-ups).",
+                        new_scaled,
+                        lf,
+                        increment_scaled,
                     )
 
-            context.extensions["quality_verifier_eligible_turn_count"] = float(
-                current_eligible_turn_count
+            context.extensions["quality_verifier_eligible_turn_count"] = int(
+                current_eligible_turn_scaled
             )
 
             if logger.isEnabledFor(logging.DEBUG):
@@ -755,15 +784,18 @@ class RequestProcessor(IRequestProcessor):
                     freq_int = max(1, int(quality_verifier_frequency))
                 except (TypeError, ValueError):
                     freq_int = 10
-                # Use integer floor for checking frequency trigger
-                current_turn_floor = int(current_eligible_turn_count)
+                current_turn_floor = logical_floor_from_scaled(
+                    int(current_eligible_turn_scaled)
+                )
                 should_run_next = (
                     current_turn_floor > 0 and (current_turn_floor % freq_int) == 0
                 )
                 logger.debug(
-                    "Quality Verifier scheduling: effective_session=%s eligible_turn=%.2f frequency=%s run_now=%s",
+                    "Quality Verifier scheduling: effective_session=%s "
+                    "scaled=%s logical_floor=%s frequency=%s run_now=%s",
                     quality_verifier_session_id,
-                    current_eligible_turn_count,
+                    current_eligible_turn_scaled,
+                    current_turn_floor,
                     freq_int,
                     should_run_next,
                 )

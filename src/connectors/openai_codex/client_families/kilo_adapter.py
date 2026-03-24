@@ -25,11 +25,14 @@ logger = logging.getLogger(__name__)
 
 
 class KiloClientFamilyAdapter(IClientFamilyAdapter):
-    """Compatibility adapter for KiloCode, RooCode, and Cline XML clients."""
+    """Compatibility adapter for KiloCode and RooCode XML clients.
+
+    Vanilla Cline uses native Codex tooling and does not activate this layer.
+    """
 
     family = "cline_like"
 
-    _CLINE_LIKE_ALIASES = {
+    _KILOCODE_ROO_METADATA_ALIASES = {
         "kilocode",
         "kilo-code",
         "kilo_code",
@@ -43,8 +46,6 @@ class KiloClientFamilyAdapter(IClientFamilyAdapter):
         "roo cline",
         "roo-cline",
         "roo_cline",
-        "cline",
-        "cline.ai",
     }
     _SUPPORTED_XML_TOOL_NAMES = {
         "shell",
@@ -322,15 +323,18 @@ class KiloClientFamilyAdapter(IClientFamilyAdapter):
                 .replace(".", "")
                 .replace(" ", "")
             )
-            if candidate.lower().strip() in self._CLINE_LIKE_ALIASES or normalized in {
-                "kilocode",
-                "kiloc",
-                "kilo",
-                "cline",
-                "roo",
-                "roocode",
-                "roocline",
-            }:
+            if (
+                candidate.lower().strip() in self._KILOCODE_ROO_METADATA_ALIASES
+                or normalized
+                in {
+                    "kilocode",
+                    "kiloc",
+                    "kilo",
+                    "roo",
+                    "roocode",
+                    "roocline",
+                }
+            ):
                 return True
         return False
 

@@ -121,7 +121,7 @@ class TestSessionDetectorMetadataDetection:
 
     @pytest.mark.asyncio
     async def test_detect_cline_from_metadata(self):
-        """Test that Cline is treated as part of the Cline-like XML family."""
+        """Vanilla Cline must not be classified as KiloCode (native Codex path)."""
         detector = SessionDetector()
         metadata = {"agent": "cline"}
         request_data = MagicMock()
@@ -133,9 +133,9 @@ class TestSessionDetectorMetadataDetection:
             backend="openai-codex",
         )
 
-        assert result.is_kilocode is True
-        assert result.detection_method == "metadata"
-        assert result.confidence == 1.0
+        assert result.is_kilocode is False
+        assert result.detection_method == "none"
+        assert result.confidence == 0.0
 
     @pytest.mark.asyncio
     async def test_detect_roocode_from_metadata(self):
@@ -249,7 +249,7 @@ class TestSessionDetectorHeaderDetection:
 
     @pytest.mark.asyncio
     async def test_detect_cline_from_user_agent(self):
-        """Test header detection for Cline user-agent."""
+        """Cline User-Agent must not trigger KiloCode compatibility detection."""
         detector = SessionDetector()
         request_data = MagicMock()
         request_data.headers = {"User-Agent": "cline/3.14.0"}
@@ -262,8 +262,8 @@ class TestSessionDetectorHeaderDetection:
             backend="openai-codex",
         )
 
-        assert result.is_kilocode is True
-        assert result.detection_method == "header"
+        assert result.is_kilocode is False
+        assert result.detection_method == "none"
 
     @pytest.mark.asyncio
     async def test_non_cline_like_user_agent_not_detected(self):

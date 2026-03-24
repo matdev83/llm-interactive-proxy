@@ -1,4 +1,4 @@
-"""Session detection for Cline-like XML compatibility in OpenAI Codex connector."""
+"""Session detection for KiloCode/RooCode XML compatibility in OpenAI Codex connector."""
 
 from __future__ import annotations
 
@@ -57,12 +57,13 @@ class CacheStats:
 
 @dataclass
 class DetectionResult:
-    """Result of Cline-like client detection.
+    """Result of KiloCode/RooCode XML compatibility detection.
 
     Note:
     The public field name remains ``is_kilocode`` for backward compatibility with
-    the existing connector contracts and tests. Semantically it now means
-    "belongs to the Cline/KiloCode/RooCode XML client family".
+    the existing connector contracts. Semantically it means the request should use
+    the KiloCode/RooCode XML compatibility layer. Vanilla **Cline** is excluded
+    (native Codex tooling); Roo ``*cline`` variants remain included.
     """
 
     is_kilocode: bool
@@ -73,7 +74,7 @@ class DetectionResult:
 
 
 class SessionDetector:
-    """Detect Cline-like XML clients with caching for performance."""
+    """Detect KiloCode/RooCode XML compatibility clients with caching for performance."""
 
     KILOCODE_ALIASES = {
         "kilocode",
@@ -83,9 +84,7 @@ class SessionDetector:
         "kiloc",
         "kilo",
     }
-    CLINE_LIKE_ALIASES = KILOCODE_ALIASES | {
-        "cline",
-        "cline.ai",
+    ROOCODE_FAMILY_ALIASES = {
         "roo",
         "roocode",
         "roo-code",
@@ -94,6 +93,10 @@ class SessionDetector:
         "roo-cline",
         "roo_cline",
     }
+    # Vanilla Cline is intentionally excluded (false-positive prevention; native Codex path).
+    KILOCODE_COMPAT_METADATA_ALIASES = frozenset(
+        KILOCODE_ALIASES | ROOCODE_FAMILY_ALIASES
+    )
 
     # XML tags that are characteristic of KiloCode clients
     KILOCODE_XML_TAGS = {
@@ -326,7 +329,7 @@ class SessionDetector:
 
         normalized = self._normalize_agent_string(agent_lower)
 
-        if self._is_cline_like_agent(agent_lower, normalized):
+        if self._matches_kilocode_compat_agent(agent_lower, normalized):
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="metadata",
@@ -335,7 +338,7 @@ class SessionDetector:
                 timestamp=time.time(),
             )
 
-        if normalized.startswith(("kilocode", "roocode", "cline")):
+        if normalized.startswith(("kilocode", "roocode")):
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="metadata",
@@ -381,7 +384,7 @@ class SessionDetector:
 
         normalized = self._normalize_agent_string(user_agent_lower)
 
-        if self._contains_cline_like_alias(user_agent_lower, normalized):
+        if self._user_agent_matches_kilocode_compat(user_agent_lower, normalized):
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="header",
@@ -390,7 +393,7 @@ class SessionDetector:
                 timestamp=time.time(),
             )
 
-        if any(token in normalized for token in ("kilocode", "roocode", "cline")):
+        if any(token in normalized for token in ("kilocode", "roocode")):
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="header",
@@ -471,27 +474,28 @@ class SessionDetector:
             .replace(" ", "")
         )
 
-    def _is_cline_like_agent(self, agent_lower: str, normalized: str) -> bool:
-        if agent_lower in self.CLINE_LIKE_ALIASES:
+    def _matches_kilocode_compat_agent(self, agent_lower: str, normalized: str) -> bool:
+        if agent_lower in self.KILOCODE_COMPAT_METADATA_ALIASES:
             return True
         return normalized in {
             "kilocode",
             "kiloc",
             "kilo",
-            "cline",
             "roo",
             "roocode",
             "roocline",
         }
 
-    def _contains_cline_like_alias(
+    def _user_agent_matches_kilocode_compat(
         self, user_agent_lower: str, normalized: str
     ) -> bool:
-        if any(alias in user_agent_lower for alias in self.CLINE_LIKE_ALIASES):
+        if any(
+            alias in user_agent_lower for alias in self.KILOCODE_COMPAT_METADATA_ALIASES
+        ):
             return True
         return any(
             token in normalized
-            for token in ("kilocode", "kiloc", "cline", "roocode", "roocline")
+            for token in ("kilocode", "kiloc", "roocode", "roocline")
         )
 
     async def invalidate_cache(self, session_id: str, backend: str) -> None:

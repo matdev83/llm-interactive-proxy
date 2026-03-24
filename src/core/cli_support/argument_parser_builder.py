@@ -309,6 +309,16 @@ class ArgumentParserBuilder:
             metavar="SECONDS",
             help="Time-to-first-token timeout for Quality Verifier calls (default: 30)",
         )
+        parser.add_argument(
+            "--quality-verifier-tool-followup-weight",
+            dest="quality_verifier_tool_followup_weight",
+            type=float,
+            metavar="WEIGHT",
+            help=(
+                "Eligible-turn increment per tool-result follow-up request for Quality "
+                "Verifier scheduling, 0.0-1.0 (default: 0.2)"
+            ),
+        )
 
     def _validate_model_alias(self, value: str) -> tuple[str, str]:
         """Validate model alias format: pattern=replacement."""

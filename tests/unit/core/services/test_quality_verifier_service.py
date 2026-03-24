@@ -322,6 +322,11 @@ def test_coerce_eligible_turn_floor() -> None:
     assert QualityVerifierService.coerce_eligible_turn_floor(10.7) == 10
     assert QualityVerifierService.coerce_eligible_turn_floor(0) is None
     assert QualityVerifierService.coerce_eligible_turn_floor(True) is None
+    # Scaled storage (1000 units per logical turn)
+    assert QualityVerifierService.coerce_eligible_turn_floor(10_000) == 10
+    assert QualityVerifierService.coerce_eligible_turn_floor(8200) == 8
+    # Legacy small int = whole logical turns
+    assert QualityVerifierService.coerce_eligible_turn_floor(7) == 7
 
 
 def test_should_run_verification_prefers_eligible_raw() -> None:
@@ -335,6 +340,9 @@ def test_should_run_verification_prefers_eligible_raw() -> None:
     )
     assert QualityVerifierService.should_run_verification(
         req, 1, eligible_turn_raw=None
+    )
+    assert QualityVerifierService.should_run_verification(
+        req, 10, eligible_turn_raw=10_000
     )
 
 

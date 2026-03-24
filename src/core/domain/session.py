@@ -86,9 +86,9 @@ class SessionState(ValueObject):
     replacement_disabled: bool = False
     client_os: str | None = None
 
-    # Quality Verifier turn accounting
-    # Counts only "eligible" turns (i.e., turns handled by the main model, excluding
-    # tool-result continuation requests and random replacement-model turns).
+    # Quality Verifier turn accounting (scaled integer storage units; see
+    # quality_verifier_turns.QV_ELIGIBLE_TURN_SCALE). Counts only eligible turns
+    # (main model, excluding tool-result continuations and replacement-model turns).
     quality_verifier_eligible_turn_count: int = 0
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:

@@ -23,7 +23,7 @@ This caused the `eligible_turn` count to only increment for regular user message
 
 ## Solution: Fractional Turn Counting
 
-Tool followup requests now count as **fractional turns** (default: `0.1`) instead of being completely excluded from turn counting. This ensures that the Quality Verifier will eventually trigger even in tool-heavy workloads.
+Tool followup requests now count as **fractional turns** (default: `0.2`) instead of being completely excluded from turn counting. This ensures that the Quality Verifier will eventually trigger even in tool-heavy workloads.
 
 ### Configuration
 
@@ -31,36 +31,42 @@ A new configuration parameter controls the fractional weight:
 
 ```yaml
 session:
-  quality_verifier_tool_followup_weight: 0.1  # Default: 0.1
+  quality_verifier_tool_followup_weight: 0.2  # Default: 0.2
 ```
 
+CLI: `--quality-verifier-tool-followup-weight WEIGHT`  
+Environment: `QUALITY_VERIFIER_TOOL_FOLLOWUP_WEIGHT`
+
 - **Range**: `0.0` to `1.0`
-- **Default**: `0.1` (10 tool followups = 1 full turn)
+- **Default**: `0.2` (5 tool followups = 1 full turn)
 - **Special case**: Set to `0.0` to completely exclude tool followups from turn counting (not recommended)
 
 ### Updated Behavior
 
 1. **Regular user turn**: `turn_count += 1.0`
-2. **Tool followup request**: `turn_count += 0.1` (or configured weight)
+2. **Tool followup request**: `turn_count += weight` (configured weight, default `0.2`)
 3. **Replacement active**: `turn_count` unchanged (existing behavior)
 
-The turn counter is now a `float` instead of an `int`, allowing gradual accumulation across tool-heavy interactions.
+The turn counter is stored as a **scaled integer** internally (see
+`src/core/domain/quality_verifier_turns.py`: `logical_turn * 1000` storage units) so
+scheduling floors and DEBUG lines do not suffer floating-point rounding. Legacy
+`float` / small `int` values in session state are migrated on read.
 
 ### Example
 
-With the default weight of `0.1`:
+With the default weight of `0.2`:
 
 - User message → turn count: `1.0`
-- Tool result → turn count: `1.1`
 - Tool result → turn count: `1.2`
+- Tool result → turn count: `1.4`
 - ...
-- Tool result → turn count: `1.9`
-- Tool result → turn count: `2.0` ← **Quality Verifier triggers at frequency=10 when count reaches 10.0**
+- Tool result → turn count: `1.8`
+- Tool result → turn count: `2.0` ← **Quality Verifier triggers at frequency=10 when integer floor reaches 10**
 
 ### Technical Implementation
 
 1. **Config Model** (`src/core/config/models/session.py`):
-   - Added `quality_verifier_tool_followup_weight: float = 0.1`
+   - Added `quality_verifier_tool_followup_weight: float = 0.2`
    - Added validator to clamp value between `0.0` and `1.0`
 
 2. **YAML Schema** (`config/schemas/app_config.schema.yaml`):
@@ -95,20 +101,22 @@ This means that with frequency=10:
 ## Benefits
 
 1. **Quality Verifier actually runs**: No longer blocked by tool-heavy workloads
-2. **Configurable**: Weight can be tuned based on observed behavior
-3. **Backward compatible**: Default weight of `0.1` is conservative and won't cause excessive Quality Verifier calls
-4. **Graceful degradation**: In tool-heavy sessions, Quality Verifier still triggers eventually (after ~100 tool calls with default weight)
+2. **Configurable**: Weight can be tuned via config, CLI, or environment
+3. **Tunable default**: Default weight `0.2` reaches verifier thresholds faster than `0.1` in tool-heavy sessions
+4. **Graceful degradation**: In tool-heavy sessions, Quality Verifier still triggers eventually
 
 ## Tuning Recommendations
 
-- **Default (`0.1`)**: Good balance for most coding sessions
-- **Higher (`0.2-0.3`)**: For projects with very frequent tool use where you want more frequent Quality Verifier checks
-- **Lower (`0.05`)**: For projects where tool calls are expected to be very long sequences
+- **Default (`0.2`)**: Good balance for most coding sessions
+- **Higher (`0.3-0.5`)**: For projects with very frequent tool use where you want more frequent Quality Verifier checks
+- **Lower (`0.1`)**: For projects where tool calls are expected to be very long sequences
 - **Zero (`0.0`)**: Not recommended; reverts to buggy behavior where tool followups don't count
 
 ## Migration Notes
 
 Existing sessions with integer turn counts will automatically upgrade to float:
 - Stored count `5` → loaded as `5.0`
-- Next tool followup → `5.1`
+- Next tool followup → `5.2` (with default weight `0.2`)
 - Seamless transition, no data migration required
+
+If you relied on the previous default weight of `0.1`, set `quality_verifier_tool_followup_weight: 0.1` in config or pass `--quality-verifier-tool-followup-weight 0.1`.
