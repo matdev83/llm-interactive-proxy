@@ -16,7 +16,7 @@ call_surfaces:
   - id: quality_verifier_verification
     kind: direct
     file: src/core/services/backend_request_manager/quality_verifier_stream_verifier.py
-    function: _run_assessment_in_background
+    function: _call_verifier_once
     call: backend_service.chat_completions
 
   - id: quality_verifier_correction

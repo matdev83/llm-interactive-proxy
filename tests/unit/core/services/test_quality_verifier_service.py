@@ -329,9 +329,7 @@ def test_should_run_verification_prefers_eligible_raw() -> None:
         model="x",
         messages=[ChatMessage(role="user", content="a")],
     )
-    assert QualityVerifierService.should_run_verification(
-        req, 10, eligible_turn_raw=10
-    )
+    assert QualityVerifierService.should_run_verification(req, 10, eligible_turn_raw=10)
     assert not QualityVerifierService.should_run_verification(
         req, 10, eligible_turn_raw=9
     )
@@ -350,14 +348,13 @@ async def test_maybe_retry_verifier_for_valid_xml_retries_once() -> None:
     calls: list[int] = []
 
     async def call_once(req: ChatRequest) -> str | None:
-        calls.append(len(calls))
-        if len(calls) == 1:
-            return "not xml"
+        # first_text is validated locally; call_once is only the format-retry round trip
+        calls.append(1)
         return "<status>NO_STEERING_NEEDED</status>"
 
     out = await svc.maybe_retry_verifier_for_valid_xml(vreq, "not xml", call_once)
     assert out == "<status>NO_STEERING_NEEDED</status>"
-    assert len(calls) == 2
+    assert len(calls) == 1
 
 
 async def test_maybe_retry_verifier_skips_second_call_when_first_valid() -> None:
