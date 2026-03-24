@@ -212,10 +212,23 @@ class EndOfSessionService(IEndOfSessionService):
             return
 
         try:
-            await asyncio.wait_for(
-                asyncio.shield(self._event_bus.publish(event)),
-                timeout=timeout,
-            )
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "EoS event publish skipped: no running event loop",
+                    exc_info=True,
+                )
+            return
+
+        if loop.is_closed():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("EoS event publish skipped: event loop is closed")
+            return
+
+        publish_task = asyncio.create_task(self._event_bus.publish(event))
+        try:
+            await asyncio.wait_for(asyncio.shield(publish_task), timeout=timeout)
             logger.info(
                 "EoS event emitted for session %s request %s (signal_type=%s, category=%s)",
                 event.session_id,

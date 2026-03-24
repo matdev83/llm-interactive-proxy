@@ -35,16 +35,33 @@ async def _await_shielded(awaitable: object) -> None:
 
     Using AnyIO's shielded cancel scope ensures cleanup completes before we re-raise
     the cancellation.
+
+    During process/event-loop shutdown there may be no asyncio context registered
+    with sniffio, so CancelScope construction can raise AsyncLibraryNotFoundError.
+    In that case we await without a cancel scope. If there is no running loop at all,
+    we skip the await (connections are torn down with the process).
     """
     try:
-        import anyio
+        asyncio.get_running_loop()
+    except RuntimeError:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Skipping shielded DB cleanup: no running event loop",
+                exc_info=True,
+            )
+        return
 
-        with anyio.CancelScope(shield=True):
-            await awaitable  # type: ignore[misc]
-            return
-    except Exception:
-        # Fall back to asyncio.shield for environments where AnyIO isn't available.
-        await asyncio.shield(awaitable)  # type: ignore[arg-type]
+    import anyio
+    from sniffio import AsyncLibraryNotFoundError
+
+    try:
+        scope = anyio.CancelScope(shield=True)
+    except AsyncLibraryNotFoundError:
+        await awaitable  # type: ignore[misc]
+        return
+
+    with scope:
+        await awaitable  # type: ignore[misc]
 
 
 class DatabaseEngine:

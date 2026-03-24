@@ -119,6 +119,7 @@ class TestSingleUserModeOAuthSupport:
             enable_gemini_oauth_plan_backend_debugging_override=True,
             enable_qwen_oauth_backend_debugging_override=True,
             enable_anthropic_oauth_backend_debugging_override=True,
+            enable_openai_codex_backend_debugging_override=True,
         )
 
         # Should not raise
@@ -220,6 +221,7 @@ class TestMultiUserModeOAuthFlags:
             "enable_anthropic_oauth_backend_debugging_override",
             "enable_opencode_zen_backend_debugging_override",
             "enable_kiro_oauth_auto_backend_debugging_override",
+            "enable_openai_codex_backend_debugging_override",
         ],
     )
     def test_multi_user_mode_rejects_each_oauth_flag(

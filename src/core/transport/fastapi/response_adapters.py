@@ -219,7 +219,11 @@ async def _handle_client_stream_disconnect(
     )
 
     try:
-        await asyncio.shield(client_eos_service.report_client_termination(signal))
+        # Avoid asyncio.shield here: on server shutdown the loop may be closing and
+        # shield schedules work that outlives the disconnect cleanup task, causing
+        # "Task was destroyed but it is pending" noise. Fire-and-forget scheduling
+        # already isolates this path from the streaming generator.
+        await client_eos_service.report_client_termination(signal)
     except Exception as exc:
         logger.warning(
             "Failed to report client stream termination: %s",

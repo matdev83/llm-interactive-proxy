@@ -905,6 +905,12 @@ class ArgumentParserBuilder:
             help="Enable the Kiro OAuth Auto backend connector for debugging. Reserved for internal development.",
         )
         debugging_overrides_group.add_argument(
+            "--enable-openai-codex-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the OpenAI Codex backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
             "--enable-droid-path-fix",
             action="store_true",
             dest="droid_path_fix_enabled",

@@ -337,6 +337,10 @@ class BackendApplicator:
                 "enable_kiro_oauth_auto_backend_debugging_override",
                 "kiro_oauth_auto",
             ),
+            (
+                "enable_openai_codex_backend_debugging_override",
+                "openai_codex",
+            ),
         ]
 
         for flag_name, backend_name in debug_flags:
