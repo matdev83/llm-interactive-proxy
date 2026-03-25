@@ -15,7 +15,7 @@ Registers:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
@@ -38,6 +38,35 @@ def register_orchestration_core_services(services: ServiceCollection) -> None:
     _register_response_processor(services)
     _register_backend_request_manager(services)
     _register_request_processor(services)
+    _register_quality_verifier_turn_ledger(services)
+
+
+def _register_quality_verifier_turn_ledger(services: ServiceCollection) -> None:
+    """Register IQualityVerifierTurnLedger (lazy delegate to IRequestProcessor)."""
+    from src.core.di.registrations._shared import register_singleton_if_absent
+    from src.core.interfaces.quality_verifier_turn_ledger_interface import (
+        IQualityVerifierTurnLedger,
+    )
+    from src.core.services.quality_verifier_turn_ledger import (
+        ProviderBackedQualityVerifierTurnLedger,
+    )
+
+    def _ledger_factory(provider: IServiceProvider) -> Any:
+        return ProviderBackedQualityVerifierTurnLedger(provider)
+
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IQualityVerifierTurnLedger),
+            implementation_factory=_ledger_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to register IQualityVerifierTurnLedger: %s",
+                e,
+                exc_info=True,
+            )
 
 
 def _register_response_handlers(services: ServiceCollection) -> None:
@@ -236,6 +265,13 @@ def _register_response_processor(services: ServiceCollection) -> None:
     def _real_response_processor_factory(
         provider: IServiceProvider,
     ) -> ResponseProcessor:
+        from src.core.interfaces.quality_verifier_turn_ledger_interface import (
+            IQualityVerifierTurnLedger,
+        )
+        from src.core.services.quality_verifier_turn_ledger import (
+            ProviderBackedQualityVerifierTurnLedger,
+        )
+
         response_parser: IResponseParser = provider.get_required_service(
             cast(type, IResponseParser)  # type: ignore[type-abstract]
         )
@@ -256,12 +292,22 @@ def _register_response_processor(services: ServiceCollection) -> None:
             cancellation_coordinator = provider.get_service(
                 cast(type, ISessionCancellationCoordinator)  # type: ignore[type-abstract]
             )
+        turn_ledger: ProviderBackedQualityVerifierTurnLedger = cast(
+            ProviderBackedQualityVerifierTurnLedger,
+            provider.get_required_service(
+                cast(type, IQualityVerifierTurnLedger)  # type: ignore[type-abstract]
+            ),
+        )
+        # IBackendRequestManager is resolved lazily inside non-streaming QV to avoid
+        # ResponseProcessor <-> BackendRequestManager construction cycles.
         return ResponseProcessor(
             response_parser=response_parser,
             app_state=app_state,
             stream_normalizer=stream_normalizer,
             memory_capture=memory_capture,
             cancellation_coordinator=cancellation_coordinator,
+            turn_ledger=turn_ledger,
+            backend_request_manager=None,
         )
 
     register_singleton_if_absent(

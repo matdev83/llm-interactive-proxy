@@ -15,7 +15,7 @@ call_surfaces:
 
   - id: quality_verifier_verification
     kind: direct
-    file: src/core/services/backend_request_manager/quality_verifier_stream_verifier.py
+    file: src/core/services/quality_verifier_orchestrator.py
     function: _call_verifier_once
     call: backend_service.chat_completions
 
@@ -23,18 +23,6 @@ call_surfaces:
     kind: indirect
     file: src/core/services/request_transform_pipeline.py
     marker: consume_pending_quality_verifier_steering(
-    routes_via: primary_request_execution
-
-  - id: quality_verifier_response_verification
-    kind: direct
-    file: src/core/services/response_processor_service.py
-    function: _call_quality_verifier_once
-    call: backend_service.chat_completions
-
-  - id: quality_verifier_response_correction
-    kind: indirect
-    file: src/core/services/response_processor_service.py
-    marker: store_pending_quality_verifier_steering(
     routes_via: primary_request_execution
 
   - id: project_directory_resolution

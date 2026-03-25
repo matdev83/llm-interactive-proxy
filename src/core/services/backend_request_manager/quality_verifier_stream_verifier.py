@@ -1,41 +1,47 @@
 """
 Quality Verifier stream verifier service.
 
-This service buffers and verifies streaming output when Quality Verifier is enabled,
-returning corrected output when steering decisions occur.
+On scheduled verifier turns, buffers the main-model stream until the verifier
+(and optional steering recall) completes, then yields either the original
+buffer, the recall stream, or a fail-open passthrough.
 
 Requirements: 4.5, 5.5
 """
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import json
 import logging
-import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
-from src.core.common.session_key_resolver import (
-    resolve_session_key_from_request_context,
-)
 from src.core.domain.backend_request_manager.context_models import StreamingContext
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_request_manager_components import (
     IQualityVerifierStreamVerifier,
 )
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.notification_service_interface import INotificationService
+from src.core.interfaces.quality_verifier_turn_ledger_interface import (
+    IQualityVerifierTurnLedger,
+)
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
+from src.core.services.quality_verifier_orchestrator import (
+    run_quality_verifier_decision,
+)
+from src.core.services.quality_verifier_recall_context import (
+    fork_request_context_for_quality_verifier_steering_recall,
+)
 from src.core.services.quality_verifier_service import QualityVerifierService
-from src.core.services.quality_verifier_steering_store import (
-    store_pending_quality_verifier_steering,
+from src.core.services.quality_verifier_steering_messages import (
+    append_quality_verifier_steering_system_message,
 )
 
 logger = logging.getLogger(__name__)
@@ -54,20 +60,20 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
         quality_verifier_service_factory: Any,  # IQualityVerifierServiceFactory
         provider: IServiceProvider,
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
+        turn_ledger: IQualityVerifierTurnLedger | None = None,
     ) -> None:
         """Initialize the Quality Verifier stream verifier.
 
         Args:
             quality_verifier_service_factory: Factory for creating QualityVerifierService instances
-            provider: Service provider for resolving IBackendService
+            provider: Service provider for resolving backend services
             cancellation_coordinator: Coordinator for session cancellation checks
+            turn_ledger: Resets eligible-turn counter after a verification episode
         """
         self._quality_verifier_service_factory = quality_verifier_service_factory
         self._provider = provider
         self._cancellation_coordinator = cancellation_coordinator
-        # Keep references to background tasks to avoid premature GC and to prevent
-        # "Task exception was never retrieved" warnings.
-        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._turn_ledger = turn_ledger
 
     def _extract_text_from_chunk(self, chunk: ProcessedResponse) -> str:
         """Extract textual content from a streaming chunk."""
@@ -280,103 +286,62 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
 
         return True
 
-    @staticmethod
-    def _response_indicates_backend_error(payload: Any) -> bool:
-        """Detect backend failure encoded as a non-exception response object."""
-        status_code = getattr(payload, "status_code", None)
-        if isinstance(status_code, int) and status_code >= 400:
-            return True
-
-        if isinstance(payload, ResponseEnvelope):
-            if payload.status_code >= 400:
-                return True
-            if isinstance(payload.content, dict) and payload.content.get("error"):
-                return True
-
-        content = getattr(payload, "content", payload)
-        return isinstance(content, dict) and bool(content.get("error"))
-
-    async def _collect_streaming_quality_verifier_text(
-        self,
-        response: StreamingResponseEnvelope,
-        *,
-        ttft_timeout_seconds: float,
-    ) -> str | None:
-        """Collect streamed verifier output with TTFT enforcement."""
-        stream = response.content
-        if stream is None:
-            return ""
-
-        deadline = time.monotonic() + ttft_timeout_seconds
-        first_non_dummy_seen = False
-        saw_error_chunk = False
-        text_parts: list[str] = []
-
-        iterator = stream.__aiter__()
-
-        try:
-            while True:
-                try:
-                    if first_non_dummy_seen:
-                        chunk = await anext(iterator)
-                    else:
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            raise asyncio.TimeoutError(
-                                "Quality Verifier TTFT timeout exceeded"
-                            )
-                        chunk = await asyncio.wait_for(
-                            anext(iterator), timeout=remaining
-                        )
-                except StopAsyncIteration:
-                    break
-
-                if self._chunk_contains_backend_error(chunk):
-                    saw_error_chunk = True
-
-                if not first_non_dummy_seen and self._is_non_dummy_stream_chunk(chunk):
-                    first_non_dummy_seen = True
-
-                text_piece = self._extract_text_from_chunk(chunk)
-                if text_piece:
-                    text_parts.append(text_piece)
-        except asyncio.TimeoutError:
-            cancel_callback = response.cancel_callback
-            if cancel_callback is not None:
-                with contextlib.suppress(Exception):
-                    await cancel_callback()
-            raise
-
-        if saw_error_chunk:
-            return None
-
-        return "".join(text_parts)
-
-    def _extract_text_from_response(self, payload: Any) -> str:
-        """Extract text from backend response payload."""
-        if payload is None:
-            return ""
-        value = getattr(payload, "content", payload)
-        if isinstance(value, dict):
-            return self._extract_text_from_openai_payload(value)
-        if isinstance(value, str):
-            return value
-        if isinstance(value, bytes):
+    def _quality_verifier_session_key(
+        self, request_context: RequestContext | None
+    ) -> str:
+        if request_context is not None:
             try:
-                return value.decode("utf-8")
-            except UnicodeDecodeError:
-                # Expected for non-UTF-8 content, fallback to ignore errors
-                return value.decode("utf-8", errors="ignore")
-            except Exception as e:
-                # Unexpected exception during decoding
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Unexpected error decoding response content: %s",
-                        e,
+                raw = request_context.extensions.get(
+                    "quality_verifier_effective_session_id"
+                )
+                if raw is not None and str(raw).strip():
+                    return str(raw).strip()
+            except Exception:
+                pass
+            sid = getattr(request_context, "session_id", None)
+            if isinstance(sid, str) and sid.strip():
+                return sid.strip()
+        return ""
+
+    def _maybe_reset_turn_ledger(
+        self,
+        *,
+        should_buffer: bool,
+        buffer_overflow: bool,
+        request_context: RequestContext | None,
+        context: StreamingContext,
+    ) -> None:
+        """Clear eligible-turn state when ``turn_ledger`` is set or resolvable from the provider."""
+        if not should_buffer or buffer_overflow:
+            return
+
+        ledger = self._turn_ledger
+        if ledger is None:
+            try:
+                ledger = self._provider.get_required_service(
+                    cast(type, IQualityVerifierTurnLedger)  # type: ignore[type-abstract]
+                )
+            except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Quality Verifier stream: turn ledger unavailable",
                         exc_info=True,
                     )
-                return value.decode("utf-8", errors="ignore")
-        return str(value)
+                return
+
+        key = self._quality_verifier_session_key(request_context)
+        if not key:
+            key = str(context.get("session_id") or "").strip()
+        if not key:
+            return
+        session_obj = (
+            getattr(request_context, "state", None) if request_context else None
+        )
+        try:
+            ledger.reset_quality_verifier_eligible_turn_count(key, session_obj)
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Quality Verifier turn ledger reset failed", exc_info=True)
 
     async def verify_or_passthrough(  # type: ignore[override, misc]
         self,
@@ -385,17 +350,11 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
         context: StreamingContext,
         request_context: RequestContext | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
-        """Pass through stream and optionally schedule assessment.
-
-        Args:
-            request: The original backend request
-            stream: The streaming response chunks
-            context: Streaming context with session_id, stream_id, quality_verifier_model_spec, quality_verifier_frequency, etc.
+        """Buffer on scheduled verifier turns; run verifier; optional steering recall.
 
         Yields:
-            ProcessedResponse chunks (verified or original)
+            ``ProcessedResponse`` chunks (original buffer, recall stream, or passthrough).
         """
-        # Check if Quality Verifier should run
         quality_verifier_model_spec: str | None = context.get(
             "quality_verifier_model_spec"
         )
@@ -427,18 +386,15 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
         should_buffer = False
         quality_verifier_service_instance: QualityVerifierService | None = None
 
-        # Never run Quality Verifier for tool-result continuation requests.
         if QualityVerifierService.is_tool_result_followup_request(request):
             skip_verification = True
 
-        # Never run Quality Verifier when a random replacement model is active.
         try:
             if request_context and request_context.extensions.get(
                 "model_replacement_active"
             ):
                 skip_verification = True
         except Exception:
-            # Fail-open
             pass
 
         should_run = False
@@ -471,10 +427,6 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
 
         if should_run:
             try:
-                from src.core.interfaces.notification_service_interface import (
-                    INotificationService,
-                )
-
                 notification_service = self._provider.get_service(
                     cast(Any, INotificationService)
                 )
@@ -487,33 +439,12 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     notification_service=notification_service,
                 )
 
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Quality Verifier service created: instance=%s enabled=%s healthy=%s",
-                        quality_verifier_service_instance is not None,
-                        (
-                            quality_verifier_service_instance.is_enabled()
-                            if quality_verifier_service_instance
-                            else False
-                        ),
-                        (
-                            quality_verifier_service_instance.is_healthy()
-                            if quality_verifier_service_instance
-                            else False
-                        ),
-                    )
-
                 if (
                     quality_verifier_service_instance is not None
                     and quality_verifier_service_instance.is_enabled()
                     and quality_verifier_service_instance.is_healthy()
                 ):
                     should_buffer = True
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Quality Verifier buffering enabled for model %s",
-                            quality_verifier_model_spec,
-                        )
                 elif (
                     quality_verifier_service_instance
                     and not quality_verifier_service_instance.is_healthy()
@@ -525,7 +456,6 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     )
 
             except (RuntimeError, AttributeError, TypeError, ValueError) as e:
-                # Expected exceptions from service creation/factory calls
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Failed to initialize Quality Verifier service for verification: %s",
@@ -533,7 +463,6 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                         exc_info=True,
                     )
             except Exception as e:
-                # Unexpected exceptions - log with more detail for debugging
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Unexpected error initializing Quality Verifier service for verification: %s",
@@ -541,211 +470,136 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                         exc_info=True,
                     )
 
-        # Always forward the original stream immediately. If scheduled, we capture
-        # the textual response in parallel and run the verifier asynchronously after
-        # the stream completes.
+        if not should_buffer:
+            async for chunk in stream:
+                yield chunk
+            return
 
-        capture_enabled = bool(should_buffer)
-        captured_text_parts: list[str] = []
+        buffered: list[ProcessedResponse] = []
+        text_parts: list[str] = []
         total_captured_bytes = 0
+        buffer_overflow = False
 
         async for chunk in stream:
-            # Forward to client first.
-            yield chunk
-
-            if not capture_enabled:
-                continue
-
             text_piece = self._extract_text_from_chunk(chunk)
-            if not text_piece:
-                continue
+            piece_bytes = len(text_piece.encode("utf-8", errors="ignore"))
+            if not buffer_overflow:
+                if (
+                    total_captured_bytes + piece_bytes
+                    > MAX_QUALITY_VERIFIER_BUFFER_BYTES
+                ):
+                    buffer_overflow = True
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Quality Verifier buffer exceeded %d bytes; passthrough without verification",
+                            MAX_QUALITY_VERIFIER_BUFFER_BYTES,
+                        )
+                    for prior in buffered:
+                        yield prior
+                    yield chunk
+                    buffered.clear()
+                    text_parts.clear()
+                    continue
+                buffered.append(chunk)
+                if text_piece:
+                    text_parts.append(text_piece)
+                total_captured_bytes += piece_bytes
+            else:
+                yield chunk
 
-            captured_text_parts.append(text_piece)
-            total_captured_bytes += len(text_piece.encode("utf-8", errors="ignore"))
-            if total_captured_bytes > MAX_QUALITY_VERIFIER_BUFFER_BYTES:
-                capture_enabled = False
-                captured_text_parts.clear()
+        if buffer_overflow:
+            return
+
+        combined_text = "".join(text_parts).strip()
+        if not buffered:
+            return
+
+        # No extractable text: verifier is not run; do not reset the eligible-turn ledger.
+        if not combined_text:
+            for prior in buffered:
+                yield prior
+            return
+
+        backend_service: IBackendService = self._provider.get_required_service(
+            cast(type, IBackendService)
+        )
+        notification_service = self._provider.get_service(
+            cast(Any, INotificationService)
+        )
+
+        outcome = await run_quality_verifier_decision(
+            original_request=request,
+            assistant_text=combined_text,
+            model_spec=str(quality_verifier_model_spec or ""),
+            max_history=quality_verifier_max_history,
+            max_consecutive_failures=quality_verifier_max_consecutive_failures,
+            cooldown_seconds=quality_verifier_cooldown_seconds,
+            ttft_timeout_seconds=quality_verifier_ttft_timeout_seconds,
+            backend_service=backend_service,
+            request_context=request_context,
+            cancellation_coordinator=self._cancellation_coordinator,
+            notification_service=notification_service,
+        )
+
+        self._maybe_reset_turn_ledger(
+            should_buffer=True,
+            buffer_overflow=False,
+            request_context=request_context,
+            context=context,
+        )
+
+        if outcome.kind != "steer" or not (outcome.steering_message or "").strip():
+            for prior in buffered:
+                yield prior
+            return
+
+        steering_msg = (outcome.steering_message or "").strip()
+        if request_context is None:
+            # Ledger already reset above; replay buffer (inline recall needs RequestContext).
+            for prior in buffered:
+                yield prior
+            return
+
+        steered = append_quality_verifier_steering_system_message(request, steering_msg)
+        steered = steered.model_copy(update={"stream": True})
+        recall_ctx = fork_request_context_for_quality_verifier_steering_recall(
+            request_context
+        )
+        session_id = str(context.get("session_id") or "").strip()
+        if not session_id and request_context and request_context.session_id:
+            session_id = str(request_context.session_id).strip()
+
+        try:
+            brm: IBackendRequestManager = self._provider.get_required_service(
+                cast(type, IBackendRequestManager)
+            )
+            recall_env = await brm.process_backend_request(
+                steered, session_id, recall_ctx
+            )
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Quality Verifier steering recall failed; returning original stream",
+                    exc_info=True,
+                )
+            for prior in buffered:
+                yield prior
+            return
+
+        if (
+            isinstance(recall_env, StreamingResponseEnvelope)
+            and recall_env.content is not None
+        ):
+            try:
+                async for recall_chunk in recall_env.content:
+                    yield recall_chunk
+                return
+            except Exception:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Quality Verifier capture limit exceeded (%d bytes); skipping assessment for this turn",
-                        total_captured_bytes,
-                    )
-
-        combined_text = "".join(captured_text_parts).strip()
-        if not combined_text:
-            return
-
-        if not should_buffer:
-            return
-
-        async def _run_assessment_in_background() -> None:
-            try:
-                backend_service: IBackendService = self._provider.get_required_service(
-                    cast(type, IBackendService)
-                )
-
-                from src.core.interfaces.notification_service_interface import (
-                    INotificationService,
-                )
-
-                notification_service = self._provider.get_service(
-                    cast(Any, INotificationService)
-                )
-
-                svc: QualityVerifierService = (
-                    self._quality_verifier_service_factory.create(
-                        quality_verifier_model_spec or "",
-                        max_history=quality_verifier_max_history,
-                        max_consecutive_failures=quality_verifier_max_consecutive_failures,
-                        cooldown_seconds=quality_verifier_cooldown_seconds,
-                        notification_service=notification_service,
-                    )
-                )
-
-                if not svc.is_enabled() or not svc.is_healthy():
-                    return
-
-                # Cancellation gate (best effort)
-                if self._cancellation_coordinator and request_context:
-                    cancel_session_key = resolve_session_key_from_request_context(
-                        request_context
-                    )
-                    if cancel_session_key:
-                        self._cancellation_coordinator.ensure_not_cancelled(
-                            cancel_session_key
-                        )
-
-                verification_request = svc.build_verification_request(
-                    request, combined_text
-                )
-
-                async def _call_verifier_once(qv_request: ChatRequest) -> str | None:
-                    if request_context is not None:
-                        request_context.extensions["call_purpose"] = "quality_verifier"
-                    try:
-                        verifier_response = await backend_service.chat_completions(
-                            qv_request,
-                            stream=True,
-                            allow_failover=True,
-                            context=request_context,
-                        )
-                    except Exception:
-                        await svc.report_failure()
-                        return None
-
-                    if self._response_indicates_backend_error(verifier_response):
-                        await svc.report_failure()
-                        return None
-
-                    try:
-                        if isinstance(verifier_response, StreamingResponseEnvelope):
-                            vtext = await self._collect_streaming_quality_verifier_text(
-                                verifier_response,
-                                ttft_timeout_seconds=quality_verifier_ttft_timeout_seconds,
-                            )
-                            if vtext is None:
-                                await svc.report_failure()
-                                return None
-                            return vtext
-                        return self._extract_text_from_response(verifier_response)
-                    except asyncio.TimeoutError:
-                        await svc.report_failure()
-                        return None
-                    except Exception:
-                        await svc.report_failure()
-                        return None
-
-                verifier_text = await _call_verifier_once(verification_request)
-                verifier_text = await svc.maybe_retry_verifier_for_valid_xml(
-                    verification_request,
-                    verifier_text,
-                    _call_verifier_once,
-                )
-
-                if verifier_text is None:
-                    return
-
-                is_valid, _reason = svc.validate_quality_verifier_output_format(
-                    verifier_text or ""
-                )
-                if not is_valid:
-                    # Soft fail: ignore bad formats. Count as failure so circuit breaker can
-                    # disable a misconfigured verifier without impacting the client.
-                    await svc.report_failure()
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Quality Verifier output invalid; ignoring (%s)",
-                            _reason or "invalid format",
-                        )
-                    return
-
-                decision = svc.parse_quality_verifier_output(verifier_text or "")
-                steering_msg = (decision.steering_message or "").strip()
-
-                # Log the Quality Verifier decision and steering message
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Quality Verifier decision: %s (steering_message=%s)",
-                        decision.decision,
-                        steering_msg or "None",
-                        extra={
-                            "session_id": str(context.get("session_id") or ""),
-                            "decision": decision.decision,
-                            "steering_message": steering_msg,
-                            "call_purpose": "quality_verifier",
-                        },
-                    )
-
-                if decision.decision != "steer" or not steering_msg:
-                    await svc.report_success()
-                    return
-
-                await svc.report_success()
-
-                if request_context is None:
-                    return
-                app_state = getattr(request_context, "app_state", None)
-                if app_state is None:
-                    return
-
-                session_key_value = (
-                    request_context.extensions.get(
-                        "quality_verifier_effective_session_id"
-                    )
-                    if hasattr(request_context, "extensions")
-                    else None
-                )
-                session_key = str(
-                    session_key_value
-                    or context.get("session_id")
-                    or request_context.session_id
-                    or ""
-                ).strip()
-                if not session_key:
-                    return
-
-                store_pending_quality_verifier_steering(
-                    app_state=app_state,
-                    session_key=session_key,
-                    steering_message=steering_msg,
-                )
-            except Exception:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Quality Verifier background assessment failed",
+                        "Quality Verifier steering recall stream failed; returning original",
                         exc_info=True,
                     )
 
-        try:
-            task = asyncio.create_task(_run_assessment_in_background())
-            self._background_tasks.add(task)
-
-            def _consume_task_result(t: asyncio.Task[Any]) -> None:
-                self._background_tasks.discard(t)
-                with contextlib.suppress(Exception):
-                    _ = t.result()
-
-            task.add_done_callback(_consume_task_result)
-        except Exception:
-            # If we cannot schedule, just skip assessment.
-            return
+        for prior in buffered:
+            yield prior

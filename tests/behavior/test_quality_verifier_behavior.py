@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import ResponseEnvelope
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
+from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.services.quality_verifier_steering_store import (
     PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY,
@@ -55,6 +58,7 @@ def _make_processor(app_state: _DummyAppState) -> ResponseProcessor:
     processor = ResponseProcessor(
         response_parser=cast(IResponseParser, _DummyParser()),
         stream_normalizer=stream_normalizer,
+        turn_ledger=MagicMock(),
     )
     processor._app_state = app_state  # type: ignore[attr-defined]
     return processor
@@ -99,7 +103,7 @@ async def test_quality_verifier_disabled_does_not_call_backend(
 
 
 @pytest.mark.asyncio
-async def test_quality_verifier_steering_is_private_and_does_not_modify_content(
+async def test_quality_verifier_steering_recalls_inline_without_pending_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = AppConfig(
@@ -119,8 +123,22 @@ async def test_quality_verifier_steering_is_private_and_does_not_modify_content(
 
     service = DummyBackendService()
 
+    class DummyBRM:
+        async def process_backend_request(
+            self, _req: Any, _sid: str, _ctx: Any
+        ) -> ResponseEnvelope:
+            return ResponseEnvelope(
+                content={"content": "Steered", "usage": {}, "metadata": {}}
+            )
+
+    brm = DummyBRM()
+
     class DummyProvider:
         def get_required_service(self, t: Any) -> Any:
+            if t is IBackendRequestManager:
+                return brm
+            if t is IBackendService:
+                return service
             return service
 
         def get_service(self, t: Any) -> Any:
@@ -141,6 +159,10 @@ async def test_quality_verifier_steering_is_private_and_does_not_modify_content(
         app_state=app_state,
         original_request=original_request,
         session_id="s2",
+        extensions={
+            "quality_verifier_model": "demo",
+            "quality_verifier_frequency": 1,
+        },
     )
 
     result = await processor.process_response(
@@ -149,13 +171,10 @@ async def test_quality_verifier_steering_is_private_and_does_not_modify_content(
         context=context,
     )
 
-    assert str(result.content or "") == "Initial"
-
-    await asyncio.sleep(0)
+    assert str(result.content or "") == "Steered"
     assert service.calls == 1
     pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
-    assert isinstance(pending, dict)
-    assert "s2" in pending
+    assert pending == {}
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,7 @@ class QualityVerifierPromptInfo(BaseModel):
     prompts_dir: str | None = None
     quality_verifier_prompt_length: int = 0
     steering_template_length: int = 0
+    quality_verifier_tail_reminder_length: int = 0
 
     model_config = {"extra": "forbid"}
 
@@ -39,6 +40,16 @@ FALLBACK_STEERING_TEMPLATE = (
     "<quality_verifier_steering>\n{quality_verifier_steering_message}\n</quality_verifier_steering>\n"
 )
 
+# Inner text only; QualityVerifierService wraps it in <system-reminder>...</system-reminder>.
+FALLBACK_QUALITY_VERIFIER_TAIL_REMINDER = (
+    "Remember before you answer:\n"
+    "- You judge only the last assistant message (the Main Assistant's latest reply).\n"
+    "- Output exactly one of: <status>NO_STEERING_NEEDED</status> or <steering>...</steering> "
+    "— no other text, no markdown fences, no tool calls.\n"
+    "- Steer only for high-signal issues that improve the next 1-3 steps; skip nitpicks.\n"
+    "- Never mention proxy or verification mechanics (private feedback to the Main Assistant)."
+)
+
 
 class QualityVerifierPromptLoader:
     """Load and cache Quality Verifier prompts from files."""
@@ -51,6 +62,7 @@ class QualityVerifierPromptLoader:
         )
         self._quality_verifier_prompt: str | None = None
         self._steering_template: str | None = None
+        self._quality_verifier_tail_reminder: str | None = None
         self._loaded = False
 
     def load_prompts(self) -> None:
@@ -94,11 +106,32 @@ class QualityVerifierPromptLoader:
                 logger.warning("Using fallback steering template (hardcoded default)")
                 self._steering_template = FALLBACK_STEERING_TEMPLATE
 
+            tail_path = self.prompts_dir / "quality_verifier_tail_reminder.md"
+            if tail_path.exists():
+                try:
+                    self._quality_verifier_tail_reminder = tail_path.read_text(
+                        encoding="utf-8"
+                    ).strip()
+                except Exception as e:
+                    logger.warning(
+                        "Failed to read Quality Verifier tail reminder file: %s",
+                        e,
+                        exc_info=True,
+                    )
+                    self._quality_verifier_tail_reminder = None
+
+            if self._quality_verifier_tail_reminder is None:
+                self._quality_verifier_tail_reminder = (
+                    FALLBACK_QUALITY_VERIFIER_TAIL_REMINDER
+                )
+
             self._loaded = True
             logger.info(
-                "Successfully loaded Quality Verifier prompts: quality_verifier_prompt=%d chars, steering_template=%d chars",
+                "Successfully loaded Quality Verifier prompts: quality_verifier_prompt=%d chars, "
+                "steering_template=%d chars, tail_reminder=%d chars",
                 len(self._quality_verifier_prompt),
                 len(self._steering_template),
+                len(self._quality_verifier_tail_reminder),
             )
         except Exception as e:
             logger.error(
@@ -123,11 +156,25 @@ class QualityVerifierPromptLoader:
         return self._steering_template
 
     @property
+    def quality_verifier_tail_reminder(self) -> str:
+        """Inner reminder text (no XML wrapper).
+
+        Loaded from ``quality_verifier_tail_reminder.md``. An empty file disables the
+        tail reminder. When the file is missing, a built-in fallback is used.
+        """
+        if not self._loaded:
+            raise RuntimeError("Prompts not loaded. Call load_prompts() first.")
+        if self._quality_verifier_tail_reminder is None:
+            raise RuntimeError("Quality Verifier tail reminder not available.")
+        return self._quality_verifier_tail_reminder
+
+    @property
     def is_loaded(self) -> bool:
         return self._loaded
 
     def reload_prompts(self) -> None:
         self._loaded = False
+        self._quality_verifier_tail_reminder = None
         self.load_prompts()
 
     def get_prompt_info(self) -> QualityVerifierPromptInfo:
@@ -139,4 +186,7 @@ class QualityVerifierPromptLoader:
             prompts_dir=str(self.prompts_dir),
             quality_verifier_prompt_length=len(self._quality_verifier_prompt or ""),
             steering_template_length=len(self._steering_template or ""),
+            quality_verifier_tail_reminder_length=len(
+                self._quality_verifier_tail_reminder or ""
+            ),
         )

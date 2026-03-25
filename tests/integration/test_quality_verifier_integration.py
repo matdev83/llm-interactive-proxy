@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator, Callable
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 from src.core.config.app_config import AppConfig, SessionConfig
@@ -11,6 +11,8 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
+from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.quality_verifier_steering_store import (
@@ -28,21 +30,29 @@ class _DummyParser:
         return response
 
     def extract_content(self, response: Any) -> Any:
-        return response.get("content")
+        if isinstance(response, dict):
+            return response.get("content")
+        return response
 
     def extract_usage(self, response: Any) -> Any:
-        return response.get("usage")
+        if isinstance(response, dict):
+            return response.get("usage")
+        return None
 
     def extract_metadata(self, response: Any) -> Any:
-        return response.get("metadata")
+        if isinstance(response, dict):
+            return response.get("metadata")
+        return {}
 
 
 class _StubBackendProcessor:
     def __init__(
-        self, factory: Callable[[], ResponseEnvelope | StreamingResponseEnvelope]
+        self,
+        factories: list[Callable[[], ResponseEnvelope | StreamingResponseEnvelope]],
     ):
-        self._factory = factory
+        self._factories = factories
         self.calls: list[ChatRequest] = []
+        self._next = 0
 
     async def process_backend_request(
         self,
@@ -51,7 +61,9 @@ class _StubBackendProcessor:
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.calls.append(request)
-        return self._factory()
+        fac = self._factories[self._next]
+        self._next += 1
+        return fac()
 
 
 class _AppState:
@@ -93,6 +105,7 @@ def _make_response_processor(app_state: _AppState) -> ResponseProcessor:
     processor = ResponseProcessor(
         response_parser=cast(IResponseParser, _DummyParser()),
         stream_normalizer=stream_normalizer,
+        turn_ledger=MagicMock(),
     )
     processor._app_state = app_state  # type: ignore[attr-defined]
     return processor
@@ -117,19 +130,26 @@ def _make_context(app_state: _AppState, config: AppConfig) -> RequestContext:
     )
 
 
-def _make_mock_provider(backend_service: _FakeBackendService) -> Any:
+def _make_mock_provider(
+    backend_service: _FakeBackendService,
+    manager_holder: list[Any],
+) -> Any:
     class _Provider:
-        def get_required_service(self, _type: Any) -> _FakeBackendService:
+        def get_required_service(self, service_type: Any) -> Any:
+            if service_type is IBackendRequestManager:
+                return manager_holder[0]
+            if service_type is IBackendService:
+                return backend_service
             return backend_service
 
-        def get_service(self, _type: Any) -> _FakeBackendService | None:
+        def get_service(self, _type: Any) -> None:
             return None
 
     return _Provider()
 
 
 @pytest.mark.asyncio
-async def test_quality_verifier_integration_non_streaming_stores_steering(
+async def test_quality_verifier_integration_non_streaming_inline_recall(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = AppConfig(
@@ -140,14 +160,18 @@ async def test_quality_verifier_integration_non_streaming_stores_steering(
     )
     app_state = _AppState(config)
 
-    def _response_factory() -> ResponseEnvelope:
+    def _initial() -> ResponseEnvelope:
         return ResponseEnvelope(content={"content": "initial output"})
+
+    def _after_steer() -> ResponseEnvelope:
+        return ResponseEnvelope(content={"content": "after verification recall"})
 
     response_processor = _make_response_processor(app_state)
     backend_service = _FakeBackendService(
         steering_xml="<steering>Consider doing X</steering>"
     )
-    mock_provider = _make_mock_provider(backend_service)
+    manager_holder: list[Any] = []
+    mock_provider = _make_mock_provider(backend_service, manager_holder)
 
     monkeypatch.setattr(
         "src.core.di.services.get_service_provider",
@@ -160,12 +184,14 @@ async def test_quality_verifier_integration_non_streaming_stores_steering(
 
     manager = create_backend_request_manager(
         backend_processor=cast(
-            IBackendProcessor, _StubBackendProcessor(_response_factory)
+            IBackendProcessor,
+            _StubBackendProcessor([_initial, _after_steer]),
         ),
         response_processor=response_processor,
         mock_provider=mock_provider,
         config=config,
     )
+    manager_holder.append(manager)
 
     original_request = ChatRequest(
         model="fake_backend:primary",
@@ -182,16 +208,14 @@ async def test_quality_verifier_integration_non_streaming_stores_steering(
     )
 
     assert isinstance(result, ResponseEnvelope)
-    assert result.content == "initial output"
+    assert result.content == "after verification recall"
 
-    await asyncio.sleep(0)
     pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
-    assert isinstance(pending, dict)
-    assert "session-non-stream" in pending
+    assert pending == {}
 
 
 @pytest.mark.asyncio
-async def test_quality_verifier_integration_streaming_stores_steering(
+async def test_quality_verifier_integration_streaming_inline_recall(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = AppConfig(
@@ -202,18 +226,25 @@ async def test_quality_verifier_integration_streaming_stores_steering(
     )
     app_state = _AppState(config)
 
-    async def _stream() -> AsyncIterator[ProcessedResponse]:
+    async def _stream_main() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content="Draft", metadata={})
         yield ProcessedResponse(content=" reply", metadata={"is_done": True})
 
-    def _response_factory() -> StreamingResponseEnvelope:
-        return StreamingResponseEnvelope(content=_stream())
+    async def _stream_recall() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(content="Recalled", metadata={"is_done": True})
+
+    def _main_env() -> StreamingResponseEnvelope:
+        return StreamingResponseEnvelope(content=_stream_main())
+
+    def _recall_env() -> StreamingResponseEnvelope:
+        return StreamingResponseEnvelope(content=_stream_recall())
 
     response_processor = _make_response_processor(app_state)
     backend_service = _FakeBackendService(
         steering_xml="<steering>Check your math</steering>"
     )
-    mock_provider = _make_mock_provider(backend_service)
+    manager_holder: list[Any] = []
+    mock_provider = _make_mock_provider(backend_service, manager_holder)
 
     monkeypatch.setattr(
         "src.core.di.services.get_service_provider",
@@ -227,12 +258,14 @@ async def test_quality_verifier_integration_streaming_stores_steering(
 
     manager = create_backend_request_manager(
         backend_processor=cast(
-            IBackendProcessor, _StubBackendProcessor(_response_factory)
+            IBackendProcessor,
+            _StubBackendProcessor([_main_env, _recall_env]),
         ),
         response_processor=response_processor,
         mock_provider=mock_provider,
         config=config,
     )
+    manager_holder.append(manager)
 
     original_request = ChatRequest(
         model="fake_backend:primary",
@@ -255,9 +288,7 @@ async def test_quality_verifier_integration_streaming_stores_steering(
     gathered: list[str] = []
     async for chunk in stream_envelope.content:
         gathered.append(str(chunk.content))
-    assert gathered == ["Draft reply"]
+    assert gathered == ["Recalled"]
 
-    await asyncio.sleep(0)
     pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
-    assert isinstance(pending, dict)
-    assert "session-stream" in pending
+    assert pending == {}

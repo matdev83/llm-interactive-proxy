@@ -233,7 +233,14 @@ class IQualityVerifierStreamVerifier(ABC):
         context: StreamingContext,
         request_context: RequestContext | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
-        """Return verified stream or original stream when no steering is needed.
+        """Stream path aligned with non-streaming Quality Verifier behavior.
+
+        On a scheduled verifier turn, the client stream is held while the verifier
+        runs (plus one optional XML-format retry). The eligible-turn counter is
+        reset after the episode. If the verdict is pass or unparseable, the
+        original buffered stream is replayed. If the verdict is steer, an inline
+        main-model recall is attempted; on recall failure the buffered original
+        is replayed. Successful steering does not enqueue next-request-only notes.
 
         Args:
             request: The original backend request
@@ -242,7 +249,7 @@ class IQualityVerifierStreamVerifier(ABC):
             request_context: Request context for cancellation gate resolution (optional)
 
         Returns:
-            An async iterator of processed response chunks (verified or original)
+            An async iterator of processed response chunks (verified, recalled, or original)
 
         Preconditions:
             - Stream yields ProcessedResponse instances

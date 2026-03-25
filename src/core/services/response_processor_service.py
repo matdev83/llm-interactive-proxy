@@ -4,23 +4,18 @@ import asyncio
 import contextlib
 import json
 import logging
-import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
 from pydantic.types import JsonValue
 
 from src.core.common.exceptions import (
-    BackendError,
     LoopDetectionError,
     ParsingError,
 )
-from src.core.common.session_key_resolver import (
-    resolve_session_key_from_request_context,
-)
 from src.core.domain.chat import StreamingChatResponse
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
@@ -41,9 +36,6 @@ from src.core.interfaces.streaming_response_processor_interface import (
 )
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 from src.core.memory.response_capture_processor import ResponseCaptureProcessor
-from src.core.services.quality_verifier_steering_store import (
-    store_pending_quality_verifier_steering,
-)
 from src.core.services.response_pipeline import UnifiedResponsePipeline
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
@@ -87,19 +79,18 @@ class ResponseProcessor(IResponseProcessor):
         middleware_list: list[IResponseMiddleware] | None = None,
         memory_capture: MemoryCaptureMiddleware | None = None,
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
+        turn_ledger: Any | None = None,
+        backend_request_manager: Any | None = None,
     ) -> None:
         self._app_state = app_state
         self._background_tasks: list[asyncio.Task[Any]] = []
+        self._turn_ledger = turn_ledger
+        self._backend_request_manager = backend_request_manager
         self._loop_detector_factory = loop_detector_factory
         self._response_parser = response_parser
         self._middleware_list = middleware_list or []
         self._memory_capture = memory_capture
         self._cancellation_coordinator = cancellation_coordinator
-
-        # Quality Verifier feature wiring
-        self._quality_verifier_service: Any | None = None
-        self._quality_verifier_frequency: int = 10
-        self._quality_verifier_ttft_timeout_seconds: float = 30.0
 
         # Stream normalizer is typically provided via DI.
         # For testability and graceful degradation, if it is not provided but
@@ -175,605 +166,241 @@ class ResponseProcessor(IResponseProcessor):
         # Create unified pipeline for both streaming and non-streaming
         self._unified_pipeline = UnifiedResponsePipeline(self._stream_normalizer)
 
-    async def _apply_quality_verifier_verification(  # noqa: C901
-        self, original_request: Any, content: Any, context: dict[str, Any] | None = None
-    ) -> dict[str, Any] | None:
-        """Apply Quality Verifier assessment and store steering (soft fail).
+    async def _apply_non_streaming_quality_verifier_if_scheduled(
+        self,
+        processed_response: ProcessedResponse,
+        context: RequestContext,
+        session_id: str,
+    ) -> ProcessedResponse:
+        """Await verifier on scheduled non-streaming turns; optional steering recall."""
+        from src.core.di.services import get_service_provider
+        from src.core.domain.chat import ChatRequest
+        from src.core.interfaces.backend_service_interface import IBackendService
+        from src.core.interfaces.notification_service_interface import (
+            INotificationService,
+        )
+        from src.core.services.quality_verifier_orchestrator import (
+            run_quality_verifier_decision,
+        )
+        from src.core.services.quality_verifier_recall_context import (
+            fork_request_context_for_quality_verifier_steering_recall,
+        )
+        from src.core.services.quality_verifier_service import QualityVerifierService
+        from src.core.services.quality_verifier_steering_messages import (
+            append_quality_verifier_steering_system_message,
+        )
 
-        Returns a dict with keys:
-        - action: "pass" (always; Quality Verifier never modifies user-visible content)
-        """
+        original_request = context.original_request or context.domain_request
+        if not isinstance(original_request, ChatRequest):
+            return processed_response
+
         try:
-            from src.core.di.services import get_service_provider
-            from src.core.domain.chat import ChatRequest
-            from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.services.quality_verifier_service import (
-                QualityVerifierService,
+            if context.extensions.get("quality_verifier_skip_verification"):
+                return processed_response
+        except Exception:
+            pass
+
+        if QualityVerifierService.is_tool_result_followup_request(original_request):
+            return processed_response
+
+        try:
+            if context.extensions.get("model_replacement_active"):
+                return processed_response
+        except Exception:
+            pass
+
+        model_spec = None
+        try:
+            raw = context.extensions.get("quality_verifier_model")
+            model_spec = str(raw).strip() if raw is not None else None
+        except Exception:
+            model_spec = None
+        if not model_spec:
+            return processed_response
+
+        freq = 10
+        try:
+            fv_any: Any = context.extensions.get("quality_verifier_frequency", 10)
+            fv_int = int(fv_any)
+            freq = fv_int if fv_int > 0 else 1
+        except Exception:
+            freq = 10
+
+        eligible_raw = None
+        try:
+            eligible_raw = context.extensions.get(
+                "quality_verifier_eligible_turn_count"
+            )
+        except Exception:
+            eligible_raw = None
+
+        if not QualityVerifierService.should_run_verification(
+            original_request, freq, eligible_turn_raw=eligible_raw
+        ):
+            return processed_response
+
+        max_history = None
+        try:
+            mh_any: Any = context.extensions.get("quality_verifier_max_history")
+            if mh_any is not None:
+                max_history = int(mh_any)
+        except Exception:
+            max_history = None
+
+        max_failures = 5
+        cooldown = 300
+        ttft = 30.0
+        try:
+            mf_any: Any = context.extensions.get(
+                "quality_verifier_max_consecutive_failures", 5
+            )
+            cd_any: Any = context.extensions.get(
+                "quality_verifier_cooldown_seconds", 300
+            )
+            tt_any: Any = context.extensions.get(
+                "quality_verifier_ttft_timeout_seconds", 30.0
+            )
+            max_failures = int(mf_any)
+            cooldown = int(cd_any)
+            ttft = float(tt_any)
+        except Exception:
+            pass
+        if ttft <= 0:
+            ttft = 30.0
+
+        assistant_text = processed_response.content
+        if assistant_text is None:
+            assistant_text = ""
+        elif not isinstance(assistant_text, str):
+            assistant_text = str(assistant_text)
+
+        provider = get_service_provider()
+        backend_service: IBackendService = provider.get_required_service(
+            cast(type, IBackendService)
+        )
+        notification_service = provider.get_service(
+            cast(type, INotificationService)  # type: ignore[type-abstract]
+        )
+
+        outcome = await run_quality_verifier_decision(
+            original_request=original_request,
+            assistant_text=assistant_text,
+            model_spec=model_spec,
+            max_history=max_history,
+            max_consecutive_failures=max_failures,
+            cooldown_seconds=cooldown,
+            ttft_timeout_seconds=ttft,
+            backend_service=backend_service,
+            request_context=context,
+            cancellation_coordinator=self._cancellation_coordinator,
+            notification_service=notification_service,
+        )
+
+        def _reset_ledger() -> None:
+            """Reset scaled eligible-turn counters (DI-injected or from provider)."""
+            from src.core.interfaces.quality_verifier_turn_ledger_interface import (
+                IQualityVerifierTurnLedger,
             )
 
-            if not self._quality_verifier_service:
-                # Resolve quality verifier model spec from app_state config
-                model_spec = None
-                frequency_value: int | None = 10
-                max_history_value: int | None = None
-                ttft_timeout_seconds_value: float | None = 30.0
+            ledger = self._turn_ledger
+            if ledger is None:
                 try:
-                    cfg = (
-                        self._app_state.get_setting("app_config")
-                        if self._app_state
-                        else None
+                    ledger = provider.get_required_service(
+                        cast(type, IQualityVerifierTurnLedger)  # type: ignore[type-abstract]
                     )
-                    session_cfg = getattr(cfg, "session", None)
-                    model_spec = getattr(session_cfg, "quality_verifier_model", None)
-                    frequency_value = getattr(
-                        session_cfg, "quality_verifier_frequency", 10
-                    )
-                    max_history_value = getattr(
-                        session_cfg, "quality_verifier_max_history", None
-                    )
-                    max_consecutive_failures = getattr(
-                        session_cfg, "quality_verifier_max_consecutive_failures", 5
-                    )
-                    cooldown_seconds = getattr(
-                        session_cfg, "quality_verifier_cooldown_seconds", 300
-                    )
-                    ttft_timeout_seconds_value = getattr(
-                        session_cfg,
-                        "quality_verifier_ttft_timeout_seconds",
-                        30.0,
-                    )
-                except (AttributeError, TypeError, KeyError):
-                    model_spec = None
-                    frequency_value = 10
-                    max_history_value = None
-                    max_consecutive_failures = 5
-                    cooldown_seconds = 300
-                    ttft_timeout_seconds_value = 30.0
-
-                from src.core.di.services import get_service
-                from src.core.interfaces.notification_service_interface import (
-                    INotificationService,
-                )
-
-                notification_service = get_service(
-                    cast(Any, INotificationService)
-                )  # type: ignore[type-abstract]
-
-                quality_verifier_svc = QualityVerifierService(
-                    model_spec or "",
-                    max_history=max_history_value,
-                    max_consecutive_failures=max_consecutive_failures,
-                    cooldown_seconds=cooldown_seconds,
-                    notification_service=notification_service,
-                )
-
-                if (
-                    not quality_verifier_svc.is_enabled()
-                    or not quality_verifier_svc.is_healthy()
-                ):
-                    if not quality_verifier_svc.is_enabled():
-                        return {"action": "pass"}
-                    else:
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "Quality Verifier skipped due to circuit breaker for model %s",
-                                model_spec,
-                            )
-                        return {"action": "pass"}
-
-                self._quality_verifier_service = quality_verifier_svc
-
-                try:
-                    freq_int = (
-                        int(frequency_value) if frequency_value is not None else 10
-                    )
-                except (TypeError, ValueError):
-                    freq_int = 10
-                self._quality_verifier_frequency = freq_int if freq_int > 0 else 1
-
-                try:
-                    ttft_timeout_seconds = (
-                        float(ttft_timeout_seconds_value)
-                        if ttft_timeout_seconds_value is not None
-                        else 30.0
-                    )
-                except (TypeError, ValueError):
-                    ttft_timeout_seconds = 30.0
-                self._quality_verifier_ttft_timeout_seconds = (
-                    ttft_timeout_seconds if ttft_timeout_seconds > 0 else 30.0
-                )
-
-            svc: QualityVerifierService = self._quality_verifier_service
-
-            if not isinstance(original_request, ChatRequest):
-                return {"action": "pass"}
-
-            # Resolve RequestContext from context dict (used for cancellation and Quality Verifier gating)
-            request_context: RequestContext | None = None
-            if context:
-                candidate = context.get("request_context")
-                if isinstance(candidate, RequestContext):
-                    request_context = candidate
-
-            # Respect upstream per-request skip flag.
-            try:
-                if request_context and request_context.extensions.get(
-                    "quality_verifier_skip_verification"
-                ):
-                    return {"action": "pass"}
-            except Exception:
-                pass
-
-            ttft_timeout_seconds = float(
-                getattr(self, "_quality_verifier_ttft_timeout_seconds", 30.0)
-            )
-            if request_context is not None:
-                ttft_override = request_context.extensions.get(
-                    "quality_verifier_ttft_timeout_seconds"
-                )
-                try:
-                    if isinstance(ttft_override, int | float | str):
-                        ttft_timeout_seconds = float(ttft_override)
-                except (TypeError, ValueError):
-                    ttft_timeout_seconds = float(
-                        getattr(self, "_quality_verifier_ttft_timeout_seconds", 30.0)
-                    )
-            if ttft_timeout_seconds <= 0:
-                ttft_timeout_seconds = 30.0
-
-            # Never run Quality Verifier for tool-result continuation requests.
-            try:
-                if QualityVerifierService.is_tool_result_followup_request(
-                    original_request
-                ):
-                    return {"action": "pass"}
-            except Exception:
-                # Fail-open: if detection fails, continue.
-                pass
-
-            # Never run Quality Verifier when a random replacement model is active.
-            try:
-                if request_context and request_context.extensions.get(
-                    "model_replacement_active"
-                ):
-                    return {"action": "pass"}
-            except Exception:
-                pass
-
-            frequency = getattr(self, "_quality_verifier_frequency", 10)
-
-            eligible_raw: Any = None
-            if request_context is not None:
-                eligible_raw = request_context.extensions.get(
-                    "quality_verifier_eligible_turn_count"
-                )
-            if eligible_raw is None and request_context is not None:
-                try:
-                    pc = request_context.processing_context
-                    if pc is not None:
-                        vals = getattr(pc, "values", None)
-                        if isinstance(vals, dict):
-                            eligible_raw = vals.get(
-                                "quality_verifier_eligible_turn_count"
-                            )
                 except Exception:
-                    pass
-
-            if not QualityVerifierService.should_run_verification(
-                original_request, frequency, eligible_turn_raw=eligible_raw
-            ):
-                return {"action": "pass"}
-
-            verification_request = svc.build_verification_request(
-                original_request, content
-            )
-
-            # request_context already resolved above
-
-            provider = get_service_provider()
-            backend_service: IBackendService = provider.get_required_service(  # type: ignore[reportUnknownVariableType]
-                cast(Any, IBackendService)
-            )
-
-            def _extract_text_from_openai_payload(payload: dict[str, Any]) -> str:
-                pieces: list[str] = []
-                choices = payload.get("choices")
-                if isinstance(choices, list):
-                    for choice in choices:
-                        if not isinstance(choice, dict):
-                            continue
-                        delta = choice.get("delta")
-                        if isinstance(delta, dict):
-                            content_piece = delta.get("content")
-                            if isinstance(content_piece, str):
-                                pieces.append(content_piece)
-                        message = choice.get("message")
-                        if isinstance(message, dict):
-                            content_piece = message.get("content")
-                            if isinstance(content_piece, str):
-                                pieces.append(content_piece)
-
-                top_level_content = payload.get("content")
-                if isinstance(top_level_content, str):
-                    pieces.append(top_level_content)
-
-                top_level_text = payload.get("text")
-                if isinstance(top_level_text, str):
-                    pieces.append(top_level_text)
-
-                return "".join(pieces)
-
-            def _extract_text(payload: Any) -> str:
-                if payload is None:
-                    return ""
-                value = getattr(payload, "content", payload)
-                if isinstance(value, dict):
-                    return _extract_text_from_openai_payload(value)
-                if isinstance(value, str):
-                    return value
-                if isinstance(value, bytes):
-                    try:
-                        return value.decode("utf-8")
-                    except UnicodeDecodeError:
-                        return value.decode("utf-8", errors="ignore")
-                return str(value)
-
-            def _response_indicates_backend_error(payload: Any) -> bool:
-                status_code = getattr(payload, "status_code", None)
-                if isinstance(status_code, int) and status_code >= 400:
-                    return True
-                if isinstance(payload, ResponseEnvelope):
-                    if payload.status_code >= 400:
-                        return True
-                    if isinstance(payload.content, dict) and payload.content.get(
-                        "error"
-                    ):
-                        return True
-                value = getattr(payload, "content", payload)
-                return isinstance(value, dict) and bool(value.get("error"))
-
-            def _payload_has_non_dummy_token(payload: dict[str, Any]) -> bool:
-                if payload.get("error"):
-                    return False
-
-                choices = payload.get("choices")
-                if isinstance(choices, list):
-                    for choice in choices:
-                        if not isinstance(choice, dict):
-                            continue
-                        for container_key in ("delta", "message"):
-                            container = choice.get(container_key)
-                            if not isinstance(container, dict):
-                                continue
-                            for token_key in (
-                                "content",
-                                "tool_calls",
-                                "function_call",
-                                "reasoning_content",
-                                "reasoning",
-                                "thinking",
-                                "thought",
-                            ):
-                                token_value = container.get(token_key)
-                                if token_value:
-                                    return True
-
-                for token_key in ("content", "text"):
-                    token_value = payload.get(token_key)
-                    if isinstance(token_value, str) and token_value.strip():
-                        return True
-
-                return False
-
-            def _chunk_contains_backend_error(chunk: Any) -> bool:
-                metadata = getattr(chunk, "metadata", {}) or {}
-                if isinstance(metadata, dict) and metadata.get("error"):
-                    return True
-
-                chunk_content = getattr(chunk, "content", chunk)
-                if isinstance(chunk_content, dict):
-                    if chunk_content.get("error"):
-                        return True
-                    choices = chunk_content.get("choices")
-                    if isinstance(choices, list):
-                        for choice in choices:
-                            if (
-                                isinstance(choice, dict)
-                                and choice.get("finish_reason") == "error"
-                            ):
-                                return True
-                    return False
-
-                if isinstance(chunk_content, bytes | bytearray):
-                    text = bytes(chunk_content).decode("utf-8", errors="ignore")
-                    return '"error"' in text
-
-                if isinstance(chunk_content, str):
-                    return '"error"' in chunk_content
-
-                return False
-
-            def _is_non_dummy_stream_chunk(chunk: Any) -> bool:
-                metadata = getattr(chunk, "metadata", {}) or {}
-                if isinstance(metadata, dict) and metadata.get("_keepalive"):
-                    return False
-
-                chunk_content = getattr(chunk, "content", chunk)
-                if isinstance(chunk_content, dict):
-                    return _payload_has_non_dummy_token(chunk_content)
-
-                if isinstance(chunk_content, bytes | bytearray):
-                    text = bytes(chunk_content).decode("utf-8", errors="ignore").strip()
-                elif isinstance(chunk_content, str):
-                    text = chunk_content.strip()
-                else:
-                    return bool(chunk_content)
-
-                if not text or text.startswith(":"):
-                    return False
-
-                if text in {
-                    "[DONE]",
-                    '["DONE"]',
-                    "data: [DONE]",
-                    'data: ["DONE"]',
-                }:
-                    return False
-
-                if text.startswith("data:"):
-                    data_part = text[5:].strip()
-                    if not data_part or data_part in {"[DONE]", '["DONE"]'}:
-                        return False
-                    try:
-                        decoded = json.loads(data_part)
-                    except json.JSONDecodeError:
-                        return bool(data_part)
-
-                    if isinstance(decoded, dict):
-                        return _payload_has_non_dummy_token(decoded)
-                    if isinstance(decoded, str):
-                        return bool(decoded.strip())
-                    return bool(decoded)
-
-                return True
-
-            async def _collect_stream_text_with_ttft(
-                stream_response: StreamingResponseEnvelope,
-            ) -> str | None:
-                if stream_response.content is None:
-                    return ""
-
-                deadline = time.monotonic() + ttft_timeout_seconds
-                first_non_dummy_seen = False
-                saw_error_chunk = False
-                pieces: list[str] = []
-
-                iterator = stream_response.content.__aiter__()
-
-                try:
-                    while True:
-                        try:
-                            if first_non_dummy_seen:
-                                stream_chunk = await anext(iterator)
-                            else:
-                                remaining = deadline - time.monotonic()
-                                if remaining <= 0:
-                                    raise asyncio.TimeoutError(
-                                        "Quality Verifier TTFT timeout exceeded"
-                                    )
-                                stream_chunk = await asyncio.wait_for(
-                                    anext(iterator), timeout=remaining
-                                )
-                        except StopAsyncIteration:
-                            break
-
-                        if _chunk_contains_backend_error(stream_chunk):
-                            saw_error_chunk = True
-
-                        if not first_non_dummy_seen and _is_non_dummy_stream_chunk(
-                            stream_chunk
-                        ):
-                            first_non_dummy_seen = True
-
-                        piece = _extract_text(stream_chunk)
-                        if piece:
-                            pieces.append(piece)
-                except asyncio.TimeoutError:
-                    cancel_callback = stream_response.cancel_callback
-                    if cancel_callback is not None:
-                        with contextlib.suppress(Exception):
-                            await cancel_callback()
-                    raise
-
-                if saw_error_chunk:
-                    return None
-
-                return "".join(pieces)
-
-            def _ensure_quality_verifier_not_cancelled() -> None:
-                if self._cancellation_coordinator and request_context:
-                    session_key = resolve_session_key_from_request_context(
-                        request_context
-                    )
-                    if session_key:
-                        self._cancellation_coordinator.ensure_not_cancelled(session_key)
-
-            async def _call_quality_verifier_once(
-                quality_verifier_request: ChatRequest,
-            ) -> str | None:
-                try:
-                    _ensure_quality_verifier_not_cancelled()
-
-                    # Ensure Quality Verifier calls are captured and tagged
-                    if request_context is not None:
-                        request_context.extensions["call_purpose"] = "quality_verifier"
-
-                    quality_verifier_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
-                        quality_verifier_request,
-                        stream=True,
-                        allow_failover=True,
-                        context=request_context,
-                    )
-
-                    if _response_indicates_backend_error(quality_verifier_response):
-                        await svc.report_failure()
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Quality Verifier model returned error response; failing-open"
-                            )
-                        return None
-
-                    if isinstance(quality_verifier_response, StreamingResponseEnvelope):
-                        quality_verifier_text = await _collect_stream_text_with_ttft(
-                            quality_verifier_response
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "QV non-stream: turn ledger unavailable", exc_info=True
                         )
-                        if quality_verifier_text is None:
-                            await svc.report_failure()
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    "Quality Verifier stream ended with backend error; failing-open"
-                                )
-                            return None
-                    else:
-                        quality_verifier_text = _extract_text(quality_verifier_response)
+                    return
+            key = ""
+            try:
+                raw = context.extensions.get("quality_verifier_effective_session_id")
+                if raw is not None and str(raw).strip():
+                    key = str(raw).strip()
+            except Exception:
+                pass
+            if not key:
+                key = str(session_id or "").strip()
+            if not key:
+                return
+            try:
+                ledger.reset_quality_verifier_eligible_turn_count(
+                    key, getattr(context, "state", None)
+                )
+            except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("QV non-stream ledger reset failed", exc_info=True)
 
-                    await svc.report_success()
-                    return quality_verifier_text
-                except asyncio.TimeoutError:
-                    await svc.report_failure()
+        _reset_ledger()
 
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Quality Verifier TTFT timeout after %.1fs; failing-open",
-                            ttft_timeout_seconds,
-                        )
-                    return None
-                except BackendError as e:
-                    await svc.report_failure()
+        if outcome.kind != "steer" or not (outcome.steering_message or "").strip():
+            return processed_response
 
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Quality Verifier model call failed (%s); failing-open",
-                            e.message,
-                        )
-                    return None
-                except Exception as e:
-                    await svc.report_failure()
+        from src.core.interfaces.backend_request_manager_interface import (
+            IBackendRequestManager,
+        )
 
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Quality Verifier model call failed (%s); failing-open",
-                            type(e).__name__,
-                            exc_info=True,
-                        )
-                    return None
-
-            quality_verifier_text = await _call_quality_verifier_once(
-                verification_request
-            )
-            quality_verifier_text = await svc.maybe_retry_verifier_for_valid_xml(
-                verification_request,
-                quality_verifier_text,
-                _call_quality_verifier_once,
-            )
-            if quality_verifier_text is None:
-                return {"action": "pass"}
-
-            is_valid_format, invalid_reason = (
-                svc.validate_quality_verifier_output_format(quality_verifier_text)
-            )
-            if not is_valid_format:
-                # Soft fail: ignore invalid formats. Count as failure so circuit breaker
-                # can disable a misconfigured verifier without affecting the client.
-                await svc.report_failure()
+        brm = self._backend_request_manager
+        if brm is None:
+            try:
+                brm = provider.get_required_service(cast(type, IBackendRequestManager))
+            except Exception:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Quality Verifier output invalid; ignoring (%s)",
-                        invalid_reason or "invalid format",
+                        "Quality Verifier non-stream: no IBackendRequestManager",
+                        exc_info=True,
                     )
-                return {"action": "pass"}
+                return processed_response
 
-            decision = svc.parse_quality_verifier_output(quality_verifier_text)
-            steering_msg = (decision.steering_message or "").strip()
+        steering_msg = (outcome.steering_message or "").strip()
+        steered = append_quality_verifier_steering_system_message(
+            original_request, steering_msg
+        )
+        steered = steered.model_copy(update={"stream": False})
+        recall_ctx = fork_request_context_for_quality_verifier_steering_recall(context)
 
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Quality Verifier decision: %s (steering_message=%s)",
-                    decision.decision,
-                    steering_msg or "None",
-                    extra={
-                        "session_id": getattr(request_context, "session_id", None),
-                        "decision": decision.decision,
-                        "steering_message": steering_msg,
-                        "call_purpose": "quality_verifier",
-                    },
-                )
-
-            if decision.decision != "steer" or not steering_msg:
-                return {"action": "pass"}
-
-            # Store steering note for injection into a future main-model request.
-            # Prefer the ResponseProcessor's configured app_state.
-            # Some handlers may wrap/replace RequestContext.app_state.
-            app_state = self._app_state
-            if app_state is None:
-                try:
-                    candidate = (
-                        getattr(request_context, "app_state", None)
-                        if request_context is not None
-                        else None
-                    )
-                    if (
-                        candidate is not None
-                        and hasattr(candidate, "get_setting")
-                        and hasattr(candidate, "set_setting")
-                    ):
-                        app_state = candidate
-                except Exception:
-                    pass
-
-            if app_state is None:
-                return {"action": "pass"}
-
-            session_key_value = None
-            try:
-                if request_context is not None:
-                    session_key_value = request_context.extensions.get(
-                        "quality_verifier_effective_session_id"
-                    )
-            except Exception:
-                session_key_value = None
-
-            steering_session_key = str(session_key_value or "").strip()
-            if not steering_session_key:
-                steering_session_key = str(
-                    getattr(request_context, "session_id", None) or ""
-                )
-            if not steering_session_key:
-                try:
-                    steering_session_key = str((context or {}).get("session_id") or "")
-                except Exception:
-                    steering_session_key = ""
-            steering_session_key = steering_session_key.strip()
-            if not steering_session_key:
-                return {"action": "pass"}
-
-            store_pending_quality_verifier_steering(
-                app_state=app_state,
-                session_key=steering_session_key,
-                steering_message=steering_msg,
+        try:
+            recall_env = await brm.process_backend_request(
+                steered, session_id, recall_ctx
             )
-
-            return {"action": "pass"}
-
-        except Exception as e:
+        except Exception:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Quality Verifier encountered unexpected error (%s); failing-open",
-                    type(e).__name__,
+                    "Quality Verifier non-stream steering recall failed",
                     exc_info=True,
                 )
-            return {"action": "pass"}
+            return processed_response
+
+        if not isinstance(recall_env, ResponseEnvelope):
+            return processed_response
+
+        try:
+            recall_raw: Any = recall_env.content
+            parsed = self._response_parser.parse_response(recall_raw)
+            new_content = self._response_parser.extract_content(parsed)
+            usage_dict = self._response_parser.extract_usage(parsed)
+            new_usage = (
+                UsageSummary.from_dict(usage_dict)
+                if usage_dict
+                else processed_response.usage
+            )
+            new_meta = self._response_parser.extract_metadata(parsed) or {}
+            normalized_content = normalize_to_processed_chunk_content(new_content)
+            normalized_metadata = self._normalize_metadata(new_meta)
+            return ProcessedResponse(
+                content=normalized_content,
+                usage=new_usage,
+                metadata=normalized_metadata,
+            )
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Quality Verifier non-stream recall parse failed",
+                    exc_info=True,
+                )
+            return processed_response
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:
         """Add a background task to be managed by the processor.
@@ -925,40 +552,20 @@ class ResponseProcessor(IResponseProcessor):
                     },
                 )
 
-            # Quality Verifier for non-streaming responses (post-pipeline)
-            # Runs asynchronously and never modifies the client-visible response.
-            try:
-                original_request = None
-                if context is not None:
-                    original_request = (
-                        context.original_request or context.domain_request
-                    )
-
-                if original_request is not None:
-                    quality_verifier_context: dict[str, Any] | None = None
-                    if context is not None:
-                        quality_verifier_context = {}
-                        if context.processing_context is not None:
-                            quality_verifier_context.update(
-                                context.processing_context.values
-                            )
-                        quality_verifier_context["request_context"] = context
-                        quality_verifier_context["session_id"] = session_id
-
-                    task = asyncio.create_task(
-                        self._apply_quality_verifier_verification(
-                            original_request,
-                            processed_response.content or "",
-                            quality_verifier_context,
+            # Quality Verifier (non-streaming): await verifier and optional recall.
+            if context is not None:
+                try:
+                    processed_response = (
+                        await self._apply_non_streaming_quality_verifier_if_scheduled(
+                            processed_response, context, session_id
                         )
                     )
-                    self.add_background_task(task)
-            except (KeyError, TypeError, ValueError, AttributeError):
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Quality Verifier scheduling failed; continuing",
-                        exc_info=True,
-                    )
+                except Exception:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Quality Verifier non-stream path failed; continuing",
+                            exc_info=True,
+                        )
 
             return processed_response
 

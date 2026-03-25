@@ -159,21 +159,13 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         if not steering_msg:
             return request
 
-        # Render injection content using the configurable steering template (best effort).
-        rendered = None
-        try:
-            from src.core.services.quality_verifier_service import (
-                get_quality_verifier_prompt_loader,
-            )
+        from src.core.services.quality_verifier_steering_messages import (
+            render_quality_verifier_steering_system_content,
+        )
 
-            template = get_quality_verifier_prompt_loader().steering_template
-            rendered = template.format(
-                quality_verifier_steering_message=steering_msg.strip()
-            )
-        except Exception:
-            rendered = (
-                "[SYSTEM MESSAGE: QUALITY VERIFIER STEERING]\n\n" + steering_msg.strip()
-            )
+        rendered = render_quality_verifier_steering_system_content(steering_msg)
+        if not rendered.strip():
+            return request
 
         injection_start_index = len(request.messages or [])
         steering_message = ChatMessage(role="system", content=rendered)

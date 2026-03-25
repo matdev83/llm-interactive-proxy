@@ -327,6 +327,9 @@ def _register_quality_verifier_stream_verifier(services: ServiceCollection) -> N
     from src.core.interfaces.quality_verifier_service_interface import (
         IQualityVerifierServiceFactory,
     )
+    from src.core.interfaces.quality_verifier_turn_ledger_interface import (
+        IQualityVerifierTurnLedger,
+    )
     from src.core.interfaces.session_cancellation_coordinator_interface import (
         ISessionCancellationCoordinator,
     )
@@ -343,10 +346,14 @@ def _register_quality_verifier_stream_verifier(services: ServiceCollection) -> N
         cancellation_coordinator = provider.get_service(
             cast(type, ISessionCancellationCoordinator)
         )
+        turn_ledger: IQualityVerifierTurnLedger = provider.get_required_service(
+            cast(type, IQualityVerifierTurnLedger)  # type: ignore[type-abstract]
+        )
         return QualityVerifierStreamVerifier(
             quality_verifier_service_factory=quality_verifier_service_factory,
             provider=provider,
             cancellation_coordinator=cancellation_coordinator,
+            turn_ledger=turn_ledger,
         )
 
     register_singleton_if_absent(

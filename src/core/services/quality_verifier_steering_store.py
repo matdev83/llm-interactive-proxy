@@ -1,12 +1,10 @@
-"""Best-effort storage for Quality Verifier steering notes.
+"""Best-effort storage for Quality Verifier steering notes (legacy / fallback).
 
-Quality Verifier runs asynchronously after a backend response and may produce an
-optional steering note. This note should be injected into a *future* backend
-request (not surfaced to the client).
-
-Implementation intentionally uses IApplicationState generic settings as a small,
-in-memory store. This avoids needing to mutate session persistence layers from
-deep response handlers and keeps the feature fail-open.
+Primary steering for scheduled verifier turns is applied inline via a main-model
+recall (streaming and non-streaming). This module remains for paths that still
+inject a steering system message on a *subsequent* request (e.g. deferred or
+auxiliary flows), using IApplicationState generic settings as a small in-memory
+store so deep handlers avoid mutating session persistence directly.
 """
 
 from __future__ import annotations

@@ -271,6 +271,7 @@ def streaming_handler(
     angel_verifier = QualityVerifierStreamVerifier(
         quality_verifier_service_factory=QualityVerifierFactoryStub(),
         provider=mock_provider,
+        turn_ledger=MagicMock(),
     )
 
     return BackendStreamingResponseHandler(

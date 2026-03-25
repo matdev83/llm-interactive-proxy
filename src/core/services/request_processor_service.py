@@ -263,6 +263,30 @@ class RequestProcessor(IRequestProcessor):
         ):
             self._quality_verifier_turn_counts.popitem(last=False)
 
+    def reset_quality_verifier_eligible_turn_count(
+        self, session_key: str, session: Any | None
+    ) -> None:
+        """Reset scaled QV counter in LRU and session state (see IQualityVerifierTurnLedger)."""
+        key = (session_key or "").strip()
+        if not key:
+            return
+        self._set_quality_verifier_turn_count(key, 0)
+        if session is None:
+            return
+        try:
+            st = getattr(session, "state", None)
+            if st is not None and hasattr(st, "with_multiple_updates"):
+                new_st = st.with_multiple_updates(quality_verifier_eligible_turn_count=0)
+                upd = getattr(session, "update_state", None)
+                if callable(upd):
+                    upd(new_st)
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Quality Verifier: failed to persist eligible turn reset",
+                    exc_info=True,
+                )
+
     def _try_apply_auxiliary_routing(
         self,
         *,

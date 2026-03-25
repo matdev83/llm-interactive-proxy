@@ -27,6 +27,40 @@ Use tool X instead of Y.
     assert "Use tool X" in (decision.steering_message or "")
 
 
+def test_build_verification_messages_omits_tail_when_reminder_file_empty(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Empty ``quality_verifier_tail_reminder.md`` disables the tail user message."""
+    import src.core.services.quality_verifier_service as qv_mod
+    from src.core.services.quality_verifier_prompt_loader import (
+        QualityVerifierPromptLoader,
+    )
+
+    (tmp_path / "quality_verifier_prompt.md").write_text(
+        "Verifier system body", encoding="utf-8"
+    )
+    (tmp_path / "quality_verifier_tail_reminder.md").write_text(
+        " \n\t ", encoding="utf-8"
+    )
+
+    loader = QualityVerifierPromptLoader(str(tmp_path))
+    loader.load_prompts()
+    monkeypatch.setattr(qv_mod, "get_quality_verifier_prompt_loader", lambda: loader)
+
+    svc = QualityVerifierService("openai:gpt-4o-mini")
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="Hi")],
+    )
+    messages = svc.build_verification_messages(request, "draft response")
+    assert len(messages) == 3
+    assert messages[0].role == "system"
+    assert messages[0].content == "Verifier system body"
+    assert messages[-1].role == "assistant"
+    assert messages[-1].content == "draft response"
+
+
 def test_build_verification_messages_includes_prompt() -> None:
     svc = QualityVerifierService("openai:gpt-4o-mini")
     request = ChatRequest(
@@ -42,6 +76,9 @@ def test_build_verification_messages_includes_prompt() -> None:
         messages[0].content
         == get_quality_verifier_prompt_loader().quality_verifier_prompt
     )
+    assert messages[-2].role == "user"
+    assert str(messages[-2].content).startswith("<system-reminder>")
+    assert str(messages[-2].content).endswith("</system-reminder>")
     assert messages[-1].role == "assistant"
     assert messages[-1].content == "draft response"
 
@@ -54,11 +91,11 @@ def test_build_verification_messages_truncates_history() -> None:
     request = ChatRequest(model="test", messages=history)
 
     messages = svc.build_verification_messages(request, "response")
-    # System prompt + MAX_HISTORY (10) + Assistant Response = 12
-    assert len(messages) == 12
+    # System + MAX_HISTORY (10) + tail reminder user + assistant = 13
+    assert len(messages) == 13
     assert messages[0].role == "system"
     # The last history message should be the last 'user' message we added (49)
-    assert messages[-2].content == "49"
+    assert messages[-3].content == "49"
 
 
 def test_build_verification_messages_no_truncation_by_default() -> None:
@@ -69,10 +106,10 @@ def test_build_verification_messages_no_truncation_by_default() -> None:
     request = ChatRequest(model="test", messages=history)
 
     messages = svc.build_verification_messages(request, "response")
-    # System prompt + ALL HISTORY (50) + Assistant Response = 52
-    assert len(messages) == 52
+    # System + ALL HISTORY (50) + tail reminder user + assistant = 53
+    assert len(messages) == 53
     assert messages[0].role == "system"
-    assert messages[-2].content == "49"
+    assert messages[-3].content == "49"
 
 
 @pytest.mark.parametrize(
@@ -143,6 +180,8 @@ def test_build_verification_request_uses_default_backend() -> None:
         verification.messages[0].content
         == get_quality_verifier_prompt_loader().quality_verifier_prompt
     )
+    assert verification.messages[-2].role == "user"
+    assert str(verification.messages[-2].content).startswith("<system-reminder>")
     assert verification.messages[-1].role == "assistant"
     assert verification.messages[-1].content == "Draft reply"
 
@@ -191,8 +230,8 @@ def test_build_verification_messages_stringifies_tools() -> None:
     )
     messages = svc.build_verification_messages(request, "final answer")
 
-    # System prompt + 3 processed messages + 1 assistant message = 5
-    assert len(messages) == 5
+    # System + 3 processed messages + tail reminder user + assistant = 6
+    assert len(messages) == 6
 
     # Assistant message should be stringified
     assert messages[2].role == "assistant"
@@ -229,6 +268,8 @@ def test_build_verification_messages_strips_main_system_messages() -> None:
         not (m.role == "system" and str(m.content) == "MAIN SYSTEM PROMPT")
         for m in messages[1:]
     )
+    assert messages[-2].role == "user"
+    assert "<system-reminder>" in str(messages[-2].content)
     assert messages[-1].role == "assistant"
     assert messages[-1].content == "Latest draft"
 

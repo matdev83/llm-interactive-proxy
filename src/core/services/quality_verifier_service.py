@@ -380,7 +380,19 @@ class QualityVerifierService:
 
         # Include (potentially truncated) context
         messages.extend(history)
-        # Attach last assistant response
+
+        tail_inner = (loader.quality_verifier_tail_reminder or "").strip()
+        if tail_inner:
+            messages.append(
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "<system-reminder>\n" f"{tail_inner}\n" "</system-reminder>"
+                    ),
+                )
+            )
+
+        # Attach last assistant response (the completion under audit)
         normalized = self._normalize_assistant_content(assistant_response)
         messages.append(ChatMessage(role="assistant", content=normalized))
         return messages
@@ -570,9 +582,11 @@ class QualityVerifierService:
     ) -> ChatRequest:
         """Build a synthetic chat request embedding verifier feedback in-message.
 
-        Production steering uses ``quality_verifier_steering_store`` and the request
-        transform pipeline instead of this helper; it remains for tests and optional
-        alternate flows.
+        The live proxy applies steering via an **inline** main-model recall (see
+        ``quality_verifier_steering_messages`` and ``BackendRequestManager``).
+        A **legacy** path may still inject notes from ``quality_verifier_steering_store``
+        into a later request via ``consume_pending_quality_verifier_steering`` in the
+        request transform pipeline. This helper remains for tests and optional flows.
         """
         normalized_response = self._normalize_assistant_content(original_response)
 
@@ -596,7 +610,11 @@ class QualityVerifierService:
     def build_steering_payload(
         self, request: ChatRequest, original_response: Any, steering_text: str
     ) -> ChatRequest:
-        """Alias for :meth:`build_correction_request` (not used by the live proxy path)."""
+        """Alias for ``build_correction_request`` (same implementation).
+
+        The production inline-recall path does not use this alias; see
+        ``build_correction_request`` for how live steering is built in the proxy.
+        """
 
         return self.build_correction_request(request, original_response, steering_text)
 

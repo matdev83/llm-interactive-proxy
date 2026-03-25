@@ -9,6 +9,8 @@ import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
+from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.quality_verifier_steering_store import (
     PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY,
@@ -149,9 +151,7 @@ async def test_streaming_quality_verifier_no_steering_forwards_original() -> Non
 
 
 @pytest.mark.asyncio
-async def test_streaming_quality_verifier_steering_forwards_original_and_stores() -> (
-    None
-):
+async def test_streaming_quality_verifier_steering_recalls_inline() -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
     response_processor.process_streaming_response = (
@@ -172,11 +172,17 @@ async def test_streaming_quality_verifier_steering_forwards_original_and_stores(
 
     backend_service = DummyBackendService()
 
+    manager_holder: list[Any] = []
+
     class DummyProvider:
-        def get_required_service(self, _t):
+        def get_required_service(self, t: Any) -> Any:
+            if t is IBackendRequestManager:
+                return manager_holder[0]
+            if t is IBackendService:
+                return backend_service
             return backend_service
 
-        def get_service(self, _t):
+        def get_service(self, _t: Any) -> None:
             return None
 
     manager = create_backend_request_manager(
@@ -184,6 +190,7 @@ async def test_streaming_quality_verifier_steering_forwards_original_and_stores(
         response_processor=response_processor,
         mock_provider=DummyProvider(),
     )
+    manager_holder.append(manager)
 
     original_request = ChatRequest(
         model="openai:gpt-4o-mini",
@@ -191,12 +198,25 @@ async def test_streaming_quality_verifier_steering_forwards_original_and_stores(
         stream=True,
     )
 
-    chunks = [
+    main_chunks = [
         ProcessedResponse(content="Bad", metadata={}),
         ProcessedResponse(content=" output", metadata={"is_done": True}),
     ]
-    stream_envelope = StreamingResponseEnvelope(content=_build_stream(chunks))
-    backend_processor.process_backend_request.return_value = stream_envelope
+    recall_chunks = [
+        ProcessedResponse(content="Better", metadata={"is_done": True}),
+    ]
+
+    bp_calls = {"n": 0}
+
+    async def _processor_side_effect(
+        *_args: Any, **_kwargs: Any
+    ) -> StreamingResponseEnvelope:
+        bp_calls["n"] += 1
+        if bp_calls["n"] == 1:
+            return StreamingResponseEnvelope(content=_build_stream(main_chunks))
+        return StreamingResponseEnvelope(content=_build_stream(recall_chunks))
+
+    backend_processor.process_backend_request.side_effect = _processor_side_effect
 
     app_state = _DummyAppState("openai:gpt-4o-mini", quality_verifier_frequency=1)
     context = _make_context(app_state)
@@ -210,13 +230,12 @@ async def test_streaming_quality_verifier_steering_forwards_original_and_stores(
     out: list[str] = []
     async for chunk in result.content:
         out.append(str(chunk.content))
-    assert "Bad output" in "".join(out)
+    assert "Better" in "".join(out)
+    assert "Bad output" not in "".join(out)
 
-    await asyncio.sleep(0)
     assert backend_service.calls == 1
     pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
-    assert isinstance(pending, dict)
-    assert "session-steer" in pending
+    assert pending == {}
 
 
 @pytest.mark.asyncio

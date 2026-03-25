@@ -583,7 +583,14 @@ class TestDIContainerUsage:
                 # QualityVerifierServiceFactory creates QualityVerifierService instances as part of factory pattern
                 # This is intentional - factories are allowed to create instances
                 v.get("class_name") == "QualityVerifierService"
-                and "core\\services\\quality_verifier_service_factory.py" in v.get("file", "")
+                and "core\\services\\quality_verifier_service_factory.py"
+                in v.get("file", "")
+            )
+            and not (
+                # Shared orchestrator constructs per-run QualityVerifierService (stateless config wrapper)
+                v.get("class_name") == "QualityVerifierService"
+                and "core\\services\\quality_verifier_orchestrator.py"
+                in v.get("file", "")
             )
         ]
 

@@ -7,7 +7,11 @@ from typing import Any, cast
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.quality_verifier_turn_ledger_interface import (
+    IQualityVerifierTurnLedger,
+)
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
@@ -51,6 +55,16 @@ class DummyStreamNormalizer:
         pass
 
 
+class DummyTurnLedger:
+    def __init__(self) -> None:
+        self.reset_calls: list[tuple[str, Any]] = []
+
+    def reset_quality_verifier_eligible_turn_count(
+        self, session_key: str, session: Any | None
+    ) -> None:
+        self.reset_calls.append((session_key, session))
+
+
 class DummyAppState:
     def __init__(
         self, *, model: str | None = "openai:gpt-4o-mini", frequency: int = 1
@@ -81,15 +95,33 @@ class DummyAppState:
 
 
 @pytest.mark.asyncio
-async def test_response_processor_stores_steering_without_modifying_content(
+async def test_response_processor_inline_steering_recall_no_pending_store(
     monkeypatch,
 ) -> None:
+    ledger = DummyTurnLedger()
+
+    class DummyBRM:
+        def __init__(self) -> None:
+            self.calls: list[Any] = []
+
+        async def process_backend_request(self, steered, session_id, recall_ctx):
+            self.calls.append((steered, session_id, recall_ctx))
+            assert steered.stream is False
+            assert recall_ctx.extensions.get("quality_verifier_skip_verification")
+            return ResponseEnvelope(
+                content={"content": "recalled", "usage": {}, "metadata": {}}
+            )
+
+    brm = DummyBRM()
     proc = ResponseProcessor(
         response_parser=cast(IResponseParser, DummyParser()),
         stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
+        turn_ledger=ledger,
+        backend_request_manager=brm,
     )
 
-    app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
+    qv_model = "openai:qv-steer-isolated"
+    app_state = DummyAppState(model=qv_model, frequency=1)
     proc._app_state = app_state
 
     class DummyBackendService:
@@ -130,20 +162,20 @@ async def test_response_processor_stores_steering_without_modifying_content(
         session_id="session-1",
     )
     ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-1"
+    ctx.extensions["quality_verifier_model"] = qv_model
+    ctx.extensions["quality_verifier_frequency"] = 1
 
     pr = await proc.process_response(
         {"content": "initial"}, session_id="session-1", context=ctx
     )
     assert isinstance(pr, ProcessedResponse)
-    assert pr.content == "initial"
-
-    # Let background verifier run.
-    await asyncio.sleep(0)
+    assert pr.content == "recalled"
 
     assert len(backend_service.requests) == 1
+    assert len(brm.calls) == 1
+    assert ledger.reset_calls == [("qv-sess-1", None)]
     pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
-    assert isinstance(pending, dict)
-    assert "qv-sess-1" in pending
+    assert pending == {}
 
 
 @pytest.mark.asyncio
@@ -154,7 +186,8 @@ async def test_response_processor_quality_verifier_invalid_output_soft_fails(
         response_parser=cast(IResponseParser, DummyParser()),
         stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
     )
-    app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
+    qv_model = "openai:qv-invalid-isolated"
+    app_state = DummyAppState(model=qv_model, frequency=1)
     proc._app_state = app_state
 
     class DummyBackendService:
@@ -190,16 +223,81 @@ async def test_response_processor_quality_verifier_invalid_output_soft_fails(
         session_id="session-2",
     )
     ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-2"
+    ctx.extensions["quality_verifier_model"] = qv_model
+    ctx.extensions["quality_verifier_frequency"] = 1
 
     pr = await proc.process_response(
         {"content": "initial"}, session_id="session-2", context=ctx
     )
     assert pr.content == "initial"
 
-    await asyncio.sleep(0)
     assert backend.call_count == 2
     pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
     assert pending == {}
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_qv_pass_resets_ledger_via_provider_when_ctor_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If ``turn_ledger`` was not injected, reset still runs via ``get_service_provider``."""
+    ledger = DummyTurnLedger()
+    qv_model = "openai:qv-ledger-lazy-pass"
+
+    class DummyBackendService:
+        async def chat_completions(
+            self, request: Any, *args: Any, **kwargs: Any
+        ) -> Any:
+            return type("R", (), {"content": "<status>NO_STEERING_NEEDED</status>"})()
+
+    backend_service = DummyBackendService()
+
+    class DummyProvider:
+        def get_required_service(self, t: Any) -> Any:
+            if t is IQualityVerifierTurnLedger:
+                return ledger
+            if t is IBackendService:
+                return backend_service
+            return backend_service
+
+        def get_service(self, _t: Any) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider", lambda: DummyProvider()
+    )
+
+    proc = ResponseProcessor(
+        response_parser=cast(IResponseParser, DummyParser()),
+        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("out")),
+        turn_ledger=None,
+        backend_request_manager=None,
+    )
+    app_state = DummyAppState(model=qv_model, frequency=1)
+    proc._app_state = app_state
+
+    ctx = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=app_state,
+        original_request=ChatRequest(
+            model="m",
+            messages=[ChatMessage(role="user", content="Hi")],
+        ),
+        session_id="sess-ledger-lazy",
+        extensions={
+            "quality_verifier_model": qv_model,
+            "quality_verifier_frequency": 1,
+            "quality_verifier_effective_session_id": "qv-eff-lazy",
+        },
+    )
+
+    pr = await proc.process_response(
+        {"content": "out"}, session_id="sess-ledger-lazy", context=ctx
+    )
+    assert pr.content == "out"
+    assert ledger.reset_calls == [("qv-eff-lazy", None)]
 
 
 @pytest.mark.asyncio
@@ -259,7 +357,8 @@ async def test_response_processor_quality_verifier_ttft_timeout_soft_fails(
         response_parser=cast(IResponseParser, DummyParser()),
         stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
     )
-    app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
+    qv_model = "openai:qv-ttft-isolated"
+    app_state = DummyAppState(model=qv_model, frequency=1)
     proc._app_state = app_state
 
     class DummyBackendService:
@@ -294,6 +393,8 @@ async def test_response_processor_quality_verifier_ttft_timeout_soft_fails(
         session_id="session-4",
     )
     ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-4"
+    ctx.extensions["quality_verifier_model"] = qv_model
+    ctx.extensions["quality_verifier_frequency"] = 1
     ctx.extensions["quality_verifier_ttft_timeout_seconds"] = 0.01
 
     pr = await proc.process_response(
