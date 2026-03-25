@@ -5,6 +5,7 @@ This applicator handles:
 - auxiliary_routing_backend
 - auxiliary_routing_model
 - auxiliary_routing_max_messages
+- disable_default_openrouter_auxiliary_routing
 
 Requirements satisfied:
 - 6.1: ConfigurationApplicator delegates to domain-specific applicators
@@ -13,6 +14,8 @@ Requirements satisfied:
 
 from __future__ import annotations
 
+import os
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -24,6 +27,27 @@ from src.core.domain.model_utils import (
     has_explicit_backend_selector,
     parse_model_backend,
 )
+
+# Default auxiliary model to use when OpenRouter API key is detected
+_DEFAULT_OPENROUTER_AUXILIARY_MODEL = "openrouter/free"
+_DEFAULT_OPENROUTER_AUXILIARY_BACKEND = "openrouter"
+
+
+def _has_openrouter_api_key() -> bool:
+    """Check if any OpenRouter API key environment variable is set.
+
+    Checks for OPENROUTER_API_KEY and numbered variants like OPENROUTER_API_KEY_1, etc.
+
+    Returns:
+        True if any OPENROUTER_API_KEY* environment variable is set and non-empty.
+    """
+    # Check base OPENROUTER_API_KEY
+    if os.getenv("OPENROUTER_API_KEY"):
+        return True
+
+    # Check for numbered variants (OPENROUTER_API_KEY_1, OPENROUTER_API_KEY_2, etc.)
+    pattern = re.compile(r"^OPENROUTER_API_KEY_\d+$")
+    return any(pattern.match(key) and os.environ[key] for key in os.environ)
 
 
 class AuxiliaryRoutingApplicator:
@@ -107,5 +131,79 @@ class AuxiliaryRoutingApplicator:
                 origin="--auxiliary-routing-max-messages",
             )
 
+        # Handle disable default OpenRouter flag
+        disable_default_openrouter = getattr(
+            args, "disable_default_openrouter_auxiliary_routing", None
+        )
+        if disable_default_openrouter is not None:
+            aux_routing_overrides["disable_default_openrouter"] = (
+                disable_default_openrouter
+            )
+            resolution.record(
+                "auxiliary_routing.disable_default_openrouter",
+                disable_default_openrouter,
+                ParameterSource.CLI,
+                origin="--disable-default-open-router-auxiliary-routing",
+            )
+
+        # Auto-detect OpenRouter API key and apply default auxiliary model
+        # This happens when:
+        # 1. Auxiliary routing is being enabled (or already enabled in base config)
+        # 2. No model is explicitly configured
+        # 3. OpenRouter API key is detected in environment
+        # 4. The disable-default-openrouter flag is not set
+        self._apply_default_openrouter_model_if_needed(
+            aux_routing_overrides, resolution
+        )
+
         if aux_routing_overrides:
             overrides["auxiliary_routing"] = aux_routing_overrides
+
+    def _apply_default_openrouter_model_if_needed(
+        self,
+        aux_routing_overrides: dict[str, Any],
+        resolution: ParameterResolution,
+    ) -> None:
+        """Apply default OpenRouter model if conditions are met.
+
+        Conditions:
+        1. Auxiliary routing is enabled (or being enabled via CLI)
+        2. No model/backend is explicitly configured
+        3. OpenRouter API key is detected in environment
+        4. disable_default_openrouter is not set
+        """
+        # Check if auxiliary routing is enabled
+        is_enabled = aux_routing_overrides.get("enabled", False)
+        if not is_enabled:
+            return
+
+        # Check if disable flag is set
+        if aux_routing_overrides.get("disable_default_openrouter", False):
+            return
+
+        # Check if model or backend is already explicitly configured
+        has_explicit_model = "model" in aux_routing_overrides
+        has_explicit_backend = "backend" in aux_routing_overrides
+        if has_explicit_model or has_explicit_backend:
+            return
+
+        # Check if OpenRouter API key is present
+        if not _has_openrouter_api_key():
+            return
+
+        # Apply default OpenRouter auxiliary model
+        aux_routing_overrides["backend"] = _DEFAULT_OPENROUTER_AUXILIARY_BACKEND
+        aux_routing_overrides["model"] = _DEFAULT_OPENROUTER_AUXILIARY_MODEL
+
+        resolution.record(
+            "auxiliary_routing.backend",
+            _DEFAULT_OPENROUTER_AUXILIARY_BACKEND,
+            ParameterSource.DEFAULT,
+            origin="OPENROUTER_API_KEY auto-detection",
+        )
+        resolution.record(
+            "auxiliary_routing.model",
+            _DEFAULT_OPENROUTER_AUXILIARY_MODEL,
+            ParameterSource.DEFAULT,
+            origin="OPENROUTER_API_KEY auto-detection",
+        )

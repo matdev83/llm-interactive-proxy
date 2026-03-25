@@ -1298,6 +1298,13 @@ class ArgumentParserBuilder:
             metavar="N",
             help="Maximum message count for a request to be considered auxiliary (default: 3)",
         )
+        aux_routing_group.add_argument(
+            "--disable-default-open-router-auxiliary-routing",
+            dest="disable_default_openrouter_auxiliary_routing",
+            action="store_true",
+            default=None,
+            help="Disable automatic use of openrouter:openrouter/free as default auxiliary routing model when OPENROUTER_API_KEY is set but no auxiliary model is configured",
+        )
 
     def _add_identity_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add client identity override arguments."""

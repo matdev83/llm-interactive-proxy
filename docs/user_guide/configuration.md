@@ -429,6 +429,11 @@ routing:
 # Auxiliary Request Routing
 # Routes auxiliary requests (title/summary generation) to alternative backends
 # to reduce rate limiting pressure on the primary backend.
+#
+# Quality of Life Feature: When enabled and no model is configured, if OPENROUTER_API_KEY
+# (or numbered variants like OPENROUTER_API_KEY_1) is set, the system automatically uses
+# "openrouter:openrouter/free" as the auxiliary model. Set disable_default_openrouter: true
+# to disable this behavior.
 auxiliary_routing:
   enabled: false                    # Enable auxiliary request routing
   backend: null                     # Optional: Backend to use (e.g., "openrouter")
@@ -441,6 +446,7 @@ auxiliary_routing:
     - "Generate a title for the (?:session|conversation)"
     - "Provide a summary of (?:the|this|my) (?:task|conversation|session)"
   max_message_count: 3              # Maximum message count for auxiliary request detection
+  disable_default_openrouter: false # Disable auto-detection of OPENROUTER_API_KEY for default auxiliary model
 ```
 
 ### Resilience Scoping (`resilience`)

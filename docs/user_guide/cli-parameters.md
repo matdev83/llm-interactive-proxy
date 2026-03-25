@@ -329,11 +329,14 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 
 Routes auxiliary requests (title/summary generation) to alternative backends to reduce rate limiting pressure on the primary backend.
 
+**Quality of Life Feature**: When auxiliary routing is enabled and no model is explicitly configured, if an `OPENROUTER_API_KEY` environment variable is detected (including numbered variants like `OPENROUTER_API_KEY_1`, `OPENROUTER_API_KEY_2`, etc.), the system automatically uses `openrouter:openrouter/free` as the auxiliary model. This provides a sensible default for users who have OpenRouter configured but haven't specified an auxiliary routing model. Use `--disable-default-open-router-auxiliary-routing` to disable this behavior.
+
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--enable-auxiliary-routing` | `AUXILIARY_ROUTING_ENABLED=true` | Enable routing of auxiliary requests (title/summary generation) to an alternative backend. |
 | `--auxiliary-routing-model MODEL` | `AUXILIARY_ROUTING_MODEL` | Model to use for auxiliary requests. Can be specified as `model` or fully qualified `backend:model` (e.g. `openrouter:gemini-1.5-flash`). |
 | `--auxiliary-routing-max-messages N` | `AUXILIARY_ROUTING_MAX_MESSAGES` | Maximum message count for a request to be considered auxiliary (default: 3). |
+| `--disable-default-open-router-auxiliary-routing` | N/A | Disable automatic use of `openrouter:openrouter/free` as the default auxiliary routing model when `OPENROUTER_API_KEY` (or numbered variants like `OPENROUTER_API_KEY_1`) is set but no auxiliary model is configured. |
 
 ### Pytest Integration
 

@@ -64,6 +64,10 @@ class AuxiliaryRoutingConfig(DomainModel):
         default=3,
         description="Maximum message count for a request to be considered auxiliary (auxiliary requests typically have few messages)",
     )
+    disable_default_openrouter: bool = Field(
+        default=False,
+        description="Disable automatic use of openrouter:openrouter/free as default auxiliary routing model when OPENROUTER_API_KEY is set but no auxiliary model is configured",
+    )
 
     @model_validator(mode="after")
     def validate_target_configured_if_enabled(self) -> Self:

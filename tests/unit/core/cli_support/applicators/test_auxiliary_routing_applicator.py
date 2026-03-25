@@ -1,10 +1,13 @@
 """Tests for AuxiliaryRoutingApplicator."""
 
 import argparse
+import os
+from unittest.mock import patch
 
 import pytest
 from src.core.cli_support.applicators.auxiliary_routing_applicator import (
     AuxiliaryRoutingApplicator,
+    _has_openrouter_api_key,
 )
 from src.core.cli_support.protocols import CliArgs, CliOverrides
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
@@ -26,6 +29,7 @@ class TestAuxiliaryRoutingApplicator:
             auxiliary_routing_backend=None,
             auxiliary_routing_model=None,
             auxiliary_routing_max_messages=None,
+            disable_default_openrouter_auxiliary_routing=None,
         )
 
     @pytest.fixture
@@ -157,3 +161,207 @@ class TestAuxiliaryRoutingApplicator:
 
         assert len(overrides) == 0
         assert len(resolution.latest_by_source(ParameterSource.CLI)) == 0
+
+    def test_applies_disable_default_openrouter_flag(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that --disable-default-open-router-auxiliary-routing is applied."""
+        empty_args.disable_default_openrouter_auxiliary_routing = True
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert "auxiliary_routing" in overrides
+        assert overrides["auxiliary_routing"]["disable_default_openrouter"] is True
+        assert resolution.is_set("auxiliary_routing.disable_default_openrouter")
+        cli_params = resolution.latest_by_source(ParameterSource.CLI)
+        assert "auxiliary_routing.disable_default_openrouter" in cli_params
+
+
+class TestOpenRouterAutoDetection:
+    """Tests for OpenRouter API key auto-detection."""
+
+    @pytest.fixture
+    def applicator(self):
+        """Create an AuxiliaryRoutingApplicator instance."""
+        return AuxiliaryRoutingApplicator()
+
+    @pytest.fixture
+    def enabled_args(self) -> CliArgs:
+        """Create CLI arguments with auxiliary routing enabled."""
+        return argparse.Namespace(
+            auxiliary_routing_enabled=True,
+            auxiliary_routing_backend=None,
+            auxiliary_routing_model=None,
+            auxiliary_routing_max_messages=None,
+            disable_default_openrouter_auxiliary_routing=None,
+        )
+
+    @pytest.fixture
+    def overrides(self) -> CliOverrides:
+        """Create empty overrides dictionary."""
+        return {}
+
+    @pytest.fixture
+    def resolution(self) -> ParameterResolution:
+        """Create parameter resolution tracker."""
+        return ParameterResolution()
+
+    def test_has_openrouter_api_key_with_base_key(self):
+        """Test _has_openrouter_api_key returns True when OPENROUTER_API_KEY is set."""
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
+            assert _has_openrouter_api_key() is True
+
+    def test_has_openrouter_api_key_with_numbered_key(self):
+        """Test _has_openrouter_api_key returns True for OPENROUTER_API_KEY_1."""
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY_1": "test-key"}):
+            assert _has_openrouter_api_key() is True
+
+    def test_has_openrouter_api_key_with_multiple_numbered_keys(self):
+        """Test _has_openrouter_api_key returns True for any numbered variant."""
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY_5": "test-key"}):
+            assert _has_openrouter_api_key() is True
+
+    def test_has_openrouter_api_key_returns_false_when_not_set(self):
+        """Test _has_openrouter_api_key returns False when no key is set."""
+        with patch.dict(os.environ, {}, clear=True):
+            assert _has_openrouter_api_key() is False
+
+    def test_has_openrouter_api_key_ignores_invalid_patterns(self):
+        """Test _has_openrouter_api_key ignores similar but invalid env var names."""
+        with patch.dict(
+            os.environ,
+            {
+                "OPENROUTER_API_KEY_EXTRA": "test-key",
+                "MY_OPENROUTER_API_KEY": "test-key",
+                "OPENROUTER_API_KEY": "",
+            },
+        ):
+            assert _has_openrouter_api_key() is False
+
+    def test_auto_applies_default_openrouter_model_when_key_present(
+        self,
+        applicator,
+        enabled_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that default OpenRouter model is applied when API key is present."""
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
+            applicator.apply(enabled_args, overrides, resolution)
+
+        assert "auxiliary_routing" in overrides
+        assert overrides["auxiliary_routing"]["backend"] == "openrouter"
+        assert overrides["auxiliary_routing"]["model"] == "openrouter/free"
+        assert resolution.is_set("auxiliary_routing.backend")
+        assert resolution.is_set("auxiliary_routing.model")
+
+    def test_auto_applies_default_openrouter_model_with_numbered_key(
+        self,
+        applicator,
+        enabled_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that default OpenRouter model is applied when numbered key is present."""
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY_1": "test-key"}):
+            applicator.apply(enabled_args, overrides, resolution)
+
+        assert "auxiliary_routing" in overrides
+        assert overrides["auxiliary_routing"]["backend"] == "openrouter"
+        assert overrides["auxiliary_routing"]["model"] == "openrouter/free"
+
+    def test_no_auto_apply_when_openrouter_key_missing(
+        self,
+        applicator,
+        enabled_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that default model is NOT applied when no OpenRouter key is present."""
+        with patch.dict(os.environ, {}, clear=True):
+            applicator.apply(enabled_args, overrides, resolution)
+
+        # Should only have enabled flag, not backend/model
+        assert "auxiliary_routing" in overrides
+        assert overrides["auxiliary_routing"]["enabled"] is True
+        assert "backend" not in overrides["auxiliary_routing"]
+        assert "model" not in overrides["auxiliary_routing"]
+
+    def test_no_auto_apply_when_disable_flag_set(
+        self,
+        applicator,
+        enabled_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that default model is NOT applied when disable flag is set."""
+        enabled_args.disable_default_openrouter_auxiliary_routing = True
+
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
+            applicator.apply(enabled_args, overrides, resolution)
+
+        # Should have enabled and disable flag, but not backend/model
+        assert "auxiliary_routing" in overrides
+        assert overrides["auxiliary_routing"]["enabled"] is True
+        assert overrides["auxiliary_routing"]["disable_default_openrouter"] is True
+        assert "backend" not in overrides["auxiliary_routing"]
+        assert "model" not in overrides["auxiliary_routing"]
+
+    def test_no_auto_apply_when_model_explicitly_set(
+        self,
+        applicator,
+        enabled_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that default model is NOT applied when model is explicitly configured."""
+        enabled_args.auxiliary_routing_model = "gemini-flash"
+
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
+            applicator.apply(enabled_args, overrides, resolution)
+
+        assert "auxiliary_routing" in overrides
+        assert overrides["auxiliary_routing"]["model"] == "gemini-flash"
+        # Backend should not be auto-set since model was explicitly provided
+        assert "backend" not in overrides["auxiliary_routing"]
+
+    def test_no_auto_apply_when_backend_explicitly_set(
+        self,
+        applicator,
+        enabled_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that default model is NOT applied when backend is explicitly configured."""
+        enabled_args.auxiliary_routing_backend = "gemini-oauth"
+
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
+            applicator.apply(enabled_args, overrides, resolution)
+
+        assert "auxiliary_routing" in overrides
+        assert overrides["auxiliary_routing"]["backend"] == "gemini-oauth"
+        assert "model" not in overrides["auxiliary_routing"]
+
+    def test_no_auto_apply_when_routing_not_enabled(
+        self,
+        applicator,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that default model is NOT applied when auxiliary routing is not enabled."""
+        disabled_args = argparse.Namespace(
+            auxiliary_routing_enabled=None,
+            auxiliary_routing_backend=None,
+            auxiliary_routing_model=None,
+            auxiliary_routing_max_messages=None,
+            disable_default_openrouter_auxiliary_routing=None,
+        )
+
+        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-key"}):
+            applicator.apply(disabled_args, overrides, resolution)
+
+        # Should not create any auxiliary_routing overrides
+        assert len(overrides) == 0

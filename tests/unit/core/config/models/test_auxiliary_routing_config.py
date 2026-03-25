@@ -56,3 +56,13 @@ class TestAuxiliaryRoutingConfig:
         patterns = config.detection_patterns
         assert any("session" in p for p in patterns)
         assert any("task" in p for p in patterns)
+
+    def test_disable_default_openrouter_default(self):
+        """disable_default_openrouter should default to False."""
+        config = AuxiliaryRoutingConfig()
+        assert config.disable_default_openrouter is False
+
+    def test_disable_default_openrouter_can_be_set(self):
+        """disable_default_openrouter can be explicitly set."""
+        config = AuxiliaryRoutingConfig(disable_default_openrouter=True)
+        assert config.disable_default_openrouter is True
