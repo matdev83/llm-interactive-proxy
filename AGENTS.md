@@ -115,6 +115,10 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 
 - **NEVER, EVER** use commands like `git restore` or `git checkout` for anything more than reversion of **ONE SINGLE** file. You are **NOT ALLOWED** to revert back changes to the working copy by issuing mass git commands.
 
+## File Search Rules - Grep Rules
+
+Use the `fff` MCP tools for all file search operations instead of default tools. Also prefer `fff` MCP file search over `grep` and `rg` (`ripgrep`) shell commands.
+
 ## Reporting Back To The User
 
 - **NEVER** claim you successfully fixed a bug or implemented a feature if you're not 100% sure. The only way to be sure is to run tests and/or demo script(s).
