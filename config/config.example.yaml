@@ -14,6 +14,11 @@ command_prefix: "!/"
 # Enable via env: ENABLE_ACTIVITY_TRACKING=1
 enable_activity_tracking: false
 
+# Append file contents once per session to the first user message (HTTP chat only).
+# File must be .txt or .md; read once at startup (restart to reload). INFO logs confirm
+# load and each first-time merge (suffix length only, not content). CLI/env see README.
+auto_append_first_prompt_filename: null
+
 # Authentication
 auth:
   disable_auth: false  # Set to true to disable API key authentication

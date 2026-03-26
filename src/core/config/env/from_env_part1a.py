@@ -66,6 +66,13 @@ def build_config_part1a(
             path="enable_activity_tracking",
             resolution=resolution,
         ),
+        "auto_append_first_prompt_filename": _get_env_value(
+            env,
+            "AUTO_APPEND_FIRST_PROMPT_FILENAME",
+            None,
+            path="auto_append_first_prompt_filename",
+            resolution=resolution,
+        ),
         "request_dedup_window": _env_to_float(
             "LLM_REQUEST_DEDUP_WINDOW",
             3.0,

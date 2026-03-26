@@ -152,8 +152,9 @@ class IRequestTransformPipeline(ABC):
 
         Transformation order (must be preserved):
         1. API key redaction
-        2. Edit precision tuning
-        3. Tool filtering
+        2. First user-message suffix append (once per session, when configured)
+        3. Edit precision tuning
+        4. Tool filtering
 
         All transformations are fail-open (log and continue on unexpected errors).
         Structured validation failures (from preparation phase) are not handled here.

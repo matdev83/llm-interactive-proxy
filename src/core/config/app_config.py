@@ -113,6 +113,7 @@ class AppConfig(AppConfigModel):
             "memory",
             "database",
             "vtc_client_patterns",
+            "auto_append_first_prompt_filename",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
 
@@ -155,7 +156,13 @@ class AppConfig(AppConfigModel):
 
         loader = AppConfigLoader(backend_instances_dir=BACKEND_INSTANCES_DIR)
         model = loader.load(None, environ=env, resolution=res)
-        return cls.model_validate(model.model_dump())
+        cfg = cls.model_validate(model.model_dump())
+        from src.core.config.auto_append_first_prompt_hydration import (
+            hydrate_auto_append_first_prompt,
+        )
+
+        hydrate_auto_append_first_prompt(cfg)
+        return cfg
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value by dotted key path."""
@@ -202,7 +209,13 @@ def load_config(
     model = loader.load(config_path, environ=env, resolution=res)
 
     # Return the legacy concrete type (subclass) for compatibility.
-    return AppConfig.model_validate(model.model_dump())
+    cfg = AppConfig.model_validate(model.model_dump())
+    from src.core.config.auto_append_first_prompt_hydration import (
+        hydrate_auto_append_first_prompt,
+    )
+
+    hydrate_auto_append_first_prompt(cfg)
+    return cfg
 
 
 __all__ = [

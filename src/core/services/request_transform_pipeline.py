@@ -3,6 +3,7 @@ Request transformation pipeline implementation.
 
 This module provides the implementation of request transformations including:
 - API key redaction
+- Optional once-per-session suffix on the first user message
 - Edit precision tuning
 - Tool access control filtering
 
@@ -17,8 +18,13 @@ from typing import Any
 
 from pydantic.types import JsonValue
 
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import (
+    ChatMessage,
+    ChatRequest,
+    MessageContentPartText,
+)
 from src.core.domain.request_context import RequestContext
+from src.core.domain.session import SessionState
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.request_processor_internal import IRequestTransformPipeline
 from src.core.services.quality_verifier_steering_store import (
@@ -34,8 +40,9 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
     Transformation order (Requirement 9.8):
     1. API key redaction
-    2. Edit precision tuning
-    3. Tool access control filtering
+    2. First user-message suffix append (once per session, when configured)
+    3. Edit precision tuning
+    4. Tool access control filtering
 
     All transformations are fail-open (Requirement 9.7): unexpected errors
     are logged and processing continues.
@@ -62,8 +69,9 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
         Transformation order (must be preserved):
         1. API key redaction
-        2. Edit precision tuning
-        3. Tool filtering
+        2. First user-message suffix append (once per session, when configured)
+        3. Edit precision tuning
+        4. Tool filtering
 
         All transformations are fail-open (log and continue on unexpected errors).
         Structured validation failures (from preparation phase) are not handled here.
@@ -84,6 +92,19 @@ class RequestTransformPipeline(IRequestTransformPipeline):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Request redaction middleware failed; proceeding without redaction: %s",
+                    e,
+                    exc_info=True,
+                )
+
+        # Append configured suffix to first user message once per session (fail-open)
+        try:
+            request = await self._apply_auto_append_first_user_suffix(
+                context, session, session_id, request
+            )
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Auto-append first user message failed; proceeding without append: %s",
                     e,
                     exc_info=True,
                 )
@@ -126,6 +147,130 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                     e,
                     exc_info=True,
                 )
+
+        return request
+
+    @staticmethod
+    def _join_text_with_suffix(base: str, suffix: str) -> str:
+        if not base:
+            return suffix
+        if base.endswith("\n") or suffix.startswith("\n"):
+            return f"{base}{suffix}"
+        return f"{base}\n{suffix}"
+
+    def _append_suffix_to_message_content(self, content: Any, suffix: str) -> Any:
+        if isinstance(content, str):
+            return self._join_text_with_suffix(content, suffix)
+        if isinstance(content, list):
+            out: list[Any] = list(content)
+            if not out:
+                return [MessageContentPartText(text=suffix)]
+            last = out[-1]
+            if isinstance(last, MessageContentPartText):
+                joined = self._join_text_with_suffix(last.text or "", suffix)
+                out[-1] = last.model_copy(update={"text": joined})
+                return out
+            if isinstance(last, dict) and last.get("type") == "text":
+                d = dict(last)
+                d["text"] = self._join_text_with_suffix(
+                    str(d.get("text") or ""), suffix
+                )
+                out[-1] = d
+                return out
+            out.append(MessageContentPartText(text=suffix))
+            return out
+        if content is None:
+            return suffix
+        return self._join_text_with_suffix(str(content), suffix)
+
+    def _session_state_as_session_state(self, state_obj: object) -> SessionState | None:
+        if isinstance(state_obj, SessionState):
+            return state_obj
+        inner = getattr(state_obj, "_state", None)
+        if isinstance(inner, SessionState):
+            return inner
+        return None
+
+    async def _apply_auto_append_first_user_suffix(
+        self,
+        context: RequestContext,
+        session: object,
+        session_id: str,
+        request: ChatRequest,
+    ) -> ChatRequest:
+        if self._app_state is None:
+            return request
+
+        if isinstance(
+            getattr(context, "extensions", None), dict
+        ) and context.extensions.get("auxiliary_request"):
+            return request
+
+        app_config = self._get_app_config()
+        suffix_raw = (
+            getattr(app_config, "auto_append_first_prompt_text", None)
+            if app_config is not None
+            else None
+        )
+        suffix = str(suffix_raw).strip() if suffix_raw is not None else ""
+        if not suffix:
+            return request
+
+        state_obj = getattr(session, "state", None)
+        if state_obj is None:
+            return request
+        if bool(getattr(state_obj, "auto_append_first_prompt_applied", False)):
+            return request
+
+        messages = list(request.messages or [])
+        first_user_idx: int | None = None
+        for i, msg in enumerate(messages):
+            role = getattr(msg, "role", None)
+            if role == "user":
+                first_user_idx = i
+                break
+        if first_user_idx is None:
+            return request
+
+        msg = messages[first_user_idx]
+        new_content = self._append_suffix_to_message_content(
+            getattr(msg, "content", None), suffix
+        )
+        updated_msg = msg.model_copy(update={"content": new_content})
+        new_messages = [
+            *messages[:first_user_idx],
+            updated_msg,
+            *messages[first_user_idx + 1 :],
+        ]
+        request = request.model_copy(update={"messages": new_messages})
+
+        persist_ok = False
+        try:
+            base_state = self._session_state_as_session_state(state_obj)
+            update_fn = getattr(session, "update_state", None)
+            if base_state is not None and callable(update_fn):
+                update_fn(base_state.with_auto_append_first_prompt_applied(True))
+                persist_ok = True
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Auto-append first prompt: merged suffix into outbound request but "
+                    "failed to persist session flag (may append again on next request); "
+                    "session_id=%s",
+                    session_id,
+                    exc_info=True,
+                )
+
+        if logger.isEnabledFor(logging.INFO):
+            note = "" if persist_ok else " [session flag not persisted]"
+            logger.info(
+                "Auto-append first prompt: merged suffix into first user message "
+                "(session_id=%s, user_message_index=%d, suffix_chars=%d)%s",
+                session_id,
+                first_user_idx,
+                len(suffix),
+                note,
+            )
 
         return request
 

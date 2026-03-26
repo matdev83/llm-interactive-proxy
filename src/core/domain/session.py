@@ -90,6 +90,7 @@ class SessionState(ValueObject):
     # quality_verifier_turns.QV_ELIGIBLE_TURN_SCALE). Counts only eligible turns
     # (main model, excluding tool-result continuations and replacement-model turns).
     quality_verifier_eligible_turn_count: int = 0
+    auto_append_first_prompt_applied: bool = False
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -183,6 +184,10 @@ class SessionState(ValueObject):
     def with_client_os(self, client_os: str | None) -> SessionState:
         """Create a new session state with updated client OS."""
         return self.model_copy(update={"client_os": client_os})
+
+    def with_auto_append_first_prompt_applied(self, applied: bool) -> SessionState:
+        """Create a new session state with updated auto-append-first-prompt flag."""
+        return self.model_copy(update={"auto_append_first_prompt_applied": applied})
 
     def with_multiple_updates(self, **updates: Any) -> SessionState:
         """Create a new session state with multiple field updates in a single model_copy operation.
@@ -362,6 +367,11 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def pytest_compression_min_lines(self) -> int:
         """Minimum line threshold for pytest compression."""
         return self._state.pytest_compression_min_lines
+
+    @property
+    def auto_append_first_prompt_applied(self) -> bool:
+        """Whether the per-session first user-message append has already run."""
+        return bool(getattr(self._state, "auto_append_first_prompt_applied", False))
 
     @property
     def planning_phase_turn_count(self) -> int:

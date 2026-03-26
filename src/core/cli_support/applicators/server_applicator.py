@@ -61,6 +61,7 @@ class ServerApplicator:
         self._apply_command_prefix(args, overrides, resolution)
         self._apply_context_window(args, overrides, resolution)
         self._apply_activity_tracking(args, overrides, resolution)
+        self._apply_auto_append_first_prompt_filename(args, overrides, resolution)
         self._apply_request_dedup(args, overrides, resolution)
         self._apply_thinking_budget(args, overrides, resolution)
 
@@ -166,6 +167,26 @@ class ServerApplicator:
                 ParameterSource.CLI,
                 origin="--enable-activity-tracking",
             )
+
+    def _apply_auto_append_first_prompt_filename(
+        self,
+        args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Apply first user-message append file path from CLI."""
+        raw = getattr(args, "auto_append_first_prompt_filename", None)
+        if raw is None:
+            return
+        overrides["auto_append_first_prompt_filename"] = raw
+        if isinstance(raw, str) and raw.strip():
+            os.environ["AUTO_APPEND_FIRST_PROMPT_FILENAME"] = raw.strip()
+        resolution.record(
+            "auto_append_first_prompt_filename",
+            raw,
+            ParameterSource.CLI,
+            origin="--auto-append-first-prompt-filename",
+        )
 
     def _apply_request_dedup(
         self,

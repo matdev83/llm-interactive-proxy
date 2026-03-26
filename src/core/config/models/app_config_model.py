@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, field_validator
 
 from src.core.auth.sso.config import SSOConfig
 from src.core.config.models.access_mode import AccessModeConfig
@@ -67,6 +68,8 @@ class AppConfigModel(DomainModel, IConfig):
     gemini_read_timeout: float = 120.0  # Default 2 minutes
     disable_health_checks: bool = False
     enable_activity_tracking: bool = False
+    auto_append_first_prompt_filename: str | None = None
+    auto_append_first_prompt_text: str | None = Field(default=None, exclude=True)
 
     request_dedup_window: float = 6.0
     request_dedup_max_cache: int = 10000
@@ -129,6 +132,21 @@ class AppConfigModel(DomainModel, IConfig):
     )
 
     app: Any = None
+
+    @field_validator("auto_append_first_prompt_filename", mode="before")
+    @classmethod
+    def validate_auto_append_first_prompt_filename(cls, v: str | None) -> str | None:
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return None
+        if not isinstance(v, str):
+            raise ValueError("auto_append_first_prompt_filename must be a string")
+        suf = Path(v.strip()).suffix.lower()
+        if suf not in (".txt", ".md"):
+            raise ValueError(
+                f"Invalid auto_append_first_prompt_filename {v!r}: "
+                "must end with .txt or .md"
+            )
+        return v.strip()
 
     def model_is_functional(self, model_id: str) -> bool:
         return self.backends.model_is_functional(model_id)

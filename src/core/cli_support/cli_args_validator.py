@@ -12,6 +12,7 @@ Requirements satisfied:
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from src.core.domain.model_utils import (
@@ -46,6 +47,7 @@ class CliArgsValidator:
         """
         self._validate_access_mode_flags(args)
         self._validate_replacement_config(args)
+        self._validate_auto_append_first_prompt_filename(args)
 
     def _validate_access_mode_flags(self, args: argparse.Namespace) -> None:
         """Validate access mode flags.
@@ -61,6 +63,19 @@ class CliArgsValidator:
         if single_user_mode and multi_user_mode:
             raise ValueError(
                 "Cannot specify both --single-user-mode and --multi-user-mode. Choose one."
+            )
+
+    def _validate_auto_append_first_prompt_filename(
+        self, args: argparse.Namespace
+    ) -> None:
+        raw = getattr(args, "auto_append_first_prompt_filename", None)
+        if raw is None or not isinstance(raw, str) or not raw.strip():
+            return
+        suf = Path(raw.strip()).suffix.lower()
+        if suf not in (".txt", ".md"):
+            raise ValueError(
+                f"Invalid --auto-append-first-prompt-filename {raw!r}: "
+                "must end with .txt or .md"
             )
 
     def _validate_replacement_config(self, args: argparse.Namespace) -> None:

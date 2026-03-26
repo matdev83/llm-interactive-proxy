@@ -2,7 +2,7 @@
 Tests for RequestTransformPipeline implementation.
 
 Tests cover:
-- Transformation ordering (redaction -> edit precision -> tool filtering)
+- Transformation ordering (redaction -> first-user append -> edit precision -> tool filtering)
 - Fail-open behavior for each transformation
 - Configuration-driven transformation gating
 - Session and app_state interaction
@@ -14,8 +14,13 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import (
+    ChatMessage,
+    ChatRequest,
+    MessageContentPartText,
+)
 from src.core.domain.request_context import RequestContext
+from src.core.domain.session import SessionState
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.services.request_transform_pipeline import RequestTransformPipeline
 
@@ -61,6 +66,7 @@ def basic_session() -> Mock:
     session.agent = "test-agent"
     session.state = Mock()
     session.state.redact_api_keys_in_prompts_override = None
+    session.state.auto_append_first_prompt_applied = False
     return session
 
 
@@ -78,7 +84,8 @@ async def test_transform_pipeline_preserves_ordering(
 ) -> None:
     """
     Requirement 9.8: The request transformation pipeline shall preserve
-    the current execution order: redaction, then edit precision, then tool filtering.
+    the current execution order: redaction, optional first-user append, edit
+    precision, then tool filtering.
 
     This test verifies transformations are called in the correct order.
     """
@@ -90,6 +97,10 @@ async def test_transform_pipeline_preserves_ordering(
     # Mock each transformation method to track calls
     async def mock_redaction(ctx, session, session_id, request):
         transformation_order.append("redaction")
+        return request
+
+    async def mock_auto_append(ctx, session, session_id, request):
+        transformation_order.append("auto_append_first_user")
         return request
 
     async def mock_precision(ctx, session, session_id, request):
@@ -105,6 +116,7 @@ async def test_transform_pipeline_preserves_ordering(
         return request
 
     pipeline._apply_redaction = mock_redaction  # type: ignore
+    pipeline._apply_auto_append_first_user_suffix = mock_auto_append  # type: ignore
     pipeline._apply_edit_precision = mock_precision  # type: ignore
     pipeline._apply_tool_filtering = mock_filtering  # type: ignore
     pipeline._apply_quality_verifier_steering_injection = (  # type: ignore
@@ -119,6 +131,7 @@ async def test_transform_pipeline_preserves_ordering(
     # Verify ordering
     assert transformation_order == [
         "redaction",
+        "auto_append_first_user",
         "edit_precision",
         "tool_filtering",
         "quality_verifier_steering",
@@ -197,7 +210,12 @@ async def test_transform_pipeline_fail_open_on_redaction_error(
         transformation_order.append("tool_filtering")
         return request
 
+    async def mock_auto_append(ctx, session, session_id, request):
+        transformation_order.append("auto_append_first_user")
+        return request
+
     pipeline._apply_redaction = failing_redaction  # type: ignore
+    pipeline._apply_auto_append_first_user_suffix = mock_auto_append  # type: ignore
     pipeline._apply_edit_precision = mock_precision  # type: ignore
     pipeline._apply_tool_filtering = mock_filtering  # type: ignore
 
@@ -211,7 +229,11 @@ async def test_transform_pipeline_fail_open_on_redaction_error(
     assert isinstance(result, ChatRequest)
 
     # Verify other transformations still ran
-    assert transformation_order == ["edit_precision", "tool_filtering"]
+    assert transformation_order == [
+        "auto_append_first_user",
+        "edit_precision",
+        "tool_filtering",
+    ]
 
 
 @pytest.mark.asyncio
@@ -237,11 +259,16 @@ async def test_transform_pipeline_fail_open_on_precision_error(
         transformation_order.append("redaction")
         return request
 
+    async def mock_auto_append(ctx, session, session_id, request):
+        transformation_order.append("auto_append_first_user")
+        return request
+
     async def mock_filtering(ctx, session, session_id, request):
         transformation_order.append("tool_filtering")
         return request
 
     pipeline._apply_redaction = mock_redaction  # type: ignore
+    pipeline._apply_auto_append_first_user_suffix = mock_auto_append  # type: ignore
     pipeline._apply_edit_precision = failing_precision  # type: ignore
     pipeline._apply_tool_filtering = mock_filtering  # type: ignore
 
@@ -252,7 +279,11 @@ async def test_transform_pipeline_fail_open_on_precision_error(
 
     assert result is not None
     assert isinstance(result, ChatRequest)
-    assert transformation_order == ["redaction", "tool_filtering"]
+    assert transformation_order == [
+        "redaction",
+        "auto_append_first_user",
+        "tool_filtering",
+    ]
 
 
 @pytest.mark.asyncio
@@ -278,11 +309,16 @@ async def test_transform_pipeline_fail_open_on_filtering_error(
         transformation_order.append("redaction")
         return request
 
+    async def mock_auto_append(ctx, session, session_id, request):
+        transformation_order.append("auto_append_first_user")
+        return request
+
     async def mock_precision(ctx, session, session_id, request):
         transformation_order.append("edit_precision")
         return request
 
     pipeline._apply_redaction = mock_redaction  # type: ignore
+    pipeline._apply_auto_append_first_user_suffix = mock_auto_append  # type: ignore
     pipeline._apply_edit_precision = mock_precision  # type: ignore
     pipeline._apply_tool_filtering = failing_filtering  # type: ignore
 
@@ -293,7 +329,11 @@ async def test_transform_pipeline_fail_open_on_filtering_error(
 
     assert result is not None
     assert isinstance(result, ChatRequest)
-    assert transformation_order == ["redaction", "edit_precision"]
+    assert transformation_order == [
+        "redaction",
+        "auto_append_first_user",
+        "edit_precision",
+    ]
 
 
 @pytest.mark.asyncio
@@ -314,6 +354,7 @@ async def test_transform_pipeline_all_transformations_fail(
         raise RuntimeError("Transformation failed")
 
     pipeline._apply_redaction = failing_transform  # type: ignore
+    pipeline._apply_auto_append_first_user_suffix = failing_transform  # type: ignore
     pipeline._apply_edit_precision = failing_transform  # type: ignore
     pipeline._apply_tool_filtering = failing_transform  # type: ignore
 
@@ -538,7 +579,11 @@ async def test_transform_pipeline_preserves_original_request_instance(
     async def mock_filtering(ctx, session, session_id, request):
         return request
 
+    async def mock_auto_append(ctx, session, session_id, request):
+        return request
+
     pipeline._apply_redaction = mock_redaction  # type: ignore
+    pipeline._apply_auto_append_first_user_suffix = mock_auto_append  # type: ignore
     pipeline._apply_edit_precision = mock_precision  # type: ignore
     pipeline._apply_tool_filtering = mock_filtering  # type: ignore
 
@@ -735,3 +780,118 @@ async def test_redaction_preserves_original_request(
             # Verify result is modified
             assert result.messages[0].content != original_content
             assert id(result) != original_id
+
+
+@pytest.mark.asyncio
+async def test_auto_append_first_user_suffix_appends_to_first_user_message(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+    basic_session: Mock,
+) -> None:
+    mock_config = MagicMock()
+    mock_config.auto_append_first_prompt_text = "\n--tail--"
+    mock_app_state.get_setting.return_value = mock_config
+
+    session = Mock()
+    session.state = SessionState()
+    session.update_state = Mock()
+
+    req = ChatRequest(
+        model="m",
+        messages=[
+            ChatMessage(role="system", content="sys"),
+            ChatMessage(role="user", content="hi"),
+        ],
+    )
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_append_first_user_suffix(
+        request_context, session, "sid", req
+    )
+    assert out.messages[1].content == "hi\n--tail--"
+    session.update_state.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_auto_append_first_user_suffix_skips_when_already_applied(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+    basic_session: Mock,
+) -> None:
+    mock_config = MagicMock()
+    mock_config.auto_append_first_prompt_text = "\n--tail--"
+    mock_app_state.get_setting.return_value = mock_config
+
+    session = Mock()
+    session.state = SessionState().with_auto_append_first_prompt_applied(True)
+    session.update_state = Mock()
+
+    req = ChatRequest(
+        model="m",
+        messages=[ChatMessage(role="user", content="hi")],
+    )
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_append_first_user_suffix(
+        request_context, session, "sid", req
+    )
+    assert out.messages[0].content == "hi"
+    session.update_state.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_append_first_user_suffix_skips_auxiliary_request(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+    basic_session: Mock,
+) -> None:
+    mock_config = MagicMock()
+    mock_config.auto_append_first_prompt_text = "\n--tail--"
+    mock_app_state.get_setting.return_value = mock_config
+
+    session = Mock()
+    session.state = SessionState()
+    session.update_state = Mock()
+
+    request_context.extensions["auxiliary_request"] = True
+
+    req = ChatRequest(
+        model="m",
+        messages=[ChatMessage(role="user", content="hi")],
+    )
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_append_first_user_suffix(
+        request_context, session, "sid", req
+    )
+    assert out.messages[0].content == "hi"
+    session.update_state.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_append_first_user_suffix_multimodal_list(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+) -> None:
+    mock_config = MagicMock()
+    mock_config.auto_append_first_prompt_text = " END"
+    mock_app_state.get_setting.return_value = mock_config
+
+    session = Mock()
+    session.state = SessionState()
+    session.update_state = Mock()
+
+    req = ChatRequest(
+        model="m",
+        messages=[
+            ChatMessage(
+                role="user",
+                content=[MessageContentPartText(text="part1")],
+            )
+        ],
+    )
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_append_first_user_suffix(
+        request_context, session, "sid", req
+    )
+    parts = out.messages[0].content
+    assert isinstance(parts, list)
+    assert isinstance(parts[0], MessageContentPartText)
+    assert parts[0].text == "part1\nEND"

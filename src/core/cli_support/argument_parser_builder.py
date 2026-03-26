@@ -63,6 +63,7 @@ class ArgumentParserBuilder:
         self._add_planning_phase_arguments(parser)
         self._add_edit_precision_arguments(parser)
         self._add_activity_tracking_arguments(parser)
+        self._add_auto_append_first_prompt_arguments(parser)
         self._add_debugging_override_arguments(parser)
         self._add_auth_arguments(parser)
         self._add_pytest_arguments(parser)
@@ -850,6 +851,26 @@ class ArgumentParserBuilder:
             action="store_true",
             default=None,
             help="Disable request deduplication entirely",
+        )
+
+    def _add_auto_append_first_prompt_arguments(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Add first user-message append options (per session)."""
+        group = parser.add_argument_group(
+            "First user message (per session)",
+            "Append text from a file to the first user message per session (HTTP chat path)",
+        )
+        group.add_argument(
+            "--auto-append-first-prompt-filename",
+            dest="auto_append_first_prompt_filename",
+            type=str,
+            default=None,
+            metavar="FILENAME",
+            help=(
+                "Path to .txt or .md file whose contents are appended once per session "
+                "to the first user message (env: AUTO_APPEND_FIRST_PROMPT_FILENAME)"
+            ),
         )
 
     def _add_debugging_override_arguments(

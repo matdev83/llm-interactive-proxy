@@ -68,6 +68,24 @@ class TestCliArgsValidatorBasic:
 
 
 # =============================================================================
+# Auto-append first prompt filename validation
+# =============================================================================
+
+
+class TestAutoAppendFirstPromptFilenameValidation:
+    def test_rejects_non_txt_md_extension(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        args.auto_append_first_prompt_filename = "prompt.yaml"
+        with pytest.raises(ValueError, match=r"\.txt or \.md"):
+            validator.validate(args)  # type: ignore[union-attr]
+
+    def test_accepts_txt_md(self, validator: object, args: argparse.Namespace) -> None:
+        args.auto_append_first_prompt_filename = "p.txt"
+        validator.validate(args)  # type: ignore[union-attr]
+
+
+# =============================================================================
 # Random Model Replacement Validation Tests
 # =============================================================================
 
@@ -206,7 +224,10 @@ class TestErrorMessageFormat:
             with patch(
                 "src.core.cli_support.cli_args_validator.backend_registry"
             ) as mock_registry:
-                mock_registry.get_registered_backends.return_value = ["openai", "gemini"]
+                mock_registry.get_registered_backends.return_value = [
+                    "openai",
+                    "gemini",
+                ]
                 try:
                     validator.validate(args)  # type: ignore[union-attr]
                 except ValueError as e:

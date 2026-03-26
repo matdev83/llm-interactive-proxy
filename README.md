@@ -105,6 +105,9 @@ print(response.choices[0].message.content)
 
 See the full [Quick Start Guide](docs/user_guide/quick-start.md) for additional setup, auth, and backend examples.
 
+### First user message appender (per session)
+Optional once-per-session suffix on the first `user` message (HTTP chat): `auto_append_first_prompt_filename` in config (`.txt`/`.md`), `AUTO_APPEND_FIRST_PROMPT_FILENAME`, or `--auto-append-first-prompt-filename`. File must exist at startup; contents are read once into memory (restart to reload). At default log level, startup logs confirm load; each session logs once when the suffix is merged. Applied after redaction on the outbound request only (history stays pre-transform, like redaction). Skipped for auxiliary-routed calls.
+
 ## Supported Frontend Interfaces
 
 The proxy exposes standard API surfaces so existing clients can often work with little or no code changes.
