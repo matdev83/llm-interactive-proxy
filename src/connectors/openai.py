@@ -60,6 +60,34 @@ _LLM_PROXY_STREAM_URL_KEY = "_llm_proxy_stream_url"
 _LLM_PROXY_STREAM_HEADERS_KEY = "_llm_proxy_stream_headers"
 
 
+def _error_details_from_http_response(response: httpx.Response) -> dict[str, Any]:
+    """Extract provider hints from an HTTP error response (e.g. Retry-After for 429).
+
+    Populates ``details['headers']`` in the shape expected by
+    ``RateLimitErrorHandler._extract_retry_after`` so upstream rate-limit windows
+    are respected instead of always falling back to the proxy default cooldown.
+    """
+    details: dict[str, Any] = {}
+    retry_after: str | None = None
+    try:
+        # httpx.Headers is case-insensitive on .get; plain dict fixtures need a scan.
+        hdrs = response.headers
+        if hasattr(hdrs, "get"):
+            got = hdrs.get("retry-after")
+            if got is not None:
+                retry_after = str(got).strip()
+        if not retry_after:
+            for key, value in hdrs.items():
+                if str(key).lower() == "retry-after":
+                    retry_after = str(value).strip()
+                    break
+    except Exception:
+        return details
+    if retry_after:
+        details["headers"] = {"retry-after": retry_after}
+    return details
+
+
 def _raise_for_httpx_request_error(
     exc: httpx.RequestError,
     *,
@@ -2023,6 +2051,7 @@ class OpenAIConnector(LLMBackend):
                 message=body,
                 status_code=status_code,
                 code=str(status_code),
+                details=_error_details_from_http_response(response),
             )
 
         # Stream SSE messages

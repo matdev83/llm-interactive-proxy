@@ -662,6 +662,39 @@ async def test_streaming_response_error_closes_response(
 
 
 @pytest.mark.asyncio
+async def test_stream_completion_429_preserves_retry_after_header(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Upstream Retry-After on streaming HTTP errors is copied into BackendError.details."""
+    from src.core.common.exceptions import BackendError
+    from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+    mock_response = MockResponse(
+        status_code=429,
+        content=b'{"error":{"message":"Too many requests"}}',
+        is_error=True,
+    )
+    mock_response._headers = {"Retry-After": "37"}
+    mock_response.aiter_bytes = lambda: AsyncIterBytes([mock_response._content])
+
+    mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+
+    request = CanonicalChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="hi")],
+        stream=True,
+    )
+
+    with pytest.raises(BackendError) as excinfo:
+        async for _ in connector.stream_completion(request):
+            pass
+
+    err = excinfo.value
+    assert err.status_code == 429
+    assert err.details.get("headers", {}).get("retry-after") == "37"
+
+
+@pytest.mark.asyncio
 async def test_streaming_response_request_error(
     connector: OpenAIConnector, mocker: MockerFixture
 ) -> None:
