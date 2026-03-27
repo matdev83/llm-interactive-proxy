@@ -91,6 +91,7 @@ dev/thrdparty/
 .dependency_check_cache/
 .claude/
 .kilocode/
+.codex/
 .python_qa_mcp_server/
 test-results.xml
 .droid-shield.json
@@ -118,6 +119,7 @@ var/*.json
 var/*.jsonl
 var/*.py
 pyright_output.json
+dev/local_auto_append_prompt.txt
 
 # OAuth account credentials (never commit!)
 var/gemini_oauth_accounts/
