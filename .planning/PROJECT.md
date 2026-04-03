@@ -2,56 +2,60 @@
 
 ## What This Is
 
-LLM Interactive Proxy is a universal LLM gateway that lets existing AI clients talk to many backend providers through one compatible endpoint. It is built for developers, operators, and agent-driven workflows that need routing, failover, safety controls, observability, and protocol translation without rewriting the client side.
+LLM Interactive Proxy is a brownfield universal LLM gateway that sits between clients and provider backends. It provides compatibility layers, routing and failover controls, safety/steering features, and evidence-oriented observability without requiring client rewrites.
 
 ## Core Value
 
-Give any compatible LLM client a safer, smarter, vendor-independent control plane without forcing that client to change how it works.
+Provide a single, safer, and more controllable proxy endpoint for multi-provider LLM workflows while preserving client compatibility.
 
 ## Requirements
 
 ### Validated
 
-- ✓ OpenAI-, Anthropic-, and Gemini-compatible frontend surfaces route through a shared proxy layer — existing
-- ✓ Requests can be routed across multiple backend families with failover and health-aware behavior — existing
-- ✓ Safety and steering features can shape or block risky agent behavior at the proxy layer — existing
-- ✓ Operators can inspect traffic through structured logging and byte-precise CBOR wire captures — existing
-- ✓ Configuration resolves through CLI, environment, YAML, and defaults with documented precedence — existing
-- ✓ The system supports session-oriented behavior, usage tracking, and debugging-oriented tooling — existing
+- ✓ Multi-protocol frontend support exists (OpenAI, Anthropic, Gemini-compatible surfaces)
+- ✓ Multi-backend routing and failover capabilities are implemented
+- ✓ Safety and steering controls exist (dangerous command protection, tool controls, sandbox-related policies)
+- ✓ Observability foundations exist (structured logs, wire capture including CBOR)
+- ✓ Staged initialization and DI-based service wiring are established architectural patterns
 
 ### Active
 
-- [ ] Improve reliability and operational safety across provider integrations and long-running agent sessions
-- [ ] Expand and harden compatibility across supported clients, backends, and protocol variants
-- [ ] Strengthen observability, debugging, and operator control surfaces for real-world deployments
+- [ ] Define next milestone scope after codebase mapping review (brownfield delta only)
 
 ### Out of Scope
 
-- Training or fine-tuning foundation models inside this project — the proxy routes to external providers instead of becoming a model platform
-- Replacing client applications with a first-party chat product — the main value is compatibility and control at the proxy layer
-- Acting as a long-term conversation datastore of record — persistent storage is limited to operational/project features rather than full productized chat history
+- Building a first-party LLM model training/fine-tuning platform
+- Replacing existing client applications with a proprietary chat client
+- Planning detailed implementation phases before brownfield scope is explicitly selected
 
 ## Context
 
-This is a mature brownfield Python project centered on an async FastAPI proxy with staged initialization, dependency injection, transport-neutral ports/adapters, and provider-specific connectors. The codebase already supports multiple frontend protocols, many backend families, structured safety features, traffic capture, session management, usage accounting, and optional enterprise-style access controls. Existing docs emphasize vendor independence, resilience, debugging with evidence, and improving agent workflows without requiring client rewrites.
+This project is already mature and feature-rich. The immediate planning need is brownfield alignment: map the current system accurately, then select incremental scope with minimal architecture drift.
+
+Reference mapping artifacts:
+- `.planning/codebase/STACK.md`
+- `.planning/codebase/INTEGRATIONS.md`
+- `.planning/codebase/ARCHITECTURE.md`
+- `.planning/codebase/STRUCTURE.md`
+- `.planning/codebase/CONVENTIONS.md`
+- `.planning/codebase/TESTING.md`
+- `.planning/codebase/CONCERNS.md`
 
 ## Constraints
 
-- **Tech stack**: Python 3.10+, FastAPI, httpx, Pydantic v2, SQLModel/Alembic — existing architecture and tooling should remain the default path
-- **Architecture**: Staged startup and DI-managed services — new work should fit established lifecycle and interface boundaries
-- **Config model**: CLI > ENV > YAML > defaults — user-facing configuration changes must preserve precedence semantics
-- **Quality**: TDD first, then targeted verification, then broader regression coverage — changes must be proven with tests
-- **Platform**: Windows-first contributor workflow using `./.venv/Scripts/python.exe` — commands and scripts should remain compatible with this environment
+- **Platform**: Python async FastAPI stack with staged startup and DI boundaries
+- **Compatibility**: Preserve existing frontend/backend behavior for current clients
+- **Safety**: Keep safety and governance controls as first-class constraints
+- **Quality**: TDD-oriented workflow and existing lint/type/test expectations remain in force
+- **Brownfield discipline**: Prefer incremental evolution over broad rewrites
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Use an async FastAPI proxy as the central control plane | Existing clients need compatible HTTP surfaces with low-friction adoption | ✓ Good |
-| Keep staged initialization for startup wiring | Infrastructure, services, backends, and controllers have meaningful ordering constraints | ✓ Good |
-| Use DI and interface boundaries for core services | Testability and replacement of cross-cutting collaborators are important in a large brownfield codebase | ✓ Good |
-| Preserve transport-neutral ports/adapters where possible | Protocol translation logic should stay reusable outside the FastAPI transport layer | ✓ Good |
-| Treat traffic capture and observability as first-class product features | Debugging LLM systems requires evidence, not only logs and assumptions | ✓ Good |
+| Treat this initiative as brownfield-first mapping | Existing system already contains broad capabilities and non-trivial architecture | ✓ Good |
+| Defer concrete phase/task planning until scope delta is explicit | Avoid inventing roadmap items without stakeholder-confirmed priorities | ✓ Good |
+| Use `.planning/codebase/*` as source of truth for current-state planning | Ensures future requirements are grounded in actual implementation | ✓ Good |
 
 ## Evolution
 
@@ -71,4 +75,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-04 after initialization*
+*Last updated: 2026-04-04 after brownfield codebase mapping alignment*
