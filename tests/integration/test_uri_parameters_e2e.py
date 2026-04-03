@@ -160,7 +160,7 @@ class TestURIParameterValidation:
         """Test validation of reasoning_effort with valid values."""
         validator = URIParameterValidator()
 
-        for value in ["low", "medium", "high"]:
+        for value in ["low", "medium", "high", "xhigh"]:
             normalized, errors = validator.validate_and_normalize(
                 {"reasoning_effort": value}
             )

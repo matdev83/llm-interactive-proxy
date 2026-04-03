@@ -22,7 +22,22 @@ if TYPE_CHECKING:
     from src.core.config.app_config import AppConfig
 
 # Import the actual logging configuration function
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.logging_utils import configure_logging_with_environment_tagging
+
+
+def resolve_stdlib_log_level(level_name: str) -> int:
+    """Map config/CLI log level names to numeric stdlib logging levels.
+
+    Python's :mod:`logging` does not define ``TRACE``; the proxy uses a custom
+    level (see :data:`TRACE_LEVEL`) so ``LogLevel.TRACE`` can enable TRACE logs.
+    """
+
+    name = str(level_name).upper().strip()
+    if name == "TRACE":
+        return TRACE_LEVEL
+    return int(getattr(logging, name))
+
 
 # Pattern to detect already-suffixed paths (YYYYMMDD_HHMM[SS][-pPID] at end of stem)
 TIMESTAMP_SUFFIX_PATTERN = re.compile(r"-\d{8}_\d{4}(?:\d{2})?(?:-p\d+)?$")
@@ -76,7 +91,7 @@ class LoggingConfigurator:
         configure_fn = self._configure_fn or configure_logging_with_environment_tagging
 
         configure_fn(
-            level=getattr(logging, config.logging.level.value),
+            level=resolve_stdlib_log_level(config.logging.level.value),
             log_file=log_file,
             use_colors=config.logging.use_colors,
             console_stream=getattr(config.logging, "console_stream", "stderr"),

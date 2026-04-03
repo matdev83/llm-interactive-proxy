@@ -132,10 +132,7 @@ def _chunk_contains_backend_error(chunk: Any) -> bool:
         choices = chunk_content.get("choices")
         if isinstance(choices, list):
             for choice in choices:
-                if (
-                    isinstance(choice, dict)
-                    and choice.get("finish_reason") == "error"
-                ):
+                if isinstance(choice, dict) and choice.get("finish_reason") == "error":
                     return True
         return False
     if isinstance(chunk_content, bytes | bytearray):

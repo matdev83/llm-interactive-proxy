@@ -71,6 +71,7 @@ from src.connectors.openai_codex.tool_schema import ToolSchemaResolver
 from src.connectors.openai_codex.tool_schemas import get_codex_tool_schema
 from src.connectors.openai_codex.tools import ToolExecutionService
 from src.connectors.openai_codex.utils import build_codex_user_agent, message_to_text
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import AuthenticationError, ServiceResolutionError
 from src.core.config.app_config import AppConfig
 from src.core.domain.model_utils import parse_model_with_params
@@ -1344,8 +1345,10 @@ class OpenAICodexConnector(OpenAIConnector):
                     continue
                 payload_tools.append(schema)
                 existing_names.add(schema_name)
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Added Codex-side tool %s to payload", schema_name)
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL, "Added Codex-side tool %s to payload", schema_name
+                    )
 
         stream_val = bool(getattr(request_data, "stream", False))
 

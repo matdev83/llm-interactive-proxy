@@ -98,7 +98,7 @@ The following YAML structure represents the full configuration schema.
 ```yaml
 host: "127.0.0.1"              # Bind host
 port: 8000                     # Bind port
-anthropic_port: 8001           # Port for Anthropic-compatible endpoints
+anthropic_port: 8001           # Optional: second listener for root /v1/messages (omit/null to disable)
 proxy_timeout: 120             # Global request timeout (seconds)
 command_prefix: "!/"           # Command prefix for in-chat commands
 strict_command_detection: false # Require commands to be at start of message

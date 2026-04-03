@@ -22,6 +22,7 @@ from src.connectors.openai_codex.interfaces import (
     IToolExecutionService,
     IToolSchemaResolver,
 )
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 logger = logging.getLogger(__name__)
 
@@ -193,9 +194,12 @@ class ToolSchemaResolver(IToolSchemaResolver):
             if isinstance(name_value, str) and name_value.strip():
                 custom_tools.append(tool_dict)
             else:
-                logger.debug(
-                    "Ignoring tool without valid name in request payload: %s", tool
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Ignoring tool without valid name in request payload: %s",
+                        tool,
+                    )
 
         # Merge custom tool schema defaults from settings
         custom_tool_schema_default = (

@@ -25,17 +25,17 @@ def fork_request_context_for_quality_verifier_steering_recall(
         request_id=base.request_id,
         agent=base.agent,
         original_request=base.original_request,
-        processing_context=copy.deepcopy(base.processing_context)
-        if base.processing_context
-        else None,
+        processing_context=(
+            copy.deepcopy(base.processing_context) if base.processing_context else None
+        ),
         domain_request=base.domain_request,
         raw_body=base.raw_body,
         backend=base.backend,
         effective_model=base.effective_model,
         requested_model=base.requested_model,
         extensions=ext,
-        b2bua_identity=copy.deepcopy(base.b2bua_identity)
-        if base.b2bua_identity
-        else None,
+        b2bua_identity=(
+            copy.deepcopy(base.b2bua_identity) if base.b2bua_identity else None
+        ),
         original_domain_request=base.original_domain_request,
     )

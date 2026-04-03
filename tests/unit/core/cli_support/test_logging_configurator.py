@@ -460,3 +460,18 @@ class TestTimestampSuffixEdgeCases:
         assert result is not None
         assert result.endswith(".cbor")
         assert re.search(r"proxy-\d{8}_\d{6}-p\d+\.cbor$", result)
+
+
+class TestResolveStdlibLogLevel:
+    """TRACE is not a stdlib logging module attribute; map it to the project constant."""
+
+    def test_trace_maps_to_trace_level_constant(self) -> None:
+        from src.core.app.constants.logging_constants import TRACE_LEVEL
+        from src.core.cli_support.logging_configurator import resolve_stdlib_log_level
+
+        assert resolve_stdlib_log_level("TRACE") == TRACE_LEVEL
+
+    def test_debug_maps_to_logging_debug(self) -> None:
+        from src.core.cli_support.logging_configurator import resolve_stdlib_log_level
+
+        assert resolve_stdlib_log_level("DEBUG") == logging.DEBUG

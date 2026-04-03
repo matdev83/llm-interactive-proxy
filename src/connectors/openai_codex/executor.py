@@ -32,6 +32,7 @@ from src.connectors.openai_codex.interfaces import (
     IResponseExecutor,
 )
 from src.connectors.openai_codex.utils import build_codex_user_agent
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -320,17 +321,19 @@ class ResponseExecutor(IResponseExecutor):
                                 "original_error": err,
                             }
                     except Exception as json_err:
-                        logger.debug(
-                            "Failed to parse error response JSON, falling back to text: %s",
-                            json_err,
-                            exc_info=True,
-                            extra={
-                                "backend": "openai-codex",
-                                "session_id": context.session_id,
-                                "model": context.effective_model,
-                                "status_code": e.response.status_code,
-                            },
-                        )
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "Failed to parse error response JSON, falling back to text: %s",
+                                json_err,
+                                exc_info=True,
+                                extra={
+                                    "backend": "openai-codex",
+                                    "session_id": context.session_id,
+                                    "model": context.effective_model,
+                                    "status_code": e.response.status_code,
+                                },
+                            )
                         err = e.response.text
                     raise HTTPException(
                         status_code=e.response.status_code, detail=err
@@ -416,17 +419,19 @@ class ResponseExecutor(IResponseExecutor):
                                 "original_error": err,
                             }
                     except Exception as json_err:
-                        logger.debug(
-                            "Failed to parse error response JSON, falling back to text: %s",
-                            json_err,
-                            exc_info=True,
-                            extra={
-                                "backend": "openai-codex",
-                                "session_id": context.session_id,
-                                "model": context.effective_model,
-                                "status_code": response.status_code,
-                            },
-                        )
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "Failed to parse error response JSON, falling back to text: %s",
+                                json_err,
+                                exc_info=True,
+                                extra={
+                                    "backend": "openai-codex",
+                                    "session_id": context.session_id,
+                                    "model": context.effective_model,
+                                    "status_code": response.status_code,
+                                },
+                            )
                         err = response.text
                     raise HTTPException(status_code=response.status_code, detail=err)
 
@@ -475,12 +480,13 @@ class ResponseExecutor(IResponseExecutor):
                 response is not None
             ), "response should be set after successful request"
 
-            # Debug log raw response for non-streaming requests
-            if logger.isEnabledFor(logging.DEBUG):
+            # Verbose raw response diagnostics (TRACE only; avoid str()/slicing on DEBUG)
+            if logger.isEnabledFor(TRACE_LEVEL):
                 choices_count = len(response_json.get("choices", []))
                 response_id = response_json.get("id", "unknown")
                 response_model = response_json.get("model", "unknown")
-                logger.debug(
+                logger.log(
+                    TRACE_LEVEL,
                     "Non-streaming response from Codex: id=%s model=%s choices_count=%d",
                     response_id,
                     response_model,
@@ -493,7 +499,8 @@ class ResponseExecutor(IResponseExecutor):
                     },
                 )
                 if choices_count == 0:
-                    logger.debug(
+                    logger.log(
+                        TRACE_LEVEL,
                         "Empty choices in non-streaming response - raw response: %s",
                         str(response_json)[:500],
                         extra={
@@ -515,27 +522,31 @@ class ResponseExecutor(IResponseExecutor):
             try:
                 response_headers = dict(response.headers)
             except (TypeError, AttributeError) as e:
-                logger.debug(
-                    "Failed to extract response.headers, using fallback: %s",
-                    e,
-                    extra={
-                        "backend": "openai-codex",
-                        "session_id": context.session_id,
-                        "model": context.effective_model,
-                    },
-                )
-                try:
-                    response_headers = dict(getattr(response, "headers", {}) or {})
-                except (TypeError, AttributeError) as fallback_err:
-                    logger.debug(
-                        "Failed to extract fallback headers: %s",
-                        fallback_err,
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Failed to extract response.headers, using fallback: %s",
+                        e,
                         extra={
                             "backend": "openai-codex",
                             "session_id": context.session_id,
                             "model": context.effective_model,
                         },
                     )
+                try:
+                    response_headers = dict(getattr(response, "headers", {}) or {})
+                except (TypeError, AttributeError) as fallback_err:
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Failed to extract fallback headers: %s",
+                            fallback_err,
+                            extra={
+                                "backend": "openai-codex",
+                                "session_id": context.session_id,
+                                "model": context.effective_model,
+                            },
+                        )
                     response_headers = {}
 
             # Build response envelope with usage metadata
@@ -570,16 +581,18 @@ class ResponseExecutor(IResponseExecutor):
                 try:
                     await self._compatibility_layer.cleanup_state(compatibility_state)
                 except Exception as e:
-                    logger.debug(
-                        "Compatibility state cleanup failed: %s",
-                        e,
-                        exc_info=True,
-                        extra={
-                            "backend": "openai-codex",
-                            "session_id": context.session_id,
-                            "model": context.effective_model,
-                        },
-                    )
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Compatibility state cleanup failed: %s",
+                            e,
+                            exc_info=True,
+                            extra={
+                                "backend": "openai-codex",
+                                "session_id": context.session_id,
+                                "model": context.effective_model,
+                            },
+                        )
 
     async def _execute_streaming(
         self, payload: CodexPayload, context: CodexRequestContext, renderer_key: str
@@ -711,16 +724,18 @@ class ResponseExecutor(IResponseExecutor):
                     try:
                         headers_holder.update(dict(stream_handle.headers or {}))
                     except (TypeError, AttributeError, ValueError) as e:
-                        logger.debug(
-                            "Failed to extract response headers from stream: %s",
-                            e,
-                            exc_info=True,
-                            extra={
-                                "backend": "openai-codex",
-                                "session_id": context.session_id,
-                                "model": context.effective_model,
-                            },
-                        )
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "Failed to extract response headers from stream: %s",
+                                e,
+                                exc_info=True,
+                                extra={
+                                    "backend": "openai-codex",
+                                    "session_id": context.session_id,
+                                    "model": context.effective_model,
+                                },
+                            )
                         headers_holder.clear()
 
                     restart_stream = False
@@ -827,16 +842,18 @@ class ResponseExecutor(IResponseExecutor):
                                             ProcessedResponse, translated_chunk
                                         )
                                 except Exception as e:
-                                    logger.debug(
-                                        "Compatibility layer translation failed: %s",
-                                        e,
-                                        exc_info=True,
-                                        extra={
-                                            "backend": "openai-codex",
-                                            "session_id": context.session_id,
-                                            "model": context.effective_model,
-                                        },
-                                    )
+                                    if logger.isEnabledFor(TRACE_LEVEL):
+                                        logger.log(
+                                            TRACE_LEVEL,
+                                            "Compatibility layer translation failed: %s",
+                                            e,
+                                            exc_info=True,
+                                            extra={
+                                                "backend": "openai-codex",
+                                                "session_id": context.session_id,
+                                                "model": context.effective_model,
+                                            },
+                                        )
                                     # Continue with original chunk on translation failure
 
                             if self._chunk_has_client_visible_output(processed_chunk):
@@ -944,16 +961,18 @@ class ResponseExecutor(IResponseExecutor):
                             compatibility_state
                         )
                     except Exception as e:
-                        logger.debug(
-                            "Compatibility state cleanup failed: %s",
-                            e,
-                            exc_info=True,
-                            extra={
-                                "backend": "openai-codex",
-                                "session_id": context.session_id,
-                                "model": context.effective_model,
-                            },
-                        )
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "Compatibility state cleanup failed: %s",
+                                e,
+                                exc_info=True,
+                                extra={
+                                    "backend": "openai-codex",
+                                    "session_id": context.session_id,
+                                    "model": context.effective_model,
+                                },
+                            )
 
         return StreamingResponseEnvelope(
             content=_streaming_iterator(),

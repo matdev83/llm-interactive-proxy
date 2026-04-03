@@ -77,7 +77,8 @@ def _scheduled_context(session_id: str, stream_id: str) -> dict[str, Any]:
     return {
         "quality_verifier_model_spec": "openai:gpt-4o-mini",
         "quality_verifier_frequency": 1,
-        "quality_verifier_eligible_turn_count": 1000,
+        # Logical floor 2 — QV skips the first user turn of a session.
+        "quality_verifier_eligible_turn_count": 2000,
         "session_id": session_id,
         "stream_id": stream_id,
     }

@@ -116,7 +116,7 @@ The proxy exposes standard API surfaces so existing clients can often work with 
 - **OpenAI Responses** - `/v1/responses`
 - **OpenAI Models** - `/v1/models`
 - **Anthropic Messages** - `/anthropic/v1/messages`
-- **Dedicated Anthropic server** - `http://host:8001/v1/messages`
+- **Dedicated Anthropic server** - `http://host:<anthropic_port>/v1/messages` (only when `anthropic_port` / `--anthropic-port` / `ANTHROPIC_PORT` is set; often `8001`)
 - **Google Gemini v1beta** - `/v1beta/models` and `:generateContent`
 - **Diagnostics endpoint** - `/v1/diagnostics`
 - **Backend reactivation endpoint** - `/v1/diagnostics/backends/{backend_instance}/reactivate`

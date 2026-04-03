@@ -21,6 +21,7 @@ from src.connectors._openai_codex_xml_tool_parser import (
     XMLParseError,
     XMLToolParser,
 )
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.tool_results import UniversalToolResult
 
 if TYPE_CHECKING:
@@ -276,9 +277,11 @@ class KiloToolTranslator:
         if "end_line" in parsed.arguments:
             arguments["end_line"] = parsed.arguments["end_line"]
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Translated <read_file> to Codex read_file tool: %s", arguments
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "Translated <read_file> to Codex read_file tool: %s",
+                arguments,
             )
 
         return KiloTranslationResult("read_file", arguments)
@@ -309,9 +312,11 @@ class KiloToolTranslator:
         elif "depth" in parsed.arguments:
             arguments["depth"] = parsed.arguments["depth"]
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Translated <list_files> to Codex list_dir tool: %s", arguments
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "Translated <list_files> to Codex list_dir tool: %s",
+                arguments,
             )
 
         return KiloTranslationResult("list_dir", arguments)
@@ -372,9 +377,11 @@ class KiloToolTranslator:
         if "timeout" in parsed.arguments:
             arguments["timeout"] = parsed.arguments["timeout"]
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Translated <execute_command> to Codex shell tool: %s", arguments
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "Translated <execute_command> to Codex shell tool: %s",
+                arguments,
             )
 
         return KiloTranslationResult("shell", arguments)
@@ -423,8 +430,9 @@ class KiloToolTranslator:
         # Optional: case_sensitive flag (defaults to True)
         arguments["case_sensitive"] = parsed.arguments.get("case_sensitive", True)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Translated <%s> to Codex grep_files tool: %s",
                 parsed.canonical_name,
                 arguments,
@@ -451,9 +459,11 @@ class KiloToolTranslator:
         # Extract result message (can be empty)
         arguments["result"] = parsed.arguments.get("result", "")
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Translated <attempt_completion> for proxy-side handling: %s", arguments
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "Translated <attempt_completion> for proxy-side handling: %s",
+                arguments,
             )
 
         # Return a special marker to indicate this should be handled proxy-side
@@ -486,8 +496,9 @@ class KiloToolTranslator:
 
         arguments["question"] = parsed.arguments["question"]
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Translated <ask_followup_question> for proxy-side handling: %s",
                 arguments,
             )
@@ -590,9 +601,10 @@ class KiloToolTranslator:
                 # Try to use Codex apply_patch tool
                 # For now, forward to MCP server as fallback
                 # In a full implementation, we would parse the diff and convert to Codex format
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Forwarding patch_file to MCP server (Codex apply_patch conversion not yet implemented)"
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Forwarding patch_file to MCP server (Codex apply_patch conversion not yet implemented)",
                     )
 
                 # Return marker for MCP tool execution
@@ -612,8 +624,9 @@ class KiloToolTranslator:
         arguments["tool_name"] = tool_name
         arguments["tool_arguments"] = tool_arguments
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Translated <use_mcp_tool> for MCP server forwarding: tool=%s",
                 tool_name,
             )
@@ -647,8 +660,9 @@ class KiloToolTranslator:
         # KiloCode uses 'uri', Codex might use 'resource_uri' or similar
         arguments["uri"] = uri
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Translated <access_mcp_resource> to Codex read_mcp_resource tool: uri=%s",
                 uri,
             )
@@ -752,9 +766,12 @@ class KiloToolTranslator:
             if "content" in parsed.arguments:
                 arguments["content"] = parsed.arguments["content"]
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Translated <%s> for proxy-side execution: %s", tool_name, arguments
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "Translated <%s> for proxy-side execution: %s",
+                tool_name,
+                arguments,
             )
 
         # Return marker for proxy-side execution
@@ -864,8 +881,9 @@ class KiloToolTranslator:
             if param_name not in translated and "default" in param_schema:
                 translated[param_name] = param_schema["default"]
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Translated MCP parameters: %d input params -> %d output params",
                 len(kilo_params),
                 len(translated),
@@ -946,8 +964,9 @@ class KiloToolTranslator:
 
         formatted_result = "\n".join(formatted_parts)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Formatted result for tool '%s' (length: %d bytes)",
                 tool_name,
                 len(formatted_result),

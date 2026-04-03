@@ -23,7 +23,7 @@ def test_logging_masks_secrets(
         origin="OPENROUTER_API_KEY",
     )
 
-    with caplog.at_level(logging.INFO, logger=logger_name):
+    with caplog.at_level(logging.DEBUG, logger=logger_name):
         resolution.log(logging.getLogger(logger_name), config)
 
     assert "NOT-A-REAL-API-KEY" not in caplog.text
@@ -37,7 +37,7 @@ def test_logging_records_defaults(
     resolution = ParameterResolution()
     config = AppConfig({})
 
-    with caplog.at_level(logging.INFO, logger=logger_name):
+    with caplog.at_level(logging.DEBUG, logger=logger_name):
         resolution.log(logging.getLogger(logger_name), config)
 
     assert "host" in caplog.text

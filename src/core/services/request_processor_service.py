@@ -19,6 +19,7 @@ from src.core.domain.model_utils import (
     parse_model_backend,
 )
 from src.core.domain.quality_verifier_turns import (
+    MIN_LOGICAL_TURN_FLOOR_FOR_QUALITY_VERIFIER,
     logical_floor_from_scaled,
     migrate_legacy_eligible_turn_counter,
     qv_tool_followup_increment_scaled,
@@ -249,7 +250,11 @@ class RequestProcessor(IRequestProcessor):
             migrated = migrate_legacy_eligible_turn_counter(raw)
             self._quality_verifier_turn_counts[session_key] = migrated
             raw = migrated
-        count = int(raw) if isinstance(raw, int) else migrate_legacy_eligible_turn_counter(raw)
+        count = (
+            int(raw)
+            if isinstance(raw, int)
+            else migrate_legacy_eligible_turn_counter(raw)
+        )
         if session_key in self._quality_verifier_turn_counts:
             self._quality_verifier_turn_counts.move_to_end(session_key, last=True)
         return max(0, int(count))
@@ -276,7 +281,9 @@ class RequestProcessor(IRequestProcessor):
         try:
             st = getattr(session, "state", None)
             if st is not None and hasattr(st, "with_multiple_updates"):
-                new_st = st.with_multiple_updates(quality_verifier_eligible_turn_count=0)
+                new_st = st.with_multiple_updates(
+                    quality_verifier_eligible_turn_count=0
+                )
                 upd = getattr(session, "update_state", None)
                 if callable(upd):
                     upd(new_st)
@@ -652,9 +659,17 @@ class RequestProcessor(IRequestProcessor):
                     freq = 10
                 # After this request, counter will increase by at least one full user turn
                 # (worst case) when replacement is not active — use scaled storage.
-                next_scaled = max(0, int(current_eligible_turn_scaled)) + qv_user_turn_increment_scaled()
+                next_scaled = (
+                    max(0, int(current_eligible_turn_scaled))
+                    + qv_user_turn_increment_scaled()
+                )
                 next_eligible_floor = logical_floor_from_scaled(next_scaled)
-                if freq > 0 and (next_eligible_floor % freq) == 0:
+                if (
+                    freq > 0
+                    and next_eligible_floor
+                    >= MIN_LOGICAL_TURN_FLOOR_FOR_QUALITY_VERIFIER
+                    and (next_eligible_floor % freq) == 0
+                ):
                     suppress_replacement_for_quality_verifier = True
                     context.extensions[
                         "replacement_suppressed_for_quality_verifier"
@@ -812,7 +827,8 @@ class RequestProcessor(IRequestProcessor):
                     int(current_eligible_turn_scaled)
                 )
                 should_run_next = (
-                    current_turn_floor > 0 and (current_turn_floor % freq_int) == 0
+                    current_turn_floor >= MIN_LOGICAL_TURN_FLOOR_FOR_QUALITY_VERIFIER
+                    and (current_turn_floor % freq_int) == 0
                 )
                 logger.debug(
                     "Quality Verifier scheduling: effective_session=%s "

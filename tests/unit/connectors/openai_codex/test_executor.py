@@ -24,6 +24,7 @@ from src.connectors.openai_codex.interfaces import (
     ICredentialManager,
     IResponseExecutor,
 )
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -1104,10 +1105,10 @@ class TestResponseExecutor:
         compatibility_layer.append_incompatible_tool_steering.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_execute_non_streaming_empty_choices_logs_debug(
+    async def test_execute_non_streaming_empty_choices_logs_trace(
         self, executor, mock_base_connector, sample_context, non_streaming_payload
     ):
-        """Test that empty choices are logged at debug level."""
+        """Test that empty choices are logged at TRACE level."""
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -1129,8 +1130,10 @@ class TestResponseExecutor:
             mock_logger.isEnabledFor.return_value = True
             await executor.execute(non_streaming_payload, sample_context)
 
-            # Should log debug message about empty choices
-            mock_logger.debug.assert_called()
+            mock_logger.log.assert_called()
+            assert any(
+                c.args and c.args[0] == TRACE_LEVEL for c in mock_logger.log.call_args_list
+            )
 
     @pytest.mark.asyncio
     async def test_response_envelope_includes_usage_metadata(
@@ -1212,7 +1215,7 @@ class TestResponseExecutor:
     async def test_logging_includes_correlation_fields(
         self, executor, non_streaming_payload, sample_context
     ):
-        """Test that logging includes correlation fields (backend, session_id) (Task 4.3)."""
+        """Test that TRACE logging includes correlation fields (backend, session_id) (Task 4.3)."""
         # Mock successful response
         mock_response = MagicMock()
         mock_response.status_code = 200
@@ -1238,30 +1241,23 @@ class TestResponseExecutor:
             mock_logger.isEnabledFor.return_value = True
             await executor.execute(non_streaming_payload, sample_context)
 
-            # Verify debug logging was called with correlation fields
-            debug_calls = [
-                call
-                for call in mock_logger.debug.call_args_list
-                if call
-                and len(call) > 1
-                and isinstance(call[1], dict)
-                and "extra" in call[1]
+            trace_extras = [
+                c.kwargs["extra"]
+                for c in mock_logger.log.call_args_list
+                if c.kwargs.get("extra")
+                and c.args
+                and c.args[0] == TRACE_LEVEL
             ]
 
-            # Should have at least one debug call with correlation fields
-            assert len(debug_calls) > 0
+            assert len(trace_extras) > 0
 
-            # Check that correlation fields are present in extra dict
-            for call in debug_calls:
-                if "extra" in call[1]:
-                    extra = call[1]["extra"]
-                    assert "backend" in extra
-                    assert extra["backend"] == "openai-codex"
-                    assert "session_id" in extra
-                    assert extra["session_id"] == sample_context.session_id
-                    # Verify model field is also present
-                    assert "model" in extra
-                    assert extra["model"] == sample_context.effective_model
+            for extra in trace_extras:
+                assert "backend" in extra
+                assert extra["backend"] == "openai-codex"
+                assert "session_id" in extra
+                assert extra["session_id"] == sample_context.session_id
+                assert "model" in extra
+                assert extra["model"] == sample_context.effective_model
 
     @pytest.mark.asyncio
     async def test_error_logging_includes_correlation_fields(

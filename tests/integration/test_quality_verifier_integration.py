@@ -119,6 +119,8 @@ def _make_context(app_state: _AppState, config: AppConfig) -> RequestContext:
         extensions["quality_verifier_frequency"] = (
             config.session.quality_verifier_frequency
         )
+    if extensions.get("quality_verifier_model"):
+        extensions["quality_verifier_eligible_turn_count"] = 2000
     return RequestContext(
         headers={},
         cookies={},

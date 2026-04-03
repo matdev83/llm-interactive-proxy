@@ -7,6 +7,8 @@ from collections.abc import Mapping, MutableMapping
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -134,11 +136,8 @@ class CodexCapabilityResolver:
             if filtered_overrides:
                 result = result.merge(filtered_overrides)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Resolved Codex capabilities: %s",
-                result.to_dict(),
-            )
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(TRACE_LEVEL, "Resolved Codex capabilities: %s", result.to_dict())
         return result
 
     @staticmethod
@@ -156,11 +155,13 @@ class CodexCapabilityResolver:
                 if isinstance(dumped, Mapping):
                     return dict(dumped)
             except Exception as e:
-                logger.debug(
-                    "Failed to call model_dump on candidate object: %s",
-                    e,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Failed to call model_dump on candidate object: %s",
+                        e,
+                        exc_info=True,
+                    )
                 return None
         if hasattr(candidate, "__dict__"):
             return dict(candidate.__dict__)

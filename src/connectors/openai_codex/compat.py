@@ -27,6 +27,7 @@ from src.connectors.openai_codex.contracts import (
 )
 from src.connectors.openai_codex.interfaces import ICompatibilityLayer
 from src.connectors.openai_codex.tools import ToolExecutionService
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 logger = logging.getLogger(__name__)
 
@@ -214,11 +215,13 @@ class CompatibilityLayer(ICompatibilityLayer):
             try:
                 xml_parser = ensure_parser()
             except Exception as exc:
-                logger.debug(
-                    "Failed to initialize XMLToolParser via ensure_xml_parser: %s",
-                    exc,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Failed to initialize XMLToolParser via ensure_xml_parser: %s",
+                        exc,
+                        exc_info=True,
+                    )
         if xml_parser is None:
             get_parser = getattr(self._kilo_translator, "get_xml_parser", None)
             if callable(get_parser):
@@ -226,8 +229,9 @@ class CompatibilityLayer(ICompatibilityLayer):
                     xml_parser = get_parser()
                 except (AttributeError, TypeError, RuntimeError) as e:
                     # Expected exceptions when XML parser is unavailable or misconfigured
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
                             "Could not get XML parser via get_xml_parser: %s",
                             e,
                             exc_info=True,
@@ -243,7 +247,8 @@ class CompatibilityLayer(ICompatibilityLayer):
                         )
                     xml_parser = None
         if not isinstance(xml_parser, _XMLParserLike):
-            logger.debug("XMLToolParser not available")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(TRACE_LEVEL, "XMLToolParser not available")
             return result
 
         # Process each message
@@ -310,8 +315,9 @@ class CompatibilityLayer(ICompatibilityLayer):
                             tool_call_obj = ToolCall.model_validate(tool_call_entry)
                         except (ValueError, TypeError) as e:
                             # Expected validation errors - fallback to cast
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
+                            if logger.isEnabledFor(TRACE_LEVEL):
+                                logger.log(
+                                    TRACE_LEVEL,
                                     "ToolCall validation failed, using cast fallback: %s",
                                     e,
                                 )
@@ -408,8 +414,9 @@ class CompatibilityLayer(ICompatibilityLayer):
                     xml_parser = ensure_parser()
                 except (AttributeError, TypeError, RuntimeError) as e:
                     # Expected exceptions when XML parser is unavailable or misconfigured
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
                             "Could not get XML parser via ensure_xml_parser: %s",
                             e,
                             exc_info=True,
@@ -431,8 +438,9 @@ class CompatibilityLayer(ICompatibilityLayer):
                         xml_parser = get_parser()
                     except (AttributeError, TypeError, RuntimeError) as e:
                         # Expected exceptions when XML parser is unavailable or misconfigured
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
                                 "Could not get XML parser via get_xml_parser: %s",
                                 e,
                                 exc_info=True,

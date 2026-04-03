@@ -32,6 +32,7 @@ from src.connectors.openai_codex.interfaces import (
     IToolSchemaResolver,
 )
 from src.connectors.openai_codex.utils import message_to_text
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 if TYPE_CHECKING:
     from src.connectors.openai_codex import OpenAICodexConnector
@@ -103,7 +104,11 @@ class PayloadBuilder(IPayloadBuilder):
             context.capabilities.codex_passthrough
             and self._is_native_responses_payload(context.request)
         ):
-            logger.debug("Executing native Codex/Responses payload passthrough.")
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Executing native Codex/Responses payload passthrough.",
+                )
             return self._build_passthrough_payload(context)
 
         # Build payload from scratch

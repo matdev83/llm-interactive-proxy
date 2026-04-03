@@ -164,6 +164,7 @@ async def test_response_processor_inline_steering_recall_no_pending_store(
     ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-1"
     ctx.extensions["quality_verifier_model"] = qv_model
     ctx.extensions["quality_verifier_frequency"] = 1
+    ctx.extensions["quality_verifier_eligible_turn_count"] = 2000
 
     pr = await proc.process_response(
         {"content": "initial"}, session_id="session-1", context=ctx
@@ -225,6 +226,7 @@ async def test_response_processor_quality_verifier_invalid_output_soft_fails(
     ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-2"
     ctx.extensions["quality_verifier_model"] = qv_model
     ctx.extensions["quality_verifier_frequency"] = 1
+    ctx.extensions["quality_verifier_eligible_turn_count"] = 2000
 
     pr = await proc.process_response(
         {"content": "initial"}, session_id="session-2", context=ctx
@@ -290,6 +292,7 @@ async def test_non_streaming_qv_pass_resets_ledger_via_provider_when_ctor_none(
             "quality_verifier_model": qv_model,
             "quality_verifier_frequency": 1,
             "quality_verifier_effective_session_id": "qv-eff-lazy",
+            "quality_verifier_eligible_turn_count": 2000,
         },
     )
 
@@ -395,6 +398,7 @@ async def test_response_processor_quality_verifier_ttft_timeout_soft_fails(
     ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-4"
     ctx.extensions["quality_verifier_model"] = qv_model
     ctx.extensions["quality_verifier_frequency"] = 1
+    ctx.extensions["quality_verifier_eligible_turn_count"] = 2000
     ctx.extensions["quality_verifier_ttft_timeout_seconds"] = 0.01
 
     pr = await proc.process_response(

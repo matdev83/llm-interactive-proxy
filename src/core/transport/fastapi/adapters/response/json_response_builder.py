@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi.responses import JSONResponse
 
+from src.core.common.logging_utils import truncate_for_debug_log
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.usage_payload import UsagePayload
@@ -236,7 +237,10 @@ class JSONResponseBuilder:
                 )
             except (TypeError, ValueError):
                 safe_content_for_log = repr(safe_content)
-            logger.debug("JSONResponse safe_content: %s", safe_content_for_log)
+            logger.debug(
+                "JSONResponse safe_content: %s",
+                truncate_for_debug_log(safe_content_for_log),
+            )
 
         return self._create_json_response(safe_content, final_status_code, safe_headers)
 

@@ -154,7 +154,7 @@ class ParameterResolution:
             value_repr = _value_repr(redacted_value)
             origin_suffix = f" {entry.origin}" if entry.origin else ""
             source_label = f"{entry.source.value}{origin_suffix}".strip()
-            logger.info(
+            logger.debug(
                 "Loaded parameter %s = %s (%s)",
                 entry.name,
                 value_repr,

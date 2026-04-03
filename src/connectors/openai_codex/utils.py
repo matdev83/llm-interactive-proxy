@@ -9,6 +9,8 @@ import platform
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -125,12 +127,14 @@ def to_mapping(candidate: Any) -> dict[str, Any] | None:
             if isinstance(dumped, Mapping):
                 return dict(dumped)
         except (TypeError, AttributeError, ValueError) as e:
-            logger.debug(
-                "Failed to convert model_dump result to mapping: %s (type=%s)",
-                str(e),
-                type(e).__name__,
-                exc_info=True,
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Failed to convert model_dump result to mapping: %s (type=%s)",
+                    str(e),
+                    type(e).__name__,
+                    exc_info=True,
+                )
             return None
     if hasattr(candidate, "__dict__"):
         return dict(candidate.__dict__)

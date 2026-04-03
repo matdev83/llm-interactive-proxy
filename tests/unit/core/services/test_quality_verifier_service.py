@@ -146,11 +146,27 @@ def test_parse_model_with_params(
     assert params == expected_params
 
 
-def test_should_run_for_request_every_turn() -> None:
+def test_should_run_for_request_skips_first_user_turn_even_when_frequency_is_one() -> (
+    None
+):
     request = ChatRequest(
         model="openai:gpt-4o-mini",
         messages=[
             ChatMessage(role="user", content="one"),
+        ],
+    )
+    assert QualityVerifierService.should_run_for_request(request, 1) is False
+
+
+def test_should_run_for_request_runs_from_second_user_turn_when_frequency_is_one() -> (
+    None
+):
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[
+            ChatMessage(role="user", content="one"),
+            ChatMessage(role="assistant", content="a"),
+            ChatMessage(role="user", content="two"),
         ],
     )
     assert QualityVerifierService.should_run_for_request(request, 1) is True
@@ -379,8 +395,22 @@ def test_should_run_verification_prefers_eligible_raw() -> None:
     assert not QualityVerifierService.should_run_verification(
         req, 10, eligible_turn_raw=9
     )
+    assert not QualityVerifierService.should_run_verification(
+        req, 1, eligible_turn_raw=1000
+    )
     assert QualityVerifierService.should_run_verification(
-        req, 1, eligible_turn_raw=None
+        req, 1, eligible_turn_raw=2000
+    )
+    req_two_users = ChatRequest(
+        model="x",
+        messages=[
+            ChatMessage(role="user", content="a"),
+            ChatMessage(role="assistant", content="b"),
+            ChatMessage(role="user", content="c"),
+        ],
+    )
+    assert QualityVerifierService.should_run_verification(
+        req_two_users, 1, eligible_turn_raw=None
     )
     assert QualityVerifierService.should_run_verification(
         req, 10, eligible_turn_raw=10_000

@@ -332,18 +332,23 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ### Claude Code Integration
 
-The proxy is designed to work seamlessly with Claude Code (Anthropic's CLI tool):
+The proxy is designed to work seamlessly with Claude Code (Anthropic's CLI tool).
+
+**Main proxy port** (namespaced API; no dedicated listener required):
 
 ```bash
-# Set environment variables
-export ANTHROPIC_API_URL=http://localhost:8001
+export ANTHROPIC_API_URL=http://localhost:8000/anthropic
 export ANTHROPIC_API_KEY=YOUR_PROXY_KEY
-
-# Launch Claude Code
 claude
 ```
 
-The proxy exposes the Anthropic API on a dedicated port (default: main port + 1) for better compatibility.
+**Dedicated Anthropic port** (root `/v1/messages`; start the proxy with `--anthropic-port` or set `anthropic_port` / `ANTHROPIC_PORT`):
+
+```bash
+export ANTHROPIC_API_URL=http://localhost:8001
+export ANTHROPIC_API_KEY=YOUR_PROXY_KEY
+claude
+```
 
 ### Complex Reasoning Tasks
 
@@ -382,9 +387,10 @@ The proxy can expose the Anthropic API on a dedicated port for better compatibil
 ### Configuration
 
 ```yaml
-# config.yaml
-proxy:
-  anthropic_port: 8001  # Defaults to main port + 1
+# config.yaml (root-level; see configuration.md)
+host: "127.0.0.1"
+port: 8000
+anthropic_port: 8001  # Omit or null to disable the dedicated Anthropic listener
 ```
 
 Or via environment variable:

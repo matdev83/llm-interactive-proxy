@@ -391,14 +391,32 @@ class URIParameterApplicator(IURIParameterApplicator):
             return None
 
     @staticmethod
+    def _backend_supports_xhigh_reasoning_effort(backend_type: str) -> bool:
+        normalized = str(backend_type).strip().replace("_", "-").lower()
+        return normalized == "openai-codex"
+
+    @classmethod
     def _apply_resolved_parameters(
-        request: ChatRequest, resolved: ResolvedParameters, backend_type: str
+        cls, request: ChatRequest, resolved: ResolvedParameters, backend_type: str
     ) -> ChatRequest:
 
         try:
             resolved_params = resolved.to_dict()
             if not resolved_params:
                 return request
+
+            reasoning_effort = resolved_params.get("reasoning_effort")
+            if (
+                isinstance(reasoning_effort, str)
+                and reasoning_effort == "xhigh"
+                and not cls._backend_supports_xhigh_reasoning_effort(backend_type)
+            ):
+                resolved_params["reasoning_effort"] = "high"
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Downgraded reasoning_effort from xhigh to high for backend %s",
+                        backend_type,
+                    )
 
             updates: dict[str, Any] = {}
             for param_name in ("temperature", "top_p", "top_k", "reasoning_effort"):

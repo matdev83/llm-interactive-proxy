@@ -45,7 +45,7 @@ Configuration is resolved in the following order (highest to lowest priority):
 | :--- | :--- | :--- |
 | `--host HOST` | `APP_HOST` | Bind host (default: `127.0.0.1`). |
 | `--port PORT` | `APP_PORT` | Bind port (default: `8000`). |
-| `--anthropic-port PORT` | `ANTHROPIC_PORT` | Port for Anthropic-compatible endpoints (default: disabled/derived). |
+| `--anthropic-port PORT` | `ANTHROPIC_PORT` | Optional second HTTP port serving root `/v1/messages` (Anthropic layout). If unset, only `/anthropic/v1/messages` on the main port is available. |
 | `--timeout SECONDS` | `PROXY_TIMEOUT` | Global request timeout in seconds (default: 120). |
 | `--command-prefix PREFIX` | `COMMAND_PREFIX` | Command prefix for in-chat commands (default: `!/`). |
 | `--force-context-window TOKENS` | `FORCE_CONTEXT_WINDOW` | Override context window size for all models. |

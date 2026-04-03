@@ -9,7 +9,7 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, Field
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
-from src.core.common.logging_utils import redact_dict
+from src.core.common.logging_utils import format_for_debug_log, redact_dict
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +195,10 @@ def anthropic_to_openai_request(
 
     if logger.isEnabledFor(logging.DEBUG):
         redacted_request = _redact_sensitive_fields(anthropic_request)
-        logger.debug("Converting Anthropic to OpenAI request: %r", redacted_request)
+        logger.debug(
+            "Converting Anthropic to OpenAI request: %s",
+            format_for_debug_log(redacted_request),
+        )
 
     messages: list[dict[str, Any]] = []
 
@@ -468,7 +471,10 @@ def anthropic_to_openai_request(
     )
     if logger.isEnabledFor(logging.DEBUG):
         redacted_result = _redact_sensitive_fields(result)
-        logger.debug("Converted Anthropic to OpenAI request: %r", redacted_result)
+        logger.debug(
+            "Converted Anthropic to OpenAI request: %s",
+            format_for_debug_log(redacted_result),
+        )
     return result
 
 
@@ -478,7 +484,10 @@ def openai_to_anthropic_response(
     """Convert an OpenAI chat completion response into Anthropic format."""
     if logger.isEnabledFor(logging.DEBUG):
         redacted_response = _redact_sensitive_fields(openai_response)
-        logger.debug("Converting OpenAI to Anthropic response: %r", redacted_response)
+        logger.debug(
+            "Converting OpenAI to Anthropic response: %s",
+            format_for_debug_log(redacted_response),
+        )
     oai_dict = _normalize_openai_response_to_dict(openai_response)
     # Defensive: handle empty or missing choices gracefully
     choices = oai_dict.get("choices") or []
@@ -581,7 +590,10 @@ def openai_to_anthropic_response(
     )
 
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("Converted OpenAI to Anthropic response: %r", response)
+        logger.debug(
+            "Converted OpenAI to Anthropic response: %s",
+            format_for_debug_log(response),
+        )
     return response
 
 
@@ -1217,7 +1229,7 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
     except (KeyError, TypeError, AttributeError) as e:
         # Log for debugging but return empty to keep stream alive
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Failed to convert stream chunk: %s", e, exc_info=True)
+            logger.debug("Failed to convert stream chunk: %s", e)
         return ""
 
     # If we get here, it's an unhandled case - return empty string to keep stream alive
@@ -1264,7 +1276,7 @@ def extract_anthropic_usage(response: Any) -> AnthropicUsageSummary:
         ValueError,
     ) as e:  # pragma: no cover - never break caller on edge-cases
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Failed to extract anthropic usage: %s", e, exc_info=True)
+            logger.debug("Failed to extract anthropic usage: %s", e)
 
     return AnthropicUsageSummary(
         input_tokens=input_tokens,

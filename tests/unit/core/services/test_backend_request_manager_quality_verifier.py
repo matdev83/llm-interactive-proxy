@@ -60,6 +60,8 @@ def _make_context(app_state: Any) -> RequestContext:
         and getattr(app_state, "_quality_verifier_frequency", None) is not None
     ):
         extensions["quality_verifier_frequency"] = app_state._quality_verifier_frequency
+    if extensions.get("quality_verifier_model"):
+        extensions.setdefault("quality_verifier_eligible_turn_count", 2000)
     return RequestContext(
         headers={},
         cookies={},

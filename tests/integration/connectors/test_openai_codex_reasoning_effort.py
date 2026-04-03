@@ -325,6 +325,59 @@ class TestOpenAICodexURIReasoningEffortIntegration:
         assert captured_request._codex_resolved_reasoning_effort == "high"
 
     @pytest.mark.asyncio
+    async def test_xhigh_from_request_when_effective_model_has_no_query_string(
+        self,
+        backend_factory: BackendFactory,
+        sample_request: ChatRequest,
+        mock_app_config: AppConfig,
+        mock_http_client: MockHTTPClient,
+    ) -> None:
+        """Simulates resolver output: stripped model + URI params merged by applicator as request field."""
+        backend = backend_factory.create_backend("openai_codex", mock_app_config)
+        await backend.initialize(
+            api_key="test-key",
+            openai_codex_path=str(auth_dir := Path.cwd() / ".codex"),
+        )
+
+        auth_dir.mkdir(exist_ok=True)
+        (auth_dir / "auth.json").write_text(
+            json.dumps({"tokens": {"access_token": "test_token"}}), encoding="utf-8"
+        )
+
+        request_with_xhigh = sample_request.model_copy(
+            update={"reasoning_effort": "xhigh"}
+        )
+        captured_request = None
+
+        async def capturing_call(*args, **kwargs):
+            nonlocal captured_request
+            captured_request = kwargs.get("request_data") or args[0]
+
+            async def mock_stream():
+                yield Response(200, content=b"event: response.created\ndata: {}\n\n")
+
+            return mock_stream()
+
+        with (
+            patch.object(
+                backend, "_call_codex_responses_api", side_effect=capturing_call
+            ),
+            patch.object(backend, "_is_codex_model", return_value=True),
+            patch.object(backend, "_validate_runtime_credentials", return_value=True),
+        ):
+            backend._auth_credentials = {  # type: ignore[attr-defined]
+                "tokens": {"access_token": "test"}
+            }
+            await backend.chat_completions(
+                request_data=request_with_xhigh,
+                processed_messages=request_with_xhigh.messages,
+                effective_model="gpt-5.1-codex",
+            )
+
+        assert captured_request is not None
+        assert captured_request._codex_resolved_reasoning_effort == "xhigh"
+
+    @pytest.mark.asyncio
     async def test_payload_builder_uses_resolved_reasoning_effort_from_request(
         self,
     ) -> None:

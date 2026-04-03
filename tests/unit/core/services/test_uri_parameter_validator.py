@@ -213,6 +213,14 @@ class TestURIParameterValidator:
         assert normalized == {"reasoning_effort": "high"}
         assert errors == []
 
+    def test_reasoning_effort_valid_xhigh(self, validator):
+        """Test reasoning_effort validation with 'xhigh' value (e.g. OpenAI Codex)."""
+        params = {"reasoning_effort": "xhigh"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {"reasoning_effort": "xhigh"}
+        assert errors == []
+
     def test_reasoning_effort_invalid_value(self, validator):
         """Test reasoning_effort validation with invalid value."""
         params = {"reasoning_effort": "extreme"}

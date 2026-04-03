@@ -18,6 +18,7 @@ from src.connectors._openai_codex_compatibility_errors import (
 )
 from src.connectors.openai_codex.contracts import ToolArguments, ToolExecutionResult
 from src.connectors.openai_codex.interfaces import IToolExecutionService
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.services.universal_mcp_client import OpenAIFunctionSchema
 from src.core.services.universal_tool_executor import UniversalToolExecutor
 
@@ -248,8 +249,9 @@ class ToolExecutionService(IToolExecutionService):
                             mcp_tool_name
                         )
                     except Exception as e:
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
                                 "Could not retrieve MCP tool schema: %s",
                                 e,
                                 exc_info=True,
@@ -305,12 +307,14 @@ class ToolExecutionService(IToolExecutionService):
                     error=str(error),
                 )
 
-            # Log MCP response received
-            logger.debug(
-                "Received MCP tool response: tool=%s, result_type=%s",
-                mcp_tool_name,
-                type(mcp_result).__name__,
-            )
+            # Log MCP response received (verbose)
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Received MCP tool response: tool=%s, result_type=%s",
+                    mcp_tool_name,
+                    type(mcp_result).__name__,
+                )
 
             # Format MCP result for KiloCode
             if self._kilo_translator:
@@ -382,12 +386,14 @@ class ToolExecutionService(IToolExecutionService):
 
         # Track execution duration for telemetry
         duration_ms = (time.time() - start_time) * 1000
-        logger.debug(
-            "MCP tool %s executed in %.2fms (success: %s)",
-            mcp_tool_name,
-            duration_ms,
-            result.success,
-        )
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "MCP tool %s executed in %.2fms (success: %s)",
+                mcp_tool_name,
+                duration_ms,
+                result.success,
+            )
 
         # Log MCP tool execution end event
         try:

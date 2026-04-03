@@ -21,6 +21,7 @@ from src.connectors.openai_codex.utils import (
     to_mapping,
     to_string_list,
 )
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.config.app_config import AppConfig
 from src.core.services.tool_text_renderer import configure_renderer_registry
 
@@ -93,12 +94,14 @@ class SettingsLoader(ISettingsLoader):
                 if isinstance(extra_candidate, Mapping):
                     backend_extra = dict(extra_candidate)
             except (TypeError, ValueError) as e:
-                logger.debug(
-                    "Failed to extract backend extra config: %s (type=%s)",
-                    str(e),
-                    type(e).__name__,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Failed to extract backend extra config: %s (type=%s)",
+                        str(e),
+                        type(e).__name__,
+                        exc_info=True,
+                    )
                 backend_extra = {}
 
         codex_cfg = to_mapping(backend_extra.get("codex")) or {}
@@ -446,8 +449,9 @@ class SettingsLoader(ISettingsLoader):
             },
         }
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Codex connector settings loaded: default_capabilities=%s, renderer_default=%s, renderer_fallback=%s",
                 settings["default_capabilities"].to_dict(),
                 renderer_default,

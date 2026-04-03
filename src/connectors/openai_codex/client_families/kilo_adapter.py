@@ -20,6 +20,7 @@ from src.connectors.openai_codex.contracts import (
     ToolExecutionResult,
 )
 from src.connectors.openai_codex.tools import ToolExecutionService
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,13 @@ class KiloClientFamilyAdapter(IClientFamilyAdapter):
                     detection_result.confidence,
                 )
         except Exception as e:
-            logger.debug("KiloCode detection failed: %s", str(e), exc_info=True)
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "KiloCode detection failed: %s",
+                    str(e),
+                    exc_info=True,
+                )
 
     async def apply(
         self, context: CodexRequestContext, state: CompatibilityState

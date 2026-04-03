@@ -19,7 +19,10 @@ from src.core.domain.model_utils import (
     parse_model_with_params,
 )
 from src.core.domain.quality_verifier import QualityVerifierDecision
-from src.core.domain.quality_verifier_turns import QV_ELIGIBLE_TURN_SCALE
+from src.core.domain.quality_verifier_turns import (
+    MIN_LOGICAL_TURN_FLOOR_FOR_QUALITY_VERIFIER,
+    QV_ELIGIBLE_TURN_SCALE,
+)
 from src.core.services.quality_verifier_prompt_loader import (
     QualityVerifierPromptLoader,
 )
@@ -210,6 +213,8 @@ class QualityVerifierService:
         user_turns = sum(1 for message in request.messages if message.role == "user")
         if user_turns <= 0:
             return False
+        if user_turns < MIN_LOGICAL_TURN_FLOOR_FOR_QUALITY_VERIFIER:
+            return False
         return user_turns % freq == 0
 
     @staticmethod
@@ -261,6 +266,9 @@ class QualityVerifierService:
         Prefer ``eligible_turn_raw`` from :attr:`RequestContext.extensions` (set by the
         request processor). When it is missing, falls back to counting ``user`` messages
         in ``request`` (legacy / tests).
+
+        Never runs on the first eligible user turn of a session (logical floor 1): there
+        is no prior assistant output in the thread to assess yet.
         """
         try:
             freq_int = int(frequency) if frequency is not None else 10
@@ -271,7 +279,9 @@ class QualityVerifierService:
 
         floor = QualityVerifierService.coerce_eligible_turn_floor(eligible_turn_raw)
         if floor is not None:
-            return floor > 0 and (floor % freq_int == 0)
+            return floor >= MIN_LOGICAL_TURN_FLOOR_FOR_QUALITY_VERIFIER and (
+                floor % freq_int == 0
+            )
         return QualityVerifierService.should_run_for_request(request, frequency)
 
     async def maybe_retry_verifier_for_valid_xml(

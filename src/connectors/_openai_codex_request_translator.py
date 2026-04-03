@@ -7,7 +7,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.commands.tool_call_text_parser import (
     TextToolResult,
     parse_textual_tool_invocation,
@@ -19,6 +22,24 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+def _format_content_preview_for_log(content: Any, *, max_len: int = 200) -> str:
+    """Best-effort JSON snippet for TRACE logs (handles Pydantic models in content)."""
+
+    def _json_default(obj: Any) -> Any:
+        if isinstance(obj, BaseModel):
+            try:
+                return obj.model_dump(mode="json")
+            except (TypeError, ValueError):
+                return str(obj)
+        return str(obj)
+
+    try:
+        out = json.dumps(content, default=_json_default)
+    except (TypeError, ValueError):
+        out = repr(content)
+    return out[:max_len]
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +74,13 @@ def _extract_command_text_from_arguments(arguments: str | None) -> str | None:
     try:
         parsed = json.loads(arguments)
     except json.JSONDecodeError as e:
-        logger.debug("Failed to parse command arguments JSON: %s", e, exc_info=True)
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "Failed to parse command arguments JSON: %s",
+                e,
+                exc_info=True,
+            )
         return None
     command_value = parsed.get("command")
     if isinstance(command_value, list | tuple):
@@ -156,11 +183,13 @@ class CodexRequestTranslator:
 
     @staticmethod
     def _log_build_context(capabilities: CodexClientCapabilities) -> None:
-        logger.debug(
-            "Building Codex input items (protocol=%s, tool_text_format=%s)",
-            capabilities.protocol,
-            capabilities.tool_text_format,
-        )
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "Building Codex input items (protocol=%s, tool_text_format=%s)",
+                capabilities.protocol,
+                capabilities.tool_text_format,
+            )
 
     def _append_prompt_mode_instructions(
         self,
@@ -505,26 +534,19 @@ class CodexRequestTranslator:
 
     @staticmethod
     def _log_message_preview(message: Any, role: str, *, canonical: bool) -> None:
-        if not logger.isEnabledFor(logging.DEBUG):
+        if not logger.isEnabledFor(TRACE_LEVEL):
             return
         suffix = " (Canonical Path)" if canonical else ""
-        try:
-            preview_source = (
-                getattr(message, "content", None)
-                if not isinstance(message, dict)
-                else message.get("content")
-            )
-            logger.debug(
-                "Codex message role=%s content_preview=%s%s",
-                role,
-                json.dumps(preview_source)[:200],
-                suffix,
-            )
-        except (ValueError, TypeError, AttributeError) as err:
-            logger.debug(
-                "Codex message role=%s content=<unserializable>%s, error: %s",
-                role,
-                suffix,
-                err,
-                exc_info=True,
-            )
+        preview_source = (
+            getattr(message, "content", None)
+            if not isinstance(message, dict)
+            else message.get("content")
+        )
+        preview_text = _format_content_preview_for_log(preview_source)
+        logger.log(
+            TRACE_LEVEL,
+            "Codex message role=%s content_preview=%s%s",
+            role,
+            preview_text,
+            suffix,
+        )

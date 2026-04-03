@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 
 from cachetools import TTLCache  # type: ignore
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 if TYPE_CHECKING:
     pass
 
@@ -170,11 +172,13 @@ class SessionDetector:
                 # Increment cache hit counter
                 self._cache_hits += 1
 
-                logger.debug(
-                    "Using cached KiloCode detection result for session %s: %s",
-                    session_id,
-                    cached.is_kilocode,
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Using cached KiloCode detection result for session %s: %s",
+                        session_id,
+                        cached.is_kilocode,
+                    )
 
                 # Log telemetry for cache hit
                 telemetry = get_telemetry()
@@ -206,11 +210,13 @@ class SessionDetector:
         result = self._check_metadata(metadata)
         if result:
             detection_time = (time.time() - start_time) * 1000
-            logger.debug(
-                "KiloCode detected via metadata in %.2fms: %s",
-                detection_time,
-                result.agent_string,
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "KiloCode detected via metadata in %.2fms: %s",
+                    detection_time,
+                    result.agent_string,
+                )
             await self._cache_result(cache_key, result)
 
             # Log telemetry
@@ -231,11 +237,13 @@ class SessionDetector:
         result = self._check_headers(request_data)
         if result:
             detection_time = (time.time() - start_time) * 1000
-            logger.debug(
-                "KiloCode detected via headers in %.2fms: %s",
-                detection_time,
-                result.agent_string,
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "KiloCode detected via headers in %.2fms: %s",
+                    detection_time,
+                    result.agent_string,
+                )
             await self._cache_result(cache_key, result)
 
             # Log telemetry
@@ -256,11 +264,13 @@ class SessionDetector:
         result = self._check_payload_heuristics(request_data)
         if result:
             detection_time = (time.time() - start_time) * 1000
-            logger.debug(
-                "KiloCode detected via heuristics in %.2fms (confidence: %.2f)",
-                detection_time,
-                result.confidence,
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "KiloCode detected via heuristics in %.2fms (confidence: %.2f)",
+                    detection_time,
+                    result.confidence,
+                )
             await self._cache_result(cache_key, result)
 
             # Log telemetry
@@ -279,9 +289,13 @@ class SessionDetector:
 
         # Not detected as a Cline-like XML client
         detection_time = (time.time() - start_time) * 1000
-        logger.debug(
-            "KiloCode not detected for session %s (%.2fms)", session_id, detection_time
-        )
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
+                "KiloCode not detected for session %s (%.2fms)",
+                session_id,
+                detection_time,
+            )
         result = DetectionResult(
             is_kilocode=False,
             detection_method="none",
@@ -449,11 +463,13 @@ class SessionDetector:
         # If we found enough tags, consider it a Cline-like XML client
         if tag_count >= self._heuristic_threshold:
             confidence = min(0.7 + (tag_count * 0.05), 0.95)
-            logger.debug(
-                "Heuristic detection found %d KiloCode XML tags: %s",
-                tag_count,
-                found_tags,
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Heuristic detection found %d KiloCode XML tags: %s",
+                    tag_count,
+                    found_tags,
+                )
             return DetectionResult(
                 is_kilocode=True,
                 detection_method="heuristic",
@@ -509,9 +525,12 @@ class SessionDetector:
         async with self._cache_lock:
             if cache_key in self._cache:
                 del self._cache[cache_key]
-                logger.debug(
-                    "Invalidated KiloCode detection cache for session %s", session_id
-                )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Invalidated KiloCode detection cache for session %s",
+                        session_id,
+                    )
 
     async def _cache_result(self, cache_key: str, result: DetectionResult) -> None:
         """Store detection result in cache.

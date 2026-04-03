@@ -93,14 +93,22 @@ export OPENAI_API_KEY=<your-proxy-key>  # Only if auth is enabled
 
 ### Anthropic Clients (Claude Code)
 
-Configure Anthropic clients to use the proxy:
+Anthropic compatibility is available on the **main** listener under `/anthropic/...` (no extra port required):
 
 ```bash
+export ANTHROPIC_API_URL=http://localhost:8000/anthropic
+export ANTHROPIC_API_KEY=<your-proxy-key>  # Only if auth is enabled
+```
+
+Optionally, start a **dedicated** listener with root-level `/v1/messages` (typical for clients that expect the official API path layout):
+
+```bash
+python -m src.core.cli --port 8000 --anthropic-port 8001
 export ANTHROPIC_API_URL=http://localhost:8001
 export ANTHROPIC_API_KEY=<your-proxy-key>  # Only if auth is enabled
 ```
 
-Note: Anthropic compatibility is exposed both at `/anthropic/...` on the main port (8000) and on a dedicated Anthropic port (defaults to main port + 1, i.e., 8001). Override via `ANTHROPIC_PORT` environment variable.
+Set the dedicated port via `--anthropic-port`, YAML `anthropic_port`, or environment variable `ANTHROPIC_PORT`. If `anthropic_port` is unset, the dedicated listener is not started.
 
 ### Gemini Clients
 
@@ -112,6 +120,7 @@ Customize the proxy behavior with these common flags:
 
 - `--host 0.0.0.0` - Bind to all network interfaces (default: 127.0.0.1)
 - `--port 8000` - Change the port (default: 8000)
+- `--anthropic-port PORT` - Enable the dedicated Anthropic-compatible listener on this port (optional; see [Anthropic frontend](frontends/anthropic.md))
 - `--config config/config.example.yaml` - Load a saved configuration file
 - `--disable-auth` - Disable authentication for local-only use (forces host=127.0.0.1)
 - `--force-model MODEL_NAME` - Override all client-requested models (e.g., `--force-model gemini-2.5-pro`)

@@ -195,3 +195,49 @@ class TestEquivalenceWithBackendService:
 
         # The applicator should apply session temperature (0.2) since session > URI > header > config
         assert applicator_result.temperature == 0.2
+
+
+class TestURIParameterApplicatorReasoningEffort:
+    """URI reasoning_effort handling, including xhigh downgrade behavior."""
+
+    def test_uri_xhigh_applied_to_request_for_codex(self) -> None:
+        backend_type = "openai-codex"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="openai-codex:gpt-5.1-codex",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+        uri_params = {"reasoning_effort": "xhigh"}
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.reasoning_effort == "xhigh"
+        assert result.extra_body is not None
+        assert result.extra_body.get("reasoning_effort") == "xhigh"
+
+    def test_uri_xhigh_downgraded_to_high_for_non_codex_backend(self) -> None:
+        backend_type = "openai"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="openai:gpt-4.1",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+        uri_params = {"reasoning_effort": "xhigh"}
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.reasoning_effort == "high"
+        assert result.extra_body is not None
+        assert result.extra_body.get("reasoning_effort") == "high"

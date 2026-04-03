@@ -212,7 +212,8 @@ class ModelReasoningConfig(DomainModel):
 
     # OpenAI/OpenRouter reasoning parameters
     reasoning_effort: str | None = Field(
-        None, description="Default reasoning effort for this model (low/medium/high)"
+        None,
+        description="Default reasoning effort for this model (low/medium/high/xhigh)",
     )
     reasoning: dict[str, Any] | None = Field(
         None, description="Default OpenRouter unified reasoning configuration"

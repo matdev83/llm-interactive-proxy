@@ -192,6 +192,7 @@ async def test_quality_verifier_flow_uses_shared_backend_service_entrypoint() ->
         extensions={
             "quality_verifier_model": "openai:gpt-4o-mini",
             "quality_verifier_frequency": 1,
+            "quality_verifier_eligible_turn_count": 2000,
         },
     )
     context.original_request = original_request

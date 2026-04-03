@@ -16,6 +16,7 @@ from src.connectors.openai_codex.contracts import (
     ProcessedMessage,
     ProviderStreamChunk,
 )
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ class DroidClientFamilyAdapter(IClientFamilyAdapter):
                 detector = DroidSessionDetector()
                 self._droid_detector = detector
             except ImportError:
-                logger.debug("Droid session detector not available")
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(TRACE_LEVEL, "Droid session detector not available")
                 return
 
         try:
@@ -94,9 +96,18 @@ class DroidClientFamilyAdapter(IClientFamilyAdapter):
 
                         self._droid_translator = DroidToolTranslator()
                     except ImportError:
-                        logger.debug("Droid tool translator not available")
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL, "Droid tool translator not available"
+                            )
         except Exception as e:
-            logger.debug("Droid detection failed: %s", str(e), exc_info=True)
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Droid detection failed: %s",
+                    str(e),
+                    exc_info=True,
+                )
 
     async def apply(
         self, context: CodexRequestContext, state: CompatibilityState
@@ -135,12 +146,14 @@ class DroidClientFamilyAdapter(IClientFamilyAdapter):
                         )
                         func["name"] = trans_res.droid_tool_name
                     except Exception as e:
-                        logger.debug(
-                            "Failed to translate tool %s: %s",
-                            original_name,
-                            e,
-                            exc_info=True,
-                        )
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "Failed to translate tool %s: %s",
+                                original_name,
+                                e,
+                                exc_info=True,
+                            )
 
                 if tc_id and args_fragment:
                     if tc_id not in state.droid_tool_args_buffer:
@@ -159,12 +172,14 @@ class DroidClientFamilyAdapter(IClientFamilyAdapter):
                             )
                             func["arguments"] = json.dumps(trans_res.droid_arguments)
                         except Exception as e:
-                            logger.debug(
-                                "Failed to translate tool args for %s: %s",
-                                tc_id,
-                                e,
-                                exc_info=True,
-                            )
+                            if logger.isEnabledFor(TRACE_LEVEL):
+                                logger.log(
+                                    TRACE_LEVEL,
+                                    "Failed to translate tool args for %s: %s",
+                                    tc_id,
+                                    e,
+                                    exc_info=True,
+                                )
 
                     state.droid_tool_name_cache.pop(tc_id, None)
                     state.droid_tool_args_buffer.pop(tc_id, None)
@@ -216,11 +231,13 @@ class DroidClientFamilyAdapter(IClientFamilyAdapter):
 
             return chunk
         except Exception as e:
-            logger.debug(
-                "Droid stream chunk translation failed: %s",
-                str(e),
-                exc_info=True,
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Droid stream chunk translation failed: %s",
+                    str(e),
+                    exc_info=True,
+                )
             return chunk
 
     async def cleanup_state(self, state: CompatibilityState) -> None:

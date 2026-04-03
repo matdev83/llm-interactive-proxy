@@ -12,6 +12,10 @@ from typing import Any
 # One logical full user turn == SCALE storage units.
 QV_ELIGIBLE_TURN_SCALE: int = 1000
 
+# Quality Verifier judges the latest assistant reply in context; skip scheduling until
+# at least this logical floor (2 == second eligible user step / first reply is not verified).
+MIN_LOGICAL_TURN_FLOOR_FOR_QUALITY_VERIFIER: int = 2
+
 
 def qv_user_turn_increment_scaled() -> int:
     """Storage increment for one eligible user (non-tool-follow-up) turn."""

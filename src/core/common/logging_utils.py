@@ -13,6 +13,7 @@ from __future__ import annotations
 
 # type: ignore[unreachable]
 import contextlib
+import json
 import logging
 import os
 import re
@@ -235,6 +236,31 @@ def is_log_level_enabled(logger: Any, level: int) -> bool:
         return bool(check_structlog(level))
 
     return False
+
+
+def truncate_for_debug_log(text: str, *, max_chars: int = 512) -> str:
+    """Shorten large strings so DEBUG logs do not dump full prompts or bodies."""
+
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}... [truncated, total_chars={len(text)}]"
+
+
+def format_for_debug_log(obj: Any, *, max_chars: int = 512) -> str:
+    """Serialize *obj* for DEBUG logs and truncate to *max_chars*."""
+
+    if isinstance(obj, str):
+        return truncate_for_debug_log(obj, max_chars=max_chars)
+    dumped: Any
+    if hasattr(obj, "model_dump") and callable(obj.model_dump):
+        dumped = obj.model_dump()
+    else:
+        dumped = obj
+    try:
+        text = json.dumps(dumped, default=str, ensure_ascii=True)
+    except (TypeError, ValueError):
+        text = repr(dumped)
+    return truncate_for_debug_log(text, max_chars=max_chars)
 
 
 def redact(value: str, mask: str = "***") -> str:
@@ -617,8 +643,12 @@ def configure_logging_with_environment_tagging(
     # that is not useful for normal operation
     logging.getLogger("httpcore.http2").setLevel(logging.WARNING)
     logging.getLogger("hpack.hpack").setLevel(logging.WARNING)
+    # Parent covers hpack.table and other HPACK internals (not under hpack.hpack)
+    logging.getLogger("hpack").setLevel(logging.WARNING)
     # Also suppress parent httpcore logger to catch any other httpcore sub-loggers
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    # Verbose SSL / client setup lines at DEBUG
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     # Suppress aiosqlite debug logs - very verbose operation-level logging
     # (connection open/close, cursor operations, query execution details)
     logging.getLogger("aiosqlite").setLevel(logging.INFO)

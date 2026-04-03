@@ -25,6 +25,8 @@ import shlex
 from dataclasses import dataclass
 from typing import Any
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -160,10 +162,12 @@ class DroidToolTranslator:
         droid_tool_name = self.CODEX_TO_DROID_TOOLS.get(codex_tool_name)
         if not droid_tool_name:
             # Unknown Codex tool - pass through as-is
-            logger.debug(
-                "Unknown Codex tool '%s', passing through without translation",
-                codex_tool_name,
-            )
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Unknown Codex tool '%s', passing through without translation",
+                    codex_tool_name,
+                )
             return ReverseTranslationResult(
                 droid_tool_name=codex_tool_name, droid_arguments=codex_arguments
             )

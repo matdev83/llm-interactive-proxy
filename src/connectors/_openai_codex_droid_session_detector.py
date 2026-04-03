@@ -10,6 +10,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 logger = logging.getLogger(__name__)
 
 
@@ -112,8 +114,9 @@ class DroidSessionDetector:
 
         for pattern in self.DROID_USER_AGENT_PATTERNS:
             if pattern in user_agent_lower:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
                         "Detected Droid from User-Agent: %s (matched: %s)",
                         user_agent,
                         pattern,
@@ -138,8 +141,9 @@ class DroidSessionDetector:
                     content_lower = content.lower()
                     for keyword in self.DROID_SYSTEM_PROMPT_KEYWORDS:
                         if keyword in content_lower:
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
+                            if logger.isEnabledFor(TRACE_LEVEL):
+                                logger.log(
+                                    TRACE_LEVEL,
                                     "Detected Droid from system prompt (matched: %s)",
                                     keyword,
                                 )
@@ -172,8 +176,12 @@ class DroidSessionDetector:
         # Require at least 2 Droid-specific tools for detection
         # (to avoid false positives from common tool names)
         if len(found_droid_tools) >= 2:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Detected Droid from tool names: %s", found_droid_tools)
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "Detected Droid from tool names: %s",
+                    found_droid_tools,
+                )
             return DroidDetectionResult(
                 is_droid=True,
                 detection_method="tool_names",

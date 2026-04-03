@@ -17,6 +17,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 logger = logging.getLogger(__name__)
 
 # Maximum number of duration samples retained per series (rolling window).
@@ -298,9 +300,10 @@ class CompatibilityTelemetry:
                 detection_method, duration_ms, is_cached
             )
 
-        # Structured logging (DEBUG level to avoid spam in performance tests)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        # Structured logging at TRACE (verbose; avoid building extra dict when disabled)
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Codex-Kilo compatibility layer detection",
                 extra={
                     "event_type": "detection",
@@ -342,16 +345,17 @@ class CompatibilityTelemetry:
         with self._lock:
             self.translation_metrics.record_translation(tool_name, duration_ms, success)
 
-        # Truncate XML for logging
-        xml_preview = None
-        if original_xml:
-            xml_preview = (
-                original_xml[:200] + "..." if len(original_xml) > 200 else original_xml
-            )
-
-        # Structured logging
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        # Structured logging at TRACE (truncate XML only when TRACE is enabled)
+        if logger.isEnabledFor(TRACE_LEVEL):
+            xml_preview = None
+            if original_xml:
+                xml_preview = (
+                    original_xml[:200] + "..."
+                    if len(original_xml) > 200
+                    else original_xml
+                )
+            logger.log(
+                TRACE_LEVEL,
                 "Codex-Kilo tool translation",
                 extra={
                     "event_type": "translation",

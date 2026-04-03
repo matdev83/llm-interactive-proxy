@@ -162,6 +162,7 @@ async def test_quality_verifier_steering_recalls_inline_without_pending_store(
         extensions={
             "quality_verifier_model": "demo",
             "quality_verifier_frequency": 1,
+            "quality_verifier_eligible_turn_count": 2000,
         },
     )
 

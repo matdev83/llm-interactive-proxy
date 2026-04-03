@@ -8,8 +8,10 @@ import pytest
 from src.core.common.logging_utils import (
     ApiKeyRedactionFilter,
     discover_api_keys_from_config_and_env,
+    format_for_debug_log,
     install_api_key_redaction_filter,
     redact_text,
+    truncate_for_debug_log,
 )
 
 
@@ -253,3 +255,22 @@ class TestRedactText:
         # Test with Bearer token
         result = redact_text("Authorization: Bearer abcdefghijklmnopqrst")
         assert "Bearer abcdefghijklmnopqrst" not in result
+
+
+class TestTruncateForDebugLog:
+    def test_short_string_unchanged(self) -> None:
+        assert truncate_for_debug_log("hi", max_chars=512) == "hi"
+
+    def test_truncation_suffix(self) -> None:
+        long = "x" * 600
+        out = truncate_for_debug_log(long, max_chars=100)
+        assert out.endswith("... [truncated, total_chars=600]")
+        assert len(out) < len(long)
+
+    def test_format_for_debug_log_dict(self) -> None:
+        out = format_for_debug_log({"a": "b"}, max_chars=512)
+        assert '"a": "b"' in out
+
+    def test_format_for_debug_log_truncates(self) -> None:
+        out = format_for_debug_log({"k": "v" * 800}, max_chars=80)
+        assert "truncated" in out

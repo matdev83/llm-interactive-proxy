@@ -17,7 +17,7 @@ The proxy exposes Anthropic endpoints in two ways:
 
 ### Dedicated Server (Separate Port)
 
-When running with `--anthropic-compat-port` (default: 8001), the proxy exposes root-level endpoints:
+When `anthropic_port` is set (CLI `--anthropic-port`, environment `ANTHROPIC_PORT`, or YAML `anthropic_port`), the proxy starts a second HTTP listener on that port and exposes root-level endpoints (for example port `8001`):
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -280,7 +280,7 @@ curl -X POST http://localhost:8000/anthropic/v1/messages \
 ### Using Dedicated Port
 
 ```bash
-# Connect to dedicated Anthropic port (default 8001)
+# Connect to dedicated Anthropic port (example: anthropic_port=8001)
 curl -X POST http://localhost:8001/v1/messages \
   -H "Content-Type: application/json" \
   -H "x-api-key: YOUR_PROXY_KEY" \
@@ -316,13 +316,13 @@ Requests to the Anthropic frontend can be routed to any configured backend:
 ### Enable Dedicated Port
 
 ```bash
-python -m src.core.cli --anthropic-compat-port 8001
+python -m src.core.cli --anthropic-port 8001
 ```
 
 ### YAML Configuration
 
 ```yaml
-anthropic_compat_port: 8001
+anthropic_port: 8001
 ```
 
 ## Related Documentation

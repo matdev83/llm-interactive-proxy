@@ -21,7 +21,5 @@ class ProviderBackedQualityVerifierTurnLedger:
     def reset_quality_verifier_eligible_turn_count(
         self, session_key: str, session: Any | None
     ) -> None:
-        rp: Any = self._provider.get_required_service(
-            cast(type, IRequestProcessor)
-        )
+        rp: Any = self._provider.get_required_service(cast(type, IRequestProcessor))
         rp.reset_quality_verifier_eligible_turn_count(session_key, session)
