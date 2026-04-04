@@ -2,114 +2,98 @@
 
 ## Overview
 
-Brownfield stabilization roadmap for a mature universal LLM proxy. The goal is to make the platform production-reliable, architecturally sound, and commercially credible — in that order. Each phase has a single dominant concern. No phase adds new features before the foundation is trustworthy.
+This roadmap is derived directly from the v1 requirements and ordered for a brownfield system: harden internal boundaries first, then stabilize compatibility, then make failure handling safe, then improve operator visibility, and finally expand governance and extension surfaces on top of a trustworthy platform.
 
-## Phases
+## Phase Order
 
-- [ ] **Phase 1: Audit and Triage** - Classify what is stable, broken, and uncertain without changing any behavior
-- [ ] **Phase 2: Test Strategy Reset** - Fix the regression feedback loop before touching fragile code
-- [ ] **Phase 3: Core Boundary Hardening** - Enforce the core/non-core separation in code
-- [ ] **Phase 4: Flow and Protocol Simplification** - Simplify bidirectional flow and converge streaming paths
-- [ ] **Phase 5: Reliability and Session Hardening** - Stabilize low-frequency failures, sessions, and loop detection
-- [ ] **Phase 6: Security, Isolation, and Commercial Foundations** - Establish trust boundaries for paid and enterprise use
+- [ ] **Phase 1: Boundary and Configuration Hardening** - Freeze internal seams, reduce architectural drag, and prevent contradictory runtime states
+- [ ] **Phase 2: Compatibility Contract Stabilization** - Make OpenAI, Anthropic, Gemini, and backend capability behavior explicit and dependable
+- [ ] **Phase 3: Resilience and Failover Safety** - Standardize retries, circuit breaking, streaming recovery, and side-effect-safe failover
+- [ ] **Phase 4: Observability and Operator Diagnostics** - Add causal tracing, metrics, capture correlation, and live operational visibility
+- [ ] **Phase 5: Tenant Governance, Safety Independence, and Connector Extensibility** - Complete tenant controls, scoped key management, safety isolation, and plugin-ready connector expansion
 
 ## Phase Details
 
-### Phase 1: Audit and Triage
-**Goal**: Establish a verified, honest picture of what is stable, what is broken, and what is uncertain — without changing any behavior yet.
+### Phase 1: Boundary and Configuration Hardening
+**Goal**: Make the core platform safe to evolve by enforcing typed boundaries, shrinking monolithic responsibilities, updating stale dependencies, and blocking invalid runtime configuration before traffic starts.
 **Depends on**: Nothing (first phase)
-**Requirements**: [OPS-01, OPS-02]
-**Success Criteria** (what must be TRUE):
-  1. Every interactive command has a documented support status (stable, broken, uncertain, or experimental).
-  2. Loop-detection behavior is documented as active, partial, or defunct with code evidence.
-  3. MCP client placeholder scope is documented with a clear boundary between real and synthetic behavior.
-  4. Dead configuration variants in `src/core/domain/configuration/` are identified and confirmed safe to remove.
-  5. The `MagicMock` production fallback risk in `src/core/app/controllers/__init__.py` is assessed and documented.
-  6. Dependency pinning gaps in `pyproject.toml` are listed with risk assessment.
-  7. A triage summary exists classifying each finding as fix-in-place, defer, or needs-phase.
+**Requirements**: [ARCH-01, ARCH-02, ARCH-03, SEC-03]
+**Success Criteria**:
+1. Developers changing a port or adapter boundary get immediate type or contract failures instead of discovering drift only at runtime.
+2. Operators starting the proxy with contradictory CLI, ENV, and YAML settings receive a clear validation error before the service accepts requests.
+3. Maintainers can change translation, backend, or request-processing collaborators without editing god-object modules for unrelated behavior.
+4. The default verification path runs on current dependencies without suppressed deprecation warnings in the standard test suite.
+
+### Phase 2: Compatibility Contract Stabilization
+**Goal**: Preserve the product promise that existing AI clients can use the proxy without custom rewrites by making protocol behaviors explicit, tested, and configuration-driven.
+**Depends on**: Phase 1
+**Requirements**: [COMP-01, COMP-02, COMP-03, COMP-04]
 **Plans**: 3 plans
+**Success Criteria**:
+1. An OpenAI-compatible client can stream, call tools, and receive spec-shaped errors through the proxy without compatibility-specific patches.
+2. An Anthropic-compatible client can use streaming and tool-use through the proxy with expected event ordering and response semantics.
+3. A Gemini-compatible client can use tools and streaming behavior through the proxy without provider-specific workaround flags.
+4. Operators can declare backend capabilities through typed configuration and see routing and validation honor those descriptors consistently.
 
 Plans:
-- [ ] 01-01-PLAN.md — Audit interactive commands and classify support status
-- [ ] 01-02-PLAN.md — Audit loop detection, MCP scope, MagicMock risk, dead config, and dependency pinning
-- [ ] 01-03-PLAN.md — Synthesize findings into triage summary with fix-in-place/defer/needs-phase classifications
+- [ ] 02-01-PLAN.md — Add BackendCapabilityDescriptor typed model and wire into BackendConfig (COMP-04)
+- [ ] 02-02-PLAN.md — OpenAI streaming, tool-call, and error-shape contract tests (COMP-01)
+- [ ] 02-03-PLAN.md — Anthropic event-ordering and Gemini tool-call contract tests (COMP-02, COMP-03)
 
-### Phase 2: Test Strategy Reset
-**Goal**: Fix the regression feedback loop before touching any fragile code. Make the test suite a reliable safety net rather than a false confidence generator.
-**Depends on**: Phase 1
-**Requirements**: [TEST-01, TEST-02, TEST-03, TEST-04]
-**Success Criteria** (what must be TRUE):
-  1. A fast stabilization-focused test slice exists and runs reliably in under 2 minutes covering core proxy behavior.
-  2. Architectural boundary tests exist and would catch a non-core change that breaks core behavior.
-  3. Protocol regression tests cover OpenAI, Anthropic, and Gemini frontends for both streaming and non-streaming.
-  4. Main backend connectors (OpenAI, Anthropic, Gemini, OpenRouter) have contract-level tests.
-  5. Session isolation is explicitly tested — no state leaks between concurrent or sequential sessions.
-  6. Streaming/non-streaming equivalence is explicitly tested for shared semantics.
-  7. Buffered capture concurrency regression (`_sequence_counter` in `src/core/services/buffered_wire_capture_service.py`) is covered.
-  8. Runtime dependency versions are pinned to tested ranges.
-**Plans**: TBD
-
-### Phase 3: Core Boundary Hardening
-**Goal**: Enforce in code the boundary between core proxy behavior and optional/non-core features so that non-core changes cannot break or reshape the core.
+### Phase 3: Resilience and Failover Safety
+**Goal**: Make backend instability survivable by normalizing retries, health gating, streaming recovery, and failover semantics across connector families.
 **Depends on**: Phase 2
-**Requirements**: [STAB-02, STAB-03, STAB-04, ARCH-01]
-**Success Criteria** (what must be TRUE):
-  1. The `MagicMock` production fallback in `src/core/app/controllers/__init__.py` is removed; DI failures produce structured errors.
-  2. Core service paths do not import or depend on connector-specific feature code.
-  3. The external OAuth connector package boundary is explicit and tested.
-  4. Dead configuration variants identified in Phase 1 are removed and call sites consolidated.
-  5. Non-core features (context compression, random model replacement, interactive commands) are behind explicit interfaces the core does not depend on.
-  6. All Phase 2 boundary tests remain green throughout.
-**Plans**: TBD
+**Requirements**: [REL-01, REL-02, REL-03, REL-04]
+**Success Criteria**:
+1. During transient provider failures, requests retry with bounded async backoff and either recover cleanly or fail with deterministic retry history.
+2. Unhealthy backends stop receiving routed traffic automatically and only re-enter service after configured health thresholds are met.
+3. A user streaming a response does not see duplicated output or corrupted tool-call state when a backend fails mid-stream.
+4. Failover between backend instances preserves request context and avoids repeating non-deterministic side effects.
 
-### Phase 4: Flow and Protocol Simplification
-**Goal**: Reduce the complexity of the bidirectional request/response path and converge streaming and non-streaming behavior where the semantics should be identical.
+### Phase 4: Observability and Operator Diagnostics
+**Goal**: Give operators evidence-grade visibility into request flow, latency, failures, and routing decisions so incidents can be diagnosed quickly and confidently.
 **Depends on**: Phase 3
-**Requirements**: [COMP-01, COMP-02, COMP-03, COMP-04, COMP-05, ARCH-02, ARCH-03]
-**Success Criteria** (what must be TRUE):
-  1. The bidirectional flow can be traced end-to-end without hidden branches by a maintainer unfamiliar with the codebase.
-  2. `responses_to_domain_stream_chunk` in `src/core/domain/translators/responses/streaming.py` is decomposed into smaller functions with individual contract tests.
-  3. Streaming and non-streaming paths share a single implementation of behavior that should be identical.
-  4. `src/core/app/controllers/responses_controller.py` has reduced responsibility and is no longer a single-file accumulation of unrelated concerns.
-  5. All Phase 2 protocol regression tests remain green.
-  6. No new core dependencies on connector-specific code are introduced.
-**Plans**: TBD
+**Requirements**: [OBS-01, OBS-02, OBS-03, OBS-04]
+**Success Criteria**:
+1. An operator can trace one request from frontend ingress through transforms and backend response in a single distributed trace.
+2. An operator can view request counts, error rates, latency distributions, and backend health from Prometheus-compatible metrics without ad-hoc log parsing.
+3. An incident reviewer can jump from a trace or route decision to the matching CBOR capture and reconstruct the end-to-end exchange.
+4. Operators can inspect active sessions, routing decisions, and backend status from a live diagnostic surface while traffic is in flight.
 
-### Phase 5: Reliability and Session Hardening
-**Goal**: Stabilize low-frequency failure paths, session continuity, and the loop-detection subsystem so the system behaves predictably under real production conditions.
+### Phase 5: Tenant Governance, Safety Independence, and Connector Extensibility
+**Goal**: Finish the v1 governance surface by adding tenant-aware controls, safe credential lifecycle management, routing-independent safety execution, and a stable external connector contract.
 **Depends on**: Phase 4
-**Requirements**: [STAB-01, ARCH-04]
-**Success Criteria** (what must be TRUE):
-  1. Known low-frequency session interruption paths have regression tests and confirmed fixes.
-  2. Loop detection is either working and tested, or explicitly disabled with documented rationale — it does not silently affect core flows.
-  3. Buffered capture sequence ordering is race-safe under concurrent load.
-  4. Codex adapter failure paths (`src/connectors/openai_codex/`) produce structured errors rather than silent fallbacks.
-  5. Pattern analyzer limits are configurable rather than hardcoded constants.
-**Plans**: TBD
+**Requirements**: [SEC-01, SEC-02, SEC-04, ARCH-04]
+**Success Criteria**:
+1. A tenant admin can define tenant-specific access, rate, and model policies that take effect without impacting other tenants.
+2. Operators can rotate API keys and assign scoped permissions to client groups without service downtime or blanket credential replacement.
+3. Safety controls such as steering, dangerous-command protection, and sandboxing can be enabled, audited, or fail independently from request routing.
+4. An external connector author can follow the documented plugin contract, register a connector, and have it discovered predictably by the proxy.
 
-### Phase 6: Security, Isolation, and Commercial Foundations
-**Goal**: Establish the trust boundary required for future paid and enterprise-facing capabilities.
-**Depends on**: Phase 5
-**Requirements**: [SEC-01, SEC-02, SEC-03]
-**Success Criteria** (what must be TRUE):
-  1. Cross-session and cross-user data leakage is demonstrably prevented in all supported deployment paths.
-  2. Shell tool execution in `src/core/services/universal_tool_executor.py` is allowlist-controlled and does not use `shell=True` with dynamic input.
-  3. Codex adapter translation failures are observable and do not silently corrupt output.
-  4. A documented multi-tenant isolation model exists that future commercial work can build on.
-  5. All Phase 2 and Phase 4 protocol regression tests remain green after security hardening.
-**Plans**: TBD
+## Requirement Coverage
 
-## Progress
+| Phase | Requirement Count | Requirement IDs |
+|-------|-------------------|-----------------|
+| Phase 1 | 4 | ARCH-01, ARCH-02, ARCH-03, SEC-03 |
+| Phase 2 | 4 | COMP-01, COMP-02, COMP-03, COMP-04 |
+| Phase 3 | 4 | REL-01, REL-02, REL-03, REL-04 |
+| Phase 4 | 4 | OBS-01, OBS-02, OBS-03, OBS-04 |
+| Phase 5 | 4 | SEC-01, SEC-02, SEC-04, ARCH-04 |
 
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 1. Audit and Triage | 0/TBD | Not started | - |
-| 2. Test Strategy Reset | 0/TBD | Not started | - |
-| 3. Core Boundary Hardening | 0/TBD | Not started | - |
-| 4. Flow and Protocol Simplification | 0/TBD | Not started | - |
-| 5. Reliability and Session Hardening | 0/TBD | Not started | - |
-| 6. Security, Isolation, and Commercial Foundations | 0/TBD | Not started | - |
+**Coverage validation:**
+- v1 requirements total: 20
+- Mapped to exactly one phase: 20
+- Unmapped: 0
+- Duplicate mappings: 0
+
+## Ordering Rationale
+
+- Phase 1 comes first because the brownfield system needs stable seams and config governance before any deeper expansion or hardening can be trusted.
+- Phase 2 follows because compatibility is the core product promise and should be frozen on top of those safer boundaries.
+- Phase 3 then hardens retry and failover behavior against the now-explicit contracts.
+- Phase 4 adds operator-facing evidence once routing and failure behavior are stable enough to measure meaningfully.
+- Phase 5 finishes the v1 capability set by layering tenant governance, safety isolation, and external connector growth on top of a hardened platform.
 
 ---
 *Roadmap defined: 2026-04-04*
-*Last updated: 2026-04-04 after reformatting to GSD template format*
+*Last updated: 2026-04-04 during roadmap creation from v1 requirements*
