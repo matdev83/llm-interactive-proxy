@@ -102,8 +102,8 @@ class TestZaiCodingPlanMaxTokens:
 
         assert payload["max_tokens"] == 4096
 
-    async def test_max_tokens_below_minimum_is_clamped(self, zai_coding_plan_backend):
-        """When max_tokens is below 1K, should be clamped to 1K."""
+    async def test_max_tokens_below_minimum_is_preserved(self, zai_coding_plan_backend):
+        """Small positive max_tokens budgets are forwarded (only the hard ceiling is clamped)."""
         request = ChatRequest(
             model="glm-4.6",
             messages=[{"role": "user", "content": "Hello"}],
@@ -112,7 +112,7 @@ class TestZaiCodingPlanMaxTokens:
 
         payload = await zai_coding_plan_backend._prepare_payload(request)
 
-        assert payload["max_tokens"] == 1024  # Minimum 1K
+        assert payload["max_tokens"] == 512
 
     async def test_max_tokens_above_maximum_is_clamped(self, zai_coding_plan_backend):
         """When max_tokens exceeds 200K, should be clamped to 200K."""

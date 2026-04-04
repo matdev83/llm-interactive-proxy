@@ -19,6 +19,11 @@ Configuration is resolved in the following order (highest to lowest priority):
 | :--- | :--- | :--- |
 | `--help`, `-h` | N/A | Show help message and exit. |
 | `--config FILE` | `CONFIG_FILE` | Path to persistent configuration file (YAML). |
+| `--enable-notifications` | N/A | **Force** desktop notifications **on**, overriding YAML and localhost auto-detect. |
+| `--disable-notifications` | N/A | **Force** desktop notifications **off**. |
+| N/A | `LLM_PROXY_ENABLE_NOTIFICATIONS` | When this variable is **set** in the environment, it forces `notifications.enabled`: values `1`, `true`, `yes`, or `on` (case-insensitive) turn notifications **on**; any other value turns them **off**. |
+
+When no CLI override applies and `notifications.enabled` is omitted in YAML, the proxy uses **auto-detect**: notifications are **on** for bind hosts `127.0.0.1`, `localhost`, and `::1`, and **off** otherwise. Single User Mode always uses `127.0.0.1`, so default local dev usually has notifications **on** without `--enable-notifications`. See [Access modes: Desktop notifications](access-modes.md#desktop-notifications-defaults-and-precedence) for full precedence, Multi User Mode caveats, and examples.
 
 ---
 
@@ -50,6 +55,7 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--command-prefix PREFIX` | `COMMAND_PREFIX` | Command prefix for in-chat commands (default: `!/`). |
 | `--force-context-window TOKENS` | `FORCE_CONTEXT_WINDOW` | Override context window size for all models. |
 | `--thinking-budget TOKENS` | `THINKING_BUDGET` | Set max reasoning tokens for all requests. |
+| `--auto-append-first-prompt-filename PATH` | `AUTO_APPEND_FIRST_PROMPT_FILENAME` | Append text from this file to the first user message once per session (see request pipeline). |
 
 ---
 
@@ -291,10 +297,6 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | :--- | :--- | :--- | :--- |
 | `--enable-activity-tracking` | `ENABLE_ACTIVITY_TRACKING=1` | `enable_activity_tracking: true` | Enable connection activity tracking (RX/TX counters per session). |
 
-
-| CLI Argument | Environment Variable | Description |
-| :--- | :--- | :--- |
-
 ### Quality Verifier
 
 | CLI Argument | Environment Variable | Description |
@@ -320,10 +322,8 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--disable-routing-with-backend-ids` | `DISABLE_ROUTING_WITH_BACKEND_IDS=true` | Disable routing using explicit backend instance IDs (e.g. `openai.1:gpt-4`). |
-| `--disable-routing-with-backend_names` | `DISABLE_ROUTING_WITH_BACKEND_NAMES=true` | Disable routing using backend names (e.g. `openai:gpt-4`). Implies disabling IDs. |
+| `--disable-routing-with-backend-names` | `DISABLE_ROUTING_WITH_BACKEND_NAMES=true` | Disable routing using backend names (e.g. `openai:gpt-4`). Implies `--disable-routing-with-backend-ids`. |
 | `--disable-routing-with-only-model-names` | `DISABLE_ROUTING_WITH_ONLY_MODEL_NAMES=true` | Disable routing using only model names (e.g. `gpt-4`). |
-
-### Auxiliary Request Routing
 
 ### Auxiliary Request Routing
 
@@ -462,5 +462,6 @@ Prevent duplicate requests from exhausting rate limits. See [Request Deduplicati
 | `--enable-antigravity-backend-debugging-override` | Enable Antigravity backend debugging. |
 | `--enable-gemini-oauth-free-backend-debugging-override` | Enable Gemini OAuth Free debugging. |
 | `--enable-gemini-oauth-plan-backend-debugging-override` | Enable Gemini OAuth Plan debugging. |
+| `--enable-openai-codex-backend-debugging-override` | Enable OpenAI Codex (OAuth) backend debugging. |
 | `--enable-qwen-oauth-backend-debugging-override` | Enable Qwen OAuth debugging. |
 | `--enable-droid-path-fix` | Enable automatic path fixing for Droid agent with Antigravity OAuth backend. |

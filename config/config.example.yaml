@@ -310,7 +310,7 @@ backends:
 
   kiro_oauth_auto:
     # Amazon Kiro / Q Developer OAuth connector
-    # To add accounts, run: python scripts/manage_kiro_accounts.py add
+    # To add accounts, run manage_kiro_accounts.py from llm-proxy-oauth-connectors (see docs/user_guide/backends/kiro-oauth-auto.md)
     timeout: 120
     # Static model list - Kiro backend has no model enumeration endpoint
     models:
@@ -322,6 +322,17 @@ backends:
       storage_path: "var/kiro_oauth_accounts"
       selection_strategy: "first-available"
       refresh_buffer_seconds: 300
+      # 402 MONTHLY_REQUEST_COUNT: default backoff until next UTC month (min 86400s).
+      # Use fixed_seconds for a constant window (e.g. 604800 = 7d).
+      monthly_quota_backoff_mode: "next_calendar_month_utc"
+      monthly_quota_backoff_fixed_seconds: 604800
+      monthly_quota_backoff_min_seconds: 86400
+      # Optional upper bound (seconds) on monthly-quota backoff; null = no cap
+      monthly_quota_backoff_max_seconds: null
+      # Reload account JSON from disk at most this often (seconds); 0 disables
+      account_reload_interval_seconds: 60
+      transient_rate_limit_default_seconds: 30
+      transient_rate_limit_max_seconds: 3600
 
   zai:
     # API key set via ZAI_API_KEY environment variable

@@ -30,7 +30,33 @@ Access modes prevent common misconfigurations that could:
 - **Authentication**: Optional - can be disabled for convenience
 - **OAuth Debugging Flags**: Allowed (e.g., `--enable-gemini-oauth-auto-backend-debugging-override`)
 - **OAuth Auto-Replacement**: `--allow-oauth-auto-replacement` flag is allowed
-- **Desktop Notifications**: Can be enabled or disabled
+- **Desktop Notifications**: Allowed; see [Desktop notifications (defaults and precedence)](#desktop-notifications-defaults-and-precedence) below
+
+### Desktop notifications (defaults and precedence)
+
+The proxy can show **OS desktop notifications** for operator-relevant events (for example Gemini OAuth verification issues, Kiro monthly quota exhaustion when using the `kiro-oauth-auto` backend, and similar hooks). Whether they actually appear depends on **config, bind address, and access mode**.
+
+**Auto-detection when `notifications.enabled` is unset (`null`)**
+
+If you do **not** set `notifications.enabled` in YAML (and do not override via CLI/env), the effective setting is **automatic**:
+
+- **On** when the bind host is considered local: `127.0.0.1`, `localhost`, or `::1`
+- **Off** for other bind addresses (for example `0.0.0.0`)
+
+The default application host is `127.0.0.1`. **Single User Mode always requires `host: 127.0.0.1`**, so a typical local dev setup with no notification config gets **notifications enabled by default**—you do **not** need `--enable-notifications` for that case.
+
+**Explicit overrides (highest wins)**
+
+1. CLI: `--enable-notifications` or `--disable-notifications` (forces on or off regardless of auto)
+2. Environment: `LLM_PROXY_ENABLE_NOTIFICATIONS` (truthy/falsey string, when wired in your build)
+3. YAML: `notifications.enabled: true` or `false`
+4. Otherwise: auto-detection from bind host as above
+
+Use **`--disable-notifications`** (or `notifications.enabled: false`) when you want silence on loopback. Use **`--enable-notifications`** mainly to **force on** after turning them off in config, or when you rely on explicit overrides rather than auto.
+
+**Multi User Mode interaction**
+
+Multi User Mode **rejects** desktop notifications entirely. Note the trap: on **`127.0.0.1`**, auto-detection still evaluates to **enabled**. So for `--multi-user-mode --host=127.0.0.1` you must **explicitly** set `notifications.enabled: false` or pass **`--disable-notifications`**—“leaving notifications unset” is **not** enough. For `0.0.0.0`, auto is off, but keeping `enabled: false` in production config is still clearer.
 
 ### Optional Installation for OAuth Connectors
 
@@ -66,7 +92,10 @@ them to core through plugin entry points.
 # With authentication disabled for convenience
 ./.venv/Scripts/python.exe -m src.core.cli --disable-auth
 
-# With desktop notifications enabled
+# Silence desktop notifications (default single-user on 127.0.0.1 has them ON via auto-detect)
+./.venv/Scripts/python.exe -m src.core.cli --disable-notifications
+
+# Force notifications ON (only needed if you disabled them in config or want an explicit override)
 ./.venv/Scripts/python.exe -m src.core.cli --enable-notifications
 ```
 
@@ -82,8 +111,10 @@ port: 8000
 auth:
   disable_auth: true  # Optional for local development
 
+# Desktop notifications: omit this block entirely → auto (127.0.0.1 → enabled).
+# Use enabled: false to turn them off. enabled: true is redundant on default loopback.
 notifications:
-  enabled: true  # Desktop notifications allowed
+  enabled: false
 ```
 
 ## Multi User Mode
@@ -102,7 +133,7 @@ notifications:
 - **OAuth Connectors**: All OAuth-based connectors are blocked and filtered during startup
 - **OAuth Debugging Flags**: All OAuth debugging override flags are rejected
 - **OAuth Auto-Replacement**: `--allow-oauth-auto-replacement` flag is rejected
-- **Desktop Notifications**: Desktop notifications are rejected (server deployments don't have desktop environments)
+- **Desktop Notifications**: Desktop notifications are **rejected** when the effective setting is “enabled” (including **auto-enable on `127.0.0.1`** if `notifications.enabled` is left unset—see [Desktop notifications](#desktop-notifications-defaults-and-precedence))
 - **Non-Localhost Without Auth**: Cannot bind to non-localhost addresses without authentication enabled
 
 ### Use Cases
@@ -150,7 +181,7 @@ sso:
   # ... SSO configuration ...
 
 notifications:
-  enabled: false  # Not allowed in Multi User Mode
+  enabled: false  # Required in Multi User Mode (or use --disable-notifications)
 ```
 
 ## Configuration
@@ -198,7 +229,7 @@ The proxy validates access mode configuration during startup and refuses to star
 | Non-Localhost Authentication | Non-localhost binding requires authentication | "Multi User Mode requires authentication when binding to non-localhost addresses. Current host: 0.0.0.0. Enable authentication via API keys or SSO." |
 | OAuth Debugging Flags | OAuth override flags are rejected | "OAuth debugging override flags are not allowed in Multi User Mode: --enable-gemini-oauth-auto-backend-debugging-override. OAuth connectors are blocked in production deployments." |
 | OAuth Auto-Replacement | `--allow-oauth-auto-replacement` is rejected | "OAuth auto-replacement (--allow-oauth-auto-replacement) is not allowed in Multi User Mode. OAuth connectors are blocked in production deployments." |
-| Desktop Notifications | Desktop notifications are rejected | "Desktop notifications are not allowed in Multi User Mode. Multi User Mode is for dedicated servers, not desktop computers. Use --disable-notifications or switch to Single User Mode." |
+| Desktop Notifications | Effective notifications must be **off** (including **auto-on** on `127.0.0.1` when `enabled` is unset) | "Desktop notifications are not allowed in Multi User Mode. Multi User Mode is for dedicated servers, not desktop computers. Use --disable-notifications or switch to Single User Mode." |
 
 ### Error Message Format
 
@@ -323,13 +354,17 @@ Or use SSO (see [SSO Authentication Guide](sso-authentication.md)).
 
 **Step 5: Disable Desktop Notifications**
 
+Multi User Mode always rejects enabled desktop notifications. If your host is `127.0.0.1`, **auto-detection still enables notifications** when `notifications.enabled` is unset, so you **must** disable them explicitly:
+
 ```yaml
 # config/config.yaml
 notifications:
   enabled: false
 ```
 
-Or remove `--enable-notifications` flag if specified.
+Or pass `--disable-notifications` on the command line.
+
+Single User Mode on loopback did **not** require `--enable-notifications` for notifications to work; removing that flag alone does not satisfy Multi User Mode if notifications are still “on” via auto or YAML.
 
 **Step 6: Verify Configuration**
 
@@ -423,23 +458,23 @@ curl http://localhost:8000/v1/models | jq '.data[] | select(.id | contains("oaut
 
 ### Error: "Desktop notifications are not allowed in Multi User Mode"
 
-**Cause**: Desktop notifications enabled in Multi User Mode.
+**Cause**: Desktop notifications are **enabled** for the resolved configuration. That includes **`notifications.enabled: true`**, CLI `--enable-notifications`, **or** leaving `enabled` unset while binding to `127.0.0.1` (auto-detect turns notifications **on** for localhost).
 
 **Solution**: Disable notifications or switch to Single User Mode:
 ```bash
-# Option 1: Disable notifications
+# Option 1: Disable notifications (CLI)
 ./.venv/Scripts/python.exe -m src.core.cli --multi-user-mode --disable-notifications
 
-# Option 2: Remove from config file
+# Option 2: Disable in config (required for multi-user on 127.0.0.1 if auto would enable)
 # config/config.yaml
 notifications:
   enabled: false
 
-# Option 3: Switch to Single User Mode (if appropriate)
-./.venv/Scripts/python.exe -m src.core.cli --single-user-mode --enable-notifications
+# Option 3: Switch to Single User Mode (if appropriate). Notifications stay on by default on 127.0.0.1 unless you disable them.
+./.venv/Scripts/python.exe -m src.core.cli --single-user-mode
 ```
 
-**Why**: Multi User Mode is designed for server deployments that typically don't have desktop environments.
+**Why**: Multi User Mode targets server-style deployments; desktop notifications are treated as a single-user / workstation feature.
 
 ### OAuth Connector Not Found
 
@@ -483,7 +518,7 @@ grep "Starting LLM Proxy" var/logs/llm-proxy.log
 1. **Use Single User Mode**: Default mode is appropriate for local development
 2. **Keep OAuth Credentials Private**: Never commit OAuth credentials to version control
 3. **Disable Authentication**: Use `--disable-auth` for convenience in local development
-4. **Enable Notifications**: Desktop notifications can help track agent activity
+4. **Desktop Notifications**: On default loopback (`127.0.0.1`), they are **already on** via auto-detect unless you set `notifications.enabled: false` or `--disable-notifications`. Use those when you want a silent tray; use `--enable-notifications` only to **force** them on after disabling in config
 
 ### Production
 
