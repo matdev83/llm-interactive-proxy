@@ -12,7 +12,7 @@ The design is contract-first: extraction success is defined by strict dependency
 
 ## Goals
 
-- Deliver extracted OAuth connectors as separate package (`llm-proxy-oauth-connectors`) installable via pip.
+- Deliver extracted OAuth connectors as separate package (`llm-interactive-proxy-oauth-connectors`) installable via pip.
 - Keep `llm-interactive-proxy` functional without optional package installed.
 - Preserve one shared routing boundary for all outbound inference surfaces.
 - Preserve B2BUA A-leg/B-leg identity contracts at connector dispatch boundary.

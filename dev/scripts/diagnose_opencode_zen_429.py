@@ -10,7 +10,7 @@ Environment::
 
     OPENCODE_AUTH_PATH   Optional path to auth.json (else default OS locations)
 
-Requires ``llm-proxy-oauth-connectors`` installed (editable) for credential normalization.
+Requires ``llm-interactive-proxy-oauth-connectors`` installed (editable) for credential normalization.
 The probe bearer matches the connector: OAuth-style access fields, ``wellknown`` ``token``, or
 OpenCode ``type=api`` ``key`` when no access-style field exists.
 
@@ -39,7 +39,7 @@ def _ensure_llm_interactive_proxy_src_importable() -> None:
     """``llm_proxy_oauth_connectors.opencode_zen`` imports ``src.*`` from the proxy package.
 
     Running this script from a git checkout does not put the repo root on ``sys.path`` by
-    default; editable ``llm-proxy-oauth-connectors`` then fails with ``No module named src``.
+    default; editable ``llm-interactive-proxy-oauth-connectors`` then fails with ``No module named src``.
     """
 
     here = Path(__file__).resolve()

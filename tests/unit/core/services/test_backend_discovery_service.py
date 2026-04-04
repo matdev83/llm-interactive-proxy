@@ -61,7 +61,7 @@ class TestOAuthPackageStatusLogging:
             patch.object(backend_registry, "get_registered_backends") as mock_registered,
             patch(
                 "src.core.services.backend_discovery.metadata.version",
-                side_effect=metadata.PackageNotFoundError("llm-proxy-oauth-connectors"),
+                side_effect=metadata.PackageNotFoundError("llm-interactive-proxy-oauth-connectors"),
             ),
         ):
             mock_registered.return_value = ["openai", "anthropic"]

@@ -62,7 +62,7 @@ The connector automatically finds the `auth.json` file in these default location
 
 ### OAuth tokens and refresh (important)
 
-The optional `llm-proxy-oauth-connectors` package reads the same `opencode` entry OpenCode’s CLI uses. On disk that is one of OpenCode’s `Auth.Info` shapes under the **`opencode`** key: **`type: "oauth"`** (`access`, `refresh`, `expires`), **`type: "api"`** (`key` only), or **`type: "wellknown"`** (`key` + **`token`**). See OpenCode’s [`auth/index.ts`](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/auth/index.ts).
+The optional `llm-interactive-proxy-oauth-connectors` package reads the same `opencode` entry OpenCode’s CLI uses. On disk that is one of OpenCode’s `Auth.Info` shapes under the **`opencode`** key: **`type: "oauth"`** (`access`, `refresh`, `expires`), **`type: "api"`** (`key` only), or **`type: "wellknown"`** (`key` + **`token`**). See OpenCode’s [`auth/index.ts`](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/auth/index.ts).
 
 **There is no proxy `config.yaml` switch that performs an OAuth refresh HTTP call for Zen.** Today the connector:
 
@@ -93,17 +93,17 @@ backends:
       enable_opencode_zen_backend_debugging_override: true   # only if not using the CLI flag
 ```
 
-Automatic refresh by **calling a Zen/OpenCode token endpoint** (and writing `auth.json` back) would need to be implemented in **`llm-proxy-oauth-connectors`**, along the same lines as `qwen_oauth`’s token POST + save.
+Automatic refresh by **calling a Zen/OpenCode token endpoint** (and writing `auth.json` back) would need to be implemented in **`llm-interactive-proxy-oauth-connectors`**, along the same lines as `qwen_oauth`’s token POST + save.
 
 ## Supported Models
 
 On startup, the connector loads model IDs from the live Zen OpenAI-compatible endpoint `GET https://opencode.ai/zen/v1/models` (or `{api_base_url}/models` if you override the base URL). It calls **`/models` without `Authorization` first** (same catalog for discovery in practice, and it avoids spending **token-scoped** Zen quota before any `chat/completions` call). Only if that returns no usable list does it retry **with** your bearer. If both fail (including HTTP **429** on each), it uses an embedded snapshot. Each `id` is normalized to a `vendor/model-name` form where the connector can infer a vendor; otherwise the raw gateway id is kept. In requests to this proxy, prefix the normalized (or raw) id with `opencode-zen:`.
 
-Because the proxy may construct a **new** connector instance per request, the optional `llm-proxy-oauth-connectors` implementation keeps a **short-lived process-wide cache** of that `/models` response (keyed by credentials file path, its mtime, and base URL). Together with the public-catalog-first rule, this avoids burning authenticated `/models` RPM and tripping **429** / `FreeUsageLimitError` before chat traffic.
+Because the proxy may construct a **new** connector instance per request, the optional `llm-interactive-proxy-oauth-connectors` implementation keeps a **short-lived process-wide cache** of that `/models` response (keyed by credentials file path, its mtime, and base URL). Together with the public-catalog-first rule, this avoids burning authenticated `/models` RPM and tripping **429** / `FreeUsageLimitError` before chat traffic.
 
 Outbound Zen requests intentionally **omit** the proxy’s internal `x-llmproxy-loop-guard` header (other OpenAI-style backends still send it). Some gateways treat that marker as non-client traffic and respond with **429** even when the OpenCode app works. The connector also sets a **Zen-style `User-Agent`** instead of the default `python-httpx/...` string for the same reason.
 
-The optional `llm-proxy-oauth-connectors` implementation further aligns with strict OpenAI-compatible gateways (same motivation as the in-tree **NVIDIA** connector): it uses a dedicated **HTTP/1.1** httpx client to Zen (the shared proxy client may negotiate **HTTP/2**), strips **`stream_options`** from chat payloads (the generic OpenAI stack adds `include_usage` for streaming, which some hosts reject), and **allowlists** outbound HTTP header names so unexpected client/identity headers are not forwarded upstream.
+The optional `llm-interactive-proxy-oauth-connectors` implementation further aligns with strict OpenAI-compatible gateways (same motivation as the in-tree **NVIDIA** connector): it uses a dedicated **HTTP/1.1** httpx client to Zen (the shared proxy client may negotiate **HTTP/2**), strips **`stream_options`** from chat payloads (the generic OpenAI stack adds `include_usage` for streaming, which some hosts reject), and **allowlists** outbound HTTP header names so unexpected client/identity headers are not forwarded upstream.
 
 The connector keeps the resolved catalog in memory and **refetches `/models` at most about every 10 minutes** when callers use the async model enumeration path (for example capability discovery); synchronous `get_available_models()` returns the latest cached list without doing I/O.
 
@@ -157,7 +157,7 @@ Snapshot (selector after `opencode-zen:`):
 - `opencode-zen:stealth/big-pickle`
 - `opencode-zen:nemotron-3-super-free`
 
-If **both** live `/models` attempts fail during initialization, the optional `llm-proxy-oauth-connectors` package uses a **hardcoded** snapshot of gateway ids (maintained to mirror `/models`); that list can lag the live gateway.
+If **both** live `/models` attempts fail during initialization, the optional `llm-interactive-proxy-oauth-connectors` package uses a **hardcoded** snapshot of gateway ids (maintained to mirror `/models`); that list can lag the live gateway.
 
 ### Diagnosing upstream 429 / request-shape issues
 

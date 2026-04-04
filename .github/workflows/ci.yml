@@ -116,7 +116,7 @@ jobs:
       matrix:
         python-version: ['3.10']
     env:
-      OAUTH_PLUGIN_INSTALL_TARGET: llm-proxy-oauth-connectors
+      OAUTH_PLUGIN_INSTALL_TARGET: llm-interactive-proxy-oauth-connectors
 
     steps:
     - uses: actions/checkout@v4

@@ -24,7 +24,7 @@ class PluginMetadataRecord:
 
 
 _oauth_install_command = "pip install llm-interactive-proxy[oauth]"
-_optional_oauth_package_name = "llm-proxy-oauth-connectors"
+_optional_oauth_package_name = "llm-interactive-proxy-oauth-connectors"
 _extracted_backends_env = "LLM_PROXY_EXTRACTED_BACKENDS"
 _backend_plugin_entry_point_group = "llm_proxy_backends"
 
@@ -101,10 +101,16 @@ def _resolve_extracted_backend_names() -> frozenset[str]:
         if not isinstance(entry_point_name, str) or not entry_point_name:
             continue
         normalized_name = normalize_backend_name(entry_point_name)
+
+        # All backends shipped in the dedicated optional package are "extracted",
+        # including names that do not follow the *-oauth suffix convention.
+        if dist_name == _optional_oauth_package_name:
+            names.add(normalized_name)
+            continue
+
         if not _looks_like_oauth_backend(normalized_name):
             continue
 
-        # Prefer the dedicated oauth plugin package when metadata is available.
         # If distribution metadata is missing, still accept oauth-like backend names.
         if dist_name and dist_name != _optional_oauth_package_name:
             continue
@@ -126,8 +132,9 @@ def get_extracted_connector_module_names() -> list[str]:
 def is_extracted_backend_name(raw_name: str) -> bool:
     """Check whether a backend/instance belongs to extracted optional set."""
     normalized = normalize_backend_name(raw_name)
-    return normalized in _resolve_extracted_backend_names() or _looks_like_oauth_backend(
-        normalized
+    return (
+        normalized in _resolve_extracted_backend_names()
+        or _looks_like_oauth_backend(normalized)
     )
 
 

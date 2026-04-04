@@ -64,7 +64,7 @@ Research confirms the codebase already contains most runtime primitives needed f
 ## Decisions
 
 ### D1: Keep Optional Extraction as First-Class Package Contract
-- Extracted OAuth connectors are defined as separate package (`llm-proxy-oauth-connectors`).
+- Extracted OAuth connectors are defined as separate package (`llm-interactive-proxy-oauth-connectors`).
 - Core package provides optional install extra (`llm-interactive-proxy[oauth]`).
 
 ### D2: Use Entry-Point Discovery for Optional Plugin Activation
@@ -111,6 +111,6 @@ Research confirms the codebase already contains most runtime primitives needed f
 
 ## Follow-Up Research Items
 
-- Confirm final published package naming/versioning policy for `llm-proxy-oauth-connectors`.
+- Confirm final published package naming/versioning policy for `llm-interactive-proxy-oauth-connectors`.
 - Finalize compatibility metadata shape for plugin entry points (minimum core version field and validation strategy).
 - Define strict anti-coupling static checks for forbidden import directions between core services and extracted connector modules.

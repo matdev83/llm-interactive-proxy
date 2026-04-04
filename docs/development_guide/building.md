@@ -42,7 +42,7 @@ source .venv/bin/activate
 ./.venv/Scripts/python.exe -m pip install -e .[dev,oauth]
 ```
 
-The `oauth` extra installs the extracted `llm-proxy-oauth-connectors` package, which owns OAuth connector implementations and plugin entry points.
+The `oauth` extra installs the extracted `llm-interactive-proxy-oauth-connectors` package, which owns OAuth connector implementations and plugin entry points.
 
 This installs:
 

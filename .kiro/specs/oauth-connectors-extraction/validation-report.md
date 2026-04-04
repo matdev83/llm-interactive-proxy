@@ -27,19 +27,19 @@ Target: `C:/Users/Mateusz/source/repos/llm-interactive-proxy/.kiro/specs/oauth-c
 
 | Area | Result | Evidence |
 |---|---|---|
-| Packaging boundary and install UX | PASS | `pyproject.toml`, `packages/llm-proxy-oauth-connectors/pyproject.toml`, `tests/unit/core/common/test_oauth_packaging_contract.py` |
+| Packaging boundary and install UX | PASS | `pyproject.toml`, `llm-interactive-proxy-oauth-connectors` repo `pyproject.toml`, `tests/unit/core/common/test_oauth_packaging_contract.py` |
 | Optional plugin discovery and fail-open loading | PASS | `src/core/services/backend_discovery.py`, `src/core/services/backend_plugin_discovery.py`, `tests/unit/core/services/test_backend_plugin_discovery.py` |
 | Startup ordering and semantic validation sequencing | PASS | `src/core/app/application_builder.py`, `tests/unit/core/app/test_application_builder_validation_lifecycle.py` |
 | Runtime behavior when OAuth package is absent | PASS | Core-only CLI run with package uninstalled: startup continues with install guidance warning in semantic validation |
 | Focused extraction-related test set | PASS | `101 passed` |
 | Full regression suite (`pytest`) | FAIL | `1 failed, 13294 passed, 551 skipped, 27 deselected, 1 xfailed` |
-| External plugin package test suite | PASS | `packages/llm-proxy-oauth-connectors/tests`: `18 passed` |
+| External plugin package test suite | PASS | `llm-interactive-proxy-oauth-connectors` package `tests`: `18 passed` |
 
 ## Requirement-to-Evidence Matrix
 
 | Requirement IDs | Trace Status | Primary Evidence |
 |---|---|---|
-| 1.1-1.4 | Traced | `pyproject.toml` optional `oauth` extra, `packages/llm-proxy-oauth-connectors/pyproject.toml`, `tests/unit/core/common/test_oauth_packaging_contract.py`, `README.md` |
+| 1.1-1.4 | Traced | `pyproject.toml` optional `oauth` extra, `llm-interactive-proxy-oauth-connectors` `pyproject.toml`, `tests/unit/core/common/test_oauth_packaging_contract.py`, `README.md` |
 | 2.1-2.6 | Traced | `src/connectors/__init__.py`, `src/core/services/backend_discovery.py`, `src/core/services/backend_plugin_discovery.py`, `tests/unit/core/services/test_backend_plugin_discovery.py` |
 | 3.1-3.5 | Traced | `src/connectors/__init__.py`, `src/core/services/backend_imports.py`, `tests/unit/test_backend_autodiscovery.py`, `tests/unit/test_backend_imports_integration.py` |
 | 4.1-4.4 | Traced | `src/core/transport/*` adapter boundary pattern, `tests/integration/test_cross_protocol_routing_consistency.py`, routing compliance checks |
@@ -65,7 +65,7 @@ Untraceable requirement IDs: none.
    - `python -m src.core.cli --config config/config.yaml --host 127.0.0.1 --port 8097 --single-user-mode`
    - Observed: startup succeeded; semantic validation warned about unavailable extracted backend(s) and provided install guidance `pip install llm-interactive-proxy[oauth]`; server reached uvicorn running state.
 4. External plugin package suite:
-   - `python -m pytest packages/llm-proxy-oauth-connectors/tests`
+   - `python -m pytest` (from `llm-interactive-proxy-oauth-connectors` repo root)
    - Result: `18 passed`.
 
 ## Findings

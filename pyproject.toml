@@ -64,7 +64,7 @@ classifiers = [
 
 [project.optional-dependencies]
 oauth = [
-    "llm-proxy-oauth-connectors",
+    "llm-interactive-proxy-oauth-connectors",
 ]
 
 dev = [

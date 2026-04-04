@@ -60,7 +60,7 @@ def test_extracted_backend_catalog_matches_plugin_entry_points() -> None:
         ep.name
         for ep in entry_points
         if getattr(getattr(ep, "dist", None), "name", None)
-        == "llm-proxy-oauth-connectors"
+        == "llm-interactive-proxy-oauth-connectors"
     }
     if not discovered_entry_points:
         pytest.skip("OAuth plugin package entry points not installed")

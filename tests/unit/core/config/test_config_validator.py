@@ -259,7 +259,7 @@ class TestValidateStaticRoute:
 
         assert "gemini-oauth-plan" in caplog.text
         assert "pip install llm-interactive-proxy[oauth]" in caplog.text
-        assert "llm-proxy-oauth-connectors" in caplog.text
+        assert "llm-interactive-proxy-oauth-connectors" in caplog.text
         assert "registered alternatives are configured" in caplog.text
 
     def test_missing_extracted_default_backend_fails_without_viable_path(self):
@@ -285,4 +285,4 @@ class TestValidateStaticRoute:
             exc.details.get("install_command")
             == "pip install llm-interactive-proxy[oauth]"
         )
-        assert exc.details.get("optional_package") == "llm-proxy-oauth-connectors"
+        assert exc.details.get("optional_package") == "llm-interactive-proxy-oauth-connectors"

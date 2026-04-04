@@ -15,7 +15,7 @@ Extract OAuth-oriented backend connectors from the core proxy distribution into 
 | Term | Definition |
 |------|------------|
 | Core proxy | Main `llm-interactive-proxy` distribution and runtime services |
-| OAuth package | Separate connector distribution (target name: `llm-proxy-oauth-connectors`) |
+| OAuth package | Separate connector distribution (target name: `llm-interactive-proxy-oauth-connectors`) |
 | Extracted connector | Backend moved out of core and loaded as plugin |
 | Frontend connector | Client-facing protocol adapter/controller path (OpenAI-compatible, Anthropic-compatible, Gemini-compatible, Responses API, and internal sidecar ingress) |
 | Shared routing boundary | Unified proxy routing path used by all outbound inference call surfaces |
@@ -30,7 +30,7 @@ Extract OAuth-oriented backend connectors from the core proxy distribution into 
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
-1.1 The system shall provide extracted OAuth connectors via a separate Python distribution named `llm-proxy-oauth-connectors`.
+1.1 The system shall provide extracted OAuth connectors via a separate Python distribution named `llm-interactive-proxy-oauth-connectors`.
 1.2 The core distribution `llm-interactive-proxy` shall expose an optional extra named `oauth` that installs the OAuth connector distribution.
 1.3 The system shall document `pip install llm-interactive-proxy[oauth]` as the recommended full-install command for optional OAuth connectors.
 1.4 Dependencies required only by extracted OAuth connectors shall not be mandatory dependencies of core distribution.

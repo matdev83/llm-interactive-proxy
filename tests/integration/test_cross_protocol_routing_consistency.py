@@ -47,7 +47,7 @@ def _unknown_model_routing_error() -> RoutingError:
             "category": "validation",
             "retryable": False,
             "install_command": "pip install llm-interactive-proxy[oauth]",
-            "optional_package": "llm-proxy-oauth-connectors",
+            "optional_package": "llm-interactive-proxy-oauth-connectors",
         },
     )
 
@@ -166,15 +166,15 @@ def test_openai_anthropic_and_gemini_map_unknown_model_consistently(
     )
     assert (
         _extract_error_field(openai_response.json(), "optional_package")
-        == "llm-proxy-oauth-connectors"
+        == "llm-interactive-proxy-oauth-connectors"
     )
     assert (
         _extract_error_field(anthropic_response.json(), "optional_package")
-        == "llm-proxy-oauth-connectors"
+        == "llm-interactive-proxy-oauth-connectors"
     )
     assert (
         _extract_error_field(gemini_response.json(), "optional_package")
-        == "llm-proxy-oauth-connectors"
+        == "llm-interactive-proxy-oauth-connectors"
     )
 
 
@@ -288,7 +288,7 @@ def test_request_time_missing_extracted_backend_returns_handled_error(
     )
     assert (
         _extract_error_field(payload, "optional_package")
-        == "llm-proxy-oauth-connectors"
+        == "llm-interactive-proxy-oauth-connectors"
     )
 
 
@@ -349,7 +349,7 @@ def test_request_time_missing_extracted_backend_is_consistent_across_protocols(
         )
         assert (
             _extract_error_field(payload, "optional_package")
-            == "llm-proxy-oauth-connectors"
+            == "llm-interactive-proxy-oauth-connectors"
         )
 
 

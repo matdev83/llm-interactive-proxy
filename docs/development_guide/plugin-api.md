@@ -97,6 +97,6 @@ def my_backend() -> BackendPluginDefinition:
 
 ## Reference implementation
 
-- Example plugin package repo: `https://github.com/matdev83/llm-proxy-oauth-connectors`
+- Example plugin package repo: `https://github.com/matdev83/llm-interactive-proxy-oauth-connectors`
 - Provider implementations:
   `src/llm_proxy_oauth_connectors/providers.py`

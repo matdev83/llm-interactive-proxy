@@ -310,7 +310,7 @@ backends:
 
   kiro_oauth_auto:
     # Amazon Kiro / Q Developer OAuth connector
-    # To add accounts, run manage_kiro_accounts.py from llm-proxy-oauth-connectors (see docs/user_guide/backends/kiro-oauth-auto.md)
+    # To add accounts, run manage_kiro_accounts.py from llm-interactive-proxy-oauth-connectors (see docs/user_guide/backends/kiro-oauth-auto.md)
     timeout: 120
     # Static model list - Kiro backend has no model enumeration endpoint
     models:

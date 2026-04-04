@@ -122,7 +122,7 @@ class TestBackendAutoDiscovery:
         connectors_init = Path("src/connectors/__init__.py")
         content = connectors_init.read_text(encoding="utf-8")
 
-        assert "llm-proxy-oauth-connectors" not in content
+        assert "llm-interactive-proxy-oauth-connectors" not in content
         assert "sys.path.insert(" not in content
 
     def test_new_backend_would_be_auto_discovered(self, tmp_path):

@@ -33,7 +33,7 @@ def _entry_point(
         load=_load,
         module="llm_proxy_oauth_connectors.providers",
         attr=name,
-        dist=SimpleNamespace(name="llm-proxy-oauth-connectors"),
+        dist=SimpleNamespace(name="llm-interactive-proxy-oauth-connectors"),
     )
 
 

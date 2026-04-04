@@ -224,7 +224,7 @@ class DependencyValidator:
             "types-jsonschema",  # Type stubs
             "types-colorama",  # Type stubs
             "types-pytz",  # Type stubs
-            "llm-proxy-oauth-connectors",  # Optional extracted connector package
+            "llm-interactive-proxy-oauth-connectors",  # Optional extracted connector package
         }
         return package_name in non_essential_deps
 

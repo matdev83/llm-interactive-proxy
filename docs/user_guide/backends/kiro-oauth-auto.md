@@ -4,10 +4,10 @@ The `kiro-oauth-auto` backend provides a self-managed OAuth flow for Amazon Kiro
 
 ## 1) Authenticate (Builder ID device code)
 
-The account tool lives in the **`llm-proxy-oauth-connectors`** package (adjust the path to your clone). Example:
+The account tool lives in the **`llm-interactive-proxy-oauth-connectors`** package (adjust the path to your clone). Example:
 
 ```powershell
-./.venv/Scripts/python.exe C:/path/to/llm-proxy-oauth-connectors/scripts/manage_kiro_accounts.py --storage-path var/kiro_oauth_accounts add
+./.venv/Scripts/python.exe C:/path/to/llm-interactive-proxy-oauth-connectors/scripts/manage_kiro_accounts.py --storage-path var/kiro_oauth_accounts add
 ```
 
 Place `--storage-path` **before** the subcommand (`add`, `list`, …); it is a global option on the main parser.

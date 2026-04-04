@@ -56,7 +56,7 @@ def test_create_backend_maps_missing_extracted_backend_to_routing_error() -> Non
     exc = exc_info.value
     assert exc.details.get("code") == "unknown_model"
     assert exc.details.get("backend_type") == "gemini-oauth-plan"
-    assert exc.details.get("optional_package") == "llm-proxy-oauth-connectors"
+    assert exc.details.get("optional_package") == "llm-interactive-proxy-oauth-connectors"
     assert (
         exc.details.get("install_command") == "pip install llm-interactive-proxy[oauth]"
     )
