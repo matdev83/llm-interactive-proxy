@@ -7,7 +7,7 @@
 
 ### Compatibility and Protocol Stability
 
-- [ ] **COMP-01**: OpenAI-compatible endpoint maintains behavioral parity with OpenAI spec for streaming, tool-calls, and error responses
+- [x] **COMP-01**: OpenAI-compatible endpoint maintains behavioral parity with OpenAI spec for streaming, tool-calls, and error responses
 - [ ] **COMP-02**: Anthropic-compatible endpoint maintains behavioral parity with Claude spec for streaming and tool-use
 - [ ] **COMP-03**: Gemini-compatible endpoint maintains behavioral parity with Gemini tools and streaming behavior
 - [x] **COMP-04**: Backend capability descriptors are typed and discoverable through configuration, not inferred from implicit attributes

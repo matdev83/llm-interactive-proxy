@@ -37,7 +37,7 @@ This roadmap is derived directly from the v1 requirements and ordered for a brow
 
 Plans:
 - [x] 02-01-PLAN.md — Add BackendCapabilityDescriptor typed model and wire into BackendConfig (COMP-04)
-- [ ] 02-02-PLAN.md — OpenAI streaming, tool-call, and error-shape contract tests (COMP-01)
+- [x] 02-02-PLAN.md — OpenAI streaming, tool-call, and error-shape contract tests (COMP-01)
 - [ ] 02-03-PLAN.md — Anthropic event-ordering and Gemini tool-call contract tests (COMP-02, COMP-03)
 
 ### Phase 3: Resilience and Failover Safety
