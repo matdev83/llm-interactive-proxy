@@ -6,13 +6,18 @@ instead of empty responses.
 """
 
 import json
+from typing import Any, cast
 
 import pytest
-from src.core.common.exceptions import BackendError
+from fastapi import HTTPException
+from src.core.common.exceptions import BackendError, RateLimitExceededError
+from src.core.ports.openai_normalizer import OpenAIStreamNormalizer
 from src.core.ports.streaming_contracts import (
     StreamingContent,
+    StreamingErrorMapper,
     handle_streaming_error,
 )
+from src.core.ports.streaming_integration import integrate_streaming_pipeline
 
 
 class TestStreamingContentErrorChunks:
@@ -194,6 +199,86 @@ class TestHandleStreamingError:
         assert "error" in chunk.metadata
         # The retryable flag should be present
         assert "retryable" in chunk.metadata["error"]
+
+    def test_streaming_error_mapper_preserves_retry_after_headers(self) -> None:
+        """HTTP 429 detail headers should survive streaming error mapping."""
+
+        mapped_error = StreamingErrorMapper.map_backend_error(
+            HTTPException(
+                status_code=429,
+                detail={
+                    "message": "Too many requests",
+                    "headers": {"retry-after": "17"},
+                },
+            ),
+            "zai-coding-plan",
+            "stream-429",
+        )
+
+        assert isinstance(mapped_error, RateLimitExceededError)
+        assert mapped_error.details["headers"]["retry-after"] == "17"
+
+    @pytest.mark.asyncio
+    async def test_openai_normalizer_reraises_early_429(self) -> None:
+        """OpenAI normalizer must not swallow early 429s before any chunks."""
+
+        async def failing_raw_stream():
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "message": "Too many requests",
+                    "headers": {"retry-after": "7"},
+                },
+            )
+            yield b""  # pragma: no cover
+
+        normalizer = OpenAIStreamNormalizer()
+
+        with pytest.raises(HTTPException) as excinfo:
+            async for _ in normalizer.normalize_stream(failing_raw_stream(), "openai"):
+                pass
+
+        detail = cast(dict[str, Any], excinfo.value.detail)
+        headers = cast(dict[str, Any], detail["headers"])
+        assert headers["retry-after"] == "7"
+
+    @pytest.mark.asyncio
+    async def test_integrate_streaming_pipeline_maps_early_429(
+        self, monkeypatch
+    ) -> None:
+        """Early streaming 429s must bubble up as retryable backend errors."""
+
+        class _FailingPipeline:
+            async def process_stream(self, *args, **kwargs):
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "message": "Too many requests",
+                        "headers": {"retry-after": "7"},
+                    },
+                )
+                yield b""  # pragma: no cover
+
+        monkeypatch.setattr(
+            "src.core.ports.streaming_integration.create_pipeline_for_provider",
+            lambda *args, **kwargs: _FailingPipeline(),
+        )
+
+        async def empty_stream():
+            if False:
+                yield b""
+
+        with pytest.raises(RateLimitExceededError) as excinfo:
+            await integrate_streaming_pipeline(
+                empty_stream(),
+                provider="openai",
+                stream_id="stream-early-429",
+                enable_loop_detection=False,
+                enable_tool_call_repair=False,
+                enable_think_tags=False,
+            )
+
+        assert excinfo.value.details["headers"]["retry-after"] == "7"
 
 
 class TestErrorChunkSerializationRoundtrip:

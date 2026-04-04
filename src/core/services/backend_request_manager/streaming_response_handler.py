@@ -1118,7 +1118,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 except Exception:
                     normalized_backend = (processing_context.backend_name or "").lower()
 
-                if normalized_backend == "qwen-oauth":
+                if normalized_backend in {"qwen-oauth", "zai-coding-plan"}:
                     processed_metadata.setdefault(
                         "_client_supports_reasoning_fields", True
                     )

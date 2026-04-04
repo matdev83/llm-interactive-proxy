@@ -74,6 +74,19 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     ] = {}
     _KILO_VERSION: str = "4.111.0"
     _KILO_USER_AGENT: str = f"Kilo-Code/{_KILO_VERSION}"
+    _ALLOWED_OUTBOUND_HEADERS: frozenset[str] = frozenset(
+        {
+            "authorization",
+            "content-type",
+            "accept",
+            "user-agent",
+            "referer",
+            "origin",
+            "http-referer",
+            "x-title",
+            "x-kilocode-version",
+        }
+    )
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the ZAI coding plan backend."""
@@ -148,7 +161,31 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("ZAI Coding Plan request headers: %s", debug_headers)
 
-        return headers
+        return self._sanitize_outbound_headers(headers)
+
+    def _sanitize_outbound_headers(
+        self, headers: dict[str, str] | None
+    ) -> dict[str, str]:
+        """Filter outbound headers to a strict allow-list for ZAI gateway compatibility."""
+        if not headers:
+            return {}
+
+        sanitized: dict[str, str] = {}
+        removed_headers: list[str] = []
+        for key, value in headers.items():
+            key_lower = key.lower()
+            if key_lower in self._ALLOWED_OUTBOUND_HEADERS:
+                sanitized[key] = value
+            else:
+                removed_headers.append(key)
+
+        if removed_headers and logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Removed non-standard ZAI outbound headers: %s",
+                sorted(removed_headers),
+            )
+
+        return sanitized
 
     async def list_models(
         self, api_base_url: str | None = None, **kwargs: Any
@@ -347,6 +384,13 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         candidate = requested_model or self._DEFAULT_MODEL
         parsed = parse_model_backend(str(candidate), default_backend=self.backend_type)
         normalized = parsed.model_name or self._DEFAULT_MODEL
+
+        # ZAI coding-plan accepts model IDs outside static discovery results.
+        # Preserve explicit user model choice (for example glm-4.7) instead of
+        # silently falling back to the first discovered model.
+        if requested_model:
+            return normalized
+
         available = self.available_models or list(self._SUPPORTED_MODELS)
         if normalized in available:
             return normalized
@@ -596,6 +640,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 logger.info(
                     "Removed x-llmproxy-loop-guard header for ZAI API compatibility"
                 )
+        headers = self._sanitize_outbound_headers(headers)
 
         # Log request details with redacted headers
         debug_headers = redact_dict(dict(headers) if headers else {})
@@ -630,6 +675,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 logger.info(
                     "Removed x-llmproxy-loop-guard header for ZAI API compatibility"
                 )
+        headers = self._sanitize_outbound_headers(headers)
 
         # Log request details with redacted headers
         debug_headers = redact_dict(dict(headers) if headers else {})
@@ -977,10 +1023,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         if hasattr(request_data, "max_tokens") and request_data.max_tokens is not None:
             requested_max_tokens = request_data.max_tokens
             if requested_max_tokens > 0:
-                # Clamp to valid range (1K minimum, 200K maximum)
-                if requested_max_tokens < 1024:
-                    payload["max_tokens"] = 1024
-                elif requested_max_tokens > self._max_tokens_limit:
+                # Preserve user intent for small token budgets and clamp only at provider max.
+                if requested_max_tokens > self._max_tokens_limit:
                     payload["max_tokens"] = self._max_tokens_limit
                 else:
                     payload["max_tokens"] = requested_max_tokens

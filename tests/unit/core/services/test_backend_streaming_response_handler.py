@@ -648,6 +648,89 @@ class TestEmptyStreamRecovery:
         assert result_chunks[0].metadata.get("_keep_reasoning_content") is True
 
     @pytest.mark.asyncio
+    async def test_zai_coding_plan_reasoning_content_counts_as_meaningful_output(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+    ) -> None:
+        """zai-coding-plan can stream reasoning-only chunks before user content.
+
+        Treat these chunks as meaningful so empty-stream recovery does not fire
+        when the client expects reasoning fields.
+        """
+
+        processing_context = ResponseProcessingContext(
+            session_id="session-zai-coding-plan",
+            backend_name="zai-coding-plan",
+            model_name="glm-4.7",
+            client_os=None,
+            original_request=base_request,
+            structured_output=None,
+        )
+
+        reasoning_chunk = ProcessedResponse(
+            content={
+                "id": "resp-zai-1",
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "delta": {"content": "", "reasoning_content": "internal"},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            metadata={},
+        )
+        done_chunk = ProcessedResponse(content="data: [DONE]\n\n", metadata={})
+
+        input_stream = async_chunk_iterator([reasoning_chunk, done_chunk])
+        stream_envelope = StreamingResponseEnvelope(content=input_stream)
+
+        processed_stream = async_chunk_iterator([reasoning_chunk, done_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result is not None
+        assert result.content is not None
+
+        result_chunks = []
+        async for chunk in result.content:
+            result_chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_not_called()
+        assert len(result_chunks) == 2
+        assert result_chunks[0].content == reasoning_chunk.content
+        assert (
+            result_chunks[0].metadata.get("_client_supports_reasoning_fields") is True
+        )
+        assert result_chunks[0].metadata.get("reasoning_is_output") is True
+        assert result_chunks[0].metadata.get("_suppress_reasoning_fields") is True
+        assert result_chunks[0].metadata.get("_keep_reasoning_content") is True
+
+    @pytest.mark.asyncio
     async def test_reasoning_only_sse_does_not_trigger_empty_retry_when_client_opt_in(
         self,
         handler: IStreamingBackendResponseHandler,

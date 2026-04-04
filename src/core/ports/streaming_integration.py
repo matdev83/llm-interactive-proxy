@@ -33,6 +33,7 @@ from src.core.ports.streaming_processors import (
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
+from src.core.services.streaming.error_mapping import StreamingErrorMapper
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 from src.core.services.streaming.tool_call_repair_processor import (
     ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
@@ -313,29 +314,9 @@ async def integrate_streaming_pipeline(
         first_bytes = error_chunk.to_bytes()
         status_code = 204
     except Exception as e:
-        # Error before any output: map to a terminal error chunk and surface status code.
-        error_chunk = await handle_streaming_error(e, stream_id, provider)
-        first_bytes = error_chunk.to_bytes()
-        # Prefer status_code from mapped error contract if present.
-        try:
-            meta = getattr(error_chunk, "metadata", {}) or {}
-            err_meta = meta.get("error") if isinstance(meta, dict) else None
-            if isinstance(err_meta, dict):
-                sc = err_meta.get("status_code")
-                if isinstance(sc, int):
-                    status_code = sc
-                elif isinstance(sc, float) and sc.is_integer():
-                    status_code = int(sc)
-        except Exception:
-            status_code = None
-        if status_code is None:
-            sc2 = getattr(e, "status_code", None)
-            if isinstance(sc2, int):
-                status_code = sc2
-            elif isinstance(sc2, float) and sc2.is_integer():
-                status_code = int(sc2)
-        if status_code is None:
-            status_code = 500
+        # Error before any output: raise a normalized backend exception so
+        # higher-level failure handling can apply retry/failover policies.
+        raise StreamingErrorMapper.map_backend_error(e, provider, stream_id) from e
 
     async def processed_stream() -> AsyncIterator[ProcessedResponse]:
         """Wrap pipeline output in ProcessedResponse for backward compatibility."""

@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
 from src.core.common.exceptions import RateLimitExceededError
+from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 
 
 def test_select_model_accepts_glm5_when_not_in_provider_list():
@@ -15,6 +16,15 @@ def test_select_model_accepts_glm5_when_not_in_provider_list():
     backend.available_models = ["glm-4.6"]
     assert backend._select_model("glm-5.1") == "glm-5.1"
     assert backend._select_model("zai-coding-plan:glm-5.0") == "glm-5.0"
+
+
+def test_select_model_preserves_explicit_unknown_model():
+    """Explicit model IDs should pass through even if not discovered."""
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
+    )
+    backend.available_models = ["glm-4.6"]
+    assert backend._select_model("zai-coding-plan:glm-4.7") == "glm-4.7"
 
 
 def test_supported_models_include_glm5():
@@ -129,6 +139,45 @@ async def test_temperature_from_request_data_is_applied(mocker):
 
 
 @pytest.mark.asyncio
+async def test_prepare_payload_preserves_small_max_tokens(mocker):
+    """ZAI payload should not upsize small user-provided max_tokens values."""
+    mock_client = AsyncMock()
+    mock_config = MagicMock()
+
+    mocker.patch.object(
+        OpenAIConnector,
+        "_prepare_payload",
+        new_callable=AsyncMock,
+        return_value={"messages": []},
+    )
+    mocker.patch.object(ZaiCodingPlanBackend, "_select_model", return_value="glm-5.1")
+    mocker.patch.object(
+        ZaiCodingPlanBackend, "_extract_mcp_tool_calls_from_messages", return_value=[]
+    )
+
+    backend = ZaiCodingPlanBackend(
+        client=mock_client, config=mock_config, translation_service=MagicMock()
+    )
+    backend.available_models = ["glm-5.1"]
+    backend._max_tokens_limit = 200000
+
+    mock_request_data = MagicMock()
+    mock_request_data.model = "glm-5.1"
+    mock_request_data.stream = False
+    mock_request_data.max_tokens = 256
+    mock_request_data.temperature = None
+    mock_request_data.top_p = None
+    mock_request_data.tools = None
+    mock_request_data.tool_choice = None
+
+    payload = await backend._prepare_payload(
+        request_data=mock_request_data, processed_messages=[]
+    )
+
+    assert payload["max_tokens"] == 256
+
+
+@pytest.mark.asyncio
 async def test_sensitive_headers_are_redacted_in_logs(mocker, caplog):
     """
     Verify that sensitive headers (Authorization, Set-Cookie, etc.) are redacted when logged.
@@ -217,3 +266,36 @@ async def test_sensitive_headers_are_redacted_in_logs(mocker, caplog):
         assert (
             "***" in log or "[REDACTED]" in log
         ), f"Expected redaction marker in header log: {log}"
+
+
+def test_get_headers_filters_non_standard_identity_headers() -> None:
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
+    )
+    backend.api_key = "NOT-A-REAL-KEY-just-for-testing"
+
+    identity = AppIdentityConfig.model_validate(
+        {
+            "title": {
+                "default_value": "Kilo Code",
+                "passthrough_name": "x-title",
+            },
+            "url": {
+                "default_value": "https://kilocode.ai",
+                "passthrough_name": "http-referer",
+            },
+            "user_agent": {
+                "default_value": "Kilo-Code/4.111.0",
+                "passthrough_name": "user-agent",
+            },
+        }
+    )
+
+    raw_headers = backend.get_headers(identity=identity)
+    # Simulate an injected B2BUA-style header and verify sanitization behavior
+    raw_headers["X-Session-ID"] = "proxy-session"
+    sanitized = backend._sanitize_outbound_headers(raw_headers)
+
+    assert "X-Session-ID" not in sanitized
+    assert sanitized["X-KiloCode-Version"] == backend._KILO_VERSION
+    assert sanitized["Authorization"].startswith("Bearer ")

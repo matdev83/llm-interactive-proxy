@@ -27,6 +27,22 @@ from src.core.domain.streaming.contracts import StreamingErrorInfo
 logger = logging.getLogger(__name__)
 
 
+def _merge_provider_retry_metadata(
+    details: dict[str, str], detail_payload: dict[str, Any]
+) -> None:
+    """Copy provider retry metadata into mapped streaming error details."""
+
+    headers = detail_payload.get("headers")
+    if isinstance(headers, dict):
+        retry_after = headers.get("retry-after") or headers.get("Retry-After")
+        if retry_after is not None:
+            details["retry-after"] = str(retry_after)
+
+    retry_after_seconds = detail_payload.get("retry_after_seconds")
+    if retry_after_seconds is not None:
+        details["retry_after_seconds"] = str(retry_after_seconds)
+
+
 class StreamingErrorMapper:
     """Centralized error mapping for streaming operations.
 
@@ -115,6 +131,7 @@ class StreamingErrorMapper:
                 detail_code = detail_payload.get("code")
                 if detail_code is not None:
                     details["error_code"] = detail_code
+                _merge_provider_retry_metadata(details, detail_payload)
             elif detail_payload is not None:
                 response_text = str(detail_payload)
 
@@ -125,9 +142,16 @@ class StreamingErrorMapper:
                 details["response_text"] = normalized[:500]
 
             if status_code == 429:
+                rate_limit_details: dict[str, Any] = dict(details)
+                retry_after = details.get("retry-after")
+                if retry_after is not None:
+                    rate_limit_details["headers"] = {"retry-after": str(retry_after)}
+                retry_after_seconds = details.get("retry_after_seconds")
+                if retry_after_seconds is not None:
+                    rate_limit_details["retry_after_seconds"] = retry_after_seconds
                 return RateLimitExceededError(
                     message=f"{provider} rate limit exceeded",
-                    details=details,
+                    details=rate_limit_details,
                 )
 
             return BackendError(

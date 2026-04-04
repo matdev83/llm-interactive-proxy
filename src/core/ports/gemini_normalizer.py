@@ -47,6 +47,7 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
             Normalized StreamingContent chunks
         """
         stream_id: str | None = None
+        emitted_any = False
 
         try:
             async for raw_chunk in stream:
@@ -75,6 +76,7 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
                     # Convert to StreamingContent
                     normalized_chunk = self._normalize_chunk(json_obj, stream_id)
                     if normalized_chunk and self.validate_chunk(normalized_chunk):
+                        emitted_any = True
                         yield normalized_chunk
                     elif normalized_chunk is not None:
                         logger.warning(
@@ -88,9 +90,12 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
                 done_chunk.stream_id = stream_id
                 done_chunk.metadata["stream_id"] = stream_id
             done_chunk.metadata["provider"] = self.provider
+            emitted_any = True
             yield done_chunk
 
         except Exception as e:
+            if not emitted_any:
+                raise
             # Emit error chunk
             error_chunk = await handle_streaming_error(e, stream_id, self.provider)
             yield error_chunk

@@ -68,6 +68,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
         message_id: str | None = None
         model: str | None = None
         role: str | None = None
+        emitted_any = False
 
         try:
             async for raw_chunk in stream:
@@ -116,6 +117,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 stream_id=stream_id,
                             )
                             if self.validate_chunk(chunk):
+                                emitted_any = True
                                 yield chunk
                             else:
                                 logger.warning(
@@ -154,6 +156,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 stream_id=stream_id,
                             )
                             if self.validate_chunk(chunk):
+                                emitted_any = True
                                 yield chunk
                             else:
                                 logger.warning(
@@ -180,6 +183,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 stream_id=stream_id,
                             )
                             if self.validate_chunk(chunk):
+                                emitted_any = True
                                 yield chunk
                             else:
                                 logger.warning(
@@ -225,6 +229,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 chunk.usage = usage
 
                             if self.validate_chunk(chunk):
+                                emitted_any = True
                                 yield chunk
                             else:
                                 logger.warning(
@@ -252,6 +257,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                         if message_id:
                             done_chunk.metadata["id"] = message_id
 
+                        emitted_any = True
                         yield done_chunk
 
                     elif event_type == "ping":
@@ -283,6 +289,8 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                         )
 
         except Exception as e:
+            if not emitted_any:
+                raise
             # Emit error chunk
             error_chunk = await handle_streaming_error(e, stream_id, self.provider)
             yield error_chunk

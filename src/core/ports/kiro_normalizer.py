@@ -27,6 +27,7 @@ class KiroStreamNormalizer(BaseStreamNormalizer):
         self, stream: AsyncIterator[object], provider: str
     ) -> AsyncIterator[StreamingContent]:
         stream_id: str | None = None
+        emitted_any = False
         try:
             async for raw_chunk in stream:
                 if not isinstance(raw_chunk, StreamingContent):
@@ -38,11 +39,22 @@ class KiroStreamNormalizer(BaseStreamNormalizer):
                         },
                     )
                     continue
+                if not self.validate_chunk(raw_chunk):
+                    logger.warning(
+                        "Dropping invalid Kiro chunk",
+                        extra={
+                            "provider": self.provider,
+                            "stream_id": raw_chunk.stream_id,
+                        },
+                    )
+                    continue
                 if stream_id is None and raw_chunk.stream_id:
                     stream_id = raw_chunk.stream_id
-                # Ensure provider metadata is present for downstream processors
                 raw_chunk.metadata.setdefault("provider", self.provider)
+                emitted_any = True
                 yield raw_chunk
         except Exception as exc:
+            if not emitted_any:
+                raise
             error_chunk = await handle_streaming_error(exc, stream_id, self.provider)
             yield error_chunk

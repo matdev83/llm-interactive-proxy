@@ -13,8 +13,10 @@ class TestStreamingErrorLeakageComprehensive:
         """
 
         # 1. Simulate an exception during streaming
+        # Yield a valid Gemini JSON chunk first so the normalizer emits output,
+        # then raise to trigger the mid-stream error path (emits error chunk).
         async def failing_stream():
-            yield "some data"
+            yield '{"candidates": [{"content": {"parts": [{"text": "hello"}]}}]}\n'
             raise AuthenticationError("No auth credentials found")
 
         # 2. Use GeminiStreamNormalizer (which uses handle_streaming_error)
