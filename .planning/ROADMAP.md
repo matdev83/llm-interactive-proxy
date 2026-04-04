@@ -7,7 +7,7 @@ This roadmap is derived directly from the v1 requirements and ordered for a brow
 ## Phase Order
 
 - [ ] **Phase 1: Boundary and Configuration Hardening** - Freeze internal seams, reduce architectural drag, and prevent contradictory runtime states
-- [ ] **Phase 2: Compatibility Contract Stabilization** - Make OpenAI, Anthropic, Gemini, and backend capability behavior explicit and dependable
+- [x] **Phase 2: Compatibility Contract Stabilization** - Make OpenAI, Anthropic, Gemini, and backend capability behavior explicit and dependable (completed 2026-04-04)
 - [ ] **Phase 3: Resilience and Failover Safety** - Standardize retries, circuit breaking, streaming recovery, and side-effect-safe failover
 - [ ] **Phase 4: Observability and Operator Diagnostics** - Add causal tracing, metrics, capture correlation, and live operational visibility
 - [ ] **Phase 5: Tenant Governance, Safety Independence, and Connector Extensibility** - Complete tenant controls, scoped key management, safety isolation, and plugin-ready connector expansion
@@ -38,7 +38,7 @@ This roadmap is derived directly from the v1 requirements and ordered for a brow
 Plans:
 - [x] 02-01-PLAN.md — Add BackendCapabilityDescriptor typed model and wire into BackendConfig (COMP-04)
 - [x] 02-02-PLAN.md — OpenAI streaming, tool-call, and error-shape contract tests (COMP-01)
-- [ ] 02-03-PLAN.md — Anthropic event-ordering and Gemini tool-call contract tests (COMP-02, COMP-03)
+- [x] 02-03-PLAN.md — Anthropic event-ordering and Gemini tool-call contract tests (COMP-02, COMP-03)
 
 ### Phase 3: Resilience and Failover Safety
 **Goal**: Make backend instability survivable by normalizing retries, health gating, streaming recovery, and failover semantics across connector families.
