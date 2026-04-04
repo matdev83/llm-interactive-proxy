@@ -180,8 +180,16 @@ async def test_core_only_mode_keeps_core_api_key_backends_operational(
     assert hasattr(backend, "chat_completions")
 
 
+@pytest.mark.xdist_group("isolated")
 def test_core_only_mode_keeps_openai_request_path_operational(monkeypatch) -> None:
-    """Core-only mode should still serve OpenAI protocol requests."""
+    """Core-only mode should still serve OpenAI protocol requests.
+
+    Marked for xdist isolation because it mutates process environment
+    variables (OPENAI_API_KEY) and builds a full app via build_compat
+    (which spawns threads). Running this alongside other tests on the
+    same worker can cause race conditions with module-level connector
+    imports and the global backend_registry singleton.
+    """
     monkeypatch.setenv("OPENAI_API_KEY", "dummy-key")
     config = AppConfig(
         backends=BackendSettings(
