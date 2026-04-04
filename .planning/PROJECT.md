@@ -17,6 +17,8 @@ Provide a single, stable, protocol-compliant, and commercially credible multi-pr
 - ✓ Safety and steering controls exist (dangerous command protection, tool controls, sandbox-related policies)
 - ✓ Observability foundations exist (structured logs, wire capture including CBOR)
 - ✓ Staged initialization and DI-based service wiring are established architectural patterns
+- ✓ Typed `BackendCapabilityDescriptor` model wired into `BackendConfig` — backends declare capabilities explicitly (Validated in Phase 02: compatibility-contract-stabilization)
+- ✓ Contract tests pin behavioral parity for OpenAI streaming/tool-call/error shapes, Anthropic event ordering/tool-use, and Gemini tool-call shapes (Validated in Phase 02: compatibility-contract-stabilization)
 
 ### Active
 
@@ -90,4 +92,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-04 after maintainer priority alignment*
+*Last updated: 2026-04-04 after Phase 02 (compatibility-contract-stabilization) completion*
