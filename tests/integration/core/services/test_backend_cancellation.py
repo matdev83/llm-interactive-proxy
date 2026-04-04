@@ -10,6 +10,7 @@ These tests verify that:
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -30,16 +31,16 @@ class MockBackend:
 
     def __init__(self, delay: float = 0.0) -> None:
         self.delay = delay
-        self.calls: list[dict[str, any]] = []
+        self.calls: list[dict[str, Any]] = []
 
     async def chat_completions(
         self,
-        request_data: any,
-        processed_messages: list,
+        request_data: Any,
+        processed_messages: list[Any],
         effective_model: str,
-        identity: any | None = None,
+        identity: Any | None = None,
         cancellation_token: SessionKey | None = None,
-        **kwargs: any,
+        **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Simulate backend call with optional delay."""
         self.calls.append(
@@ -286,7 +287,7 @@ async def test_retry_suppressed_on_cancellation(
         stream=False,
     )
 
-    async def mock_callback(**kwargs: any) -> ResponseEnvelope:
+    async def mock_callback(**kwargs: Any) -> ResponseEnvelope:
         return ResponseEnvelope(content={}, status_code=200)
 
     with pytest.raises(SessionCancelledError):
@@ -339,7 +340,7 @@ async def test_failover_suppressed_on_cancellation(
         stream=False,
     )
 
-    async def mock_callback(**kwargs: any) -> ResponseEnvelope:
+    async def mock_callback(**kwargs: Any) -> ResponseEnvelope:
         return ResponseEnvelope(content={}, status_code=200)
 
     with pytest.raises(SessionCancelledError):
@@ -507,7 +508,7 @@ async def test_empty_response_retry_suppressed_on_cancellation(
         original_request=chat_request,
     )
 
-    async def process_response_side_effect(*args: any, **kwargs: any) -> any:
+    async def process_response_side_effect(*args: Any, **kwargs: Any) -> Any:
         raise empty_error
 
     mock_response_processor.process_response = AsyncMock(
@@ -539,7 +540,14 @@ async def test_empty_response_retry_suppressed_on_cancellation(
     from src.core.domain.responses import ResponseEnvelope
 
     response = ResponseEnvelope(content={}, status_code=200)
-    processing_context = ResponseProcessingContext(session_id="session-id")
+    processing_context = ResponseProcessingContext(
+        session_id="session-id",
+        backend_name=None,
+        model_name=None,
+        client_os=None,
+        original_request=None,
+        structured_output=None,
+    )
 
     # Handler should check cancellation before retry and raise SessionCancelledError
     with pytest.raises(SessionCancelledError):

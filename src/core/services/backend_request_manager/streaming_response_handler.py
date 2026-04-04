@@ -28,6 +28,7 @@ from src.core.common.exceptions import (
     BackendError,
     LLMProxyError,
     ParsingError,
+    SessionCancelledError,
     TranslationError,
 )
 from src.core.common.session_key_resolver import (
@@ -47,6 +48,7 @@ from src.core.interfaces.backend_request_manager_components import (
     IStreamingBackendResponseHandler,
     IToolCallRetryCoordinator,
 )
+from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
@@ -108,6 +110,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         tool_call_retry_coordinator: IToolCallRetryCoordinator,
         backend_processor: IBackendProcessor,
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
+        backend_work_guard: IBackendWorkGuard | None = None,
     ) -> None:
         """Initialize the streaming response handler.
 
@@ -125,6 +128,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         self._tool_call_retry_coordinator = tool_call_retry_coordinator
         self._backend_processor = backend_processor
         self._cancellation_coordinator = cancellation_coordinator
+        self._backend_work_guard = backend_work_guard
 
     def _extract_text_from_chunk(self, chunk: ProcessedResponse) -> str:
         """Extract textual content from a streaming chunk."""
@@ -1347,6 +1351,34 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     )
                     return
 
+                session_key = None
+                if self._backend_work_guard is not None:
+                    session_key = self._backend_work_guard.ensure_session_active(
+                        context=context,
+                        purpose="empty_stream_retry",
+                        require_scope=False,
+                    )
+                elif self._cancellation_coordinator and context:
+                    session_key = resolve_session_key_from_request_context(context)
+
+                def _should_abort_for_cancellation() -> bool:
+                    if self._backend_work_guard is not None:
+                        return self._backend_work_guard.is_cancelled(session_key)
+                    if (
+                        self._cancellation_coordinator is None
+                        or context is None
+                        or session_key is None
+                    ):
+                        return False
+                    try:
+                        self._cancellation_coordinator.ensure_not_cancelled(session_key)
+                        return False
+                    except SessionCancelledError:
+                        return True
+
+                if _should_abort_for_cancellation():
+                    return
+
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
                         "Empty streaming response detected, retrying with recovery prompt for session %s",
@@ -1360,23 +1392,29 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         exc,
                     )
 
-                # Cancellation gate: ensure session is not cancelled before empty stream retry
-                if self._cancellation_coordinator and context:
-                    session_key = resolve_session_key_from_request_context(context)
-                    if session_key:
-                        self._cancellation_coordinator.ensure_not_cancelled(session_key)
-
                 retry_request = await self._create_retry_request(
                     request, exc.recovery_prompt
                 )
 
-                retry_response = await self._backend_processor.process_backend_request(
-                    request=retry_request,
-                    session_id=processing_context.session_id,
-                    context=context,
-                )
+                try:
+                    retry_response = (
+                        await self._backend_processor.process_backend_request(
+                            request=retry_request,
+                            session_id=processing_context.session_id,
+                            context=context,
+                        )
+                    )
+                except SessionCancelledError:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Retry backend request cancelled for session %s",
+                            processing_context.session_id,
+                        )
+                    return
 
                 if isinstance(retry_response, StreamingResponseEnvelope):
+                    if _should_abort_for_cancellation():
+                        return
                     # Recursively process retried stream with incremented retry_depth
                     retried = await self.handle(
                         stream=retry_response,
@@ -1386,7 +1424,20 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         retry_depth=retry_depth + 1,
                     )
                     if retried.content is not None:
-                        async for retry_chunk in retried.content:
+                        retry_stream = retried.content
+                        if self._backend_work_guard is not None:
+                            retry_stream = (
+                                self._backend_work_guard.wrap_stream_with_cancellation(
+                                    stream=retry_stream,
+                                    session_key=session_key,
+                                    purpose="empty_stream_retry",
+                                )
+                            )
+                        if _should_abort_for_cancellation():
+                            return
+                        async for retry_chunk in retry_stream:
+                            if _should_abort_for_cancellation():
+                                return
                             yield retry_chunk
                     return
 

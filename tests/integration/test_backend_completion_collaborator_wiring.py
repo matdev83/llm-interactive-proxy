@@ -8,9 +8,12 @@ from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
     IBackendRequestPreparer,
     ICompletionSessionResolver,
+    IFailureRecoveryExecutor,
     IUsageAccountingOrchestrator,
     IWireCaptureOrchestrator,
 )
+from src.core.interfaces.backend_completion_flow_interface import IBackendCompletionFlow
+from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.domain_entities_interface import ISession
 
 
@@ -201,6 +204,31 @@ async def test_collaborator_wiring_end_to_end(
     )
     # Identity can be None or an identity object
     assert identity is None or isinstance(identity, object)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_backend_work_guard_wiring_resolves_key_services(
+    app_config_with_openai_backend,
+) -> None:
+    """Ensure new guard dependency wiring resolves from DI container."""
+    from src.core.app.application_builder import ApplicationBuilder
+
+    builder = ApplicationBuilder().add_default_stages()
+    app = await builder.build(app_config_with_openai_backend)
+    service_provider = app.state.service_provider
+
+    backend_work_guard = service_provider.get_required_service(IBackendWorkGuard)
+    failure_recovery_executor = service_provider.get_required_service(
+        IFailureRecoveryExecutor
+    )
+    backend_completion_flow = service_provider.get_required_service(
+        IBackendCompletionFlow
+    )
+
+    assert backend_work_guard is not None
+    assert failure_recovery_executor is not None
+    assert backend_completion_flow is not None
 
 
 @pytest.mark.asyncio

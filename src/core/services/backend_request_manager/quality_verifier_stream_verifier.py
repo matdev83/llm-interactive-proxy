@@ -24,6 +24,7 @@ from src.core.interfaces.backend_request_manager_components import (
 )
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.notification_service_interface import INotificationService
 from src.core.interfaces.quality_verifier_turn_ledger_interface import (
@@ -526,6 +527,7 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
         notification_service = self._provider.get_service(
             cast(Any, INotificationService)
         )
+        backend_work_guard = self._provider.get_service(cast(type, IBackendWorkGuard))
 
         outcome = await run_quality_verifier_decision(
             original_request=request,
@@ -539,6 +541,7 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
             request_context=request_context,
             cancellation_coordinator=self._cancellation_coordinator,
             notification_service=notification_service,
+            backend_work_guard=backend_work_guard,
         )
 
         self._maybe_reset_turn_ledger(

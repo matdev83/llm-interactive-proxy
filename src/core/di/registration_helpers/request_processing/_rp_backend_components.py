@@ -340,8 +340,8 @@ def _register_quality_verifier_stream_verifier(services: ServiceCollection) -> N
     def _quality_verifier_stream_verifier_factory(
         provider: IServiceProvider,
     ) -> QualityVerifierStreamVerifier:
-        quality_verifier_service_factory: IQualityVerifierServiceFactory = provider.get_required_service(
-            cast(type, IQualityVerifierServiceFactory)
+        quality_verifier_service_factory: IQualityVerifierServiceFactory = (
+            provider.get_required_service(cast(type, IQualityVerifierServiceFactory))
         )
         cancellation_coordinator = provider.get_service(
             cast(type, ISessionCancellationCoordinator)
@@ -388,6 +388,7 @@ def _register_backend_streaming_response_handler(
         IStreamingBackendResponseHandler,
         IToolCallRetryCoordinator,
     )
+    from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
     from src.core.interfaces.response_processor_interface import IResponseProcessor
     from src.core.interfaces.session_cancellation_coordinator_interface import (
         ISessionCancellationCoordinator,
@@ -405,8 +406,8 @@ def _register_backend_streaming_response_handler(
         loop_detector_factory: ILoopDetectorFactory = provider.get_required_service(
             cast(type, ILoopDetectorFactory)
         )
-        quality_verifier_stream_verifier: IQualityVerifierStreamVerifier = provider.get_required_service(
-            cast(type, IQualityVerifierStreamVerifier)
+        quality_verifier_stream_verifier: IQualityVerifierStreamVerifier = (
+            provider.get_required_service(cast(type, IQualityVerifierStreamVerifier))
         )
         tool_call_retry_coordinator: IToolCallRetryCoordinator = (
             provider.get_required_service(cast(type, IToolCallRetryCoordinator))
@@ -417,6 +418,7 @@ def _register_backend_streaming_response_handler(
         cancellation_coordinator = provider.get_service(
             cast(type, ISessionCancellationCoordinator)
         )
+        backend_work_guard = provider.get_service(cast(type, IBackendWorkGuard))
         return BackendStreamingResponseHandler(
             response_processor=response_processor,
             loop_detector_factory=loop_detector_factory,
@@ -424,6 +426,7 @@ def _register_backend_streaming_response_handler(
             tool_call_retry_coordinator=tool_call_retry_coordinator,
             backend_processor=backend_processor,
             cancellation_coordinator=cancellation_coordinator,
+            backend_work_guard=backend_work_guard,
         )
 
     register_singleton_if_absent(

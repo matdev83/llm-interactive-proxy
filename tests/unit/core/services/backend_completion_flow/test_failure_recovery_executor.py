@@ -10,8 +10,11 @@ from src.core.common.exceptions import (
 )
 from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import ChatRequest
+from src.core.domain.client_termination import ClientTerminationReason
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
+from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.failover_planner_interface import IFailoverPlanner
 from src.core.interfaces.failure_strategy_interface import (
@@ -250,3 +253,49 @@ class TestFailureRecoveryExecutor:
         keepalive_chunk = await anext(stream_content)
         assert keepalive_chunk.metadata["session_id"] == "llm-b2bua-a-1001"
         assert keepalive_chunk.metadata["stream_id"] == "llm-b2bua-a-1001"
+
+    @pytest.mark.asyncio
+    async def test_execute_retry_aborts_when_backend_work_guard_blocks(
+        self, failover_planner, failure_strategy, config
+    ) -> None:
+        """Backend work guard cancellation must preempt retry dispatch."""
+        backend_work_guard = Mock(spec=IBackendWorkGuard)
+        backend_work_guard.ensure_session_active.side_effect = SessionCancelledError(
+            session_key=SessionKey(protocol="http", primary_id="req-guard-cancelled"),
+            reason=ClientTerminationReason.CLIENT_DISCONNECTED,
+        )
+
+        executor = FailureRecoveryExecutor(
+            failover_planner=failover_planner,
+            failure_handling_strategy=failure_strategy,
+            routing_service=None,
+            config=config,
+            failover_routes={},
+            backend_work_guard=backend_work_guard,
+        )
+
+        request = Mock(spec=ChatRequest)
+        request.model_copy.return_value = request
+        request.extra_body = {}
+        callback = AsyncMock()
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-guard-cancelled",
+        )
+
+        with pytest.raises(SessionCancelledError):
+            await executor.execute_retry(
+                request=request,
+                backend_type="openai.1",
+                wait_seconds=0.0,
+                is_streaming=False,
+                model="gpt-4",
+                attempted_backends=[],
+                call_completion_callback=callback,
+                context=context,
+            )
+
+        callback.assert_not_called()

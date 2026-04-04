@@ -18,6 +18,7 @@ from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.notification_service_interface import INotificationService
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
@@ -240,6 +241,7 @@ async def run_quality_verifier_decision(
     request_context: RequestContext | None,
     cancellation_coordinator: ISessionCancellationCoordinator | None,
     notification_service: INotificationService | None,
+    backend_work_guard: IBackendWorkGuard | None = None,
 ) -> QualityVerifierRunOutcome:
     """Invoke verifier model once (plus optional XML retry) and return structured outcome."""
     svc = QualityVerifierService(
@@ -256,15 +258,23 @@ async def run_quality_verifier_decision(
         original_request, assistant_text
     )
 
-    def _ensure_not_cancelled() -> None:
+    def _ensure_not_cancelled() -> Any:
+        if backend_work_guard is not None:
+            return backend_work_guard.ensure_session_active(
+                context=request_context,
+                purpose="quality_verifier",
+                require_scope=False,
+            )
         if cancellation_coordinator and request_context:
             session_key = resolve_session_key_from_request_context(request_context)
             if session_key:
                 cancellation_coordinator.ensure_not_cancelled(session_key)
+                return session_key
+        return None
 
     async def _call_verifier_once(qv_request: ChatRequest) -> str | None:
         try:
-            _ensure_not_cancelled()
+            session_key = _ensure_not_cancelled()
             ctx = request_context
             if ctx is not None:
                 ctx.extensions["call_purpose"] = "quality_verifier"
@@ -278,6 +288,14 @@ async def run_quality_verifier_decision(
                 await svc.report_failure()
                 return None
             if isinstance(qv_response, StreamingResponseEnvelope):
+                if backend_work_guard is not None and qv_response.content is not None:
+                    qv_response.content = (
+                        backend_work_guard.wrap_stream_with_cancellation(
+                            stream=qv_response.content,
+                            session_key=session_key,
+                            purpose="quality_verifier",
+                        )
+                    )
                 qv_text = await _collect_stream_text_with_ttft(
                     qv_response,
                     ttft_timeout_seconds=ttft_timeout_seconds,

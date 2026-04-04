@@ -18,16 +18,19 @@ Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.3, 7.2, 8.1
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.core.common.exceptions import SessionCancelledError
 from src.core.domain.backend_request_manager.context_models import (
     ResponseProcessingContext,
 )
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.client_termination import ClientTerminationReason
 from src.core.domain.request_context import ProcessingContext, RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     ILoopDetectorFactory,
@@ -35,6 +38,7 @@ from src.core.interfaces.backend_request_manager_components import (
     IStreamingBackendResponseHandler,
     IToolCallRetryCoordinator,
 )
+from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
@@ -997,6 +1001,252 @@ class TestEmptyStreamRecovery:
         assert len(result_chunks) == 2
         assert result_chunks[0].content == thinking_chunk.content
         assert result_chunks[1].content == "Retry response"
+
+    @pytest.mark.asyncio
+    async def test_skips_empty_stream_retry_when_session_is_cancelled(
+        self,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        mock_tool_call_retry_coordinator: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Do not issue empty-stream retry when cancellation is already known."""
+        from src.core.services.backend_request_manager.streaming_response_handler import (
+            BackendStreamingResponseHandler,
+        )
+
+        done_chunk = ProcessedResponse(content=b"data: [DONE]\n\n", metadata={})
+        stream_envelope = StreamingResponseEnvelope(
+            content=async_chunk_iterator([done_chunk])
+        )
+
+        processed_stream = async_chunk_iterator([done_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        cancellation_coordinator = MagicMock()
+        cancellation_coordinator.ensure_not_cancelled.side_effect = (
+            SessionCancelledError(
+                session_key=SessionKey(protocol="http", primary_id="req-cancelled"),
+                reason=ClientTerminationReason.CLIENT_DISCONNECTED,
+            )
+        )
+
+        local_handler = BackendStreamingResponseHandler(
+            response_processor=mock_response_processor,
+            loop_detector_factory=mock_loop_detector_factory,
+            quality_verifier_stream_verifier=mock_quality_verifier_stream_verifier,
+            tool_call_retry_coordinator=mock_tool_call_retry_coordinator,
+            backend_processor=cast(IBackendProcessor, mock_backend_processor),
+            cancellation_coordinator=cast(Any, cancellation_coordinator),
+        )
+
+        context_with_request_id = RequestContext(
+            headers=request_context.headers,
+            cookies=request_context.cookies,
+            state=request_context.state,
+            app_state=request_context.app_state,
+            session_id=request_context.session_id,
+            request_id="req-cancelled",
+            processing_context=request_context.processing_context,
+        )
+
+        result = await local_handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=context_with_request_id,
+            processing_context=processing_context,
+        )
+
+        assert result.content is not None
+        streamed: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            streamed.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_not_called()
+        assert streamed == []
+
+    @pytest.mark.asyncio
+    async def test_stops_retry_stream_when_session_cancels_after_retry_dispatch(
+        self,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        mock_tool_call_retry_coordinator: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Stop consuming retry stream if cancellation arrives after dispatch."""
+        from src.core.services.backend_request_manager.streaming_response_handler import (
+            BackendStreamingResponseHandler,
+        )
+
+        done_chunk = ProcessedResponse(content=b"data: [DONE]\n\n", metadata={})
+        stream_envelope = StreamingResponseEnvelope(
+            content=async_chunk_iterator([done_chunk])
+        )
+
+        processed_empty_stream = async_chunk_iterator([done_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_empty_stream
+        )
+
+        retry_chunks = [ProcessedResponse(content="Retry response", metadata={})]
+        retry_envelope = StreamingResponseEnvelope(
+            content=async_chunk_iterator(retry_chunks)
+        )
+        mock_backend_processor.process_backend_request.return_value = retry_envelope
+        mock_response_processor.process_streaming_response.side_effect = [
+            processed_empty_stream,
+            async_chunk_iterator(retry_chunks),
+        ]
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        cancellation_coordinator = MagicMock()
+        cancellation_coordinator.ensure_not_cancelled.side_effect = [
+            None,
+            SessionCancelledError(
+                session_key=SessionKey(protocol="http", primary_id="req-race"),
+                reason=ClientTerminationReason.CLIENT_DISCONNECTED,
+            ),
+        ]
+
+        local_handler = BackendStreamingResponseHandler(
+            response_processor=mock_response_processor,
+            loop_detector_factory=mock_loop_detector_factory,
+            quality_verifier_stream_verifier=mock_quality_verifier_stream_verifier,
+            tool_call_retry_coordinator=mock_tool_call_retry_coordinator,
+            backend_processor=cast(IBackendProcessor, mock_backend_processor),
+            cancellation_coordinator=cast(Any, cancellation_coordinator),
+        )
+
+        context_with_request_id = RequestContext(
+            headers=request_context.headers,
+            cookies=request_context.cookies,
+            state=request_context.state,
+            app_state=request_context.app_state,
+            session_id=request_context.session_id,
+            request_id="req-race",
+            processing_context=request_context.processing_context,
+        )
+
+        result = await local_handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=context_with_request_id,
+            processing_context=processing_context,
+        )
+
+        assert result.content is not None
+        streamed: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            streamed.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_called_once()
+        assert streamed == []
+
+    @pytest.mark.asyncio
+    async def test_skips_empty_stream_retry_when_guard_reports_cancelled(
+        self,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        mock_tool_call_retry_coordinator: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Guard-level cancellation should prevent empty-stream retry dispatch."""
+        from src.core.services.backend_request_manager.streaming_response_handler import (
+            BackendStreamingResponseHandler,
+        )
+
+        done_chunk = ProcessedResponse(content=b"data: [DONE]\n\n", metadata={})
+        stream_envelope = StreamingResponseEnvelope(
+            content=async_chunk_iterator([done_chunk])
+        )
+
+        processed_stream = async_chunk_iterator([done_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        backend_work_guard = MagicMock(spec=IBackendWorkGuard)
+        backend_work_guard.ensure_session_active.return_value = SessionKey(
+            protocol="http", primary_id="req-guard-stream-cancelled"
+        )
+        backend_work_guard.is_cancelled.return_value = True
+
+        local_handler = BackendStreamingResponseHandler(
+            response_processor=mock_response_processor,
+            loop_detector_factory=mock_loop_detector_factory,
+            quality_verifier_stream_verifier=mock_quality_verifier_stream_verifier,
+            tool_call_retry_coordinator=mock_tool_call_retry_coordinator,
+            backend_processor=cast(IBackendProcessor, mock_backend_processor),
+            backend_work_guard=cast(Any, backend_work_guard),
+        )
+
+        context_with_request_id = RequestContext(
+            headers=request_context.headers,
+            cookies=request_context.cookies,
+            state=request_context.state,
+            app_state=request_context.app_state,
+            session_id=request_context.session_id,
+            request_id="req-guard-stream-cancelled",
+            processing_context=request_context.processing_context,
+        )
+
+        result = await local_handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=context_with_request_id,
+            processing_context=processing_context,
+        )
+
+        assert result.content is not None
+        streamed: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            streamed.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_not_called()
+        assert streamed == []
 
     @pytest.mark.asyncio
     async def test_treats_reasoning_metadata_as_empty_for_retry(

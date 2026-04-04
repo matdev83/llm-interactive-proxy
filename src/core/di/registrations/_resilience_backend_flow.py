@@ -81,6 +81,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         from src.core.interfaces.backend_model_resolver_interface import (
             IBackendModelResolver,
         )
+        from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
         from src.core.interfaces.configuration_interface import IConfig
         from src.core.interfaces.exception_normalizer_interface import (
             IExceptionNormalizer,
@@ -130,6 +131,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             WireCaptureOrchestrator,
         )
         from src.core.services.backend_routing_service import BackendRoutingService
+        from src.core.services.backend_work_guard import BackendWorkGuard
 
         def _get_failover_routes(
             provider: IServiceProvider,
@@ -293,6 +295,27 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             implementation_factory=lambda p: p.get_required_service(BackendManager),
         )
 
+        def _backend_work_guard_factory(provider: IServiceProvider) -> BackendWorkGuard:
+            from src.core.interfaces.session_cancellation_coordinator_interface import (
+                ISessionCancellationCoordinator,
+            )
+
+            cancellation_coordinator = provider.get_service(
+                cast(type, ISessionCancellationCoordinator)
+            )
+            return BackendWorkGuard(cancellation_coordinator=cancellation_coordinator)
+
+        register_singleton_if_absent(
+            services,
+            BackendWorkGuard,
+            implementation_factory=_backend_work_guard_factory,
+        )
+        register_singleton_if_absent(
+            services,
+            cast(type, IBackendWorkGuard),
+            implementation_factory=lambda p: p.get_required_service(BackendWorkGuard),
+        )
+
         def _failure_recovery_executor_factory(
             provider: IServiceProvider,
         ) -> FailureRecoveryExecutor:
@@ -319,6 +342,9 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             cancellation_coordinator = provider.get_service(
                 cast(type, ISessionCancellationCoordinator)
             )
+            backend_work_guard: IBackendWorkGuard = provider.get_required_service(
+                cast(type, IBackendWorkGuard)
+            )
 
             return FailureRecoveryExecutor(
                 failover_planner=failover_planner,
@@ -327,6 +353,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 config=config,
                 failover_routes=_get_failover_routes(provider),
                 cancellation_coordinator=cancellation_coordinator,
+                backend_work_guard=backend_work_guard,
             )
 
         register_singleton_if_absent(
@@ -490,6 +517,9 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             cancellation_coordinator = provider.get_service(
                 cast(type, ISessionCancellationCoordinator)
             )
+            backend_work_guard: IBackendWorkGuard = provider.get_required_service(
+                cast(type, IBackendWorkGuard)
+            )
 
             # Get non-forwardable enforcer (optional, registered in core services stage)
             from src.core.interfaces.non_forwardable_interface import (
@@ -515,6 +545,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 resilience_coordinator=resilience_coordinator,
                 eos_adapter=eos_adapter,
                 cancellation_coordinator=cancellation_coordinator,
+                backend_work_guard=backend_work_guard,
                 non_forwardable_enforcer=non_forwardable_enforcer,
                 b2bua_bleg_allocator=b2bua_bleg_allocator,
             )

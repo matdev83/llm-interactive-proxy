@@ -21,6 +21,7 @@ from src.core.domain.streaming_response_processor import (
     StreamingContent,
 )
 from src.core.domain.usage_summary import UsageSummary
+from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import (
@@ -281,6 +282,7 @@ class ResponseProcessor(IResponseProcessor):
         notification_service = provider.get_service(
             cast(type, INotificationService)  # type: ignore[type-abstract]
         )
+        backend_work_guard = provider.get_service(cast(type, IBackendWorkGuard))
 
         outcome = await run_quality_verifier_decision(
             original_request=original_request,
@@ -294,6 +296,7 @@ class ResponseProcessor(IResponseProcessor):
             request_context=context,
             cancellation_coordinator=self._cancellation_coordinator,
             notification_service=notification_service,
+            backend_work_guard=backend_work_guard,
         )
 
         def _reset_ledger() -> None:

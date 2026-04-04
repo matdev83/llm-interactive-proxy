@@ -42,6 +42,7 @@ from src.core.interfaces.backend_completion_collaborators import (
 from src.core.interfaces.backend_completion_flow_interface import (
     IBackendCompletionFlow,
 )
+from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
 from src.core.interfaces.non_forwardable_interface import (
     INonForwardableMessageEnforcer,
@@ -129,6 +130,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         resilience_coordinator: IResilienceCoordinator | None = None,
         eos_adapter: BackendCompletionFlowEosAdapter | None = None,  # type: ignore[invalid-type-form]
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
+        backend_work_guard: IBackendWorkGuard | None = None,
         non_forwardable_enforcer: INonForwardableMessageEnforcer | None = None,
         b2bua_bleg_allocator: B2buaBlegAllocator | None = None,
     ) -> None:
@@ -147,6 +149,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._stream_formatting_service = stream_formatting_service
         self._eos_adapter = eos_adapter  # type: ignore[reportUnknownVariableType]
         self._cancellation_coordinator = cancellation_coordinator
+        self._backend_work_guard = backend_work_guard
         self._non_forwardable_enforcer = non_forwardable_enforcer
         self._connector_invoker = connector_invoker
         self._b2bua_bleg_allocator = b2bua_bleg_allocator
@@ -917,15 +920,22 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     context=attempt_context,
                 )
 
-                # Resolve SessionKey for cancellation gating
-                session_key = resolve_session_key_from_request_context(context)
-
-                # Cancellation gate: ensure session is not cancelled before backend call
-                if (
-                    self._cancellation_coordinator is not None
-                    and session_key is not None
-                ):
-                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
+                # Resolve SessionKey and enforce cancellation before backend call.
+                if self._backend_work_guard is not None:
+                    session_key = self._backend_work_guard.ensure_session_active(
+                        context=attempt_context,
+                        purpose="primary_completion",
+                        require_scope=False,
+                    )
+                else:
+                    session_key = resolve_session_key_from_request_context(
+                        attempt_context
+                    )
+                    if (
+                        self._cancellation_coordinator is not None
+                        and session_key is not None
+                    ):
+                        self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
                 # Prepare backend call kwargs
                 backend_call_kwargs = self._request_preparer.prepare_backend_kwargs(
@@ -964,6 +974,19 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     context=attempt_context,
                     options=backend_call_kwargs,
                 )
+
+                if (
+                    self._backend_work_guard is not None
+                    and isinstance(result, StreamingResponseEnvelope)
+                    and result.content is not None
+                ):
+                    result.content = (
+                        self._backend_work_guard.wrap_stream_with_cancellation(
+                            stream=result.content,
+                            session_key=session_key,
+                            purpose="primary_completion",
+                        )
+                    )
 
                 # Register cancellable work if coordinator and session_key are available
                 if (
