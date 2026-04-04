@@ -165,6 +165,18 @@ async def test_property_...(...):
 - Use `pytest-snapshot` fixture `snapshot.assert_match(...)` in test files (for example `tests/integration/commands/test_integration_help_command.py`).
 - Snapshot artifacts are stored under `tests/integration/commands/__snapshots__/`.
 
+## Maintainer-Reported Testing Priorities
+
+These planning priorities came from the maintainer and should guide future brownfield scoping:
+
+- Improve regression detection for core behavior; the current suite is large but still allows too many new bugs to surface later.
+- Reduce end-to-end test execution time so the suite is practical for iterative stabilization work.
+- Expand coverage of inference backend providers, especially around protocol compliance and core-path behavior.
+- Add stronger architectural-boundary tests proving that non-core feature work does not require core changes and does not break core proxy functionality.
+- Add more targeted session-isolation and user-isolation tests to guard against cross-session or cross-user data leakage.
+- Add better equivalence/regression coverage around streaming and non-streaming behavior.
+- Revisit how unstable subsystems such as multi-tier loop detection are tested, isolated, or simplified.
+
 ---
 
 *Testing analysis: 2026-04-04*

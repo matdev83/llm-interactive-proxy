@@ -2,11 +2,11 @@
 
 ## What This Is
 
-LLM Interactive Proxy is a brownfield universal LLM gateway that sits between clients and provider backends. It provides compatibility layers, routing and failover controls, safety/steering features, and evidence-oriented observability without requiring client rewrites.
+LLM Interactive Proxy is a brownfield universal LLM gateway that sits between clients and provider backends. The current planning focus is production-grade stabilization: keep the core proxy stable and protocol-compliant, reduce architectural fragility, and make future business-facing capabilities possible without coupling optional features back into the core.
 
 ## Core Value
 
-Provide a single, safer, and more controllable proxy endpoint for multi-provider LLM workflows while preserving client compatibility.
+Provide a single, stable, protocol-compliant, and commercially credible multi-provider proxy endpoint while keeping core behavior insulated from optional and connector-specific features.
 
 ## Requirements
 
@@ -20,17 +20,24 @@ Provide a single, safer, and more controllable proxy endpoint for multi-provider
 
 ### Active
 
-- [ ] Define next milestone scope after codebase mapping review (brownfield delta only)
+- [ ] Stabilize the codebase for production workloads, especially around session continuity, core protocol handling, and low-frequency failure paths
+- [ ] Enforce a hard architectural boundary so non-core features do not require core changes and cannot break core proxy behavior
+- [ ] Improve the testing strategy so regressions are caught earlier, test execution is faster, and backend/provider coverage is stronger
+- [ ] Simplify the bidirectional request/response flow, especially the split between streaming and non-streaming paths, without losing advanced capabilities
+- [ ] Harden session and user isolation to reduce the risk of cross-session or cross-user data leakage
+- [ ] Prepare the platform for revenue-aligned commercial capabilities only after stability and security baselines are strong enough
 
 ### Out of Scope
 
 - Building a first-party LLM model training/fine-tuning platform
 - Replacing existing client applications with a proprietary chat client
-- Planning detailed implementation phases before brownfield scope is explicitly selected
+- New vibe-coding-focused features that do not improve stability, security, or commercial readiness
+- New non-core functionality that forces changes in the core proxy without a compelling stability or business justification
+- Speculative feature expansion without clear customer demand or a plausible business payoff
 
 ## Context
 
-This project is already mature and feature-rich. The immediate planning need is brownfield alignment: map the current system accurately, then select incremental scope with minimal architecture drift.
+This project is already mature and feature-rich. The immediate planning need is brownfield alignment around stabilization, modularity, and commercial readiness. Maintainer feedback highlights several planning drivers: low-frequency session interruptions, unknown state of interactive commands, frequent bug discovery despite a very large test suite, fragile module boundaries where optional features can break core behavior, overly complex bidirectional and streaming/non-streaming flows, unstable loop-detection subsystems, possible session/user isolation risk, incomplete multi-tenancy support, documentation-sync overhead, and a backlog of business-facing capabilities that only make sense after the platform is more stable.
 
 Reference mapping artifacts:
 - `.planning/codebase/STACK.md`
@@ -44,9 +51,13 @@ Reference mapping artifacts:
 ## Constraints
 
 - **Platform**: Python async FastAPI stack with staged startup and DI boundaries
-- **Compatibility**: Preserve existing frontend/backend behavior for current clients
+- **Core isolation**: Non-core features must not require changes in core proxy behavior or architecture
+- **Compatibility**: Main frontend connectors (OpenAI chat completions, Anthropic, Gemini) and main backend connectors must remain stable and protocol-compliant
+- **Connector decoupling**: Core proxy functionality must not depend on connector-specific enhancements, and changes in the external OAuth connectors package must not regress proxy core behavior
 - **Safety**: Keep safety and governance controls as first-class constraints
-- **Quality**: TDD-oriented workflow and existing lint/type/test expectations remain in force
+- **Security**: Cross-session or cross-user data leakage is unacceptable
+- **Quality**: TDD-oriented workflow and existing lint/type/test expectations remain in force, but the testing approach itself is in scope for improvement
+- **Business priority**: Revenue-aligned features should take precedence over non-business novelty once stability/security foundations are in place
 - **Brownfield discipline**: Prefer incremental evolution over broad rewrites
 
 ## Key Decisions
@@ -56,6 +67,10 @@ Reference mapping artifacts:
 | Treat this initiative as brownfield-first mapping | Existing system already contains broad capabilities and non-trivial architecture | ✓ Good |
 | Defer concrete phase/task planning until scope delta is explicit | Avoid inventing roadmap items without stakeholder-confirmed priorities | ✓ Good |
 | Use `.planning/codebase/*` as source of truth for current-state planning | Ensures future requirements are grounded in actual implementation | ✓ Good |
+| Prioritize production stabilization before feature expansion | Fragility and regression risk currently limit confidence in the platform | - Pending |
+| Preserve a hard boundary between core proxy behavior and optional enhancements | Non-core changes should not break or reshape core functionality | - Pending |
+| Prefer business-value features over vibe-coding features after the foundation is stable | Open Core revenue potential should guide expansion priorities | - Pending |
+| Prefer simplification and customer-requested value over speculative feature growth | The product needs a stable foundation businesses will pay for, not endless feature sprawl | - Pending |
 
 ## Evolution
 
@@ -75,4 +90,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-04 after brownfield codebase mapping alignment*
+*Last updated: 2026-04-04 after maintainer priority alignment*

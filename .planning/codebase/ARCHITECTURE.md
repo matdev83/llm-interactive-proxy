@@ -133,6 +133,18 @@
 
 **Authentication:** Auth configured as middleware in `src/core/app/middleware_config.py` (`APIKeyMiddleware`, `AuthMiddleware`, SSO auth middleware path), with access-mode-aware behavior configured from `AppConfig`.
 
+## Maintainer-Aligned Architecture Priorities
+
+These priorities come from current brownfield planning direction and should shape future architectural scoping:
+
+- **Core vs non-core isolation must become explicit**: optional features such as context compression, random model replacement, and interactive commands should not require changes in core proxy behavior and should not be able to break it indirectly.
+- **Bidirectional flow should be simplified**: the current request/response path is considered too complex, especially where transforms, compatibility layers, and connector-specific behaviors intersect.
+- **Streaming and non-streaming paths should converge where possible**: separate handling is a major maintenance and regression source according to maintainer feedback.
+- **Connector-specific behavior should stay out of the core**: the core proxy should depend on stable contracts, not on provider-specific enhancements or external connector package quirks.
+- **Session and user isolation need stronger architectural guarantees**: possible cross-session or cross-user leakage is treated as a top-level design risk until disproven.
+- **Loop-detection subsystems need architectural re-evaluation**: the current multi-tier loop detection is considered unstable and difficult to test.
+- **Future commercial capabilities should build on hardened seams**: billing, token management, audit logging, reporting, and multi-tenancy only make sense on top of a simpler and more reliable core.
+
 ---
 
 *Architecture analysis: 2026-04-04*

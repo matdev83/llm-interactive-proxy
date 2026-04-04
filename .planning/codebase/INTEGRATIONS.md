@@ -101,6 +101,17 @@
 - OAuth/OIDC and captcha verification callbacks to provider endpoints configured in `src/core/auth/sso/idp_configs.py` and `src/core/config/env/from_env_part3.py` (for example provider authorize/token/userinfo/discovery URLs and Turnstile verify URL).
 - General-purpose third-party webhook emitter integration is not detected.
 
+## Maintainer-Aligned Integration Priorities
+
+These planning priorities should guide future integration scoping:
+
+- Main frontend compatibility surfaces must remain stable and protocol-compliant: OpenAI chat completions, Anthropic, and Gemini.
+- Main backend connectors must remain stable and protocol-compliant during stabilization work.
+- Changes in the external OAuth connectors package must not cause regressions in proxy core behavior.
+- Multi-tenancy support is still missing and is relevant for future enterprise/commercial positioning.
+- Current logging and persistence are mostly local-first (`var/`, SQLite), which is a gap for cloud-friendly audit logging, reporting, and enterprise operations.
+- Revenue-aligned follow-on integrations likely include stronger SSO token management, user provisioning, cloud/session export, and business-grade reporting, but these should follow core stabilization rather than precede it.
+
 ---
 
 *Integration audit: 2026-04-04*

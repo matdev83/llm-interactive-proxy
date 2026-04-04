@@ -75,6 +75,13 @@
 - Deployment target: self-hosted process/container on any OS with Python 3.10+ (no managed platform binding detected in repository configs).
 - CI platform detected: GitHub Actions (`.github/workflows/ci.yml`); production CD pipeline definition is not detected.
 
+## Maintainer-Aligned Stack Priorities
+
+- Development and CI ergonomics matter because the current test suite is perceived as too slow for effective stabilization work.
+- Dependency and tooling choices should favor deterministic regression detection and faster feedback over feature novelty.
+- The current local-first operational stack is workable for development, but future commercial features will likely require better cloud-friendly persistence, logging, and reporting paths.
+- Documentation maintenance is becoming harder as the codebase grows, so future tooling/documentation choices should reduce static-doc drift where possible.
+
 ---
 
 *Stack analysis: 2026-04-04*

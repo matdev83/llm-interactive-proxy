@@ -106,6 +106,22 @@
 - Risk: Duplicate/unstable sequence ordering can slip into captures under load without deterministic detection.
 - Priority: High
 
+## Maintainer-Reported Planning Concerns
+
+These items were supplied by the maintainer during planning. They should influence brownfield scoping even where the current mapper pass cannot yet prove root cause from code alone.
+
+- Session interruptions still appear in less common paths and need targeted stabilization work.
+- The functional state of interactive commands is uncertain and should be validated before relying on them.
+- Frequent discovery of new bugs despite a very large test suite suggests a strategy gap, not only missing test count.
+- Modularity is still too weak: optional or non-core functionality can break core behavior or force changes in the core.
+- The overall bidirectional text flow appears overly complex and may need architectural simplification.
+- The split between streaming and non-streaming paths is a major pain point and likely a root contributor to fragility.
+- Multi-tier loop detection is described as defunct, unstable, and hard to test.
+- Possible data leakage across sessions or users is a top-level risk until disproven.
+- Multi-tenancy is still missing and blocks some commercial/enterprise scenarios.
+- Documentation synchronization is becoming a scaling bottleneck.
+- Business-facing capabilities such as billing, token management, audit logging, and reporting are still missing, but should be layered on top of a more stable foundation.
+
 ---
 
 *Concerns audit: 2026-04-04*
