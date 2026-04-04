@@ -6,6 +6,7 @@ from typing import Any, cast
 
 from pydantic import ConfigDict, Field, field_validator, model_serializer
 
+from src.core.domain.backend_capability_descriptor import BackendCapabilityDescriptor
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel
 from src.core.services.backend_registry import backend_registry
@@ -43,6 +44,21 @@ class BackendConfig(DomainModel):
     credentials_path: str | None = None
     supported_input_types: list[str] | None = None
     connector: str | None = None
+    capability_descriptor: BackendCapabilityDescriptor | None = None
+
+    @field_validator("capability_descriptor", mode="before")
+    @classmethod
+    def validate_capability_descriptor(
+        cls, v: Any
+    ) -> BackendCapabilityDescriptor | None:
+        """Coerce a plain dict into BackendCapabilityDescriptor."""
+        if v is None:
+            return None
+        if isinstance(v, BackendCapabilityDescriptor):
+            return v
+        if isinstance(v, dict):
+            return BackendCapabilityDescriptor.from_dict(v)
+        return cast(BackendCapabilityDescriptor, v)
 
     @field_validator("supported_input_types", mode="before")
     @classmethod
