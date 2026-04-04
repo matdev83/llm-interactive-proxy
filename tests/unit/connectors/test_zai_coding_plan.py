@@ -5,6 +5,21 @@ from src.connectors.openai import OpenAIConnector
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
 
 
+def test_select_model_accepts_glm5_when_not_in_provider_list():
+    """GLM 5.x must pass through even if /models omitted them."""
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
+    )
+    backend.available_models = ["glm-4.6"]
+    assert backend._select_model("glm-5.1") == "glm-5.1"
+    assert backend._select_model("zai-coding-plan:glm-5.0") == "glm-5.0"
+
+
+def test_supported_models_include_glm5():
+    assert "glm-5.1" in ZaiCodingPlanBackend._SUPPORTED_MODELS
+    assert "glm-5.0" in ZaiCodingPlanBackend._SUPPORTED_MODELS
+
+
 @pytest.mark.asyncio
 async def test_temperature_from_request_data_is_applied(mocker):
     """

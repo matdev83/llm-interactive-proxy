@@ -57,7 +57,14 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     VENDOR_PREFIX: str | None = None
     _DEFAULT_MODEL: str = "glm-4.6"
     _LEGACY_MODEL: str = "claude-sonnet-4-20250514"
-    _SUPPORTED_MODELS: tuple[str, ...] = (_DEFAULT_MODEL, _LEGACY_MODEL)
+    # Advertised when /models fails; merged ahead of API discovery; always honored in _select_model
+    _SUPPORTED_MODELS: tuple[str, ...] = (
+        "glm-5.1",
+        "glm-5.0",
+        _DEFAULT_MODEL,
+        _LEGACY_MODEL,
+    )
+    _KNOWN_CODING_PLAN_MODELS: frozenset[str] = frozenset(_SUPPORTED_MODELS)
     _KILO_VERSION: str = "4.111.0"
     _KILO_USER_AGENT: str = f"Kilo-Code/{_KILO_VERSION}"
 
@@ -218,9 +225,13 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
         if discovered_models:
             self._provider_models = {name for name in discovered_models if name}
-            # PERFORMANCE: Use set for O(1) membership check instead of O(n) list check
+            # Prefer stable static ordering for known Coding Plan models, then append provider-only IDs
             seen: set[str] = set()
             unique_models: list[str] = []
+            for name in self._SUPPORTED_MODELS:
+                if name and name not in seen:
+                    seen.add(name)
+                    unique_models.append(name)
             for name in discovered_models:
                 if name and name not in seen:
                     seen.add(name)
@@ -246,6 +257,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         normalized = parsed.model_name or self._DEFAULT_MODEL
         available = self.available_models or list(self._SUPPORTED_MODELS)
         if normalized in available:
+            return normalized
+        if normalized in self._KNOWN_CODING_PLAN_MODELS:
             return normalized
         if available:
             return available[0]

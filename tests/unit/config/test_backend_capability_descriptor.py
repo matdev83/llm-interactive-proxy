@@ -4,7 +4,6 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-
 # ---------------------------------------------------------------------------
 # Task 1: BackendCapabilityDescriptor model tests (Tests 1-7)
 # ---------------------------------------------------------------------------
