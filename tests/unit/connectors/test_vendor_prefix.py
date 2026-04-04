@@ -6,6 +6,7 @@ These tests verify that single-vendor connectors correctly:
 3. Return vendor-prefixed model names in get_available_models()
 """
 
+import pytest
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 
 
@@ -123,9 +124,8 @@ class TestQwenOAuthVendorPrefix:
 
     def test_qwen_oauth_vendor_constant(self):
         """Verify the Qwen vendor prefix constant is defined."""
-        from llm_proxy_oauth_connectors.qwen_oauth import QWEN_VENDOR_PREFIX
-
-        assert QWEN_VENDOR_PREFIX == "qwen"
+        qwen_oauth = pytest.importorskip("llm_proxy_oauth_connectors.qwen_oauth")
+        assert qwen_oauth.QWEN_VENDOR_PREFIX == "qwen"
 
 
 class TestOpenAIConnectorVendorPrefix:

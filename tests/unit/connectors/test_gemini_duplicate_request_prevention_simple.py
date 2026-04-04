@@ -21,9 +21,12 @@ class TestGeminiDuplicateRequestPrevention:
     def _resolve_streaming_files() -> list[Path]:
         """Resolve streaming implementation files available in current environment."""
         files = [Path("src/connectors/gemini_cloud_project.py")]
-        plugin_spec = importlib.util.find_spec(
-            "llm_proxy_oauth_connectors.gemini_oauth_base"
-        )
+        try:
+            plugin_spec = importlib.util.find_spec(
+                "llm_proxy_oauth_connectors.gemini_oauth_base"
+            )
+        except ModuleNotFoundError:
+            plugin_spec = None
         if plugin_spec and plugin_spec.origin:
             plugin_file = Path(plugin_spec.origin)
             if plugin_file.exists():
