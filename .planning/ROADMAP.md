@@ -27,7 +27,12 @@ Brownfield stabilization roadmap for a mature universal LLM proxy. The goal is t
   5. The `MagicMock` production fallback risk in `src/core/app/controllers/__init__.py` is assessed and documented.
   6. Dependency pinning gaps in `pyproject.toml` are listed with risk assessment.
   7. A triage summary exists classifying each finding as fix-in-place, defer, or needs-phase.
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Audit interactive commands and classify support status
+- [ ] 01-02-PLAN.md — Audit loop detection, MCP scope, MagicMock risk, dead config, and dependency pinning
+- [ ] 01-03-PLAN.md — Synthesize findings into triage summary with fix-in-place/defer/needs-phase classifications
 
 ### Phase 2: Test Strategy Reset
 **Goal**: Fix the regression feedback loop before touching any fragile code. Make the test suite a reliable safety net rather than a false confidence generator.
