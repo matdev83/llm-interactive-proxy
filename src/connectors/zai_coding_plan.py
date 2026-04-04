@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -9,7 +11,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 
@@ -65,6 +67,11 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         _LEGACY_MODEL,
     )
     _KNOWN_CODING_PLAN_MODELS: frozenset[str] = frozenset(_SUPPORTED_MODELS)
+    _MODEL_DISCOVERY_SUCCESS_TTL_SECONDS: float = 300.0
+    _MODEL_DISCOVERY_FAILURE_TTL_SECONDS: float = 60.0
+    _MODEL_DISCOVERY_CACHE: dict[
+        tuple[str, str], tuple[float, list[str], set[str], bool]
+    ] = {}
     _KILO_VERSION: str = "4.111.0"
     _KILO_USER_AGENT: str = f"Kilo-Code/{_KILO_VERSION}"
 
@@ -108,11 +115,13 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         # ZAI supports up to 200K output tokens (plan-specific defaults may be lower)
         self._max_tokens_limit = 200000  # 200K hard ceiling
         self._default_max_tokens = 8192
+        self._model_discovery_succeeded = False
 
         # Refresh the advertised model list from the provider (falls back to defaults on failure)
         self.available_models: list[str] = []
         self._provider_models: set[str] = set()
         await self._refresh_available_models()
+        self._health_checked = self._model_discovery_succeeded
 
     def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:
         """Return request headers including Kilo-specific metadata.
@@ -182,10 +191,68 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             return "***" + api_key[-2:] if len(api_key) > 2 else "***"
         return f"{api_key[:4]}...{api_key[-4:]}"
 
+    def _get_model_discovery_cache_key(self) -> tuple[str, str]:
+        normalized_base_url = self.api_base_url.rstrip("/")
+        api_key = self.api_key or ""
+        api_key_hash = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+        return normalized_base_url, api_key_hash
+
+    @classmethod
+    def _get_cached_model_discovery(
+        cls, cache_key: tuple[str, str]
+    ) -> tuple[list[str], set[str], bool] | None:
+        cached_entry = cls._MODEL_DISCOVERY_CACHE.get(cache_key)
+        if cached_entry is None:
+            return None
+
+        expires_at, cached_models, cached_provider_models, cache_success = cached_entry
+        if time.monotonic() >= expires_at:
+            cls._MODEL_DISCOVERY_CACHE.pop(cache_key, None)
+            return None
+
+        return list(cached_models), set(cached_provider_models), cache_success
+
+    @classmethod
+    def _store_model_discovery_cache(
+        cls,
+        cache_key: tuple[str, str],
+        *,
+        models: list[str],
+        provider_models: set[str],
+        success: bool,
+    ) -> None:
+        ttl_seconds = (
+            cls._MODEL_DISCOVERY_SUCCESS_TTL_SECONDS
+            if success
+            else cls._MODEL_DISCOVERY_FAILURE_TTL_SECONDS
+        )
+        cls._MODEL_DISCOVERY_CACHE[cache_key] = (
+            time.monotonic() + ttl_seconds,
+            list(models),
+            set(provider_models),
+            success,
+        )
+
     async def _refresh_available_models(self) -> None:
         """Probe provider for accessible models and merge with local defaults."""
         fallback_models = list(self._SUPPORTED_MODELS)
+        cache_key = self._get_model_discovery_cache_key()
+        cached_discovery = self._get_cached_model_discovery(cache_key)
+        if cached_discovery is not None:
+            cached_models, cached_provider_models, cache_success = cached_discovery
+            self.available_models = cached_models
+            self._provider_models = cached_provider_models
+            self._model_discovery_succeeded = cache_success
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ZAI Coding Plan using cached model discovery: success=%s models=%s",
+                    cache_success,
+                    cached_models,
+                )
+            return
+
         self._provider_models = set()
+        self._model_discovery_succeeded = False
         headers: dict[str, str]
         try:
             headers = self.get_headers()
@@ -197,6 +264,12 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                     exc_info=True,
                 )
             self.available_models = fallback_models
+            self._store_model_discovery_cache(
+                cache_key,
+                models=self.available_models,
+                provider_models=self._provider_models,
+                success=False,
+            )
             return
 
         discovered_models: list[str] = []
@@ -237,6 +310,13 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                     seen.add(name)
                     unique_models.append(name)
             self.available_models = unique_models
+            self._model_discovery_succeeded = True
+            self._store_model_discovery_cache(
+                cache_key,
+                models=self.available_models,
+                provider_models=self._provider_models,
+                success=True,
+            )
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
                     "ZAI Coding Plan available models discovered from provider: %s",
@@ -244,11 +324,23 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 )
         else:
             self.available_models = fallback_models
+            self._store_model_discovery_cache(
+                cache_key,
+                models=self.available_models,
+                provider_models=self._provider_models,
+                success=False,
+            )
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
                     "ZAI Coding Plan using fallback model list: %s",
                     self.available_models,
                 )
+
+    async def _perform_health_check(self) -> bool:
+        """Reuse model discovery for health checks to avoid duplicate /models probes."""
+
+        await self._refresh_available_models()
+        return bool(self._model_discovery_succeeded)
 
     def _select_model(self, requested_model: str | None) -> str:
         """Pick an appropriate provider model, honoring availability."""
@@ -278,13 +370,33 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             return str(detail)
         return str(detail)
 
+    @staticmethod
+    def _provider_error_details(detail: Any) -> dict[str, Any]:
+        if not isinstance(detail, dict):
+            return {}
+
+        provider_details: dict[str, Any] = {}
+        headers = detail.get("headers")
+        if isinstance(headers, dict):
+            retry_after = headers.get("retry-after") or headers.get("Retry-After")
+            if retry_after is not None:
+                provider_details["headers"] = {"retry-after": str(retry_after)}
+                with contextlib.suppress(TypeError, ValueError):
+                    provider_details["retry_after_seconds"] = float(retry_after)
+        retry_after_seconds = detail.get("retry_after_seconds")
+        if retry_after_seconds is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                provider_details["retry_after_seconds"] = float(retry_after_seconds)
+        return provider_details
+
     def _should_retry_with_legacy(
         self, exc: HTTPException, attempted_model: str
     ) -> bool:
         """Determine if we should retry the request with the legacy Claude model."""
         if attempted_model == self._LEGACY_MODEL:
             return False
-        if self._LEGACY_MODEL not in self._provider_models:
+        provider_models: set[str] = getattr(self, "_provider_models", set())
+        if self._LEGACY_MODEL not in provider_models:
             return False
         if exc.status_code != 429:
             return False
@@ -347,6 +459,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 provider_details = {
                     "provider_error": exc.detail,
                     "attempted_model": selected_model,
+                    **self._provider_error_details(exc.detail),
                 }
                 if exc.status_code == 429:
                     raise RateLimitExceededError(
@@ -434,6 +547,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             provider_details = {
                 "provider_error": exc.detail,
                 "attempted_model": selected_model,
+                **self._provider_error_details(exc.detail),
             }
             if exc.status_code == 429:
                 raise RateLimitExceededError(
@@ -775,7 +889,9 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 # Note: Using protected method _extract_xml_tool_call here
                 # (despite LSP warning) because the public repair_tool_calls
                 # has different semantics and would break existing tests/behavior
-                repair_result = repair_service._extract_xml_tool_call(xml_block)
+                repair_result = cast(Any, repair_service)._extract_xml_tool_call(
+                    xml_block
+                )
                 if not repair_result:
                     continue
 

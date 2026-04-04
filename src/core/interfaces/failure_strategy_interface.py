@@ -9,10 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from src.core.common.exceptions import BackendError
+from typing import Protocol
 
 
 class FailureDecision(Enum):
@@ -75,7 +72,7 @@ class IFailureHandlingStrategy(Protocol):
 
     def decide(
         self,
-        error: BackendError,
+        error: Exception,
         model: str,
         current_backend: str,
         attempted_backends: list[str],

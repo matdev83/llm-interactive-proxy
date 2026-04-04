@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from src.core.common.exceptions import (
     AuthenticationError,
-    BackendError,
     InvalidRequestError,
     RateLimitExceededError,
     RoutingError,
@@ -66,7 +65,7 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
 
     def decide(
         self,
-        error: BackendError,
+        error: Exception,
         model: str,
         current_backend: str,
         attempted_backends: list[str],
@@ -149,13 +148,18 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
 
         # Rule 4: Recoverable error with short wait time
         if is_recoverable and retry_after is not None:
-            # Ensure minimum wait time
-            wait_time = max(retry_after, self._config.min_retry_wait)
+            # Add a small safety buffer past provider Retry-After to avoid
+            # reconnecting at the exact edge of the rate-limit window.
+            wait_time = max(
+                retry_after
+                + (1.0 if self._has_provider_retry_after_header(error) else 0.0),
+                self._config.min_retry_wait,
+            )
 
             # Check if wait time is acceptable
             remaining_budget = self._config.total_timeout_budget - elapsed_time
             if (
-                wait_time <= self._config.max_silent_wait
+                retry_after <= self._config.max_silent_wait
                 and wait_time <= remaining_budget
             ):
                 logger.info(
@@ -203,7 +207,7 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
             reason="No alternative backends available",
         )
 
-    def _is_recoverable_error(self, error: BackendError) -> bool:
+    def _is_recoverable_error(self, error: Exception) -> bool:
         """Determine if an error is recoverable (worth waiting/retrying).
 
         Recoverable errors:
@@ -251,7 +255,7 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
             for term in ("timeout", "connection", "network", "temporarily")
         )
 
-    def _extract_retry_after(self, error: BackendError) -> float | None:
+    def _extract_retry_after(self, error: Exception) -> float | None:
         """Extract retry-after duration from an error.
 
         Looks for retry-after in multiple places:
@@ -282,6 +286,20 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
             with contextlib.suppress(TypeError, ValueError):
                 return float(details["retry_after"])
 
+        # Explicit normalized retry_after_seconds in details
+        if "retry_after_seconds" in details:
+            with contextlib.suppress(TypeError, ValueError):
+                return float(details["retry_after_seconds"])
+
+        headers = details.get("headers")
+        if isinstance(headers, dict):
+            retry_after_header = headers.get("retry-after") or headers.get(
+                "Retry-After"
+            )
+            if retry_after_header is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    return float(retry_after_header)
+
         # Google-style nested details
         error_info = details.get("error", details)
         if isinstance(error_info, dict):
@@ -304,9 +322,27 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
         return None
 
     @staticmethod
+    def _has_provider_retry_after_header(error: Exception) -> bool:
+        details = getattr(error, "details", None)
+        if not isinstance(details, dict):
+            return False
+
+        if "retry_after_seconds" in details:
+            return True
+
+        headers = details.get("headers")
+        if not isinstance(headers, dict):
+            return False
+
+        return (
+            headers.get("retry-after") is not None
+            or headers.get("Retry-After") is not None
+        )
+
+    @staticmethod
     def _parse_duration_string(duration: str) -> float | None:
         """Parse duration string like '10s' or '4h51m33.9s'."""
-        if not isinstance(duration, str):
+        if not duration:
             return None
 
         try:

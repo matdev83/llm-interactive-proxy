@@ -88,6 +88,32 @@ def _error_details_from_http_response(response: httpx.Response) -> dict[str, Any
     return details
 
 
+def _attach_http_error_details(
+    error_detail: dict[str, Any] | str, response: httpx.Response
+) -> dict[str, Any] | str:
+    """Attach provider response metadata to error detail when available."""
+
+    response_details = _error_details_from_http_response(response)
+    if not response_details:
+        return error_detail
+
+    if isinstance(error_detail, dict):
+        merged_detail = dict(error_detail)
+        headers = response_details.get("headers")
+        if isinstance(headers, dict):
+            existing_headers = merged_detail.get("headers")
+            if isinstance(existing_headers, dict):
+                merged_detail["headers"] = {**existing_headers, **headers}
+            else:
+                merged_detail["headers"] = dict(headers)
+        return merged_detail
+
+    return {
+        "message": str(error_detail),
+        **response_details,
+    }
+
+
 def _raise_for_httpx_request_error(
     exc: httpx.RequestError,
     *,
@@ -1089,7 +1115,10 @@ class OpenAIConnector(LLMBackend):
                         extra=log_extra if log_extra else None,
                     )
                 err = response.text
-            raise HTTPException(status_code=response.status_code, detail=err)
+            raise HTTPException(
+                status_code=response.status_code,
+                detail=_attach_http_error_details(err, response),
+            )
 
         response_json = response.json()
         # Debug log raw response for non-streaming requests to help diagnose
@@ -1263,18 +1292,21 @@ class OpenAIConnector(LLMBackend):
 
             raise HTTPException(
                 status_code=status_code,
-                detail=(
-                    error_detail
-                    if isinstance(error_detail, dict)
-                    else {
-                        "message": str(error_detail),
-                        "type": (
-                            "openrouter_error"
-                            if "openrouter" in url
-                            else "openai_error"
-                        ),
-                        "code": status_code,
-                    }
+                detail=_attach_http_error_details(
+                    (
+                        error_detail
+                        if isinstance(error_detail, dict)
+                        else {
+                            "message": str(error_detail),
+                            "type": (
+                                "openrouter_error"
+                                if "openrouter" in url
+                                else "openai_error"
+                            ),
+                            "code": status_code,
+                        }
+                    ),
+                    response,
                 ),
             )
 

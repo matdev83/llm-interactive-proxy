@@ -1,8 +1,10 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
+from src.core.common.exceptions import RateLimitExceededError
 
 
 def test_select_model_accepts_glm5_when_not_in_provider_list():
@@ -18,6 +20,59 @@ def test_select_model_accepts_glm5_when_not_in_provider_list():
 def test_supported_models_include_glm5():
     assert "glm-5.1" in ZaiCodingPlanBackend._SUPPORTED_MODELS
     assert "glm-5.0" in ZaiCodingPlanBackend._SUPPORTED_MODELS
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_preserves_retry_after_details(mocker):
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
+    )
+    backend.available_models = ["glm-5.1"]
+    backend._provider_models = set()
+    request_data = MagicMock()
+    request_data.model = "glm-5.1"
+    request_data.stream = False
+    request_data.model_copy.side_effect = lambda update: request_data
+    mocker.patch.object(
+        OpenAIConnector,
+        "chat_completions",
+        new_callable=AsyncMock,
+        side_effect=HTTPException(
+            status_code=429,
+            detail={"message": "Too many requests", "headers": {"retry-after": "7"}},
+        ),
+    )
+
+    with pytest.raises(RateLimitExceededError) as excinfo:
+        await backend.chat_completions(request_data, [], "glm-5.1")
+
+    assert excinfo.value.details["headers"]["retry-after"] == "7"
+    assert excinfo.value.details["retry_after_seconds"] == 7.0
+
+
+@pytest.mark.asyncio
+async def test_health_check_reuses_cached_model_discovery(mocker):
+    ZaiCodingPlanBackend._MODEL_DISCOVERY_CACHE.clear()
+    mocker.patch.dict(
+        "os.environ",
+        {"ZAI_API_KEY": "NOT-A-REAL-KEY-just-for-testing"},
+    )
+    mock_client = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"data": [{"id": "glm-5.1"}]}
+    mock_client.get.return_value = mock_response
+
+    backend = ZaiCodingPlanBackend(
+        client=mock_client, config=MagicMock(), translation_service=MagicMock()
+    )
+    await backend.initialize()
+    assert mock_client.get.await_count == 1
+
+    healthy = await backend._perform_health_check()
+
+    assert healthy is True
+    assert mock_client.get.await_count == 1
 
 
 @pytest.mark.asyncio

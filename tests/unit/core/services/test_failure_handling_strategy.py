@@ -99,7 +99,9 @@ class TestDefaultFailureHandlingStrategy:
         assert result.error_to_surface is not None
         assert isinstance(result.error_to_surface, RoutingError)
         assert result.error_to_surface.details.get("code") == "temporarily_unavailable"
-        assert result.error_to_surface.details.get("reason") == "attempt_budget_exhausted"
+        assert (
+            result.error_to_surface.details.get("reason") == "attempt_budget_exhausted"
+        )
 
     def test_timeout_budget_exceeded(
         self, strategy: DefaultFailureHandlingStrategy
@@ -122,7 +124,9 @@ class TestDefaultFailureHandlingStrategy:
         assert result.error_to_surface is not None
         assert isinstance(result.error_to_surface, RoutingError)
         assert result.error_to_surface.details.get("code") == "temporarily_unavailable"
-        assert result.error_to_surface.details.get("reason") == "attempt_budget_exhausted"
+        assert (
+            result.error_to_surface.details.get("reason") == "attempt_budget_exhausted"
+        )
 
     def test_recoverable_429_short_wait_waits_and_retries(
         self, strategy: DefaultFailureHandlingStrategy
@@ -427,6 +431,17 @@ class TestRetryAfterExtraction:
         assert result is not None
         assert abs(result - 0.5) < 0.01
 
+    def test_extract_from_retry_after_headers(
+        self, strategy: DefaultFailureHandlingStrategy
+    ) -> None:
+        """Extract retry_after from normalized provider headers."""
+        error = BackendError(
+            "Rate limit",
+            status_code=429,
+            details={"headers": {"retry-after": "37"}},
+        )
+        assert strategy._extract_retry_after(error) == 37.0
+
     def test_extract_from_rate_limit_exceeded_error(
         self, strategy: DefaultFailureHandlingStrategy
     ) -> None:
@@ -448,6 +463,37 @@ class TestRetryAfterExtraction:
         """Return None when no retry-after info available."""
         error = BackendError("Some error", status_code=500)
         assert strategy._extract_retry_after(error) is None
+
+
+class TestRetryDecisionBuffer:
+    def test_short_retry_after_adds_one_second_buffer(self) -> None:
+        strategy = DefaultFailureHandlingStrategy(
+            config=FailureHandlingConfig(
+                max_silent_wait=60.0,
+                total_timeout_budget=90.0,
+                keepalive_interval=8.0,
+                max_failover_hops=5,
+                min_retry_wait=0.1,
+            )
+        )
+        error = RateLimitExceededError(
+            "Rate limit",
+            details={"headers": {"retry-after": "5"}},
+        )
+
+        result = strategy.decide(
+            error=error,
+            model="glm-5.1",
+            current_backend="zai-coding-plan",
+            attempted_backends=[],
+            elapsed_time=0.0,
+            is_streaming=True,
+            content_started=False,
+            available_backends=None,
+        )
+
+        assert result.decision == FailureDecision.WAIT_AND_RETRY
+        assert result.wait_seconds == 6.0
 
 
 class TestDurationParsing:
