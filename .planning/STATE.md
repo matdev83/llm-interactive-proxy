@@ -1,24 +1,41 @@
+---
+gsd_state_version: 1.0
+milestone: v1.0
+milestone_name: milestone
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-04-04T12:13:25.259Z"
+last_activity: 2026-04-04
+progress:
+  total_phases: 5
+  completed_phases: 1
+  total_plans: 6
+  completed_plans: 5
+  percent: 0
+---
+
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-04)
+See: `.planning/PROJECT.md` (updated 2026-04-04)
 
-**Core value:** Provide a single, stable, protocol-compliant, and commercially credible multi-provider proxy endpoint while keeping core behavior insulated from optional and connector-specific features.
-**Current focus:** Phase 1 — Audit and Triage
+**Core value:** Give any compatible LLM client a safer, smarter, vendor-independent control plane without forcing that client to change how it works.
+**Current focus:** Phase 02 — compatibility-contract-stabilization
 
 ## Current Position
 
-Phase: 1 of 6 (Audit and Triage)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-04-04 — Brownfield planning complete; 6-phase roadmap defined and committed
+Phase: 02 (compatibility-contract-stabilization) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-04-04
 
 Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0
 - Average duration: -
 - Total execution time: 0 hours
@@ -27,36 +44,47 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 1. Boundary and Configuration Hardening | 0 | 0h | - |
+| 2. Compatibility Contract Stabilization | 0 | 0h | - |
+| 3. Resilience and Failover Safety | 0 | 0h | - |
+| 4. Observability and Operator Diagnostics | 0 | 0h | - |
+| 5. Tenant Governance, Safety Independence, and Connector Extensibility | 0 | 0h | - |
 
 **Recent Trend:**
+
 - Last 5 plans: none yet
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 02-compatibility-contract-stabilization P01 | 4 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
 ### Decisions
 
-Decisions are logged in PROJECT.md Key Decisions table.
+Decisions are logged in `.planning/PROJECT.md` Key Decisions table.
 Recent decisions affecting current work:
 
-- Planning: Brownfield-first mapping before any implementation work
-- Planning: 6-phase stabilization roadmap — audit first, test strategy second, boundary hardening third
-- Planning: Stabilize and simplify before expanding features; prefer customer-requested value over speculative growth
-- Planning: Revenue-aligned commercial capabilities deferred until platform is stable and secure
+- Planning: Roadmap structure is derived directly from v1 requirement clusters, not an imposed template.
+- Planning: Brownfield ordering prioritizes platform hardening before capability expansion.
+- Planning: Every v1 requirement is mapped to exactly one phase, with zero duplicates and zero gaps.
+- Planning: Security and extension work lands after boundary, compatibility, resilience, and observability foundations are in place.
+- [Phase 02-compatibility-contract-stabilization]: BackendCapabilityDescriptor uses Literal ProtocolFamily to enforce valid wire protocol families at parse time
+- [Phase 02-compatibility-contract-stabilization]: capability_descriptor defaults to None in BackendConfig for safe backward-compatible behavior
 
 ### Pending Todos
 
-None yet.
+- Next step is to create the executable plan for Phase 1.
 
 ### Blockers/Concerns
 
-- Pre-existing LSP errors in `src/connectors/nvidia.py`, `src/core/config/env/util.py`, `src/core/services/backend_plugin_discovery.py`, `src/core/app/application_builder.py` — not caused by planning work; should be triaged in Phase 1.
+- No new blockers identified during roadmap creation; brownfield risk remains concentrated in compatibility drift, streaming failover correctness, and config complexity.
 
 ## Session Continuity
 
-Last session: 2026-04-04
-Stopped at: Brownfield planning complete — ROADMAP.md and STATE.md reformatted to GSD template format
+Last session: 2026-04-04T12:13:25.256Z
+Stopped at: Completed 02-01-PLAN.md
 Resume file: None
+
+---
+*Last updated: 2026-04-04 after roadmap creation*

@@ -1,81 +1,74 @@
 # Requirements: LLM Interactive Proxy
 
 **Defined:** 2026-04-04
-**Core Value:** Provide a single, stable, protocol-compliant, and commercially credible multi-provider proxy endpoint while keeping core behavior insulated from optional and connector-specific features.
+**Core Value:** Give any compatible LLM client a safer, smarter, vendor-independent control plane without forcing that client to change how it works.
 
 ## v1 Requirements
 
-Requirements for the current brownfield stabilization roadmap. These define what must be true for the roadmap to be considered complete.
+### Compatibility and Protocol Stability
 
-### Stability
+- [ ] **COMP-01**: OpenAI-compatible endpoint maintains behavioral parity with OpenAI spec for streaming, tool-calls, and error responses
+- [ ] **COMP-02**: Anthropic-compatible endpoint maintains behavioral parity with Claude spec for streaming and tool-use
+- [ ] **COMP-03**: Gemini-compatible endpoint maintains behavioral parity with Gemini tools and streaming behavior
+- [x] **COMP-04**: Backend capability descriptors are typed and discoverable through configuration, not inferred from implicit attributes
 
-- [ ] **STAB-01**: Supported core proxy flows can run through production-style sessions without unexpected mid-session interruption in known supported paths.
-- [ ] **STAB-02**: Failure, disablement, or modification of optional non-core features does not break core request handling, routing, or session continuity.
-- [ ] **STAB-03**: Adding or changing non-core features does not require changes in core proxy behavior or architecture.
-- [ ] **STAB-04**: Changes in external OAuth connector packages do not regress core proxy behavior.
+### Resilience and Reliability
 
-### Compatibility
+- [ ] **REL-01**: Retry logic across all connector families uses a standardized, async-native retry library (stamina) with proper backoff
+- [ ] **REL-02**: Circuit breaker excludes unavailable backends from routing decisions with configurable thresholds
+- [ ] **REL-03**: Streaming sessions are resilient to backend failures without duplicating output or corrupting tool-call state
+- [ ] **REL-04**: Failover between multiple backend instances preserves request context and does not introduce non-deterministic side effects
 
-- [ ] **COMP-01**: The OpenAI chat completions frontend remains stable and protocol-compliant for supported streaming and non-streaming behavior.
-- [ ] **COMP-02**: The Anthropic frontend remains stable and protocol-compliant for supported message, streaming, and tool-use behavior.
-- [ ] **COMP-03**: The Gemini frontend remains stable and protocol-compliant for supported request, streaming, and tool behavior.
-- [ ] **COMP-04**: Main backend connectors remain stable and protocol-compliant for their supported request and response contracts.
-- [ ] **COMP-05**: Equivalent streaming and non-streaming requests produce contract-equivalent outcomes wherever public API semantics are expected to match.
+### Observability and Operator Control
 
-### Architecture
+- [ ] **OBS-01**: OpenTelemetry auto-instrumentation traces request lifecycle from frontend receipt through backend response
+- [ ] **OBS-02**: Prometheus metrics endpoint exposes request counts, error rates, latency distributions, and backend health
+- [ ] **OBS-03**: CBOR wire captures are correlated with trace spans to enable end-to-end debugging of request -> transforms -> backend -> response
+- [ ] **OBS-04**: Operator dashboard or diagnostic surface provides real-time visibility into active sessions, routing decisions, and backend status
 
-- [ ] **ARCH-01**: Core proxy functionality depends on stable internal contracts rather than connector-specific feature code.
-- [ ] **ARCH-02**: The bidirectional request and response flow is simplified enough that operators and maintainers can trace transformations and failure points end-to-end.
-- [ ] **ARCH-03**: Shared logic between streaming and non-streaming execution paths is consolidated wherever the behavior should remain identical.
-- [ ] **ARCH-04**: Loop-detection behavior is stabilized or isolated well enough that it cannot introduce unpredictable regressions in core proxy flows.
+### Security and Governance
 
-### Testing
+- [ ] **SEC-01**: Multi-tenant authorization supports per-tenant policy definitions (access control, rate limits, model restrictions)
+- [ ] **SEC-02**: API key management supports rotation and scoped permissions for different client groups
+- [ ] **SEC-03**: Configuration governance prevents contradictory runtime states across CLI/ENV/YAML layers through validation and linting
+- [ ] **SEC-04**: Agent safety pipeline (steering, dangerous command protection, sandboxing) operates independently from routing path to avoid non-deterministic failures
 
-- [ ] **TEST-01**: The regression strategy catches core breaks introduced by non-core changes before release.
-- [ ] **TEST-02**: The project provides a fast stabilization-focused test slice that developers can run frequently during iterative work.
-- [ ] **TEST-03**: Test coverage for main frontend and backend connectors is sufficient to detect protocol regressions before release.
-- [ ] **TEST-04**: Test coverage explicitly exercises low-frequency failure paths, session and user isolation, and streaming/non-streaming equivalence scenarios.
+### Architecture and Maintainability
 
-### Security
-
-- [ ] **SEC-01**: Supported deployments prevent cross-session and cross-user data leakage in request handling, persistence, logging, and replay-related flows.
-- [ ] **SEC-02**: Security and safety hardening can be strengthened without degrading core protocol compliance or core request handling.
-- [ ] **SEC-03**: The platform establishes enforceable foundations for future multi-tenant isolation, policy, and access control.
-
-### Operations
-
-- [ ] **OPS-01**: Interactive commands have a known and verified support status so operators can distinguish stable features from uncertain ones.
-- [ ] **OPS-02**: Project documentation stays synchronized with brownfield architecture, feature status, and operational constraints well enough to support safe maintenance.
+- [ ] **ARCH-01**: Typed data contracts (CanonicalChatRequest, ResponseEnvelope, BackendTarget) are enforced at all port/adapter boundaries
+- [ ] **ARCH-02**: God-object modules (translation.py, backend_service.py, request_processor_service.py) have reduced responsibility through collaborator extraction
+- [ ] **ARCH-03**: Dependency versions are current with no suppressed deprecation warnings in the default test suite
+- [ ] **ARCH-04**: Connector plugin interface is documented, stable, and supports entry-point discovery for external connectors
 
 ## v2 Requirements
 
-Deferred until the platform is more stable and secure. These are valid follow-on goals, but they are not part of the current brownfield stabilization scope.
+### Experimentation and Advanced Routing
 
-### Commercial Foundations
+- **EXP-01**: Canary/mirroring routing allows safe A/B testing of new model families backends
+- **EXP-02**: Traffic mirroring duplicates production traffic to staging backends for evaluation
+- **EXP-03**: Intelligent routing considers cost, latency, and model capability simultaneously
 
-- **COMM-01**: The platform supports precise billing and revenue-grade usage accounting.
-- **COMM-02**: The platform supports SSO-based token lifecycle management.
-- **COMM-03**: The platform supports user provisioning and administrative lifecycle flows.
-- **COMM-04**: The platform supports business-grade audit and session logging with lower noise and better traceability.
+### Enterprise Integrations
 
-### Enterprise Operations
+- **ENT-01**: SAML/Enterprise SSO identity provider support beyond current OAuth2
+- **ENT-02**: Compliance telemetry export supports audit trail requirements
+- **ENT-03**: Multi-region deployment support with geographic routing
 
-- **ENT-01**: The platform supports cloud-friendly logging and session export beyond local files and SQLite-only storage.
-- **ENT-02**: The platform provides web-based administration for users, tokens, and operational controls.
-- **ENT-03**: The platform provides business-grade reporting and statistics for operator and customer use.
-- **ENT-04**: The platform expands safety and protection features for commercial and enterprise deployments.
+### Developer Experience
+
+- **DX-01**: Remote MCP/tool gateway integration for agent tool calling
+- **DX-02**: Evaluation loop framework integrates with external eval platforms
+- **DX-03**: Policy-as-code engine allows custom guardrail rules via declarative configuration
 
 ## Out of Scope
 
-Explicitly excluded from the current brownfield stabilization scope.
-
 | Feature | Reason |
 |---------|--------|
-| Vibe-coding-focused features | Not aligned with the current stabilization-first and business-value-first priorities |
-| Features without clear business or commercial value | Should not displace stability, security, or revenue-aligned work |
-| Optional features that require core proxy changes without compelling justification | Violates the required boundary between core and non-core behavior |
-| First-party chat application replacing existing clients | Outside the proxy/control-plane mission |
-| Model training or fine-tuning platform work | Outside the product boundary |
+| Building a proprietary LLM training/fine-tuning platform | Non-goal - product routes to external providers |
+| First-party chat application replacing client tools | Value is proxy compatibility, not standalone client |
+| Long-term conversation database as a product feature | Persistence is operational, not a productized chat history |
+| Arbitrary new backend connector bloat without typed contracts | Connector expansion requires stable interface guarantees first |
+| Replacing FastAPI with a different web framework | Current stack is confirmed strong; rewrite cost exceeds benefit |
 
 ## Traceability
 
@@ -83,34 +76,33 @@ Which phases cover which requirements.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| STAB-01 | Phase 5 | Pending |
-| STAB-02 | Phase 3 | Pending |
-| STAB-03 | Phase 3 | Pending |
-| STAB-04 | Phase 3 | Pending |
-| COMP-01 | Phase 4 | Pending |
-| COMP-02 | Phase 4 | Pending |
-| COMP-03 | Phase 4 | Pending |
-| COMP-04 | Phase 4 | Pending |
-| COMP-05 | Phase 4 | Pending |
-| ARCH-01 | Phase 3 | Pending |
-| ARCH-02 | Phase 4 | Pending |
-| ARCH-03 | Phase 4 | Pending |
-| ARCH-04 | Phase 5 | Pending |
-| TEST-01 | Phase 2 | Pending |
-| TEST-02 | Phase 2 | Pending |
-| TEST-03 | Phase 2 | Pending |
-| TEST-04 | Phase 2 | Pending |
-| SEC-01 | Phase 6 | Pending |
-| SEC-02 | Phase 6 | Pending |
-| SEC-03 | Phase 6 | Pending |
-| OPS-01 | Phase 1 | Pending |
-| OPS-02 | Phase 1 | Pending |
+| COMP-01 | Phase 2 - Compatibility Contract Stabilization | Planned |
+| COMP-02 | Phase 2 - Compatibility Contract Stabilization | Planned |
+| COMP-03 | Phase 2 - Compatibility Contract Stabilization | Planned |
+| COMP-04 | Phase 2 - Compatibility Contract Stabilization | Planned |
+| REL-01 | Phase 3 - Resilience and Failover Safety | Planned |
+| REL-02 | Phase 3 - Resilience and Failover Safety | Planned |
+| REL-03 | Phase 3 - Resilience and Failover Safety | Planned |
+| REL-04 | Phase 3 - Resilience and Failover Safety | Planned |
+| OBS-01 | Phase 4 - Observability and Operator Diagnostics | Planned |
+| OBS-02 | Phase 4 - Observability and Operator Diagnostics | Planned |
+| OBS-03 | Phase 4 - Observability and Operator Diagnostics | Planned |
+| OBS-04 | Phase 4 - Observability and Operator Diagnostics | Planned |
+| SEC-01 | Phase 5 - Tenant Governance, Safety Independence, and Connector Extensibility | Planned |
+| SEC-02 | Phase 5 - Tenant Governance, Safety Independence, and Connector Extensibility | Planned |
+| SEC-03 | Phase 1 - Boundary and Configuration Hardening | Planned |
+| SEC-04 | Phase 5 - Tenant Governance, Safety Independence, and Connector Extensibility | Planned |
+| ARCH-01 | Phase 1 - Boundary and Configuration Hardening | Planned |
+| ARCH-02 | Phase 1 - Boundary and Configuration Hardening | Planned |
+| ARCH-03 | Phase 1 - Boundary and Configuration Hardening | Planned |
+| ARCH-04 | Phase 5 - Tenant Governance, Safety Independence, and Connector Extensibility | Planned |
 
 **Coverage:**
-- v1 requirements: 22 total
-- Mapped to phases: 22
+- v1 requirements: 20 total
+- Mapped to phases: 20
 - Unmapped: 0
+- Duplicate mappings: 0
 
 ---
 *Requirements defined: 2026-04-04*
-*Last updated: 2026-04-04 after roadmap restructuring to 6 phases*
+*Last updated: 2026-04-04 after roadmap creation*
