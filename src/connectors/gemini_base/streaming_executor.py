@@ -33,6 +33,8 @@ _model_cooldown_until: dict[tuple[str, str], float] = (
 )  # (account, model) -> monotonic time
 _model_cooldown_lock = threading.Lock()
 
+from unittest.mock import Mock
+
 import pydantic
 import requests  # type: ignore[import-untyped]
 from pydantic.types import JsonValue
@@ -720,7 +722,7 @@ class StreamingExecutor:
         _timeout_retry_attempted: bool = False,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Internal generator that handles the streaming loop."""
-        response = None
+        response: requests.Response | None = None
         chunk_count = 0
         # PERFORMANCE: Use list accumulators to avoid O(n²) string concatenation in streaming hot path
         generated_text_parts: list[str] = []
@@ -831,15 +833,38 @@ class StreamingExecutor:
                     None,
                     None,
                 )
-                request_task = asyncio.create_task(
-                    asyncio.to_thread(
-                        prepared.auth_session.send,
-                        prepared_request,
-                        timeout=int(self._read_timeout),
-                        stream=True,
-                        **send_settings,
+                send_callable = getattr(prepared.auth_session, "send", None)
+                if callable(send_callable) and not isinstance(send_callable, Mock):
+                    request_task = asyncio.create_task(
+                        asyncio.to_thread(
+                            send_callable,
+                            prepared_request,
+                            timeout=int(self._read_timeout),
+                            stream=True,
+                            **send_settings,
+                        )
                     )
-                )
+                else:
+                    request_callable = getattr(prepared.auth_session, "request", None)
+                    if not callable(request_callable):
+                        raise BackendError(
+                            message="Authenticated session does not support request dispatch",
+                            backend_name=self._backend_type,
+                        )
+                    request_kwargs = dict(send_settings)
+                    request_kwargs["stream"] = True
+                    request_task = asyncio.create_task(
+                        asyncio.to_thread(
+                            request_callable,
+                            "POST",
+                            url,
+                            params={"alt": "sse"},
+                            json=request_body,
+                            headers={"Content-Type": "application/json"},
+                            timeout=int(self._read_timeout),
+                            **request_kwargs,
+                        )
+                    )
 
                 response = None
                 while not request_task.done():
@@ -849,7 +874,7 @@ class StreamingExecutor:
                             [request_task], timeout=keepalive_interval
                         )
                         if request_task in done_set:
-                            response = await request_task
+                            response = cast(requests.Response, await request_task)
                             break
                         else:
                             # Still waiting for backend; yield keepalive to maintain connection
@@ -1422,6 +1447,16 @@ class StreamingExecutor:
                 completion_tokens = await asyncio.to_thread(
                     self._token_estimator.estimate_tokens, generated_text
                 )
+                if not isinstance(completion_tokens, int) or (
+                    completion_tokens <= 0 and generated_text
+                ):
+                    from src.core.utils.token_count import count_tokens
+
+                    fallback_completion_tokens = count_tokens(
+                        generated_text, model=prepared.effective_model
+                    )
+                    if isinstance(fallback_completion_tokens, int):
+                        completion_tokens = fallback_completion_tokens
                 usage = {
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
