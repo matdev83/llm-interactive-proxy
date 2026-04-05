@@ -1,5 +1,8 @@
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
@@ -39,10 +42,25 @@ async def test_rate_limit_preserves_retry_after_details(mocker):
     )
     backend.available_models = ["glm-5.1"]
     backend._provider_models = set()
-    request_data = MagicMock()
-    request_data.model = "glm-5.1"
-    request_data.stream = False
-    request_data.model_copy.side_effect = lambda update: request_data
+
+    from src.connectors.contracts import ConnectorChatCompletionsRequest
+    from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+    request = ConnectorChatCompletionsRequest(
+        request=CanonicalChatRequest(
+            model="glm-5.1",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=False,
+        ),
+        processed_messages=[ChatMessage(role="user", content="test")],
+        effective_model="glm-5.1",
+        identity=None,
+        cancellation_coordinator=None,
+        cancellation_token=None,
+        context=None,
+        options={},
+    )
+
     mocker.patch.object(
         OpenAIConnector,
         "chat_completions",
@@ -54,7 +72,7 @@ async def test_rate_limit_preserves_retry_after_details(mocker):
     )
 
     with pytest.raises(RateLimitExceededError) as excinfo:
-        await backend.chat_completions(request_data, [], "glm-5.1")
+        await backend.chat_completions(request)
 
     assert excinfo.value.details["headers"]["retry-after"] == "7"
     assert excinfo.value.details["retry_after_seconds"] == 7.0
@@ -299,3 +317,61 @@ def test_get_headers_filters_non_standard_identity_headers() -> None:
     assert "X-Session-ID" not in sanitized
     assert sanitized["X-KiloCode-Version"] == backend._KILO_VERSION
     assert sanitized["Authorization"].startswith("Bearer ")
+
+
+@pytest.mark.asyncio
+async def test_stream_completion_uses_sse_accept_without_loop_guard(mocker) -> None:
+    captured_headers: dict[str, str] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured_headers.update(dict(request.headers))
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=b"data: [DONE]\n\n",
+            request=request,
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = ZaiCodingPlanBackend(
+            client=client,
+            config=MagicMock(),
+            translation_service=MagicMock(),
+        )
+        backend.api_key = "NOT-A-REAL-KEY-just-for-testing"
+        backend.api_base_url = "https://api.z.ai/api/coding/paas/v4"
+        backend.available_models = ["glm-4.7"]
+        backend._provider_models = set()
+        backend._max_tokens_limit = 200000
+        backend._default_max_tokens = 8192
+
+        mocker.patch.object(
+            ZaiCodingPlanBackend,
+            "_prepare_payload",
+            new_callable=AsyncMock,
+            return_value={"model": "glm-4.7", "messages": [], "stream": True},
+        )
+
+        request = cast(
+            Any,
+            SimpleNamespace(
+                model="glm-4.7",
+                messages=[],
+                extra_body=None,
+                identity=None,
+                stream=True,
+                max_tokens=32,
+                temperature=None,
+                top_p=None,
+                tools=None,
+                tool_choice=None,
+            ),
+        )
+
+        async for _ in backend.stream_completion(request):
+            break
+
+    assert captured_headers.get("accept") == "text/event-stream"
+    assert "x-llmproxy-loop-guard" not in captured_headers
+    assert captured_headers.get("user-agent") == backend._KILO_USER_AGENT
