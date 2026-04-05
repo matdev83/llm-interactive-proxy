@@ -27,6 +27,7 @@ from src.core.config.app_config import (
     ToolCallReactorConfig,
 )
 from src.core.domain.responses import ResponseEnvelope
+from src.core.services.backend_discovery import reset_backend_discovery_state
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import backend_registry
 
@@ -275,6 +276,7 @@ async def test_app_builds_when_plugin_entry_point_load_fails_fail_open(
     builder.add_stage(ProcessorStage())
     builder.add_stage(ControllerStage())
 
+    reset_backend_discovery_state()
     with (
         patch(
             "src.core.services.backend_plugin_discovery._load_entry_points",

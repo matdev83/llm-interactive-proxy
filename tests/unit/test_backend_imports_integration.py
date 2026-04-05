@@ -34,9 +34,11 @@ class TestBackendImportsIntegration:
         for module_name in modules_to_remove:
             del sys.modules[module_name]
 
-        # Also need to reset the backend registry
+        # Also need to reset the backend registry and discovery idempotency
+        from src.core.services.backend_discovery import reset_backend_discovery_state
         from src.core.services.backend_registry import backend_registry
 
+        reset_backend_discovery_state()
         original_factories = backend_registry._factories.copy()
         backend_registry._factories.clear()
 

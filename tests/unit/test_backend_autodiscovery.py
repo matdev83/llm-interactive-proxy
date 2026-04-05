@@ -279,8 +279,8 @@ class TestBackendRegistryInterface:
         assert "test-backend" in registry.get_registered_backends()
         assert registry.get_backend_factory("test-backend") == mock_factory
 
-    def test_register_backend_duplicate_logs_warning(self, caplog):
-        """Test that registering a duplicate backend logs a warning."""
+    def test_register_backend_duplicate_same_factory_is_idempotent(self, caplog):
+        """Re-registering with the same factory object is a no-op (DEBUG only)."""
         registry = BackendRegistry()
 
         from typing import Any
@@ -328,15 +328,73 @@ class TestBackendRegistryInterface:
 
             return MockBackend(config=AppConfig())
 
-        registry.register_backend("test-backend", mock_factory)
+        assert registry.register_backend("test-backend", mock_factory) is True
+        with caplog.at_level("DEBUG"):
+            assert registry.register_backend("test-backend", mock_factory) is False
 
-        # Registering the same backend again should not raise an error but log a warning
-        with caplog.at_level("WARNING"):
-            registry.register_backend("test-backend", mock_factory)
-
-        assert "already registered" in caplog.text
-        # Verify it's still registered only once
+        assert "idempotent re-registration" in caplog.text
         assert len(registry.get_registered_backends()) == 1
+
+    def test_register_backend_duplicate_different_factory_logs_warning(self, caplog):
+        """Conflicting factory for the same name logs WARNING and keeps the first."""
+        registry = BackendRegistry()
+
+        from typing import Any
+
+        from src.connectors.base import LLMBackend
+        from src.core.domain.base import DomainModel
+        from src.core.domain.responses import (
+            ResponseEnvelope,
+            StreamingResponseEnvelope,
+        )
+        from src.core.interfaces.configuration import IAppIdentityConfig
+        from src.core.interfaces.model_bases import InternalDTO
+
+        class MockBackend(LLMBackend):
+            async def initialize(self, **kwargs: Any) -> None:
+                pass
+
+            def get_available_models(self) -> list[str]:
+                return ["mock-model"]
+
+            async def chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list[dict[str, Any]],
+                effective_model: str,
+                identity: IAppIdentityConfig | None = None,
+                cancellation_token: Any | None = None,
+                cancellation_coordinator: Any | None = None,
+                **kwargs: Any,
+            ) -> ResponseEnvelope | StreamingResponseEnvelope:
+                return ResponseEnvelope(content={}, usage=None)
+
+            async def stream_chat_completions(
+                self,
+                request_data: DomainModel | InternalDTO | dict[str, Any],
+                processed_messages: list[dict[str, Any]],
+                effective_model: str,
+                identity: IAppIdentityConfig | None = None,
+                **kwargs: Any,
+            ):
+                yield {}
+
+        def mock_factory_a() -> MockBackend:
+            from src.core.config.app_config import AppConfig
+
+            return MockBackend(config=AppConfig())
+
+        def mock_factory_b() -> MockBackend:
+            from src.core.config.app_config import AppConfig
+
+            return MockBackend(config=AppConfig())
+
+        assert registry.register_backend("test-backend", mock_factory_a) is True
+        with caplog.at_level("WARNING"):
+            assert registry.register_backend("test-backend", mock_factory_b) is False
+
+        assert "different factory" in caplog.text
+        assert registry.get_backend_factory("test-backend") is mock_factory_a
 
     def test_get_nonexistent_backend_raises_error(self):
         """Test that getting non-existent backend raises error."""

@@ -19,6 +19,13 @@ from src.core.app.stages.base import InitializationStage
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.services.backend_discovery import reset_backend_discovery_state
+
+
+@pytest.fixture(autouse=True)
+def _reset_backend_discovery_for_builder_tests() -> None:
+    """Each test gets a fresh discover_backends() run inside ApplicationBuilder.build."""
+    reset_backend_discovery_state()
 
 
 class MockValidationStage(InitializationStage):

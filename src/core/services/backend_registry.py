@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.connectors.base import LLMBackend
 
+logger = logging.getLogger(__name__)
+
 
 class BackendRegistry:
     """A registry for dynamically discovering and managing LLM backend factories.
@@ -30,12 +32,16 @@ class BackendRegistry:
             self._lock = threading.Lock()
             self._has_production_monitoring = False
 
-    def register_backend(self, name: str, factory: Callable[..., "LLMBackend"]) -> None:
+    def register_backend(self, name: str, factory: Callable[..., "LLMBackend"]) -> bool:
         """Registers a backend factory with the given name.
 
         Args:
             name: The unique name of the backend (e.g., "openai", "gemini").
             factory: A callable that can create an instance of LLMBackend.
+
+        Returns:
+            True if this call registered a new backend, False if the name was
+            already registered (idempotent duplicate or conflicting duplicate).
         """
         if not name:
             raise ValueError("Backend name must be a non-empty string.")
@@ -52,15 +58,27 @@ class BackendRegistry:
                 )
 
             if name in self._factories:
+                existing = self._factories[name]
+                if existing is factory:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Backend %r already registered with the same factory; "
+                            "skipping idempotent re-registration.",
+                            name,
+                        )
+                    return False
                 if self._has_production_monitoring:
                     self._production_metrics.record_race_condition_warning(
                         f"duplicate_backend_registration:{name}"
                     )
-                logging.warning(
-                    f"Backend '{name}' is already registered. Skipping registration."
+                logger.warning(
+                    "Backend %r is already registered with a different factory. "
+                    "Skipping registration.",
+                    name,
                 )
-                return
+                return False
             self._factories[name] = factory
+            return True
 
     def get_backend_factory(self, name: str) -> Callable[..., "LLMBackend"]:
         """Retrieves the factory for a registered backend.

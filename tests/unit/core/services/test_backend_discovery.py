@@ -26,7 +26,9 @@ class TestOAuthPackageStatusLogging:
                 "src.core.services.backend_discovery.discover_plugin_backends",
                 return_value=["gemini-oauth-auto", "anthropic-oauth"],
             ),
-            patch.object(backend_registry, "get_registered_backends") as mock_registered,
+            patch.object(
+                backend_registry, "get_registered_backends"
+            ) as mock_registered,
             patch(
                 "src.core.services.backend_discovery.metadata.version",
                 return_value="1.0.0",
@@ -38,7 +40,7 @@ class TestOAuthPackageStatusLogging:
                 "gemini-oauth-auto",
                 "anthropic-oauth",
             ]
-            discover_backends()
+            discover_backends(force=True)
 
         assert "OAuth connectors package installed" in caplog.text
         assert "Supported backends:" in caplog.text
@@ -58,14 +60,18 @@ class TestOAuthPackageStatusLogging:
                 "src.core.services.backend_discovery.discover_plugin_backends",
                 return_value=[],
             ),
-            patch.object(backend_registry, "get_registered_backends") as mock_registered,
+            patch.object(
+                backend_registry, "get_registered_backends"
+            ) as mock_registered,
             patch(
                 "src.core.services.backend_discovery.metadata.version",
-                side_effect=metadata.PackageNotFoundError("llm-interactive-proxy-oauth-connectors"),
+                side_effect=metadata.PackageNotFoundError(
+                    "llm-interactive-proxy-oauth-connectors"
+                ),
             ),
         ):
             mock_registered.return_value = ["openai", "anthropic"]
-            discover_backends()
+            discover_backends(force=True)
 
         assert "OAuth connectors package not installed" in caplog.text
         assert "pip install" in caplog.text
@@ -83,14 +89,16 @@ class TestOAuthPackageStatusLogging:
                 "src.core.services.backend_discovery.discover_plugin_backends",
                 return_value=[],
             ),
-            patch.object(backend_registry, "get_registered_backends") as mock_registered,
+            patch.object(
+                backend_registry, "get_registered_backends"
+            ) as mock_registered,
             patch(
                 "src.core.services.backend_discovery.metadata.version",
                 return_value="1.0.0",
             ),
         ):
             mock_registered.return_value = ["openai", "anthropic"]
-            discover_backends()
+            discover_backends(force=True)
 
         assert "OAuth connectors package installed" in caplog.text
         assert "No backends available" in caplog.text
@@ -109,14 +117,16 @@ class TestOAuthPackageStatusLogging:
                 "src.core.services.backend_discovery.discover_plugin_backends",
                 return_value=["custom-oauth-foo"],
             ),
-            patch.object(backend_registry, "get_registered_backends") as mock_registered,
+            patch.object(
+                backend_registry, "get_registered_backends"
+            ) as mock_registered,
             patch(
                 "src.core.services.backend_discovery.metadata.version",
                 return_value="1.0.0",
             ),
         ):
             mock_registered.return_value = ["openai", "custom-oauth-foo", "xyz-oauth"]
-            discover_backends()
+            discover_backends(force=True)
 
         assert "custom-oauth-foo" in caplog.text
         assert "xyz-oauth" in caplog.text

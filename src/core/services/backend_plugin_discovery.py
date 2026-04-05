@@ -55,8 +55,10 @@ def discover_plugin_backends(entry_point_group: str = ENTRY_POINT_GROUP) -> list
     registered_backends: list[str] = []
     blocked_extracted_backends: set[str] = set()
     multi_user_mode = is_running_in_multi_user_mode()
+    plugin_load_error_first_ep: dict[tuple[str, str], str] = {}
+    seen_backend_names: set[str] = set()
     for entry_point in entry_points:
-        provider = _load_provider(entry_point)
+        provider = _load_provider(entry_point, plugin_load_error_first_ep)
         if provider is None:
             continue
 
@@ -94,7 +96,20 @@ def discover_plugin_backends(entry_point_group: str = ENTRY_POINT_GROUP) -> list
             )
             continue
 
-        backend_registry.register_backend(backend_name, definition.factory)
+        if backend_name in seen_backend_names:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping duplicate llm_proxy_backends entry point %r for backend %r "
+                    "(already loaded from an earlier entry point).",
+                    entry_point.name,
+                    backend_name,
+                )
+            continue
+        seen_backend_names.add(backend_name)
+
+        if not backend_registry.register_backend(backend_name, definition.factory):
+            continue
+
         record_plugin_metadata(
             PluginMetadataRecord(
                 backend_name=backend_name,
@@ -127,6 +142,10 @@ def _load_entry_points(entry_point_group: str) -> list[metadata.EntryPoint]:
             "Failed to enumerate backend plugin entry points for '%s': %s",
             entry_point_group,
             exc,
+        )
+        logger.debug(
+            "Entry point enumeration failure for '%s'",
+            entry_point_group,
             exc_info=True,
         )
         return []
@@ -143,24 +162,58 @@ def _load_entry_points(entry_point_group: str) -> list[metadata.EntryPoint]:
             "Failed to enumerate backend plugin entry points for '%s': %s",
             entry_point_group,
             exc,
+        )
+        logger.debug(
+            "Entry point enumeration failure for '%s' (legacy path)",
+            entry_point_group,
             exc_info=True,
         )
         return []
 
 
-def _load_provider(entry_point: metadata.EntryPoint) -> BackendPluginProvider | None:
+def _log_backend_plugin_load_failure(
+    entry_point: metadata.EntryPoint,
+    exc: BaseException,
+    duplicate_load_errors: dict[tuple[str, str], str],
+) -> None:
+    """Log plugin entry-point load failure without spamming tracebacks at WARNING."""
+    key = (type(exc).__name__, str(exc))
+    first_entry_point = duplicate_load_errors.get(key)
+    if first_entry_point is None:
+        duplicate_load_errors[key] = entry_point.name
+        logger.warning(
+            "Failed to load backend plugin entry point '%s' (%s): %s: %s. "
+            "If this backend is optional, install/update dependencies and restart.",
+            entry_point.name,
+            _entry_point_source(entry_point),
+            type(exc).__name__,
+            exc,
+        )
+        logger.debug(
+            "Plugin entry point load traceback for '%s'",
+            entry_point.name,
+            exc_info=True,
+        )
+    else:
+        logger.debug(
+            "Skipping backend plugin entry point '%s' (%s): same load error as '%s' (%s: %s).",
+            entry_point.name,
+            _entry_point_source(entry_point),
+            first_entry_point,
+            type(exc).__name__,
+            exc,
+        )
+
+
+def _load_provider(
+    entry_point: metadata.EntryPoint,
+    duplicate_load_errors: dict[tuple[str, str], str],
+) -> BackendPluginProvider | None:
     """Load entry-point provider callable with fail-open warning behavior."""
     try:
         loaded = entry_point.load()
     except Exception as exc:
-        logger.warning(
-            "Failed to load backend plugin entry point '%s' (%s): %s. "
-            "If this backend is optional, install/update dependencies and restart.",
-            entry_point.name,
-            _entry_point_source(entry_point),
-            exc,
-            exc_info=True,
-        )
+        _log_backend_plugin_load_failure(entry_point, exc, duplicate_load_errors)
         return None
 
     if not callable(loaded):
@@ -184,6 +237,10 @@ def _load_definition(
             "Skipping backend plugin entry point '%s': provider failed: %s.",
             entry_point.name,
             exc,
+        )
+        logger.debug(
+            "Plugin provider failure for entry point '%s'",
+            entry_point.name,
             exc_info=True,
         )
         return None

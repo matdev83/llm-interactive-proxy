@@ -80,6 +80,34 @@ class TestBackendPluginDiscovery:
         assert discovered == []
         assert "Failed to load backend plugin entry point 'broken-oauth'" in caplog.text
 
+    def test_identical_entry_point_load_errors_warn_once(self, caplog: Any) -> None:
+        """Repeated ModuleNotFoundError for the same message should not spam WARNING."""
+        err = ModuleNotFoundError("No module named 'llm_proxy_oauth_connectors'")
+        ep_a = _entry_point(name="oauth-a", load_error=err)
+        ep_b = _entry_point(name="oauth-b", load_error=err)
+        with (
+            patch(
+                "src.core.services.backend_plugin_discovery._resolve_core_version",
+                return_value="0.1.0",
+            ),
+            patch(
+                "src.core.services.backend_plugin_discovery._load_entry_points",
+                return_value=[ep_a, ep_b],
+            ),
+            caplog.at_level("WARNING"),
+        ):
+            discover_plugin_backends()
+
+        load_warnings = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and "Failed to load backend plugin entry point" in r.getMessage()
+        ]
+        assert len(load_warnings) == 1
+        assert "oauth-a" in load_warnings[0]
+        assert "oauth-b" not in load_warnings[0]
+
     def test_strict_metadata_contract_skips_invalid_provider_result(
         self, caplog: Any
     ) -> None:
@@ -383,3 +411,32 @@ class TestBackendPluginDiscovery:
         assert discovered == ["safe-backend"]
         register_backend.assert_called_once()
         replace_skipped_connectors.assert_not_called()
+
+    def test_duplicate_entry_points_for_same_backend_register_once(self) -> None:
+        """Overlapping entry point declarations must not double-register or duplicate metadata."""
+        provider = lambda: BackendPluginDefinition(
+            backend_name="dup-oauth",
+            factory=_unused_factory,
+            plugin_name="oauth-plugin",
+            compatibility=PluginCompatibility(core_min_version="0.1.0"),
+        )
+        ep_a = _entry_point(name="dup-oauth", provider=provider)
+        ep_b = _entry_point(name="dup-oauth", provider=provider)
+        with (
+            patch(
+                "src.core.services.backend_plugin_discovery._resolve_core_version",
+                return_value="0.1.0",
+            ),
+            patch(
+                "src.core.services.backend_plugin_discovery._load_entry_points",
+                return_value=[ep_a, ep_b],
+            ),
+            patch(
+                "src.core.services.backend_plugin_discovery.backend_registry.register_backend",
+                return_value=True,
+            ) as register_backend,
+        ):
+            discovered = discover_plugin_backends()
+
+        assert discovered == ["dup-oauth"]
+        register_backend.assert_called_once()

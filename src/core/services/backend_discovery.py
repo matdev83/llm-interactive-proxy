@@ -18,6 +18,17 @@ from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
 
+_discovery_completed = False
+
+
+def reset_backend_discovery_state() -> None:
+    """Clear idempotency flag so the next ``discover_backends()`` runs fully.
+
+    Used by tests that clear ``backend_registry`` or reload connector modules.
+    """
+    global _discovery_completed
+    _discovery_completed = False
+
 
 def _log_oauth_package_status() -> None:
     """Log OAuth connectors package presence and supported backends at startup.
@@ -52,8 +63,19 @@ def _log_oauth_package_status() -> None:
         )
 
 
-def discover_backends() -> None:
-    """Populate backend registry from core connectors and optional plugins."""
+def discover_backends(*, force: bool = False) -> None:
+    """Populate backend registry from core connectors and optional plugins.
+
+    Idempotent: a second call in the same process (e.g. CLI import plus
+    ``ApplicationBuilder.build``) is a no-op unless ``force=True``.
+
+    Args:
+        force: If True, run discovery even when a previous run completed.
+    """
+    global _discovery_completed
+    if _discovery_completed and not force:
+        return
+
     import_module("src.connectors")
     discovered_plugin_backends = discover_plugin_backends()
     if logger.isEnabledFor(logging.INFO):
@@ -64,3 +86,4 @@ def discover_backends() -> None:
             discovered_plugin_backends,
             backend_registry.get_registered_backends(),
         )
+    _discovery_completed = True

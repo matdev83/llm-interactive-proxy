@@ -186,10 +186,13 @@ class BackendSettings(DomainModel):
                 and backend_name.replace("_", "-") == family
             ):
                 logger = logging.getLogger(__name__)
-                logger.warning(
-                    f"Dropping legacy backend configuration '{backend_name}' "
-                    f"because instance of '{family}' already exists."
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Dropping legacy backend configuration %r because instance "
+                        "of %r already exists.",
+                        backend_name,
+                        family,
+                    )
                 del backend_data[backend_name]
 
         for backend_name, config_data in backend_data.items():
