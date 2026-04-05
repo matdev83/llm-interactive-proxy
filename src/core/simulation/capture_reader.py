@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from src.core.domain.cbor_capture import (
     CaptureDirection,
-    CaptureEntry,
+    CapturedWireEvent,
     CaptureFileHeader,
     CaptureSession,
 )
@@ -58,6 +58,20 @@ MAX_CAPTURE_ENTRIES = 10000
 
 class InvalidCaptureFileError(CaptureReaderError):
     """Raised when the capture file is invalid or corrupted."""
+
+
+def _validate_capture_header(header: CaptureFileHeader) -> None:
+    """Reject unsupported capture headers before reading entries."""
+    if header.magic != CaptureFileHeader.MAGIC:
+        raise InvalidCaptureFileError(
+            f"Unsupported capture file magic: {header.magic!r} "
+            f"(expected {CaptureFileHeader.MAGIC!r})"
+        )
+    if header.version != CaptureFileHeader.VERSION:
+        raise InvalidCaptureFileError(
+            f"Unsupported capture file version: {header.version} "
+            f"(expected {CaptureFileHeader.VERSION})"
+        )
 
 
 class CaptureReader:
@@ -112,13 +126,10 @@ class CaptureReader:
         header_dict = cbor2.load(f)
         header = CaptureFileHeader.from_dict(header_dict)
 
-        if not header.validate():
-            raise InvalidCaptureFileError(
-                f"Invalid capture file header: magic={header.magic}, version={header.version}"
-            )
+        _validate_capture_header(header)
 
         # Read entries
-        entries: list[CaptureEntry] = []
+        entries: list[CapturedWireEvent] = []
         while True:
             try:
                 # DoS protection: Limit number of entries to prevent memory exhaustion
@@ -130,7 +141,7 @@ class CaptureReader:
                     break
 
                 entry_dict = cbor2.load(f)
-                entry = CaptureEntry.from_dict(entry_dict)
+                entry = CapturedWireEvent.from_dict(entry_dict)
                 entries.append(entry)
             except cbor2.CBORDecodeEOF:
                 break
@@ -165,7 +176,7 @@ class CaptureReader:
             raise RuntimeError("No capture session loaded. Call load() first.")
         return self._session
 
-    def get_client_sequence(self) -> list[CaptureEntry]:
+    def get_client_sequence(self) -> list[CapturedWireEvent]:
         """Get entries for client-side traffic (inbound requests and outbound responses).
 
         Returns:
@@ -174,7 +185,7 @@ class CaptureReader:
         session = self.get_session()
         return session.get_client_entries()
 
-    def get_backend_sequence(self) -> list[CaptureEntry]:
+    def get_backend_sequence(self) -> list[CapturedWireEvent]:
         """Get entries for backend-side traffic (outbound requests and inbound responses).
 
         Returns:
@@ -183,7 +194,7 @@ class CaptureReader:
         session = self.get_session()
         return session.get_backend_entries()
 
-    def get_inbound_requests(self) -> list[CaptureEntry]:
+    def get_inbound_requests(self) -> list[CapturedWireEvent]:
         """Get all inbound request entries from client.
 
         Returns:
@@ -192,7 +203,7 @@ class CaptureReader:
         session = self.get_session()
         return session.get_inbound_request_entries()
 
-    def get_outbound_responses(self) -> list[CaptureEntry]:
+    def get_outbound_responses(self) -> list[CapturedWireEvent]:
         """Get all outbound response entries to client.
 
         Returns:
@@ -201,7 +212,7 @@ class CaptureReader:
         session = self.get_session()
         return session.get_outbound_response_entries()
 
-    def get_outbound_requests(self) -> list[CaptureEntry]:
+    def get_outbound_requests(self) -> list[CapturedWireEvent]:
         """Get all outbound request entries to backend.
 
         Returns:
@@ -210,7 +221,7 @@ class CaptureReader:
         session = self.get_session()
         return session.get_outbound_request_entries()
 
-    def get_inbound_responses(self) -> list[CaptureEntry]:
+    def get_inbound_responses(self) -> list[CapturedWireEvent]:
         """Get all inbound response entries from backend.
 
         Returns:
@@ -230,7 +241,7 @@ class CaptureReader:
 
     def get_stream_chunks(
         self, direction: CaptureDirection | None = None
-    ) -> list[list[CaptureEntry]]:
+    ) -> list[list[CapturedWireEvent]]:
         """Get streaming chunks grouped by stream session.
 
         Args:
@@ -246,8 +257,8 @@ class CaptureReader:
         if direction is not None:
             entries = [e for e in entries if e.direction == direction]
 
-        streams: list[list[CaptureEntry]] = []
-        current_stream: list[CaptureEntry] | None = None
+        streams: list[list[CapturedWireEvent]] = []
+        current_stream: list[CapturedWireEvent] | None = None
 
         for entry in entries:
             if entry.metadata.is_stream_start:
@@ -262,7 +273,7 @@ class CaptureReader:
 
     def get_request_response_pairs(
         self,
-    ) -> list[tuple[CaptureEntry, list[CaptureEntry]]]:
+    ) -> list[tuple[CapturedWireEvent, list[CapturedWireEvent]]]:
         """Get pairs of requests and their corresponding responses.
 
         For non-streaming responses, the list contains a single entry.
@@ -272,10 +283,10 @@ class CaptureReader:
             List of (request_entry, response_entries) tuples
         """
         session = self.get_session()
-        pairs: list[tuple[CaptureEntry, list[CaptureEntry]]] = []
+        pairs: list[tuple[CapturedWireEvent, list[CapturedWireEvent]]] = []
 
         # Group entries by session_id
-        by_session: dict[str, list[CaptureEntry]] = {}
+        by_session: dict[str, list[CapturedWireEvent]] = {}
         for entry in session.entries:
             sid = entry.metadata.session_id or "unknown"
             if sid not in by_session:

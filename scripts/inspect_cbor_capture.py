@@ -110,6 +110,30 @@ DIRECTION_SYMBOLS = {
     3: "B->P",  # Backend to Proxy
 }
 
+CAPTURE_MAGIC = "LLMPROXY-CAPTURE-V2"
+CAPTURE_VERSION = 2
+
+
+def _validate_capture_header(header: dict[str, Any]) -> None:
+    """Reject unsupported capture file headers before reading entries."""
+    if not isinstance(header, dict):
+        raise ValueError(
+            f"Unsupported capture file header type: {type(header).__name__}"
+        )
+
+    magic = header.get("magic")
+    if magic != CAPTURE_MAGIC:
+        raise ValueError(
+            f"Unsupported capture file magic: {magic!r} (expected {CAPTURE_MAGIC!r})"
+        )
+
+    version = header.get("version")
+    if version != CAPTURE_VERSION:
+        raise ValueError(
+            f"Unsupported capture file version: {version!r} "
+            f"(expected {CAPTURE_VERSION})"
+        )
+
 
 def _meta_a_session_id(meta: dict[str, Any]) -> str | None:
     """Return A-leg session id with backward-compatible fallback to sid."""
@@ -185,6 +209,7 @@ def load_capture_file(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
     entries = []
     with open(path, "rb") as f:
         header = cbor2.load(f)
+        _validate_capture_header(header)
         while True:
             try:
                 entry = cbor2.load(f)

@@ -105,7 +105,7 @@ src/core/
 
 **`simulation/`** - Wire Capture & Simulation
 
-- CBOR wire capture
+- CBOR boundary-level capture
 - JSON wire capture
 - Capture file reading and writing
 - Simulation engine for replay

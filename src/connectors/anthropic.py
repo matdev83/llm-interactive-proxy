@@ -18,6 +18,10 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.core.common.capture_aware_httpx import (
+    CaptureAwareAsyncClient,
+    HttpxBoundaryCaptureContext,
+)
 from src.core.common.exceptions import (
     AuthenticationError,
     ConfigurationError,
@@ -25,7 +29,7 @@ from src.core.common.exceptions import (
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -62,6 +66,9 @@ _NON_FORWARDABLE_EXTRA_BODY_KEYS = frozenset(
         "client_session_id",
     }
 )
+_LLM_PROXY_REQUEST_ID_KEY = "_llm_proxy_request_id"
+_LLM_PROXY_SESSION_ID_KEY = "_llm_proxy_session_id"
+_LLM_PROXY_CLIENT_HOST_KEY = "_llm_proxy_client_host"
 
 
 class AnthropicBackend(LLMBackend):
@@ -79,6 +86,7 @@ class AnthropicBackend(LLMBackend):
         translation_service: TranslationService,
     ) -> None:
         self.client = client
+        self._capture_http_client = CaptureAwareAsyncClient(client)
         self.config = config  # Stored config
         self.translation_service = translation_service
         self.available_models: list[str] = []
@@ -171,6 +179,20 @@ class AnthropicBackend(LLMBackend):
             if context.client_host:
                 log_extra["client_host"] = context.client_host
         return log_extra
+
+    def _http_boundary_capture(
+        self,
+        *,
+        model: str,
+        context: ConnectorRequestContext | None,
+        key_name: str | None = None,
+    ) -> HttpxBoundaryCaptureContext:
+        return HttpxBoundaryCaptureContext(
+            backend=self.backend_type,
+            model=model,
+            key_name=self.backend_type if key_name is None else key_name,
+            context=context,
+        )
 
     async def _chat_completions_canonical(
         self,
@@ -375,115 +397,26 @@ class AnthropicBackend(LLMBackend):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request: ConnectorChatCompletionsRequest | Any = None,
-        *args: Any,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Canonical connector API implementation with backward compatibility.
+        """Invoke Anthropic chat completions using ``ConnectorChatCompletionsRequest`` only.
 
-        This method implements ICanonicalChatCompletionsBackend protocol.
-        For backward compatibility, also accepts legacy signature:
-        chat_completions(request_data, processed_messages, effective_model, ...)
+        Implements :class:`ICanonicalChatCompletionsBackend`. The proxy invokes backends
+        through :class:`ConnectorChatCompletionsRequest`; legacy positional call shapes
+        are not supported at this boundary.
         """
-
-        # Handle legacy API called with keyword arguments only (request_data=...)
-        if request is None and "request_data" in kwargs:
-            request = kwargs.pop("request_data")
-
-        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
-        if isinstance(request, ConnectorChatCompletionsRequest):
-            return await self._chat_completions_canonical(request)
-
-        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
-
-        request_data = request
-        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
-        effective_model = (
-            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
-        )
-        identity = kwargs.get("identity")
-        cancellation_token = kwargs.get("cancellation_token")
-        cancellation_coordinator = kwargs.get("cancellation_coordinator")
-        context = None  # Legacy API doesn't provide context
-        options = {
-            k: v
-            for k, v in kwargs.items()
-            if k
-            not in [
-                "identity",
-                "cancellation_token",
-                "cancellation_coordinator",
-                "processed_messages",
-                "effective_model",
-            ]
-        }
-
-        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
-        # This connector should only receive canonical domain models (never dicts).
-
-        # Ensure processed_messages is a Sequence[ChatMessage]
-        # ConnectorInvoker guarantees typed messages, but legacy path may receive mixed types
-        # Validate all elements to ensure consistent typed representation (Requirement 4.2)
-        if processed_messages:
-            invalid_messages = [
-                (i, type(msg).__name__)
-                for i, msg in enumerate(processed_messages)
-                if not isinstance(msg, ChatMessage)
-            ]
-            if invalid_messages:
-                # Legacy path should not receive dict messages (coercion centralized at invoker)
-                raise InvalidRequestError(
-                    message="Legacy connector API received non-canonical processed_messages. "
-                    "Expected Sequence[ChatMessage], but received mixed types.",
-                    details={
-                        "invalid_indices": [idx for idx, _ in invalid_messages],
-                        "invalid_types": [typ for _, typ in invalid_messages],
-                        "connector": "anthropic",
-                    },
-                )
-
-        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
-        if isinstance(request_data, dict):
+        if not isinstance(request, ConnectorChatCompletionsRequest):
             raise InvalidRequestError(
-                message="Legacy connector API received dict input. "
-                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
-                "Expected CanonicalChatRequest or ChatRequest.",
+                message=(
+                    "AnthropicBackend.chat_completions requires ConnectorChatCompletionsRequest. "
+                    "Legacy request_data/processed_messages/effective_model invocation is not supported."
+                ),
                 details={
-                    "received_type": "dict",
+                    "received_type": type(request).__name__,
                     "connector": "anthropic",
                 },
             )
-
-        # Accept only canonical domain models
-        if isinstance(request_data, ChatRequest):
-            domain_request = CanonicalChatRequest.model_validate(
-                request_data.model_dump()
-            )
-        elif isinstance(request_data, CanonicalChatRequest):
-            domain_request = request_data
-        else:
-            # Reject other types - invoker should only pass canonical models
-            raise InvalidRequestError(
-                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
-                "Expected CanonicalChatRequest or ChatRequest.",
-                details={
-                    "received_type": type(request_data).__name__,
-                    "connector": "anthropic",
-                },
-            )
-
-        canonical_request = ConnectorChatCompletionsRequest(
-            request=domain_request,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=identity,
-            cancellation_token=cancellation_token,
-            cancellation_coordinator=cancellation_coordinator,
-            context=context,
-            options=options,
-        )
-
-        return await self._chat_completions_canonical(canonical_request)
+        return await self._chat_completions_canonical(request)
 
     # -----------------------------------------------------------
     # Payload helpers
@@ -741,13 +674,21 @@ class AnthropicBackend(LLMBackend):
     ) -> ResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         log_extra = self._get_log_extra(context)
+        request = self.client.build_request("POST", url, json=payload, headers=headers)
         try:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
                     f"Sending request to {url} with headers: {headers} and payload: {payload}",
                     extra=log_extra if log_extra else None,
                 )
-            response = await self.client.post(url, json=payload, headers=headers)
+            response = await self._capture_http_client.send(
+                request,
+                stream=False,
+                capture=self._http_boundary_capture(
+                    model=str(original_model),
+                    context=context,
+                ),
+            )
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
@@ -773,9 +714,16 @@ class AnthropicBackend(LLMBackend):
         converted_response = self.translation_service.to_domain_response(
             data, source_format="anthropic"
         )
+        try:
+            response_headers = dict(response.headers)
+        except Exception:
+            try:
+                response_headers = dict(getattr(response, "headers", {}) or {})
+            except Exception:
+                response_headers = {}
         return ResponseEnvelope(
             content=converted_response.model_dump(),
-            headers=dict(response.headers),
+            headers=response_headers,
             status_code=response.status_code,
             usage=converted_response.usage,
             metadata={"allow_usage_recalculation": True},
@@ -800,7 +748,14 @@ class AnthropicBackend(LLMBackend):
             "POST", url, json=payload, headers=request_headers
         )
         try:
-            response = await self.client.send(request, stream=True)
+            response = await self._capture_http_client.send(
+                request,
+                stream=True,
+                capture=self._http_boundary_capture(
+                    model=str(model),
+                    context=context,
+                ),
+            )
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
@@ -938,8 +893,13 @@ class AnthropicBackend(LLMBackend):
                         )
                 else:
                     try:
-                        cancel_response = await self.client.send(
-                            cancel_request, stream=False
+                        cancel_response = await self._capture_http_client.send(
+                            cancel_request,
+                            stream=False,
+                            capture=self._http_boundary_capture(
+                                model="anthropic-cancel",
+                                context=context,
+                            ),
                         )
                     except Exception as exc:
                         if logger.isEnabledFor(logging.WARNING):
@@ -1204,6 +1164,36 @@ class AnthropicBackend(LLMBackend):
         # Prepare payload
 
         # request is expected to be CanonicalChatRequest from StreamProducer protocol
+        extra_body = getattr(request, "extra_body", None) or {}
+        connector_context: ConnectorRequestContext | None = None
+        if isinstance(extra_body, dict):
+            proxy_request_id = extra_body.get(_LLM_PROXY_REQUEST_ID_KEY)
+            if isinstance(proxy_request_id, str) and proxy_request_id:
+                proxy_session_id = extra_body.get(_LLM_PROXY_SESSION_ID_KEY)
+                proxy_client_host = extra_body.get(_LLM_PROXY_CLIENT_HOST_KEY)
+                connector_context = ConnectorRequestContext(
+                    request_id=proxy_request_id,
+                    session_id=(
+                        proxy_session_id
+                        if isinstance(proxy_session_id, str) and proxy_session_id
+                        else None
+                    ),
+                    client_host=(
+                        proxy_client_host
+                        if isinstance(proxy_client_host, str) and proxy_client_host
+                        else None
+                    ),
+                    extensions={},
+                )
+        if connector_context is None:
+            fallback_session = getattr(request, "session_id", None)
+            if isinstance(fallback_session, str) and fallback_session:
+                connector_context = ConnectorRequestContext(
+                    request_id=fallback_session,
+                    session_id=fallback_session,
+                    client_host=None,
+                    extensions={},
+                )
 
         # Get processed messages and effective model
         processed_messages = getattr(request, "messages", [])
@@ -1224,7 +1214,14 @@ class AnthropicBackend(LLMBackend):
         )
 
         try:
-            response = await self.client.send(http_request, stream=True)
+            response = await self._capture_http_client.send(
+                http_request,
+                stream=True,
+                capture=self._http_boundary_capture(
+                    model=str(effective_model),
+                    context=connector_context,
+                ),
+            )
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"

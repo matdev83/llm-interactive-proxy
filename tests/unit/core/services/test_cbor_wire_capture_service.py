@@ -13,12 +13,16 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.cbor_capture import (
     CaptureDirection,
+    CapturedWireEvent,
     CaptureEntry,
     CaptureFileHeader,
     CaptureMetadata,
     CaptureSession,
 )
 from src.core.domain.request_context import RequestContext
+from src.core.interfaces.wire_capture_recorder_interface import (
+    IWireCaptureRecorder,
+)
 from src.core.services.cbor_wire_capture_service import CborWireCaptureService
 
 from tests.utils.fake_clock import FakeClockContext
@@ -246,22 +250,93 @@ class TestCaptureEntry:
         assert recreated.data == original.data
 
 
+class TestCapturedWireEvent:
+    """Tests for the canonical CapturedWireEvent model."""
+
+    def test_from_metadata_exposes_explicit_fields(self):
+        metadata = CaptureMetadata(
+            session_id="sess-explicit",
+            backend="openai",
+            model="gpt-4",
+            request_id="req-123",
+            transport="http",
+            protocol_event="response",
+            http_method="POST",
+            url="https://example.invalid/v1/chat/completions",
+            http_status_code=200,
+            websocket_message_type="text",
+        )
+
+        event = CapturedWireEvent.from_metadata(
+            timestamp=1.25,
+            direction=CaptureDirection.PROXY_TO_CLIENT,
+            sequence=7,
+            data=b"payload",
+            metadata=metadata,
+        )
+
+        assert event.session_id == "sess-explicit"
+        assert event.backend == "openai"
+        assert event.model == "gpt-4"
+        assert event.request_id == "req-123"
+        assert event.transport == "http"
+        assert event.protocol_event == "response"
+        assert event.http_method == "POST"
+        assert event.url == "https://example.invalid/v1/chat/completions"
+        assert event.http_status_code == 200
+        assert event.websocket_message_type == "text"
+
+        legacy_view = event.metadata
+        assert legacy_view.session_id == "sess-explicit"
+        assert legacy_view.transport == "http"
+        assert legacy_view.protocol_event == "response"
+        assert legacy_view.http_status_code == 200
+
+    def test_dict_roundtrip_preserves_legacy_wire_shape(self):
+        event = CapturedWireEvent(
+            timestamp=3.5,
+            direction=CaptureDirection.BACKEND_TO_PROXY,
+            sequence=11,
+            data=b"hello",
+            session_id="sess-1",
+            backend="anthropic",
+            model="claude-3",
+            transport="http",
+            protocol_event="frame",
+            http_status_code=202,
+        )
+
+        encoded = event.to_dict()
+        assert encoded["dir"] == CaptureDirection.BACKEND_TO_PROXY
+        assert encoded["meta"]["sid"] == "sess-1"
+        assert encoded["meta"]["be"] == "anthropic"
+        assert encoded["meta"]["event"] == "frame"
+
+        recreated = CapturedWireEvent.from_dict(encoded)
+        assert recreated.session_id == "sess-1"
+        assert recreated.backend == "anthropic"
+        assert recreated.model == "claude-3"
+        assert recreated.transport == "http"
+        assert recreated.protocol_event == "frame"
+        assert recreated.http_status_code == 202
+
+
 class TestCaptureFileHeader:
     """Tests for CaptureFileHeader dataclass."""
 
     def test_default_values(self):
         """Test header has correct defaults."""
         header = CaptureFileHeader()
-        assert header.magic == "LLMPROXY-CAPTURE-V1"
-        assert header.version == 1
+        assert header.magic == "LLMPROXY-CAPTURE-V2"
+        assert header.version == 2
         assert header.validate() is True
 
     def test_to_dict(self):
         """Test header serialization."""
         header = CaptureFileHeader(session_id="test-session")
         result = header.to_dict()
-        assert result["magic"] == "LLMPROXY-CAPTURE-V1"
-        assert result["version"] == 1
+        assert result["magic"] == "LLMPROXY-CAPTURE-V2"
+        assert result["version"] == 2
         assert result["session_id"] == "test-session"
 
     def test_validate_invalid(self):
@@ -323,6 +398,10 @@ class TestCaptureSession:
 
 class TestCborWireCaptureService:
     """Tests for CborWireCaptureService."""
+
+    def test_implements_recorder_interface(self):
+        """Test the CBOR service exposes the canonical recorder interface."""
+        assert issubclass(CborWireCaptureService, IWireCaptureRecorder)
 
     @pytest.mark.asyncio
     async def test_extract_context_metadata_uses_request_id_fallback_when_b2bua_disabled(
@@ -452,7 +531,7 @@ class TestCborWireCaptureService:
         # Verify header was written
         with open(file_path, "rb") as f:
             header_dict = cbor2.load(f)
-        assert header_dict["magic"] == "LLMPROXY-CAPTURE-V1"
+        assert header_dict["magic"] == "LLMPROXY-CAPTURE-V2"
         assert header_dict["session_id"] == "test-session-123"
 
     def test_disabled_when_no_capture_dir(self, mock_config):
@@ -548,6 +627,37 @@ class TestCborWireCaptureService:
         entry = entries[1]
         assert entry["dir"] == CaptureDirection.PROXY_TO_CLIENT
         assert entry["data"] == b"SSE response data"
+
+    @pytest.mark.asyncio
+    async def test_capture_event_records_canonical_event(self, capture_service):
+        """Test the recorder interface writes a canonical low-level event."""
+        event = CapturedWireEvent(
+            timestamp=1234.5,
+            direction=CaptureDirection.BACKEND_TO_PROXY,
+            sequence=99,
+            data=b"event-bytes",
+            session_id="event-session",
+            backend="openai",
+            model="gpt-4",
+            request_id="req-event",
+            wire_schema="v2",
+            transport="http",
+            protocol_event="frame",
+        )
+
+        await capture_service.capture_event(event)
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        assert len(entries) >= 2
+        entry = entries[1]
+        assert entry["dir"] == CaptureDirection.BACKEND_TO_PROXY
+        assert entry["seq"] == 99
+        assert entry["data"] == b"event-bytes"
+        assert entry["meta"]["sid"] == "event-session"
+        assert entry["meta"]["wire_schema"] == "v2"
+        assert entry["meta"]["transport"] == "http"
 
     @pytest.mark.asyncio
     async def test_wrap_inbound_stream(self, capture_service):

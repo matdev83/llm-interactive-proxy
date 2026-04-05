@@ -37,6 +37,7 @@ import pydantic
 import requests  # type: ignore[import-untyped]
 from pydantic.types import JsonValue
 
+from src.connectors.contracts import ConnectorRequestContext
 from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
 from src.connectors.gemini_base.config import DEFAULT_READ_TIMEOUT
 from src.connectors.gemini_base.google_auth_adapter import (
@@ -68,6 +69,10 @@ from src.connectors.gemini_base.tool_sanitizer import (
 )
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import BackendError
+from src.core.common.wire_boundary_capture import (
+    capture_requests_inbound_response,
+    capture_requests_outbound_request,
+)
 from src.core.domain.gemini_metadata import create_gemini_response_metadata
 from src.core.domain.streaming.contracts import (
     OpenAIError,
@@ -804,16 +809,35 @@ class StreamingExecutor:
                         )
                     await asyncio.sleep(cooldown_remaining)
 
+                raw_request = requests.Request(
+                    method="POST",
+                    url=url,
+                    params={"alt": "sse"},
+                    json=request_body,
+                    headers={"Content-Type": "application/json"},
+                )
+                prepared_request = prepared.auth_session.prepare_request(raw_request)
+                await capture_requests_outbound_request(
+                    request=prepared_request,
+                    backend=self._backend_type,
+                    model=prepared.effective_model,
+                    key_name=key_name,
+                    context=cast(ConnectorRequestContext | None, context),
+                )
+                send_settings = prepared.auth_session.merge_environment_settings(
+                    prepared_request.url,
+                    {},
+                    True,
+                    None,
+                    None,
+                )
                 request_task = asyncio.create_task(
                     asyncio.to_thread(
-                        prepared.auth_session.request,
-                        method="POST",
-                        url=url,
-                        params={"alt": "sse"},
-                        json=request_body,
-                        headers={"Content-Type": "application/json"},
+                        prepared.auth_session.send,
+                        prepared_request,
                         timeout=int(self._read_timeout),
                         stream=True,
+                        **send_settings,
                     )
                 )
 
@@ -845,6 +869,13 @@ class StreamingExecutor:
 
                 # Help static analysis
                 assert response is not None
+                await capture_requests_inbound_response(
+                    response=response,
+                    backend=self._backend_type,
+                    model=prepared.effective_model,
+                    key_name=key_name,
+                    context=cast(ConnectorRequestContext | None, context),
+                )
 
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(

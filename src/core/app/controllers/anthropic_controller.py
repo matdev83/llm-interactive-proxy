@@ -120,6 +120,7 @@ class AnthropicController:
             response_dict = response_data.model_dump(exclude_none=True)
         else:
             response_dict = response_data
+        response_bytes = json.dumps(response_dict).encode("utf-8")
 
         if self._wire_capture and self._wire_capture.enabled():
             session_id = ctx.session_id or ""
@@ -129,12 +130,17 @@ class AnthropicController:
                 backend=None,  # Client-facing response (not backend)
                 model=anthropic_request.model,
                 key_name=None,
-                response_content=response_dict,
+                response_content=response_bytes,
+                capture_metadata={
+                    "transport": "http",
+                    "protocol_event": "response",
+                    "http_status_code": int(status_code),
+                },
             )
         from fastapi import Response as FastAPIResponse
 
         return FastAPIResponse(
-            content=json.dumps(response_dict),
+            content=response_bytes,
             media_type="application/json",
             status_code=status_code,
             headers=headers,
@@ -267,6 +273,12 @@ class AnthropicController:
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=chat_request,
                         raw_body=raw_body_bytes,
+                        capture_metadata={
+                            "transport": "http",
+                            "protocol_event": "request",
+                            "http_method": request.method,
+                            "url": str(request.url),
+                        },
                     )
                 except (AttributeError, RuntimeError):
                     # Wire capture service not available or disabled (benign)

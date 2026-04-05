@@ -24,18 +24,20 @@ from uuid import uuid4
 import cbor2
 from pydantic.types import JsonValue
 
-from src.core.common.contract_serialization import serialize_for_capture
 from src.core.config.app_config import AppConfig
 from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.cbor_capture import (
     CaptureDirection,
-    CaptureEntry,
+    CapturedWireEvent,
     CaptureFileHeader,
     CaptureMetadata,
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.interfaces.wire_capture_recorder_interface import (
+    IWireCaptureRecorder,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +65,21 @@ def _is_mock(value: Any) -> bool:
 
 
 def _extract_bytes(payload: Any) -> bytes:  # pyright: ignore[reportUnusedFunction]
-    """Extract raw bytes from various payload types using deterministic serialization.
+    """Extract raw bytes from common payload types."""
+    if payload is None:
+        return b""
+    if isinstance(payload, bytes):
+        return payload
+    if isinstance(payload, bytearray):
+        return bytes(payload)
+    if isinstance(payload, memoryview):
+        return payload.tobytes()
+    return str(payload).encode("utf-8", errors="replace")
 
-    DEPRECATED: Use serialize_for_capture() directly for new code.
-    This function is kept for backward compatibility and now delegates to serialize_for_capture().
-    """
-    return serialize_for_capture(payload)
+
+def _coerce_wire_bytes(payload: Any) -> bytes:
+    """Coerce capture payload to bytes without structured serialization."""
+    return _extract_bytes(payload)
 
 
 class _StreamPassthroughWrapper:
@@ -99,7 +110,7 @@ class _StreamPassthroughWrapper:
 _REQUEST_TIMING_TTL_SECONDS = 300.0  # 5 minutes
 
 
-class CborWireCaptureService(IWireCapture):
+class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
     """Byte-precise wire capture service using CBOR format.
 
     Features:
@@ -136,7 +147,7 @@ class CborWireCaptureService(IWireCapture):
         self._enabled = False
 
         # Buffer for entries to write
-        self._buffer: list[CaptureEntry] = []
+        self._buffer: list[CapturedWireEvent] = []
         self._buffer_lock = threading.Lock()
         # CRITICAL: writes must be serialized across executor threads to avoid
         # corrupting the CBOR stream (concurrent append interleaves objects).
@@ -262,6 +273,14 @@ class CborWireCaptureService(IWireCapture):
         """Return True if capture is enabled."""
         return self._enabled
 
+    async def capture_event(self, event: CapturedWireEvent) -> None:
+        """Record a canonical CBOR V2 capture event."""
+        if not self.enabled():
+            return
+
+        self._maybe_start_flush_task()
+        await self._buffer_entry(event)
+
     async def _get_next_sequence(self) -> int:
         """Get next sequence number, thread-safe."""
         async with self._sequence_lock:
@@ -378,6 +397,16 @@ class CborWireCaptureService(IWireCapture):
                 "latency_ms": capture_metadata.get("latency_ms"),
                 "ttfb_ms": capture_metadata.get("ttfb_ms"),
                 "stream_duration_ms": capture_metadata.get("stream_duration_ms"),
+                "transport": capture_metadata.get("transport"),
+                "protocol_event": capture_metadata.get("protocol_event"),
+                "http_method": capture_metadata.get("http_method"),
+                "url": capture_metadata.get("url"),
+                "http_status_code": capture_metadata.get("http_status_code"),
+                "http_reason_phrase": capture_metadata.get("http_reason_phrase"),
+                "http_version": capture_metadata.get("http_version"),
+                "websocket_message_type": capture_metadata.get(
+                    "websocket_message_type"
+                ),
             }
 
         # Extract EoS metadata if provided (already JSON-safe)
@@ -414,6 +443,14 @@ class CborWireCaptureService(IWireCapture):
         latency_ms: float | None = None
         ttfb_ms: float | None = None
         stream_duration_ms: float | None = None
+        transport: str | None = None
+        protocol_event: str | None = None
+        http_method: str | None = None
+        url: str | None = None
+        http_status_code: int | None = None
+        http_reason_phrase: str | None = None
+        http_version: str | None = None
+        websocket_message_type: str | None = None
 
         if eos_fields:
             eos_val = eos_fields.get("eos", False)
@@ -507,6 +544,32 @@ class CborWireCaptureService(IWireCapture):
             stream_dur_val = capture_fields.get("stream_duration_ms")
             if isinstance(stream_dur_val, int | float):
                 stream_duration_ms = float(stream_dur_val)
+            transport_val = capture_fields.get("transport")
+            if isinstance(transport_val, str) and transport_val:
+                transport = transport_val
+            protocol_event_val = capture_fields.get("protocol_event")
+            if isinstance(protocol_event_val, str) and protocol_event_val:
+                protocol_event = protocol_event_val
+            http_method_val = capture_fields.get("http_method")
+            if isinstance(http_method_val, str) and http_method_val:
+                http_method = http_method_val
+            url_val = capture_fields.get("url")
+            if isinstance(url_val, str) and url_val:
+                url = url_val
+            http_status_val = capture_fields.get("http_status_code")
+            if isinstance(http_status_val, int):
+                http_status_code = http_status_val
+            elif isinstance(http_status_val, float) and http_status_val.is_integer():
+                http_status_code = int(http_status_val)
+            reason_val = capture_fields.get("http_reason_phrase")
+            if isinstance(reason_val, str) and reason_val:
+                http_reason_phrase = reason_val
+            version_val = capture_fields.get("http_version")
+            if isinstance(version_val, str) and version_val:
+                http_version = version_val
+            ws_type_val = capture_fields.get("websocket_message_type")
+            if isinstance(ws_type_val, str) and ws_type_val:
+                websocket_message_type = ws_type_val
 
         metadata = CaptureMetadata(
             session_id=resolved_session,
@@ -536,6 +599,15 @@ class CborWireCaptureService(IWireCapture):
             eos_termination_category=eos_termination_category,
             eos_error_classification=eos_error_classification,
             eos_error_status_code=eos_error_status_code,
+            wire_schema="v2",
+            transport=transport,
+            protocol_event=protocol_event,
+            http_method=http_method,
+            url=url,
+            http_status_code=http_status_code,
+            http_reason_phrase=http_reason_phrase,
+            http_version=http_version,
+            websocket_message_type=websocket_message_type,
         )
 
         return metadata
@@ -555,10 +627,8 @@ class CborWireCaptureService(IWireCapture):
 
         self._maybe_start_flush_task()
 
-        # Prefer raw_body if provided, otherwise extract from payload using deterministic serialization
-        data = (
-            raw_body if raw_body is not None else serialize_for_capture(request_payload)
-        )
+        # V2 expects boundary bytes. Prefer raw request bytes when present.
+        data = raw_body if raw_body is not None else _coerce_wire_bytes(request_payload)
 
         # Extract model from payload if available
         model: str | None = None
@@ -575,7 +645,7 @@ class CborWireCaptureService(IWireCapture):
             capture_metadata=capture_metadata,
         )
 
-        entry = CaptureEntry(
+        entry = CapturedWireEvent(
             timestamp=_get_timestamp(),
             direction=CaptureDirection.CLIENT_TO_PROXY,
             sequence=await self._get_next_sequence(),
@@ -583,7 +653,7 @@ class CborWireCaptureService(IWireCapture):
             metadata=metadata,
         )
 
-        await self._buffer_entry(entry)
+        await self.capture_event(entry)
 
     async def capture_outbound_request(
         self,
@@ -602,7 +672,7 @@ class CborWireCaptureService(IWireCapture):
 
         self._maybe_start_flush_task()
 
-        data = serialize_for_capture(request_payload)
+        data = _coerce_wire_bytes(request_payload)
         metadata = self._extract_context_metadata(
             context,
             session_id,
@@ -620,7 +690,7 @@ class CborWireCaptureService(IWireCapture):
                     _get_timestamp()
                 )
 
-        entry = CaptureEntry(
+        entry = CapturedWireEvent(
             timestamp=_get_timestamp(),
             direction=CaptureDirection.PROXY_TO_BACKEND,
             sequence=await self._get_next_sequence(),
@@ -628,7 +698,7 @@ class CborWireCaptureService(IWireCapture):
             metadata=metadata,
         )
 
-        await self._buffer_entry(entry)
+        await self.capture_event(entry)
 
     async def capture_inbound_response(
         self,
@@ -651,7 +721,7 @@ class CborWireCaptureService(IWireCapture):
         # Convert CanonicalUsageRecord to dict for internal storage
         canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
 
-        data = serialize_for_capture(response_content)
+        data = _coerce_wire_bytes(response_content)
         metadata_fields = capture_metadata.copy() if capture_metadata else {}
         response_ts = _get_timestamp()
 
@@ -681,7 +751,7 @@ class CborWireCaptureService(IWireCapture):
             capture_metadata=metadata_fields or None,
         )
 
-        entry = CaptureEntry(
+        entry = CapturedWireEvent(
             timestamp=_get_timestamp(),
             direction=CaptureDirection.BACKEND_TO_PROXY,
             sequence=await self._get_next_sequence(),
@@ -689,7 +759,7 @@ class CborWireCaptureService(IWireCapture):
             metadata=metadata,
         )
 
-        await self._buffer_entry(entry)
+        await self.capture_event(entry)
 
     async def capture_outbound_response(
         self,
@@ -708,7 +778,7 @@ class CborWireCaptureService(IWireCapture):
 
         self._maybe_start_flush_task()
 
-        data = serialize_for_capture(response_content)
+        data = _coerce_wire_bytes(response_content)
         metadata = self._extract_context_metadata(
             context,
             session_id,
@@ -718,7 +788,7 @@ class CborWireCaptureService(IWireCapture):
             capture_metadata=capture_metadata,
         )
 
-        entry = CaptureEntry(
+        entry = CapturedWireEvent(
             timestamp=_get_timestamp(),
             direction=CaptureDirection.PROXY_TO_CLIENT,
             sequence=await self._get_next_sequence(),
@@ -726,7 +796,7 @@ class CborWireCaptureService(IWireCapture):
             metadata=metadata,
         )
 
-        await self._buffer_entry(entry)
+        await self.capture_event(entry)
 
     def wrap_inbound_stream(
         self,
@@ -794,15 +864,22 @@ class CborWireCaptureService(IWireCapture):
                 is_retry=base_metadata.is_retry,
                 account_id=base_metadata.account_id,
                 request_timestamp=request_ts,
+                transport=base_metadata.transport,
+                protocol_event=base_metadata.protocol_event,
+                http_method=base_metadata.http_method,
+                url=base_metadata.url,
+                http_status_code=base_metadata.http_status_code,
+                http_reason_phrase=base_metadata.http_reason_phrase,
+                http_version=base_metadata.http_version,
             )
-            start_entry = CaptureEntry(
+            start_entry = CapturedWireEvent(
                 timestamp=stream_start_ts,
                 direction=CaptureDirection.BACKEND_TO_PROXY,
                 sequence=await self._get_next_sequence(),
                 data=b"",
                 metadata=start_metadata,
             )
-            await self._buffer_entry(start_entry)
+            await self.capture_event(start_entry)
 
             async for chunk in stream:
                 chunk_count += 1
@@ -827,15 +904,22 @@ class CborWireCaptureService(IWireCapture):
                     chunk_index=chunk_count,
                     request_id=base_metadata.request_id,
                     ttfb_ms=ttfb_ms,
+                    transport=base_metadata.transport,
+                    protocol_event=base_metadata.protocol_event,
+                    http_method=base_metadata.http_method,
+                    url=base_metadata.url,
+                    http_status_code=base_metadata.http_status_code,
+                    http_reason_phrase=base_metadata.http_reason_phrase,
+                    http_version=base_metadata.http_version,
                 )
-                chunk_entry = CaptureEntry(
+                chunk_entry = CapturedWireEvent(
                     timestamp=_get_timestamp(),
                     direction=CaptureDirection.BACKEND_TO_PROXY,
                     sequence=await self._get_next_sequence(),
                     data=chunk,
                     metadata=chunk_metadata,
                 )
-                await self._buffer_entry(chunk_entry)
+                await self.capture_event(chunk_entry)
 
                 yield chunk
 
@@ -901,15 +985,22 @@ class CborWireCaptureService(IWireCapture):
                 response_timestamp=end_response_ts,
                 latency_ms=end_latency_ms,
                 stream_duration_ms=end_stream_duration_ms,
+                transport=base_metadata.transport,
+                protocol_event=base_metadata.protocol_event,
+                http_method=base_metadata.http_method,
+                url=base_metadata.url,
+                http_status_code=base_metadata.http_status_code,
+                http_reason_phrase=base_metadata.http_reason_phrase,
+                http_version=base_metadata.http_version,
             )
-            end_entry = CaptureEntry(
+            end_entry = CapturedWireEvent(
                 timestamp=end_ts,
                 direction=CaptureDirection.BACKEND_TO_PROXY,
                 sequence=await self._get_next_sequence(),
                 data=b"",
                 metadata=end_metadata,
             )
-            await self._buffer_entry(end_entry)
+            await self.capture_event(end_entry)
 
         return _capture_stream()
 
@@ -959,14 +1050,14 @@ class CborWireCaptureService(IWireCapture):
             eos_metadata=eos_metadata,
             capture_metadata=capture_metadata,
         )
-        completion_entry = CaptureEntry(
+        completion_entry = CapturedWireEvent(
             timestamp=_get_timestamp(),
             direction=CaptureDirection.BACKEND_TO_PROXY,
             sequence=await self._get_next_sequence(),
             data=b"",
             metadata=completion_metadata,
         )
-        await self._buffer_entry(completion_entry)
+        await self.capture_event(completion_entry)
 
     def wrap_outbound_stream(
         self,
@@ -1017,14 +1108,14 @@ class CborWireCaptureService(IWireCapture):
                 is_retry=base_metadata.is_retry,
                 account_id=base_metadata.account_id,
             )
-            start_entry = CaptureEntry(
+            start_entry = CapturedWireEvent(
                 timestamp=_get_timestamp(),
                 direction=CaptureDirection.PROXY_TO_CLIENT,
                 sequence=await self._get_next_sequence(),
                 data=b"",
                 metadata=start_metadata,
             )
-            await self._buffer_entry(start_entry)
+            await self.capture_event(start_entry)
 
             async for chunk in stream:
                 chunk_count += 1
@@ -1035,14 +1126,14 @@ class CborWireCaptureService(IWireCapture):
                     chunk_index=chunk_count,
                     request_id=base_metadata.request_id,
                 )
-                chunk_entry = CaptureEntry(
+                chunk_entry = CapturedWireEvent(
                     timestamp=_get_timestamp(),
                     direction=CaptureDirection.PROXY_TO_CLIENT,
                     sequence=await self._get_next_sequence(),
                     data=chunk,
                     metadata=chunk_metadata,
                 )
-                await self._buffer_entry(chunk_entry)
+                await self.capture_event(chunk_entry)
 
                 yield chunk
 
@@ -1062,18 +1153,18 @@ class CborWireCaptureService(IWireCapture):
                 is_retry=base_metadata.is_retry,
                 account_id=base_metadata.account_id,
             )
-            end_entry = CaptureEntry(
+            end_entry = CapturedWireEvent(
                 timestamp=_get_timestamp(),
                 direction=CaptureDirection.PROXY_TO_CLIENT,
                 sequence=await self._get_next_sequence(),
                 data=b"",
                 metadata=end_metadata,
             )
-            await self._buffer_entry(end_entry)
+            await self.capture_event(end_entry)
 
         return _capture_stream()
 
-    async def _buffer_entry(self, entry: CaptureEntry) -> None:
+    async def _buffer_entry(self, entry: CapturedWireEvent) -> None:
         """Add entry to buffer for eventual flushing.
 
         Does not block the caller for flushing unless explicitly requested
@@ -1104,7 +1195,7 @@ class CborWireCaptureService(IWireCapture):
         if not self._file_path:
             return
 
-        entries_to_write: list[CaptureEntry] = []
+        entries_to_write: list[CapturedWireEvent] = []
         with self._buffer_lock:
             if not self._buffer:
                 return
@@ -1125,7 +1216,7 @@ class CborWireCaptureService(IWireCapture):
                 exc_info=True,
             )
 
-    def _write_entries_sync(self, entries: list[CaptureEntry]) -> None:
+    def _write_entries_sync(self, entries: list[CapturedWireEvent]) -> None:
         """Synchronously write entries to file."""
         if not self._file_path:
             return

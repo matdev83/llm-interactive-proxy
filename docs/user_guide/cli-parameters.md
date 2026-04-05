@@ -145,7 +145,7 @@ When no CLI override applies and `notifications.enabled` is omitted in YAML, the
 | `--capture-max-files N` | `CAPTURE_MAX_FILES` | Max number of capture files to retain. |
 | `--capture-rotate-interval SECONDS` | `CAPTURE_ROTATE_INTERVAL_SECONDS` | Time-based rotation period. |
 | `--capture-total-max-bytes N` | `CAPTURE_TOTAL_MAX_BYTES` | Total disk cap across capture files. |
-| `--cbor-capture-dir DIR` | N/A | Directory for CBOR byte-precise capture files. |
+| `--cbor-capture-dir DIR` | N/A | Directory for CBOR boundary-level capture files. |
 | `--cbor-capture-session ID` | N/A | Fixed session ID for CBOR capture. |
 | N/A | `REQUEST_LOGGING` | Enable detailed request logging (boolean). |
 | N/A | `RESPONSE_LOGGING` | Enable detailed response logging (boolean). |

@@ -112,9 +112,19 @@ class KimiCodeConnector(OpenAIConnector):
 
         safe_headers = dict(headers)
         safe_headers.pop(LOOP_GUARD_HEADER, None)
+        request = self.client.build_request(
+            "POST", url, json=payload, headers=safe_headers
+        )
 
         try:
-            response = await self.client.post(url, json=payload, headers=safe_headers)
+            response = await self._capture_http_client.send(
+                request,
+                stream=False,
+                capture=self._http_boundary_capture(
+                    model=str(payload.get("model") or "unknown"),
+                    context=context,
+                ),
+            )
         except httpx.RequestError as exc:
             raise ServiceUnavailableError(
                 message=f"Could not connect to backend ({exc})"
@@ -170,13 +180,29 @@ class KimiCodeConnector(OpenAIConnector):
             request, request.messages, request.model, context=None
         )
         payload["stream"] = True
+        context: ConnectorRequestContext | None = None
+        session_id = getattr(request, "session_id", None)
+        if isinstance(session_id, str) and session_id:
+            context = ConnectorRequestContext(
+                request_id=session_id,
+                session_id=session_id,
+                client_host=None,
+                extensions={},
+            )
 
         http_request = self.client.build_request(
             "POST", url, json=payload, headers=headers
         )
 
         try:
-            response = await self.client.send(http_request, stream=True)
+            response = await self._capture_http_client.send(
+                http_request,
+                stream=True,
+                capture=self._http_boundary_capture(
+                    model=str(request.model or "unknown"),
+                    context=context,
+                ),
+            )
         except httpx.RequestError as exc:
             raise ServiceUnavailableError(
                 message=f"Could not connect to backend ({exc})"

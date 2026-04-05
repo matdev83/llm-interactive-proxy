@@ -86,6 +86,9 @@ class WireCaptureCoordinator:
 
         capture_metadata: dict[str, JsonValue] = {
             "status_code": envelope.status_code,
+            "transport": "http",
+            "protocol_event": "response",
+            "http_status_code": envelope.status_code,
         }
         capture_metadata.update(_extract_context_capture_metadata(context))
         retry_after = _extract_retry_after(envelope.headers)
@@ -134,6 +137,9 @@ class WireCaptureCoordinator:
 
         capture_metadata: dict[str, JsonValue] = {
             "status_code": envelope.status_code,
+            "transport": "http",
+            "protocol_event": "response",
+            "http_status_code": envelope.status_code,
         }
         capture_metadata.update(_extract_context_capture_metadata(context))
         retry_after = _extract_retry_after(envelope.headers)

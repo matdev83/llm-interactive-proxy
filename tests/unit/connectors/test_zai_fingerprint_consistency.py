@@ -4,7 +4,6 @@
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
@@ -161,4 +160,10 @@ def test_prepare_payload_strips_non_allowed_keys() -> None:
     assert "generation_config" not in cleaned
 
     # Verify allowed fields are preserved
-    assert cleaned.keys() == {"model", "messages", "stream", "max_tokens", "temperature"}
+    assert cleaned.keys() == {
+        "model",
+        "messages",
+        "stream",
+        "max_tokens",
+        "temperature",
+    }

@@ -10,6 +10,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
+from src.core.plugin_http_client import (
+    PLUGIN_HTTP_CAPTURE_CONTEXT_EXTENSION,
+    PLUGIN_HTTP_CAPTURED_EXTENSION,
+    PluginHttpCaptureContext,
+    build_capture_aware_async_client,
+    capture_http_response,
+)
+
 BACKEND_PLUGIN_ENTRY_POINT_GROUP = "llm_proxy_backends"
 
 if TYPE_CHECKING:
@@ -53,8 +61,13 @@ class BackendPluginProvider(Protocol):
 __all__ = [
     "BACKEND_PLUGIN_ENTRY_POINT_GROUP",
     "BackendFactory",
+    "PLUGIN_HTTP_CAPTURE_CONTEXT_EXTENSION",
+    "PLUGIN_HTTP_CAPTURED_EXTENSION",
+    "PluginHttpCaptureContext",
     "PluginCompatibility",
     "PluginPostBuildHook",
     "BackendPluginDefinition",
     "BackendPluginProvider",
+    "build_capture_aware_async_client",
+    "capture_http_response",
 ]

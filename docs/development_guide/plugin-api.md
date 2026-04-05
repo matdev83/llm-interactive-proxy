@@ -18,6 +18,10 @@ The supported API is exported from `src/core/plugin_api.py`:
 - `BackendPluginDefinition`
 - `BackendPluginProvider`
 - `PluginPostBuildHook` (optional)
+- `PluginHttpCaptureContext`
+- `PLUGIN_HTTP_CAPTURE_CONTEXT_EXTENSION`
+- `build_capture_aware_async_client`
+- `capture_http_response`
 
 ## Required definition fields
 
@@ -45,6 +49,43 @@ core backend creation with positional arguments:
 Plugin factories should accept this call shape (or a compatible `*args, **kwargs`
 signature) and return a backend instance without performing network I/O
 during construction.
+
+### Plugin HTTP client helper
+
+Use `build_capture_aware_async_client()` when a plugin needs an `httpx.AsyncClient`
+that participates in the proxy's capture path without importing transport internals.
+
+```python
+from src.core.plugin_api import (
+    PLUGIN_HTTP_CAPTURE_CONTEXT_EXTENSION,
+    PluginHttpCaptureContext,
+    build_capture_aware_async_client,
+    capture_http_response,
+)
+
+capture_context = PluginHttpCaptureContext(
+    backend="my-backend",
+    model="gpt-4.1",
+    key_name="my-key",
+)
+
+async with build_capture_aware_async_client(
+    capture_context=capture_context,
+    base_url="https://api.example.test",
+) as client:
+    request = client.build_request("GET", "/v1/models")
+    request.extensions[PLUGIN_HTTP_CAPTURE_CONTEXT_EXTENSION] = capture_context
+    response = await client.send(request, stream=True)
+    await response.aread()
+    await capture_http_response(response)
+```
+
+- The helper captures outbound requests automatically.
+- Non-streaming responses are captured automatically after `send()`.
+- For streamed responses, call `capture_http_response()` after the body has been
+  fully consumed.
+- `PLUGIN_HTTP_CAPTURE_CONTEXT_EXTENSION` is the public request extension key for
+  per-request capture metadata.
 
 ## Compatibility behavior
 

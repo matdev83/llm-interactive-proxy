@@ -1800,12 +1800,17 @@ class ResponsesController:
         # Capture inbound WebSocket event if wire capture is enabled
         if self._wire_capture and self._wire_capture.enabled():
             try:
+                inbound_bytes = json.dumps(
+                    event_data, separators=(",", ":"), ensure_ascii=False
+                ).encode("utf-8")
                 await self._wire_capture.capture_inbound_request(
                     context=None,
                     session_id=None,
-                    request_payload=event_data,
+                    request_payload=inbound_bytes,
                     capture_metadata={
                         "transport": "websocket",
+                        "protocol_event": "frame",
+                        "websocket_message_type": "text",
                         "event_type": "response.create",
                         "request_id": request_id,
                     },
@@ -1930,15 +1935,20 @@ class ResponsesController:
                     # Capture outbound WebSocket event if wire capture is enabled
                     if self._wire_capture and self._wire_capture.enabled():
                         try:
+                            outbound_bytes = json.dumps(
+                                content, separators=(",", ":"), ensure_ascii=False
+                            ).encode("utf-8")
                             await self._wire_capture.capture_outbound_response(
                                 context=ctx,
                                 session_id=None,
                                 backend=None,
                                 model=event_data.get("model"),
                                 key_name=None,
-                                response_content=content,
+                                response_content=outbound_bytes,
                                 capture_metadata={
                                     "transport": "websocket",
+                                    "protocol_event": "frame",
+                                    "websocket_message_type": "text",
                                     "event_type": "response.done",
                                     "request_id": request_id,
                                 },

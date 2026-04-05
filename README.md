@@ -44,7 +44,7 @@ It is a compatibility layer, a security layer, a traffic control plane, a debugg
 
 ## At a glance
 
-Beyond basic forwarding, the proxy adds cross-protocol translation, tool safety, routing and failover, session-oriented features (including B2BUA-style handling), byte-precise CBOR captures, and usage tracking. Longer narratives, use-case lists, and feature tours live in the [User Guide](docs/user_guide/index.md).
+Beyond basic forwarding, the proxy adds cross-protocol translation, tool safety, routing and failover, session-oriented features (including B2BUA-style handling), boundary-level CBOR captures, and usage tracking. Longer narratives, use-case lists, and feature tours live in the [User Guide](docs/user_guide/index.md).
 
 ## Quick Start
 

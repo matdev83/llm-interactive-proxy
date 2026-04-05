@@ -75,6 +75,12 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         self._config = config
         self._backend_config_service = backend_config_service
 
+    @staticmethod
+    def _is_cbor_capture_service(wire_capture: IWireCapture | None) -> bool:
+        if wire_capture is None:
+            return False
+        return type(wire_capture).__name__ == "CborWireCaptureService"
+
     async def prepare_wire_capture_context(
         self, backend_type: str, session: ISession | None
     ) -> IAppIdentityConfig | None:
@@ -136,6 +142,10 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         """
         try:
             if self._wire_capture and self._wire_capture.enabled():
+                # CBOR capture now records backend HTTP boundary bytes in connector
+                # transport handlers; skip pre-connector domain payload snapshots.
+                if self._is_cbor_capture_service(self._wire_capture):
+                    return
                 key_name = self.detect_key_name(backend_type)
                 session_id = getattr(context, "session_id", None)
                 await self._wire_capture.capture_outbound_request(
@@ -244,6 +254,10 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         """
         try:
             if self._wire_capture and self._wire_capture.enabled():
+                # CBOR capture records backend HTTP boundary responses at connector
+                # transport boundaries; skip post-translation envelope snapshots.
+                if self._is_cbor_capture_service(self._wire_capture):
+                    return
                 await self._wire_capture.capture_inbound_response(
                     context=context,
                     session_id=session_id,

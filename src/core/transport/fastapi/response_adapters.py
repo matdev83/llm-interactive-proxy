@@ -786,15 +786,15 @@ def to_fastapi_response(
     response: Response
     if media_type and media_type.startswith("application/json"):
         response = _get_json_builder().build(envelope, context=context)
-        # Extract content for wire capture (JSONResponse stores content in body as bytes)
-        response_content = envelope.content
-        if content_converter:
-            response_content = _apply_content_converter(
-                response_content, content_converter
-            )
     else:
         response = _get_other_builder().build(envelope)
-        response_content = envelope.content
+    # Capture exact emitted payload bytes for non-streaming responses.
+    response_body = getattr(response, "body", b"")
+    if isinstance(response_body, memoryview):
+        response_body = response_body.tobytes()
+    if not isinstance(response_body, bytes):
+        response_body = bytes(response_body)
+    response_content = response_body
 
     # Schedule wire capture for non-streaming responses
     if wire_capture:

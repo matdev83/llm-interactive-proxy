@@ -29,6 +29,7 @@ from src.core.config.models import (
 )
 from src.core.domain.cbor_capture import CaptureDirection
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.wire_capture_interface import IWireCapture
@@ -239,6 +240,7 @@ def verify_capture_file(capture_file_path: Path | None) -> None:
     if capture_file_path is None:
         pytest.skip("CBOR capture not enabled")
 
+    assert capture_file_path is not None
     assert capture_file_path.exists(), f"Capture file not found: {capture_file_path}"
 
     # Use CaptureReader to load file
@@ -247,7 +249,7 @@ def verify_capture_file(capture_file_path: Path | None) -> None:
 
     # Verify file structure is valid
     assert session.header is not None
-    assert session.header.magic == "LLMPROXY-CAPTURE-V1"
+    assert session.header.magic == "LLMPROXY-CAPTURE-V2"
     assert len(session.entries) > 0
 
     # Verify entries contain expected directions
@@ -295,7 +297,7 @@ class TestProtocolResponseShapes:
 
         # Mock backend response
         with patch(
-            "src.core.services.backend_service.BackendService.call_completion"
+            "src.core.services.backend_executor.BackendExecutor.execute"
         ) as mock_call:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_OPENAI_RESPONSE,
@@ -337,7 +339,7 @@ class TestProtocolResponseShapes:
             )
 
         with patch(
-            "src.core.services.backend_service.BackendService.call_completion"
+            "src.core.services.backend_request_manager_service.BackendRequestManager.process_backend_request"
         ) as mock_call:
             mock_call.return_value = StreamingResponseEnvelope(
                 content=mock_stream(),
@@ -367,7 +369,7 @@ class TestProtocolResponseShapes:
         app, capture_file, _ = test_app_with_capture
 
         with patch(
-            "src.core.services.backend_service.BackendService.call_completion"
+            "src.core.services.backend_executor.BackendExecutor.execute"
         ) as mock_call:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_OPENAI_RESPONSES_API_RESPONSE,
@@ -407,7 +409,7 @@ class TestProtocolResponseShapes:
             )
 
         with patch(
-            "src.core.services.backend_service.BackendService.call_completion"
+            "src.core.services.backend_executor.BackendExecutor.execute"
         ) as mock_call:
             mock_call.return_value = StreamingResponseEnvelope(
                 content=mock_stream(),
@@ -475,7 +477,7 @@ class TestProtocolResponseShapes:
             )
 
         with patch(
-            "src.core.services.backend_service.BackendService.call_completion"
+            "src.core.services.backend_executor.BackendExecutor.execute"
         ) as mock_call:
             mock_call.return_value = StreamingResponseEnvelope(
                 content=mock_stream(),
@@ -704,12 +706,12 @@ class TestUsageMetadataPropagation:
             )
 
         with patch(
-            "src.core.services.backend_service.BackendService.call_completion"
+            "src.core.services.backend_request_manager_service.BackendRequestManager.process_backend_request"
         ) as mock_call:
             mock_call.return_value = StreamingResponseEnvelope(
                 content=mock_stream(),
                 media_type="text/event-stream",
-                canonical_usage=UsageSummary(
+                canonical_usage=CanonicalUsageRecord(
                     prompt_tokens=10, completion_tokens=5, total_tokens=15
                 ),
             )

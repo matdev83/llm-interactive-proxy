@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 from unittest.mock import MagicMock
 
 import httpx
@@ -11,6 +12,10 @@ from src.core.config.app_config import AppConfig, get_openrouter_headers
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import HeaderConfig, HeaderOverrideMode
+
+from tests.unit.openrouter_connector_tests.helpers import (
+    openrouter_connector_chat_request,
+)
 
 
 def test_openrouter_headers_provider_accepts_config_dict() -> None:
@@ -38,7 +43,7 @@ def test_openrouter_headers_provider_accepts_config_dict() -> None:
                 key_name="openrouter",
                 openrouter_headers_provider=get_openrouter_headers,
             )
-            return backend.get_headers()
+            return cast(dict[str, str], backend.get_headers())
 
     headers = asyncio.run(run_test())
 
@@ -89,12 +94,13 @@ async def test_chat_completions_supports_config_dict_headers(
         httpx_mock.add_response(json={"id": "ok"}, status_code=200)
 
         await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="openai/gpt-3.5-turbo",
-            openrouter_headers_provider=get_openrouter_headers,
-            key_name="openrouter",
-            api_key="integration-key",
+            openrouter_connector_chat_request(
+                request_data,
+                processed_messages=[ChatMessage(role="user", content="Hello")],
+                effective_model="openai/gpt-3.5-turbo",
+                key_name="openrouter",
+                api_key="integration-key",
+            )
         )
 
     requests = httpx_mock.get_requests()

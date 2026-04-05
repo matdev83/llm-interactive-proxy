@@ -22,6 +22,10 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.core.common.capture_aware_httpx import (
+    CaptureAwareAsyncClient,
+    HttpxBoundaryCaptureContext,
+)
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -29,7 +33,7 @@ from src.core.common.exceptions import (
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.models_listing import ModelsListingResponse
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -58,6 +62,9 @@ MAX_SSE_BUFFER_SIZE = 262_144
 # outbound JSON in _clean_openai_payload.
 _LLM_PROXY_STREAM_URL_KEY = "_llm_proxy_stream_url"
 _LLM_PROXY_STREAM_HEADERS_KEY = "_llm_proxy_stream_headers"
+_LLM_PROXY_REQUEST_ID_KEY = "_llm_proxy_request_id"
+_LLM_PROXY_SESSION_ID_KEY = "_llm_proxy_session_id"
+_LLM_PROXY_CLIENT_HOST_KEY = "_llm_proxy_client_host"
 
 
 def _error_details_from_http_response(response: httpx.Response) -> dict[str, Any]:
@@ -178,9 +185,6 @@ def _raise_for_httpx_request_error(
     ) from exc
 
 
-# Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
-
-
 class OpenAIConnector(LLMBackend):
     """Minimal OpenAI-compatible connector used by OpenRouterBackend in tests.
 
@@ -208,6 +212,7 @@ class OpenAIConnector(LLMBackend):
     ) -> None:
         super().__init__(config, response_processor)
         self.client = client
+        self._capture_http_client = CaptureAwareAsyncClient(client)
         # Allow callers/tests to omit TranslationService; resolve through DI for consistency
         self.translation_service = (
             translation_service
@@ -565,6 +570,20 @@ class OpenAIConnector(LLMBackend):
                 log_extra["client_host"] = context.client_host
         return log_extra
 
+    def _http_boundary_capture(
+        self,
+        *,
+        model: str,
+        context: ConnectorRequestContext | None,
+        key_name: str | None = None,
+    ) -> HttpxBoundaryCaptureContext:
+        return HttpxBoundaryCaptureContext(
+            backend=self.backend_type,
+            model=model,
+            key_name=self.backend_type if key_name is None else key_name,
+            context=context,
+        )
+
     async def _chat_completions_canonical(
         self,
         request: ConnectorChatCompletionsRequest,
@@ -608,8 +627,7 @@ class OpenAIConnector(LLMBackend):
         # Perform health check if enabled (for subclasses that support it)
         await self._ensure_healthy()
 
-        # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
-        # Type check ensures we have the correct type at runtime
+        # request.request is a CanonicalChatRequest from ConnectorChatCompletionsRequest.
 
         # Prepare the payload using a helper so subclasses and tests can
         # override or patch payload construction logic easily.
@@ -705,114 +723,26 @@ class OpenAIConnector(LLMBackend):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request: ConnectorChatCompletionsRequest | Any = None,
-        # Legacy parameters for backward compatibility
-        *args: Any,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Canonical connector API implementation with backward compatibility.
+        """Invoke OpenAI chat completions using ``ConnectorChatCompletionsRequest`` only.
 
-        This method implements ICanonicalChatCompletionsBackend protocol.
-        For backward compatibility, also accepts legacy signature:
-        chat_completions(request_data, processed_messages, effective_model, ...)
+        Implements :class:`ICanonicalChatCompletionsBackend`. The proxy invokes backends
+        through :class:`ConnectorChatCompletionsRequest`; legacy positional call shapes
+        are not supported at this boundary.
         """
-
-        # Handle legacy API called with keyword arguments only (request_data=...)
-        if request is None and "request_data" in kwargs:
-            request = kwargs.pop("request_data")
-
-        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
-        if isinstance(request, ConnectorChatCompletionsRequest):
-            return await self._chat_completions_canonical(request)
-
-        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
-        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
-        # This connector should only receive canonical domain models (never dicts).
-        request_data = request
-        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
-        effective_model = (
-            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
-        )
-        identity = kwargs.get("identity")
-        cancellation_token = kwargs.get("cancellation_token")
-        cancellation_coordinator = kwargs.get("cancellation_coordinator")
-        context = None  # Legacy API doesn't provide context
-        options = {
-            k: v
-            for k, v in kwargs.items()
-            if k
-            not in [
-                "identity",
-                "cancellation_token",
-                "cancellation_coordinator",
-                "processed_messages",
-                "effective_model",
-            ]
-        }
-
-        # Ensure processed_messages is a Sequence[ChatMessage]
-        # ConnectorInvoker guarantees typed messages, but legacy path may receive mixed types
-        # Validate all elements to ensure consistent typed representation (Requirement 4.2)
-        if processed_messages:
-            invalid_messages = [
-                (i, type(msg).__name__)
-                for i, msg in enumerate(processed_messages)
-                if not isinstance(msg, ChatMessage)
-            ]
-            if invalid_messages:
-                # Legacy path should not receive dict messages (coercion centralized at invoker)
-                raise InvalidRequestError(
-                    message="Legacy connector API received non-canonical processed_messages. "
-                    "Expected Sequence[ChatMessage], but received mixed types.",
-                    details={
-                        "invalid_indices": [idx for idx, _ in invalid_messages],
-                        "invalid_types": [typ for _, typ in invalid_messages],
-                        "connector": "openai",
-                    },
-                )
-
-        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
-        if isinstance(request_data, dict):
+        if not isinstance(request, ConnectorChatCompletionsRequest):
             raise InvalidRequestError(
-                message="Legacy connector API received dict input. "
-                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
-                "Expected CanonicalChatRequest or ChatRequest.",
+                message=(
+                    "OpenAIConnector.chat_completions requires ConnectorChatCompletionsRequest. "
+                    "Legacy request_data/processed_messages/effective_model invocation is not supported."
+                ),
                 details={
-                    "received_type": "dict",
+                    "received_type": type(request).__name__,
                     "connector": "openai",
                 },
             )
-
-        # Accept only canonical domain models
-        if isinstance(request_data, ChatRequest):
-            domain_request = CanonicalChatRequest.model_validate(
-                request_data.model_dump()
-            )
-        elif isinstance(request_data, CanonicalChatRequest):
-            domain_request = request_data
-        else:
-            # Reject other types - invoker should only pass canonical models
-            raise InvalidRequestError(
-                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
-                "Expected CanonicalChatRequest or ChatRequest.",
-                details={
-                    "received_type": type(request_data).__name__,
-                    "connector": "openai",
-                },
-            )
-
-        canonical_request = ConnectorChatCompletionsRequest(
-            request=domain_request,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=identity,
-            cancellation_token=cancellation_token,
-            cancellation_coordinator=cancellation_coordinator,
-            context=context,
-            options=options,
-        )
-
-        return await self._chat_completions_canonical(canonical_request)
+        return await self._chat_completions_canonical(request)
 
     async def _prepare_payload(
         self,
@@ -1046,6 +976,9 @@ class OpenAIConnector(LLMBackend):
             "reasoning_effort",
             _LLM_PROXY_STREAM_URL_KEY,
             _LLM_PROXY_STREAM_HEADERS_KEY,
+            _LLM_PROXY_REQUEST_ID_KEY,
+            _LLM_PROXY_SESSION_ID_KEY,
+            _LLM_PROXY_CLIENT_HOST_KEY,
         }
 
         def _strip_none(value: Any) -> Any:
@@ -1081,10 +1014,18 @@ class OpenAIConnector(LLMBackend):
 
         guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
         log_extra = self._get_log_extra(context)
+        request = self.client.build_request(
+            "POST", url, json=payload, headers=guarded_headers
+        )
 
         try:
-            response = await self.client.post(
-                url, json=payload, headers=guarded_headers
+            response = await self._capture_http_client.send(
+                request,
+                stream=False,
+                capture=self._http_boundary_capture(
+                    model=str(payload.get("model") or "unknown"),
+                    context=context,
+                ),
             )
             self.update_quota_headers(response.headers)
         except httpx.RequestError as e:
@@ -1120,7 +1061,14 @@ class OpenAIConnector(LLMBackend):
                 detail=_attach_http_error_details(err, response),
             )
 
-        response_json = response.json()
+        decoded_json = self._decode_json_payload(response)
+        if not isinstance(decoded_json, dict):
+            raise BackendError(
+                message="Invalid JSON payload returned by backend",
+                details={"url": url},
+                status_code=502,
+            )
+        response_json = decoded_json
         # Debug log raw response for non-streaming requests to help diagnose
         # translation issues (e.g., Claude Code via Anthropic frontend)
         if logger.isEnabledFor(logging.DEBUG):
@@ -1199,7 +1147,14 @@ class OpenAIConnector(LLMBackend):
             "POST", url, json=payload, headers=guarded_headers
         )
         try:
-            response = await self.client.send(request, stream=True)
+            response = await self._capture_http_client.send(
+                request,
+                stream=True,
+                capture=self._http_boundary_capture(
+                    model=str(payload.get("model") or "unknown"),
+                    context=context,
+                ),
+            )
             self.update_quota_headers(response.headers)
         except httpx.RequestError as exc:
             _raise_for_httpx_request_error(
@@ -1209,6 +1164,15 @@ class OpenAIConnector(LLMBackend):
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "HTTP response status=%s content-type=%s content-length=%s url=%s",
+                status_code,
+                response.headers.get("content-type"),
+                response.headers.get("content-length"),
+                url,
+                extra=log_extra if log_extra else None,
+            )
         if status_code >= 400:
             # For backwards compatibility with existing error handlers, still use HTTPException here.
             # This will be replaced in a future update with domain exceptions.
@@ -1405,8 +1369,22 @@ class OpenAIConnector(LLMBackend):
                     buffer = ""
                     separator = "\n\n"
                     alt_separator = "\r\n\r\n"
+                    _first_byte_logged = False
                     try:
                         async for chunk_bytes in response.aiter_bytes():
+                            if not _first_byte_logged and logger.isEnabledFor(
+                                logging.DEBUG
+                            ):
+                                _first_byte_logged = True
+                                preview = chunk_bytes[:300].decode(
+                                    "utf-8", errors="replace"
+                                )
+                                logger.debug(
+                                    "First streaming chunk (%d bytes): %s",
+                                    len(chunk_bytes),
+                                    preview,
+                                    extra=log_extra if log_extra else None,
+                                )
                             chunk_text = chunk_bytes.decode("utf-8", errors="replace")
                             # DoS protection: Limit buffer size to prevent memory exhaustion
                             if len(buffer) + len(chunk_text) > MAX_SSE_BUFFER_SIZE:
@@ -1621,7 +1599,14 @@ class OpenAIConnector(LLMBackend):
             return
 
         try:
-            cancel_response = await self.client.send(request, stream=False)
+            cancel_response = await self._capture_http_client.send(
+                request,
+                stream=False,
+                capture=self._http_boundary_capture(
+                    model="responses-cancel",
+                    context=context,
+                ),
+            )
         except Exception as exc:
             logger.warning(
                 "Failed to send cancellation request - session_id=%s, url=%s, error=%s",
@@ -1654,7 +1639,7 @@ class OpenAIConnector(LLMBackend):
 
         # Convert to domain request first
         # Note: The responses() method can be called directly with dicts (e.g., from tests),
-        # unlike chat_completions() which only goes through the frontend->backend flow
+        # unlike chat_completions() which expects ConnectorChatCompletionsRequest from the invoker
         domain_request = self.translation_service.to_domain_request(
             request_data, "responses"
         )
@@ -1734,9 +1719,16 @@ class OpenAIConnector(LLMBackend):
 
         # Check if WebSocket transport is enabled and requested
         use_websocket = kwargs.get("use_websocket", self._use_websocket)
+        connector_context = kwargs.get("context")
+        if not isinstance(connector_context, ConnectorRequestContext):
+            connector_context = None
         if use_websocket:
             return await self._handle_websocket_response(
-                payload, guarded_headers, domain_request
+                payload,
+                guarded_headers,
+                domain_request,
+                context=connector_context,
+                effective_model=effective_model,
             )
 
         if domain_request.stream:
@@ -1748,6 +1740,7 @@ class OpenAIConnector(LLMBackend):
                     guarded_headers,
                     domain_request.session_id or "",
                     "openai-responses",
+                    context=connector_context,
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -1760,7 +1753,11 @@ class OpenAIConnector(LLMBackend):
         else:
             # Return a domain ResponseEnvelope for non-streaming
             return await self._handle_responses_non_streaming_response(
-                url, payload, guarded_headers, domain_request.session_id or ""
+                url,
+                payload,
+                guarded_headers,
+                domain_request.session_id or "",
+                context=connector_context,
             )
 
     async def _handle_websocket_response(
@@ -1768,6 +1765,8 @@ class OpenAIConnector(LLMBackend):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         domain_request: Any,
+        context: ConnectorRequestContext | None = None,
+        effective_model: str | None = None,
     ) -> StreamingResponseEnvelope:
         """Handle Responses API request via WebSocket transport.
 
@@ -1814,6 +1813,10 @@ class OpenAIConnector(LLMBackend):
                 async for response_chunk in self._websocket_client.send_response_create(
                     payload=payload,
                     previous_response_id=previous_response_id,
+                    context=context,
+                    backend=self.backend_type,
+                    model=str(effective_model or payload.get("model") or "unknown"),
+                    key_name=self.backend_type,
                 ):
                     yield response_chunk
             except Exception as e:
@@ -1843,6 +1846,7 @@ class OpenAIConnector(LLMBackend):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: ConnectorRequestContext | None = None,
     ) -> ResponseEnvelope:
         """Handle non-streaming Responses API responses with proper format conversion.
 
@@ -1857,9 +1861,17 @@ class OpenAIConnector(LLMBackend):
 
         guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
 
+        request = self.client.build_request(
+            "POST", url, json=payload, headers=guarded_headers
+        )
         try:
-            response = await self.client.post(
-                url, json=payload, headers=guarded_headers
+            response = await self._capture_http_client.send(
+                request,
+                stream=False,
+                capture=self._http_boundary_capture(
+                    model=str(payload.get("model") or "unknown"),
+                    context=context,
+                ),
             )
             self.update_quota_headers(response.headers)
         except httpx.RequestError as e:
@@ -1991,6 +2003,7 @@ class OpenAIConnector(LLMBackend):
         extra_body = getattr(request, "extra_body", None) or {}
         override_url: str | None = None
         override_headers: dict[str, str] | None = None
+        connector_context: ConnectorRequestContext | None = None
         if isinstance(extra_body, dict):
             raw_u = extra_body.get(_LLM_PROXY_STREAM_URL_KEY)
             if isinstance(raw_u, str) and raw_u.strip():
@@ -1998,6 +2011,33 @@ class OpenAIConnector(LLMBackend):
             raw_h = extra_body.get(_LLM_PROXY_STREAM_HEADERS_KEY)
             if isinstance(raw_h, dict) and raw_h.get("Authorization"):
                 override_headers = {str(k): str(v) for k, v in raw_h.items()}
+            proxy_request_id = extra_body.get(_LLM_PROXY_REQUEST_ID_KEY)
+            if isinstance(proxy_request_id, str) and proxy_request_id:
+                proxy_session_id = extra_body.get(_LLM_PROXY_SESSION_ID_KEY)
+                proxy_client_host = extra_body.get(_LLM_PROXY_CLIENT_HOST_KEY)
+                connector_context = ConnectorRequestContext(
+                    request_id=proxy_request_id,
+                    session_id=(
+                        proxy_session_id
+                        if isinstance(proxy_session_id, str) and proxy_session_id
+                        else None
+                    ),
+                    client_host=(
+                        proxy_client_host
+                        if isinstance(proxy_client_host, str) and proxy_client_host
+                        else None
+                    ),
+                    extensions={},
+                )
+        if connector_context is None:
+            fallback_session = getattr(request, "session_id", None)
+            if isinstance(fallback_session, str) and fallback_session:
+                connector_context = ConnectorRequestContext(
+                    request_id=fallback_session,
+                    session_id=fallback_session,
+                    client_host=None,
+                    extensions={},
+                )
 
         # Build the request URL and payload
         if override_url is not None:
@@ -2037,15 +2077,29 @@ class OpenAIConnector(LLMBackend):
         )
 
         try:
-            response = await self.client.send(http_request, stream=True)
+            response = await self._capture_http_client.send(
+                http_request,
+                stream=True,
+                capture=self._http_boundary_capture(
+                    model=str(effective_model),
+                    context=connector_context,
+                ),
+            )
             self.update_quota_headers(response.headers)
         except httpx.RequestError as exc:
             _raise_for_httpx_request_error(exc, url=url, log_extra=None)
 
-        # Check for errors
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "[stream_completion] HTTP status=%s content-type=%s content-length=%s url=%s",
+                status_code,
+                response.headers.get("content-type"),
+                response.headers.get("content-length"),
+                url,
+            )
         if status_code >= 400:
             body = ""
             try:
@@ -2091,8 +2145,17 @@ class OpenAIConnector(LLMBackend):
             buffer = ""
             separator = "\n\n"
             alt_separator = "\r\n\r\n"
+            _sc_first_byte_logged = False
 
             async for chunk_bytes in response.aiter_bytes():
+                if not _sc_first_byte_logged and logger.isEnabledFor(logging.DEBUG):
+                    _sc_first_byte_logged = True
+                    preview = chunk_bytes[:300].decode("utf-8", errors="replace")
+                    logger.debug(
+                        "[stream_completion] First chunk (%d bytes): %s",
+                        len(chunk_bytes),
+                        preview,
+                    )
                 chunk_text = chunk_bytes.decode("utf-8", errors="replace")
                 # DoS protection: Limit buffer size to prevent memory exhaustion
                 if len(buffer) + len(chunk_text) > MAX_SSE_BUFFER_SIZE:

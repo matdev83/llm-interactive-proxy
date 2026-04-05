@@ -5,6 +5,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 import cbor2
+import pytest
 
 SCRIPT_PATH = Path("scripts/inspect_cbor_capture.py")
 
@@ -36,7 +37,13 @@ def test_script_analysis(tmp_path):
     capture_file = tmp_path / "test_capture.cbor"
 
     # Create a minimal capture file
-    header = {"session_id": "test_session", "created_at": 1234567890.0, "metadata": {}}
+    header = {
+        "magic": "LLMPROXY-CAPTURE-V2",
+        "version": 2,
+        "session_id": "test_session",
+        "created_at": 1234567890.0,
+        "metadata": {},
+    }
 
     with open(capture_file, "wb") as f:
         cbor2.dump(header, f)
@@ -97,6 +104,26 @@ def test_script_analysis(tmp_path):
     assert "Model: test-model" in output
     assert "test_tool" in output  # Tool name verification
     assert "Timing: TTFT=0.500s" in output  # Timing verification
+
+
+def test_load_capture_file_rejects_unsupported_version(tmp_path):
+    """The inspector should reject old capture versions before reading entries."""
+    inspector = _load_inspector_module()
+    capture_file = tmp_path / "v1_capture.cbor"
+
+    header = {
+        "magic": "LLMPROXY-CAPTURE-V2",
+        "version": 1,
+        "session_id": "test_session",
+        "created_at": 1234567890.0,
+        "metadata": {},
+    }
+
+    with open(capture_file, "wb") as f:
+        cbor2.dump(header, f)
+
+    with pytest.raises(ValueError, match="Unsupported capture file version: 1"):
+        inspector.load_capture_file(capture_file)
 
 
 def test_detect_issues_correlates_by_request_id_before_session_ids():

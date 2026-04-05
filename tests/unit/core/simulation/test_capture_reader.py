@@ -79,11 +79,23 @@ class TestCaptureReader:
         """Test loading a file with invalid magic."""
         capture_file = temp_capture_dir / "invalid.cbor"
         with open(capture_file, "wb") as f:
-            cbor2.dump({"magic": "WRONG", "version": 1}, f)
+            cbor2.dump({"magic": "WRONG", "version": 2}, f)
 
         reader = CaptureReader()
         with pytest.raises(
-            InvalidCaptureFileError, match="Invalid capture file header"
+            InvalidCaptureFileError, match="Unsupported capture file magic"
+        ):
+            reader.load(capture_file)
+
+    def test_load_unsupported_version(self, temp_capture_dir):
+        """Test loading a file with an unsupported capture version."""
+        capture_file = temp_capture_dir / "unsupported_version.cbor"
+        with open(capture_file, "wb") as f:
+            cbor2.dump({"magic": "LLMPROXY-CAPTURE-V2", "version": 1}, f)
+
+        reader = CaptureReader()
+        with pytest.raises(
+            InvalidCaptureFileError, match="Unsupported capture file version"
         ):
             reader.load(capture_file)
 

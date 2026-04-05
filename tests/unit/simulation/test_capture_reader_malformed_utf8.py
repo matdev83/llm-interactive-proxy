@@ -19,8 +19,8 @@ def test_capture_reader_best_effort_stops_on_invalid_utf8(tmp_path) -> None:
     capture_path = tmp_path / "bad.cbor"
 
     header = {
-        "magic": "LLMPROXY-CAPTURE-V1",
-        "version": 1,
+        "magic": "LLMPROXY-CAPTURE-V2",
+        "version": 2,
         "created_at": 0.0,
         "session_id": "test",
         "metadata": {},
@@ -73,8 +73,8 @@ def test_inspect_script_loader_best_effort_does_not_crash(
     capture_path = tmp_path / "bad.cbor"
 
     header = {
-        "magic": "LLMPROXY-CAPTURE-V1",
-        "version": 1,
+        "magic": "LLMPROXY-CAPTURE-V2",
+        "version": 2,
         "created_at": 0.0,
         "session_id": "test",
         "metadata": {},

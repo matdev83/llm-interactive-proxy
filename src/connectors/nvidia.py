@@ -31,6 +31,20 @@ _NVIDIA_HTTP_LIMITS = httpx.Limits(max_connections=100, max_keepalive_connection
 _NVIDIA_MIN_INTER_CHUNK_READ_S = 300.0
 
 
+class _NvidiaTransportProxy(httpx.AsyncBaseTransport):
+    """Delegate NVIDIA traffic to the shared transport without owning it."""
+
+    def __init__(self, transport: httpx.AsyncBaseTransport) -> None:
+        self._transport = transport
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        return await self._transport.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        # The shared client owns the underlying transport lifecycle.
+        return None
+
+
 def _nvidia_dedicated_timeout(
     base: httpx.AsyncClient, app_config: AppConfig
 ) -> httpx.Timeout:
@@ -61,6 +75,32 @@ def _nvidia_dedicated_timeout(
         write=60.0,
         pool=60.0,
     )
+
+
+def _copy_event_hooks(
+    base: httpx.AsyncClient,
+) -> dict[str, list[Any]] | None:
+    """Preserve any shared-client hooks on the NVIDIA-only client.
+
+    The dedicated client must stay HTTP/1.1-only, but it should not silently drop
+    request/response hooks that may carry observability or capture instrumentation.
+    """
+
+    hooks = getattr(base, "event_hooks", None)
+    if not isinstance(hooks, dict):
+        return None
+    return {name: list(callbacks) for name, callbacks in hooks.items()}
+
+
+def _proxy_shared_transport(
+    base: httpx.AsyncClient,
+) -> httpx.AsyncBaseTransport | None:
+    """Reuse the shared client's transport so dedicated-client tests and hooks still work."""
+
+    transport = getattr(base, "_transport", None)
+    if isinstance(transport, httpx.AsyncBaseTransport):
+        return _NvidiaTransportProxy(transport)
+    return None
 
 
 def _normalize_nvidia_api_key(value: str) -> str:
@@ -154,11 +194,15 @@ class NvidiaConnector(OpenAIConnector):
         base = self.client
         timeout = _nvidia_dedicated_timeout(base, self.config)
         limits = getattr(base, "limits", None) or _NVIDIA_HTTP_LIMITS
+        event_hooks = _copy_event_hooks(base)
+        transport = _proxy_shared_transport(base)
         self._nvidia_http11_client = httpx.AsyncClient(
             http2=False,
             timeout=timeout,
             limits=limits,
+            transport=transport,
             trust_env=False,
+            event_hooks=event_hooks,
         )
         self.client = self._nvidia_http11_client
 

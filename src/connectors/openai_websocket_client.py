@@ -17,10 +17,15 @@ from typing import Any
 import websockets  # type: ignore[import-untyped]
 from websockets.exceptions import WebSocketException  # type: ignore[import-untyped]
 
+from src.connectors.contracts import ConnectorRequestContext
 from src.core.common.exceptions import (
     AuthenticationError,
     InvalidRequestError,
     ServiceUnavailableError,
+)
+from src.core.common.wire_boundary_capture import (
+    capture_websocket_backend_inbound,
+    capture_websocket_backend_outbound,
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -166,6 +171,10 @@ class OpenAIWebSocketClient:
         self,
         payload: dict[str, Any],
         previous_response_id: str | None = None,
+        context: ConnectorRequestContext | None = None,
+        backend: str = "openai",
+        model: str = "unknown",
+        key_name: str | None = None,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Send a response.create event and stream back events.
 
@@ -210,13 +219,39 @@ class OpenAIWebSocketClient:
                 logger.debug("Sending response.create event: %s", event.get("type"))
 
             assert self._connection is not None
-            await self._connection.send(json.dumps(event))
+            outbound_text = json.dumps(event)
+            await capture_websocket_backend_outbound(
+                payload=outbound_text.encode("utf-8"),
+                backend=backend,
+                model=model,
+                key_name=key_name,
+                context=context,
+                message_type="text",
+            )
+            await self._connection.send(outbound_text)
 
             # Stream response events
             response_id = None
             async for message in self._connection:
                 if isinstance(message, bytes):
+                    await capture_websocket_backend_inbound(
+                        payload=message,
+                        backend=backend,
+                        model=model,
+                        key_name=key_name,
+                        context=context,
+                        message_type="binary",
+                    )
                     message = message.decode("utf-8")
+                else:
+                    await capture_websocket_backend_inbound(
+                        payload=message.encode("utf-8"),
+                        backend=backend,
+                        model=model,
+                        key_name=key_name,
+                        context=context,
+                        message_type="text",
+                    )
 
                 try:
                     event_data = json.loads(message)

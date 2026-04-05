@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -26,8 +27,8 @@ class MockWireCapture(IWireCapture):
 
     def __init__(self, enabled: bool = True):
         self._enabled = enabled
-        self.captured_responses = []
-        self.wrapped_streams = []
+        self.captured_responses: list[dict[str, object | None]] = []
+        self.wrapped_streams: list[dict[str, object | None]] = []
 
     def enabled(self) -> bool:
         return self._enabled
@@ -41,8 +42,8 @@ class MockWireCapture(IWireCapture):
     async def capture_inbound_response(self, **kwargs) -> None:
         pass
 
-    def wrap_inbound_stream(self, **kwargs) -> AsyncIterator[bytes]:
-        async def _empty():
+    def wrap_inbound_stream(self, **kwargs: Any) -> AsyncIterator[bytes]:
+        async def _empty() -> AsyncIterator[bytes]:
             yield b""
 
         return _empty()
@@ -77,7 +78,7 @@ class MockWireCapture(IWireCapture):
         backend=None,
         model=None,
         key_name=None,
-        stream=None,
+        stream: AsyncIterator[bytes] | None = None,
         capture_metadata=None,
     ) -> AsyncIterator[bytes]:
         self.wrapped_streams.append(
@@ -90,6 +91,13 @@ class MockWireCapture(IWireCapture):
             }
         )
         # Pass through the stream
+        if stream is None:
+
+            async def _empty() -> AsyncIterator[bytes]:
+                if False:
+                    yield b""
+
+            return _empty()
         return stream
 
     async def capture_stream_completion(
@@ -104,7 +112,6 @@ class MockWireCapture(IWireCapture):
         eos_metadata=None,
         capture_metadata=None,
     ) -> None:
-
         """Capture canonical usage for completed streaming response."""
         # Mock implementation - no-op for testing
 
@@ -152,8 +159,8 @@ async def test_non_streaming_json_response_with_wire_capture():
     # Verify wire capture was scheduled
     assert len(wire_capture.captured_responses) == 1
     captured_content = wire_capture.captured_responses[0]["response_content"]
-    assert isinstance(captured_content, dict)
-    assert captured_content.get("message") == "Hello, world!"
+    assert isinstance(captured_content, bytes)
+    assert b'"message":"Hello, world!"' in captured_content
 
 
 @pytest.mark.asyncio

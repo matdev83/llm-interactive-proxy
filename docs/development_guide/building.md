@@ -195,7 +195,7 @@ llm-interactive-proxy/
 # Enable wire capture (See [Wire Capture](../user_guide/debugging/wire-capture.md))
 ./.venv/Scripts/python.exe -m src.core.cli --capture-file var/wire_captures_json/capture.json
 
-# Enable CBOR wire capture (See [CBOR Capture](../user_guide/debugging/cbor-capture.md))
+# Enable CBOR boundary-level capture (See [CBOR Capture](../user_guide/debugging/cbor-capture.md))
 ./.venv/Scripts/python.exe -m src.core.cli --cbor-capture-file var/wire_captures_cbor/capture.cbor
 ```
 

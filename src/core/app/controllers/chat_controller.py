@@ -549,6 +549,12 @@ class ChatController:
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=domain_request,
                         raw_body=raw_body_bytes or None,
+                        capture_metadata={
+                            "transport": "http",
+                            "protocol_event": "request",
+                            "http_method": request.method,
+                            "url": str(request.url),
+                        },
                     )
                 except OSError as exc:
                     # Expected I/O errors (disk full, permission denied, etc.)

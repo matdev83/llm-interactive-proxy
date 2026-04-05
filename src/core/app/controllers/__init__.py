@@ -7,6 +7,7 @@ This package contains controllers that handle HTTP endpoints in the application.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -814,7 +815,15 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                     e,
                     exc_info=True,
                 )
-            ctx = fastapi_to_domain_request_context(request, attach_original=True)
+            try:
+                raw_body_bytes = await request.body()
+            except Exception:
+                raw_body_bytes = b""
+            ctx = fastapi_to_domain_request_context(
+                request,
+                attach_original=True,
+                raw_body=raw_body_bytes or None,
+            )
 
             # Set protocol identifier for normalization (Requirement 1.12)
             if ctx.extensions is None:
@@ -858,7 +867,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=domain_request,
-                        raw_body=None,
+                        raw_body=raw_body_bytes or None,
+                        capture_metadata={
+                            "transport": "http",
+                            "protocol_event": "request",
+                        },
                     )
                 except Exception as e:
                     logger.warning(
@@ -979,13 +992,21 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
 
             if wire_capture and wire_capture.enabled():
                 try:
+                    response_bytes = json.dumps(
+                        response_payload, separators=(",", ":"), ensure_ascii=False
+                    ).encode("utf-8")
                     await wire_capture.capture_outbound_response(
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         backend=None,
                         model=getattr(domain_request, "model", None),
                         key_name=None,
-                        response_content=response_payload,
+                        response_content=response_bytes,
+                        capture_metadata={
+                            "transport": "http",
+                            "protocol_event": "response",
+                            "http_status_code": 200,
+                        },
                     )
                 except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
                     # Catch specific exceptions from wire capture operations
@@ -1066,7 +1087,15 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                     e,
                     exc_info=True,
                 )
-            ctx = fastapi_to_domain_request_context(request, attach_original=True)
+            try:
+                raw_body_bytes = await request.body()
+            except Exception:
+                raw_body_bytes = b""
+            ctx = fastapi_to_domain_request_context(
+                request,
+                attach_original=True,
+                raw_body=raw_body_bytes or None,
+            )
 
             # Set protocol identifier for normalization (Requirement1.12)
             if ctx.extensions is None:
@@ -1117,7 +1146,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=domain_request,
-                        raw_body=None,
+                        raw_body=raw_body_bytes or None,
+                        capture_metadata={
+                            "transport": "http",
+                            "protocol_event": "request",
+                        },
                     )
                 except Exception as e:
                     logger.warning(

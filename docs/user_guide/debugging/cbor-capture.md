@@ -1,10 +1,18 @@
 # CBOR Wire Capture
 
-CBOR (Concise Binary Object Representation) wire capture provides a high-performance, compact alternative to JSON-based wire capture. It records full HTTP requests and responses in a binary format that is faster to write and takes up less space.
+CBOR V2 capture records the bytes observed at the proxy boundary in a compact binary format. It captures protocol-boundary traffic, not canonical object serialization.
 
 ## Overview
 
-CBOR wire capture is designed for high-throughput environments where minimizing I/O overhead is critical. It captures the same detailed information as the JSON format but uses the efficient CBOR binary standard.
+CBOR wire capture is designed for high-throughput environments where minimizing I/O overhead is critical.
+
+The capture contract is boundary-level:
+
+- HTTP request and response bodies are captured as transmitted across the proxy boundary.
+- WebSocket payloads are captured as transmitted across the proxy boundary.
+- JSON and structured capture semantics are unchanged; CBOR V2 is an additional storage format, not a semantic rewrite.
+
+This means the capture preserves what crossed the proxy boundary, but it does not provide TCP segment, TLS record, or HTTP/2 frame fidelity. It also does not attempt to reconstruct a canonical application object model from the payload.
 
 ## Enabling CBOR Capture
 
@@ -103,3 +111,9 @@ If you need to process the data with other tools (like `jq`), you can export it 
 ```bash
 python scripts/inspect_cbor_capture.py session.cbor --json > export.json
 ```
+
+## Security and Scope Notes
+
+- Secrets are stored as transmitted on the wire. If a request or response includes credentials, tokens, or other sensitive values, the capture records those bytes unless an upstream redaction step has already changed them.
+- Scoped OAuth traffic is captured when it crosses the proxy boundary, including proxied client-to-provider and provider-to-client exchanges.
+- Background OAuth refresh, probes, and other internal non-proxied OAuth activity are outside the capture contract and are not recorded by CBOR V2.

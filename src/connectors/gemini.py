@@ -15,8 +15,13 @@ from fastapi import HTTPException
 from src.connectors.base import LLMBackend, add_vendor_prefix
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
 )
 from src.connectors.mixins.usage_calculation_mixin import UsageCalculationMixin
+from src.core.common.capture_aware_httpx import (
+    CaptureAwareAsyncClient,
+    HttpxBoundaryCaptureContext,
+)
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -26,7 +31,6 @@ from src.core.common.exceptions import (
 from src.core.config.app_config import AppConfig  # Added
 from src.core.domain.chat import (
     CanonicalChatRequest,
-    ChatMessage,
     ChatRequest,
     MessageContentPartImage,
     MessageContentPartText,
@@ -41,7 +45,6 @@ from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
-from src.core.services.boundary_validation import log_boundary_validation_failure
 from src.core.services.translation_service import TranslationService
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
@@ -50,6 +53,10 @@ from src.core.services.translation_service import TranslationService
 # from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
+
+_LLM_PROXY_REQUEST_ID_KEY = "_llm_proxy_request_id"
+_LLM_PROXY_SESSION_ID_KEY = "_llm_proxy_session_id"
+_LLM_PROXY_CLIENT_HOST_KEY = "_llm_proxy_client_host"
 
 
 @dataclass(frozen=True)
@@ -78,9 +85,24 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         translation_service: TranslationService,
     ) -> None:
         self.client = client
+        self._capture_http_client = CaptureAwareAsyncClient(client)
         self.config = config  # Stored config
         self.translation_service = translation_service
         self.available_models: list[str] = []
+
+    def _http_boundary_capture(
+        self,
+        *,
+        model: str,
+        context: ConnectorRequestContext | None,
+        key_name: str | None = None,
+    ) -> HttpxBoundaryCaptureContext:
+        return HttpxBoundaryCaptureContext(
+            backend=self.backend_type,
+            model=model,
+            key_name=self.backend_type if key_name is None else key_name,
+            context=context,
+        )
 
     async def initialize(self, **kwargs: Any) -> None:
         """Store configuration for lazy initialization."""
@@ -333,6 +355,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         payload: dict[str, Any],
         headers: dict[str, str],
         effective_model: str,
+        context: ConnectorRequestContext | None = None,
     ) -> StreamingResponseHandle:
         request_headers = ensure_loop_guard_header(headers)
         request_id = request_headers.get("x-goog-request-id") or uuid.uuid4().hex
@@ -343,7 +366,14 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             request = self.client.build_request(
                 "POST", url, json=payload, headers=request_headers
             )
-            response = await self.client.send(request, stream=True)
+            response = await self._capture_http_client.send(
+                request,
+                stream=True,
+                capture=self._http_boundary_capture(
+                    model=str(effective_model),
+                    context=context,
+                ),
+            )
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
@@ -355,7 +385,14 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 "POST", url, json=payload, headers=request_headers
             )
             try:
-                response = await self.client.send(request, stream=True)
+                response = await self._capture_http_client.send(
+                    request,
+                    stream=True,
+                    capture=self._http_boundary_capture(
+                        model=str(effective_model),
+                        context=context,
+                    ),
+                )
             except httpx.RequestError as e:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
@@ -443,10 +480,19 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             payload_body = {"requestId": request_id}
 
             try:
-                cancel_response = await self.client.post(
+                cancel_request = self.client.build_request(
+                    "POST",
                     cancel_url,
                     json=payload_body,
                     headers=cancel_headers,
+                )
+                cancel_response = await self._capture_http_client.send(
+                    cancel_request,
+                    stream=False,
+                    capture=self._http_boundary_capture(
+                        model="gemini-cancel",
+                        context=context,
+                    ),
                 )
             except httpx.RequestError as exc:
                 if logger.isEnabledFor(logging.DEBUG):
@@ -568,10 +614,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         key_name_val = options.get("key_name")
         key_name: str | None = key_name_val if isinstance(key_name_val, str) else None
 
-        # JSON-SAFETY: Callables are NOT in options - use instance attributes instead
-        # Options contain only JSON-serializable values per Requirement 4.3
-        # Callables are temporarily stored as instance attributes in legacy path
-        # and extracted here for use in _resolve_gemini_api_config
+        # JSON-SAFETY: Callables are not in options; invoker may set
+        # ``openrouter_headers_provider`` on the backend instance when needed.
         openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = (
             getattr(self, "openrouter_headers_provider", None)
         )
@@ -716,6 +760,13 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 "key_name": key_name,
                 "openrouter_api_base_url": openrouter_api_base_url,
             }
+            if context is not None:
+                if context.request_id:
+                    extra_data[_LLM_PROXY_REQUEST_ID_KEY] = context.request_id
+                if context.session_id:
+                    extra_data[_LLM_PROXY_SESSION_ID_KEY] = context.session_id
+                if context.client_host:
+                    extra_data[_LLM_PROXY_CLIENT_HOST_KEY] = context.client_host
 
             new_extra_body = (domain_request.extra_body or {}).copy()
             new_extra_body.update(extra_data)
@@ -767,7 +818,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             )
 
         response_envelope = await self._handle_gemini_non_streaming_response(
-            model_url, payload, api_config.headers, effective_model
+            model_url, payload, api_config.headers, effective_model, context=context
         )
 
         # Ensure usage is calculated if missing
@@ -777,202 +828,27 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request: ConnectorChatCompletionsRequest | Any = None,
-        *args: Any,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Canonical connector API implementation with backward compatibility.
+        """Invoke Gemini chat completions using ``ConnectorChatCompletionsRequest`` only.
 
-        This method implements ICanonicalChatCompletionsBackend protocol.
-        For backward compatibility, also accepts legacy signature:
-        chat_completions(request_data, processed_messages, effective_model, ...)
+        Implements :class:`ICanonicalChatCompletionsBackend`. The proxy invokes backends
+        through :class:`ConnectorChatCompletionsRequest`; legacy
+        request_data/processed_messages/effective_model invocation is not supported at
+        this boundary.
         """
-        # Handle legacy API called with keyword arguments only (request_data=...)
-        if request is None and "request_data" in kwargs:
-            request = kwargs.pop("request_data")
-
-        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
-        if isinstance(request, ConnectorChatCompletionsRequest):
-            return await self._chat_completions_canonical(request)
-
-        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
-        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
-        # This connector should only receive canonical domain models (never dicts).
-        request_data = request
-        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
-        effective_model = (
-            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
-        )
-        identity = kwargs.get("identity")
-        cancellation_token = kwargs.get("cancellation_token")
-        cancellation_coordinator = kwargs.get("cancellation_coordinator")
-        context = None  # Legacy API doesn't provide context
-        # JSON-SAFETY: Filter out callables from options - they must not be stored in options dict
-        # Extract callable before building options dict (will be passed separately if needed)
-        openrouter_headers_provider_from_kwargs: (
-            Callable[[Any, str], dict[str, str]] | None
-        ) = (
-            kwargs.get("openrouter_headers_provider")
-            if callable(kwargs.get("openrouter_headers_provider"))
-            else None
-        )
-
-        options = {
-            k: v
-            for k, v in kwargs.items()
-            if k
-            not in [
-                "identity",
-                "cancellation_token",
-                "cancellation_coordinator",
-                "processed_messages",
-                "effective_model",
-                "request_data",
-                "openrouter_headers_provider",  # Exclude callable from options
-            ]
-            and not callable(v)  # Additional safety: exclude any callables
-        }
-
-        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
-        if isinstance(request_data, dict):
-            # Extract correlation identifiers from available sources
-            # In legacy path, context is None, but we might have identity with session_id
-            session_id = getattr(identity, "session_id", None) if identity else None
-            correlation_ids = {"request_id": None, "session_id": session_id}
-
-            # Log boundary validation failure with available correlation identifiers
-            log_boundary_validation_failure(
-                logger=logger,
-                message="Legacy connector API received dict input. "
-                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
-                "Expected CanonicalChatRequest or ChatRequest.",
-                context=None,  # No RequestContext in legacy path
-                service="GeminiConnector",
-                violation_type="dict_input",
-                details={
-                    "received_type": "dict",
-                    "expected_type": "CanonicalChatRequest | ChatRequest",
-                    "connector": "gemini",
-                    "session_id": correlation_ids[
-                        "session_id"
-                    ],  # Include in details for visibility
-                },
-            )
-
+        if not isinstance(request, ConnectorChatCompletionsRequest):
             raise InvalidRequestError(
-                message="Legacy connector API received dict input. "
-                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
-                "Expected CanonicalChatRequest or ChatRequest.",
+                message=(
+                    "GeminiBackend.chat_completions requires ConnectorChatCompletionsRequest. "
+                    "Legacy request_data/processed_messages/effective_model invocation is not supported."
+                ),
                 details={
-                    "received_type": "dict",
+                    "received_type": type(request).__name__,
                     "connector": "gemini",
                 },
             )
-
-        # Ensure processed_messages is a Sequence[ChatMessage]
-        # ConnectorInvoker guarantees typed messages, but legacy path may receive mixed types
-        # Validate all elements to ensure consistent typed representation (Requirement 4.2)
-        if processed_messages:
-            invalid_messages = [
-                (i, type(msg).__name__)
-                for i, msg in enumerate(processed_messages)
-                if not isinstance(msg, ChatMessage)
-            ]
-            if invalid_messages:
-                # Legacy path should not receive dict messages (coercion centralized at invoker)
-                # Extract correlation identifiers for logging
-                session_id = getattr(identity, "session_id", None) if identity else None
-                correlation_ids = {"request_id": None, "session_id": session_id}
-
-                log_boundary_validation_failure(
-                    logger=logger,
-                    message="Legacy connector API received non-canonical processed_messages. "
-                    "Expected Sequence[ChatMessage], but received mixed types.",
-                    context=None,
-                    service="GeminiConnector",
-                    violation_type="invalid_processed_messages",
-                    details={
-                        "invalid_indices": [idx for idx, _ in invalid_messages],
-                        "invalid_types": [typ for _, typ in invalid_messages],
-                        "connector": "gemini",
-                        "session_id": correlation_ids["session_id"],
-                    },
-                )
-
-                raise InvalidRequestError(
-                    message="Legacy connector API received non-canonical processed_messages. "
-                    "Expected Sequence[ChatMessage], but received mixed types.",
-                    details={
-                        "invalid_indices": [idx for idx, _ in invalid_messages],
-                        "invalid_types": [typ for _, typ in invalid_messages],
-                        "connector": "gemini",
-                    },
-                )
-
-        # Accept only canonical domain models
-        if isinstance(request_data, ChatRequest):
-            domain_request = CanonicalChatRequest.model_validate(
-                request_data.model_dump()
-            )
-        elif isinstance(request_data, CanonicalChatRequest):
-            domain_request = request_data
-        else:
-            # Reject other types - invoker should only pass canonical models
-            # Extract correlation identifiers for logging
-            session_id = getattr(identity, "session_id", None) if identity else None
-            correlation_ids = {"request_id": None, "session_id": session_id}
-
-            log_boundary_validation_failure(
-                logger=logger,
-                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
-                "Expected CanonicalChatRequest or ChatRequest.",
-                context=None,  # No RequestContext in legacy path
-                service="GeminiConnector",
-                violation_type="invalid_input_type",
-                details={
-                    "received_type": type(request_data).__name__,
-                    "expected_type": "CanonicalChatRequest | ChatRequest",
-                    "connector": "gemini",
-                    "session_id": correlation_ids["session_id"],
-                },
-            )
-
-            raise InvalidRequestError(
-                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
-                "Expected CanonicalChatRequest or ChatRequest.",
-                details={
-                    "received_type": type(request_data).__name__,
-                    "connector": "gemini",
-                },
-            )
-
-        canonical_request = ConnectorChatCompletionsRequest(
-            request=domain_request,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=identity,
-            cancellation_token=cancellation_token,
-            cancellation_coordinator=cancellation_coordinator,
-            context=context,
-            options=options,
-        )
-
-        # JSON-SAFETY: Callables cannot be in options, but we need to pass them to _resolve_gemini_api_config.
-        # Store callable temporarily as instance attribute for this call (similar to OpenRouter pattern).
-        # This preserves functionality while maintaining JSON-safety in options.
-        original_callable = getattr(self, "openrouter_headers_provider", None)
-        try:
-            if openrouter_headers_provider_from_kwargs is not None:
-                self.openrouter_headers_provider = (
-                    openrouter_headers_provider_from_kwargs
-                )
-            return await self._chat_completions_canonical(canonical_request)
-        finally:
-            # Restore original value (or remove if it didn't exist)
-            if original_callable is not None:
-                self.openrouter_headers_provider = original_callable
-            elif hasattr(self, "openrouter_headers_provider"):
-                delattr(self, "openrouter_headers_provider")
+        return await self._chat_completions_canonical(request)
 
     def _build_openrouter_header_context(self) -> dict[str, str]:
         referer = "http://localhost:8000"
@@ -1177,11 +1053,22 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         payload: dict[str, Any],
         headers: dict[str, Any],
         effective_model: str,
+        context: ConnectorRequestContext | None = None,
     ) -> ResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:generateContent"
         try:
-            response = await self.client.post(url, json=payload, headers=headers)
+            request = self.client.build_request(
+                "POST", url, json=payload, headers=headers
+            )
+            response = await self._capture_http_client.send(
+                request,
+                stream=False,
+                capture=self._http_boundary_capture(
+                    model=str(effective_model),
+                    context=context,
+                ),
+            )
             if response.status_code >= 400:
                 try:
                     error_detail = response.json()
@@ -1345,6 +1232,34 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         effective_model = getattr(request, "model", "gemini-1.5-flash")
 
         extra_body = getattr(request, "extra_body", {}) or {}
+        proxy_request_id = extra_body.get(_LLM_PROXY_REQUEST_ID_KEY)
+        proxy_session_id = extra_body.get(_LLM_PROXY_SESSION_ID_KEY)
+        proxy_client_host = extra_body.get(_LLM_PROXY_CLIENT_HOST_KEY)
+        connector_context: ConnectorRequestContext | None = None
+        if isinstance(proxy_request_id, str) and proxy_request_id:
+            connector_context = ConnectorRequestContext(
+                request_id=proxy_request_id,
+                session_id=(
+                    proxy_session_id
+                    if isinstance(proxy_session_id, str) and proxy_session_id
+                    else None
+                ),
+                client_host=(
+                    proxy_client_host
+                    if isinstance(proxy_client_host, str) and proxy_client_host
+                    else None
+                ),
+                extensions={},
+            )
+        if connector_context is None:
+            fallback_session = getattr(request, "session_id", None)
+            if isinstance(fallback_session, str) and fallback_session:
+                connector_context = ConnectorRequestContext(
+                    request_id=fallback_session,
+                    session_id=fallback_session,
+                    client_host=None,
+                    extensions={},
+                )
 
         try:
             api_config = await self._resolve_gemini_api_config(
@@ -1387,7 +1302,14 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             http_request = self.client.build_request(
                 "POST", url, json=payload, headers=request_headers
             )
-            response = await self.client.send(http_request, stream=True)
+            response = await self._capture_http_client.send(
+                http_request,
+                stream=True,
+                capture=self._http_boundary_capture(
+                    model=str(effective_model),
+                    context=connector_context,
+                ),
+            )
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
             raise ServiceUnavailableError(
