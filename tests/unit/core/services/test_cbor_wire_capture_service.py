@@ -907,9 +907,6 @@ class TestCborWireCaptureService:
         # advance without sleeping.
         current_time = [1000.0]
 
-        def mock_time():
-            return current_time[0]
-
         def mock_time_ns():
             return int(current_time[0] * 1_000_000_000)
 

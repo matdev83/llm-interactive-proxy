@@ -203,18 +203,26 @@ class TestCborCaptureDeterministic:
             assert entry.timestamp is not None
 
 
+class _MockLoggingConfig:
+    """Minimal stand-in for the project's logging configuration."""
+
+    capture_file: str | None = None
+    capture_max_bytes: int | None = None
+    capture_truncate_bytes: int | None = None
+    capture_max_files: int = 0
+    capture_rotate_interval_seconds: int = 0
+    capture_total_max_bytes: int = 0
+
+
 class TestStructuredCaptureDeterministic:
     """Test structured (JSON) capture produces deterministic output."""
 
     @pytest.fixture
     def structured_service(self, mock_config, temp_capture_dir):
         """Create a structured capture service."""
-        # Configure logging to use structured capture
         if not hasattr(mock_config, "logging"):
-            mock_config.logging = type("LoggingConfig", (), {})()
-        mock_config.logging.capture_file = str(
-            temp_capture_dir / "structured.jsonl"
-        )  # pyright: ignore[reportAttributeAccessIssue]
+            mock_config.logging = _MockLoggingConfig()
+        mock_config.logging.capture_file = str(temp_capture_dir / "structured.jsonl")
 
         service = StructuredWireCapture(config=mock_config)
         return service

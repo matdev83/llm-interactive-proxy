@@ -18,7 +18,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 from uuid import uuid4
 
 import cbor2
@@ -645,7 +645,7 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             if m is not None:
                 model = str(m)
         elif not isinstance(request_payload, list):
-            model_attr = getattr(cast(Any, request_payload), "model", None)
+            model_attr = getattr(request_payload, "model", None)
             if model_attr is not None:
                 model = str(model_attr)
 

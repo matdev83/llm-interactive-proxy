@@ -38,6 +38,7 @@ class MockWireCapture(IWireCapture):
         session_id: str | None,
         request_payload: Any,
         raw_body: bytes | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         pass
 
@@ -50,6 +51,7 @@ class MockWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         request_payload: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         pass
 
@@ -63,6 +65,7 @@ class MockWireCapture(IWireCapture):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Record call with typed canonical_usage parameter."""
         self.capture_inbound_response_calls.append(
@@ -83,6 +86,7 @@ class MockWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         stream: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> Any:
         return stream
 
@@ -95,6 +99,7 @@ class MockWireCapture(IWireCapture):
         model: str | None,
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         pass
 
@@ -107,6 +112,7 @@ class MockWireCapture(IWireCapture):
         model: str | None,
         key_name: str | None,
         stream: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> Any:
         return stream
 
@@ -120,6 +126,7 @@ class MockWireCapture(IWireCapture):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Record call with typed eos_metadata parameter."""
         self.capture_stream_completion_calls.append(
@@ -169,6 +176,7 @@ class MockWireCaptureOrchestrator(IWireCaptureOrchestrator):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Record call with typed canonical_usage parameter."""
         self.capture_inbound_response_calls.append(
@@ -187,6 +195,7 @@ class MockWireCaptureOrchestrator(IWireCaptureOrchestrator):
             key_name=key_name,
             response_content=response_content,
             canonical_usage=canonical_usage,
+            capture_metadata=capture_metadata,
         )
 
     def wrap_inbound_stream(
@@ -197,6 +206,7 @@ class MockWireCaptureOrchestrator(IWireCaptureOrchestrator):
         effective_model: str,
         key_name: str | None,
         stream: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> Any:
         return stream
 
@@ -209,6 +219,7 @@ class MockWireCaptureOrchestrator(IWireCaptureOrchestrator):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Record call with typed eos_metadata parameter."""
         self.capture_stream_completion_calls.append(
@@ -227,6 +238,7 @@ class MockWireCaptureOrchestrator(IWireCaptureOrchestrator):
             key_name=key_name,
             canonical_usage=canonical_usage,
             eos_metadata=eos_metadata,
+            capture_metadata=capture_metadata,
         )
 
 
