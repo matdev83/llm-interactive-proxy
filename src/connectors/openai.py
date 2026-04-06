@@ -30,6 +30,7 @@ from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     InvalidRequestError,
+    RateLimitExceededError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
@@ -65,6 +66,21 @@ _LLM_PROXY_STREAM_HEADERS_KEY = "_llm_proxy_stream_headers"
 _LLM_PROXY_REQUEST_ID_KEY = "_llm_proxy_request_id"
 _LLM_PROXY_SESSION_ID_KEY = "_llm_proxy_session_id"
 _LLM_PROXY_CLIENT_HOST_KEY = "_llm_proxy_client_host"
+
+
+def _parse_retry_after_header(headers: Any) -> int | None:
+    try:
+        value = headers.get("retry-after") if hasattr(headers, "get") else None
+        if value is None:
+            for key, v in headers.items():
+                if str(key).lower() == "retry-after":
+                    value = str(v).strip()
+                    break
+        if value is not None:
+            return int(value)
+    except (ValueError, TypeError, Exception):
+        pass
+    return None
 
 
 def _error_details_from_http_response(response: httpx.Response) -> dict[str, Any]:
@@ -2133,11 +2149,20 @@ class OpenAIConnector(LLMBackend):
                 with contextlib.suppress(BaseException):
                     await response.aclose()
 
+            error_details = _error_details_from_http_response(response)
+            if status_code == 429:
+                reset_at = _parse_retry_after_header(response.headers)
+                raise RateLimitExceededError(
+                    message=body or "Upstream rate limit exceeded",
+                    details=error_details,
+                    reset_at=reset_at,
+                )
+
             raise BackendError(
                 message=body,
                 status_code=status_code,
                 code=str(status_code),
-                details=_error_details_from_http_response(response),
+                details=error_details,
             )
 
         # Stream SSE messages
