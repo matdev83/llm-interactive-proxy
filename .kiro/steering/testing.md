@@ -61,6 +61,12 @@ Default execution posture:
 - Session/user isolation guarantees
 - Safety controls that must not destabilize the core routing path
 
+Compatibility contract pattern:
+
+- The repo contains explicit **protocol contract tests** that pin streaming and tool-call
+  semantics for OpenAI/Anthropic/Gemini-compatible surfaces. When changing protocol
+  behavior, treat these tests as the primary spec and update them deliberately.
+
 ## Canonical Commands
 
 Use the in-repo interpreter:

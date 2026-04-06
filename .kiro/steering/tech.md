@@ -80,6 +80,19 @@ Discovery pattern:
 Optional OAuth connector families are provided via extra dependency
 `llm-interactive-proxy-oauth-connectors` (`[project.optional-dependencies].oauth`).
 
+Capability declaration pattern:
+
+- Backends declare protocol- and tool-related capabilities through typed configuration
+  (`BackendCapabilityDescriptor`) rather than implicit connector attributes.
+  - Model: `src/core/domain/backend_capability_descriptor.py`
+  - Config wiring: `src/core/config/models/backends.py`
+
+Stability expectations:
+
+- Backend and plugin discovery are intended to be safe to run more than once
+  (idempotent, duplicate/invalid plugins skipped with warnings rather than failing
+  core startup).
+
 ## Error Model
 
 - Base hierarchy: `LLMProxyError` (`src/core/common/exceptions.py`)
@@ -117,6 +130,9 @@ Mypy is enabled with a practical non-strict baseline:
 - `warn_return_any = true`
 - `warn_unused_configs = true`
 - targeted overrides for third-party packages as needed
+
+Pyright is also present (`pyrightconfig*.json`) and validated by the test suite in
+practice; keep both mypy and pyright checks green when changing typed boundaries.
 
 ### Tests
 
