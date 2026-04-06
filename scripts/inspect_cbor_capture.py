@@ -113,8 +113,52 @@ DIRECTION_SYMBOLS = {
 CAPTURE_MAGIC = "LLMPROXY-CAPTURE-V2"
 CAPTURE_VERSION = 2
 
+META_FIELD_NAMES = {
+    "sid": "session_id",
+    "asid": "a_session_id",
+    "bsid": "b_session_id",
+    "bseq": "b_seq",
+    "be": "backend",
+    "mod": "model",
+    "key": "key_name",
+    "host": "client_host",
+    "ua": "user_agent",
+    "rid": "request_id",
+    "ci": "chunk_index",
+    "ss": "is_stream_start",
+    "se": "is_stream_end",
+    "tc": "total_chunks",
+    "tb": "total_bytes",
+    "cu": "canonical_usage",
+    "sc": "status_code",
+    "ra": "retry_after_seconds",
+    "rat": "retry_attempt",
+    "rtry": "is_retry",
+    "acct": "account_id",
+    "rts": "request_timestamp",
+    "pts": "response_timestamp",
+    "lat": "latency_ms",
+    "ttfb": "ttfb_ms",
+    "sdur": "stream_duration_ms",
+    "eos": "eos",
+    "eos_sig": "eos_signal",
+    "eos_reason": "eos_reason",
+    "eos_term": "eos_termination_category",
+    "eos_err_cls": "eos_error_classification",
+    "eos_err_code": "eos_error_status_code",
+    "wire_schema": "wire_schema",
+    "transport": "transport",
+    "event": "protocol_event",
+    "http_method": "http_method",
+    "url": "url",
+    "http_status": "http_status_code",
+    "http_reason": "http_reason_phrase",
+    "http_version": "http_version",
+    "ws_message_type": "websocket_message_type",
+}
 
-def _validate_capture_header(header: dict[str, Any]) -> None:
+
+def _validate_capture_header(header: Any) -> None:
     """Reject unsupported capture file headers before reading entries."""
     if not isinstance(header, dict):
         raise ValueError(
@@ -154,9 +198,159 @@ def _meta_b_session_id(meta: dict[str, Any]) -> str | None:
     return None
 
 
-def _meta_backend_correlation_id(meta: dict[str, Any]) -> str | None:
-    """Return the best correlation id for backend-leg pairing."""
-    return _meta_b_session_id(meta) or _meta_a_session_id(meta)
+def _meta_is_stream_start(meta: dict[str, Any]) -> bool:
+    """Return True when metadata marks a stream start marker."""
+    return bool(meta.get("ss"))
+
+
+def _meta_is_stream_end(meta: dict[str, Any]) -> bool:
+    """Return True when metadata marks a stream end marker."""
+    return bool(meta.get("se"))
+
+
+def _meta_http_status(meta: dict[str, Any]) -> int | None:
+    """Return best-effort HTTP status for legacy and V2 captures."""
+    status = meta.get("http_status")
+    if isinstance(status, int):
+        return status
+    if isinstance(status, float) and status.is_integer():
+        return int(status)
+
+    status = meta.get("sc")
+    if isinstance(status, int):
+        return status
+    if isinstance(status, float) and status.is_integer():
+        return int(status)
+    return None
+
+
+def _normalize_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+    """Expand compact CBOR metadata keys into user-facing names."""
+    normalized: dict[str, Any] = {}
+    for key, value in meta.items():
+        normalized[META_FIELD_NAMES.get(key, key)] = value
+    return normalized
+
+
+def _backend_payload_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return backend entries that carry actual bytes, not stream markers."""
+    result: list[dict[str, Any]] = []
+    for entry in entries:
+        if entry.get("dir") != 3:
+            continue
+        if entry.get("data"):
+            result.append(entry)
+    return result
+
+
+def _entry_timestamp(entry: dict[str, Any]) -> float:
+    """Return an entry timestamp as float with a safe fallback."""
+    ts = entry.get("ts", 0)
+    return float(ts) if isinstance(ts, int | float) else 0.0
+
+
+def _compute_backend_ttft(
+    request_entry: dict[str, Any], backend_entries: list[dict[str, Any]]
+) -> float | None:
+    """Compute TTFT using explicit V2 metadata when available."""
+    for entry in backend_entries:
+        meta = entry.get("meta", {})
+        ttfb_ms = meta.get("ttfb")
+        if isinstance(ttfb_ms, int | float):
+            return float(ttfb_ms) / 1000.0
+
+    payload_entries = _backend_payload_entries(backend_entries)
+    if payload_entries:
+        return _entry_timestamp(payload_entries[0]) - _entry_timestamp(request_entry)
+
+    if backend_entries:
+        return _entry_timestamp(backend_entries[0]) - _entry_timestamp(request_entry)
+
+    return None
+
+
+def _compute_backend_duration(
+    request_entry: dict[str, Any], backend_entries: list[dict[str, Any]]
+) -> float | None:
+    """Compute request duration using stream-end metadata when available."""
+    for entry in reversed(backend_entries):
+        meta = entry.get("meta", {})
+        if _meta_is_stream_end(meta):
+            return _entry_timestamp(entry) - _entry_timestamp(request_entry)
+
+    payload_entries = _backend_payload_entries(backend_entries)
+    if payload_entries:
+        return _entry_timestamp(payload_entries[-1]) - _entry_timestamp(request_entry)
+
+    if backend_entries:
+        return _entry_timestamp(backend_entries[-1]) - _entry_timestamp(request_entry)
+
+    return None
+
+
+def _meta_request_id(meta: dict[str, Any]) -> str | None:
+    """Return request id when present."""
+    request_id = meta.get("rid")
+    if isinstance(request_id, str) and request_id:
+        return request_id
+    return None
+
+
+def _collect_correlated_entries(
+    entries: list[dict[str, Any]],
+    *,
+    start_index: int,
+    request_id: str | None,
+    direction: int,
+) -> list[dict[str, Any]]:
+    """Collect later entries for one request, preferring request-id correlation."""
+    if request_id:
+        return [
+            entry
+            for entry in entries[start_index + 1 :]
+            if entry.get("dir") == direction
+            and _meta_request_id(entry.get("meta", {})) == request_id
+        ]
+
+    result: list[dict[str, Any]] = []
+    for entry in entries[start_index + 1 :]:
+        if entry.get("dir") == 0:
+            break
+        if entry.get("dir") == direction:
+            result.append(entry)
+    return result
+
+
+def _collect_request_flow_entries(
+    entries: list[dict[str, Any]],
+    *,
+    start_index: int,
+    backend_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    """Collect all later entries that belong to the same request flow."""
+    start_entry = entries[start_index]
+    request_id = _meta_request_id(start_entry.get("meta", {}))
+    if request_id:
+        return [
+            entry
+            for entry in entries[start_index + 1 :]
+            if _meta_request_id(entry.get("meta", {})) == request_id
+        ]
+
+    related: list[dict[str, Any]] = []
+    req_backend = start_entry.get("meta", {}).get("be")
+    for entry in entries[start_index + 1 :]:
+        if entry.get("dir") == 0:
+            break
+        if entry.get("dir") == 2 and entry.get("meta", {}).get("be") == req_backend:
+            break
+        if (
+            backend_filter is not None
+            and entry.get("meta", {}).get("be") != backend_filter
+        ):
+            continue
+        related.append(entry)
+    return related
 
 
 def safe_decode(data: bytes, max_length: int = 200) -> str:
@@ -271,8 +465,8 @@ def print_summary(
         status_counts: dict[int, int] = {}
         for e in entries:
             meta = e.get("meta", {})
-            status = meta.get("sc")
-            if isinstance(status, int):
+            status = _meta_http_status(meta)
+            if status is not None:
                 status_counts[status] = status_counts.get(status, 0) + 1
 
         if status_counts:
@@ -286,10 +480,10 @@ def print_summary(
             for e in entries:
                 meta = e.get("meta", {})
                 backend = meta.get("be")
-                status = meta.get("sc")
+                status = _meta_http_status(meta)
                 if not isinstance(backend, str) or not backend:
                     continue
-                if not isinstance(status, int):
+                if status is None:
                     continue
                 backend_status.setdefault(backend, {})
                 backend_status[backend][status] = (
@@ -882,21 +1076,14 @@ def track_request(
 
     # Collect all related entries
     req_entry = entries[req_idx]
-    related = [req_entry]
-    req_backend = req_entry.get("meta", {}).get("be")
-
-    # Find all entries until next request (to same backend or any new client request)
-    for i in range(req_idx + 1, len(entries)):
-        next_entry = entries[i]
-        # Stop at next request to same backend, or any CLIENT_TO_PROXY
-        if (
-            next_entry["dir"] == 2
-            and next_entry.get("meta", {}).get("be") == req_backend
-        ):
-            break
-        if next_entry["dir"] == 0:  # CLIENT_TO_PROXY
-            break
-        related.append(next_entry)
+    related = [
+        req_entry,
+        *_collect_request_flow_entries(
+            entries,
+            start_index=req_idx,
+            backend_filter=backend_filter,
+        ),
+    ]
 
     # Display flow
     print(f"\nRequest initiated at entry [{req_entry.get('seq')}]")
@@ -907,11 +1094,15 @@ def track_request(
         req_data = json.loads(req_entry.get("data", b"").decode("utf-8"))
         print(f"Model: {req_data.get('model', 'N/A')}")
         print(f"Request size: {len(req_entry.get('data', b'')):,} bytes")
-    except:
+    except (json.JSONDecodeError, UnicodeDecodeError):
         pass
 
     print("\nFlow timeline:")
-    print(f"  [START] [{req_entry.get('seq')}] C->P  Request received (t=0.000s)")
+    start_direction = DIRECTION_SYMBOLS.get(req_entry["dir"], f"?{req_entry['dir']}")
+    start_desc = "Request received" if req_entry["dir"] == 0 else "Forwarded to backend"
+    print(
+        f"  [START] [{req_entry.get('seq')}] {start_direction}  {start_desc} (t=0.000s)"
+    )
 
     for e in related[1:]:
         seq = e.get("seq", "?")
@@ -1004,49 +1195,54 @@ def analyze_streaming(
             stream_num += 1
             print(f"\n--- Stream #{stream_num} (Entry [{e.get('seq')}]) ---")
 
-            start_ts = e.get("ts", 0)
+            request_id = _meta_request_id(e.get("meta", {}))
 
             # Collect backend response chunks
-            chunks = []
-            j = i + 1
-            while j < len(entries) and entries[j]["dir"] != 2:  # Until next request
-                if entries[j]["dir"] == 3:  # BACKEND_TO_PROXY
-                    chunks.append(entries[j])
-                j += 1
+            chunks = _collect_correlated_entries(
+                entries,
+                start_index=i,
+                request_id=request_id,
+                direction=3,
+            )
 
             if not chunks:
                 print("  No backend response chunks")
-                i = j
+                i += 1
                 continue
 
             # Calculate metrics
-            ttft = chunks[0].get("ts", 0) - start_ts
-            duration = chunks[-1].get("ts", 0) - start_ts
-            chunk_count = len(chunks)
-            total_bytes = sum(len(c.get("data", b"")) for c in chunks)
+            ttft = _compute_backend_ttft(e, chunks)
+            duration = _compute_backend_duration(e, chunks)
+            payload_chunks = _backend_payload_entries(chunks)
+            chunk_count = len(payload_chunks)
+            total_bytes = sum(len(c.get("data", b"")) for c in payload_chunks)
 
-            print(f"  Time to First Token: {ttft:.3f}s")
-            print(f"  Total Duration: {duration:.3f}s")
+            if ttft is not None:
+                print(f"  Time to First Token: {ttft:.3f}s")
+            if duration is not None:
+                print(f"  Total Duration: {duration:.3f}s")
             print(f"  Chunks: {chunk_count}")
             print(f"  Total Data: {total_bytes:,} bytes")
 
-            if chunk_count > 1:
+            if chunk_count > 1 and duration is not None:
                 avg_chunk_time = duration / (chunk_count - 1)
                 print(f"  Avg Time Between Chunks: {avg_chunk_time:.3f}s")
 
             # Detect slow chunks
             slow_chunks = []
-            for k in range(1, len(chunks)):
-                gap = chunks[k].get("ts", 0) - chunks[k - 1].get("ts", 0)
+            for k in range(1, len(payload_chunks)):
+                gap = payload_chunks[k].get("ts", 0) - payload_chunks[k - 1].get(
+                    "ts", 0
+                )
                 if gap > 5:
-                    slow_chunks.append((chunks[k].get("seq"), gap))
+                    slow_chunks.append((payload_chunks[k].get("seq"), gap))
 
             if slow_chunks:
                 print("  Slow Chunks Detected:")
                 for seq, gap in slow_chunks:
                     print(f"    Entry [{seq}]: {gap:.1f}s gap")
 
-            i = j
+            i += 1
         else:
             i += 1
 
@@ -1180,9 +1376,9 @@ def print_entries(
         seq = e.get("seq", "?")
         ts = e.get("ts", 0)
         ts_str = format_timestamp(ts)
-        backend = e.get("meta", {}).get("be", "")
-        backend_str = f" | backend={backend}" if backend else ""
         meta = e.get("meta", {})
+        backend = meta.get("be", "")
+        backend_str = f" | backend={backend}" if backend else ""
         a_session = _meta_a_session_id(meta)
         b_session = _meta_b_session_id(meta)
         session_parts: list[str] = []
@@ -1191,16 +1387,24 @@ def print_entries(
         if b_session:
             session_parts.append(f"b={b_session[:8]}")
         session_str = " | session=" + ",".join(session_parts) if session_parts else ""
+        marker_parts: list[str] = []
+        if _meta_is_stream_start(meta):
+            marker_parts.append("stream_start")
+        if _meta_is_stream_end(meta):
+            marker_parts.append("stream_end")
+        if meta.get("eos"):
+            marker_parts.append("eos")
+        marker_str = " | " + ",".join(marker_parts) if marker_parts else ""
 
         print(
-            f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}{backend_str}{session_str}"
+            f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}{backend_str}{session_str}{marker_str}"
         )
 
         # Verbose metadata
         if verbose:
-            meta = dict(meta)
+            meta = _normalize_metadata(dict(meta))
             # Remove already shown fields
-            for key in ["be", "sid", "asid", "bsid"]:
+            for key in ["backend", "session_id", "a_session_id", "b_session_id"]:
                 meta.pop(key, None)
             if meta:
                 print("    Metadata:")
@@ -1271,6 +1475,7 @@ def analyze_request_response_pairs(
         if e["dir"] == 0:  # CLIENT_TO_PROXY (new request)
             request_num += 1
             print(f"\n--- REQUEST #{request_num} ---")
+            request_id = _meta_request_id(e.get("meta", {}))
 
             # Parse request
             try:
@@ -1281,15 +1486,19 @@ def analyze_request_response_pairs(
                 print("Model: (could not parse)")
 
             # Collect related entries
-            j = i + 1
-            backend_entries = []
-            client_chunks = []
-            while j < len(entries) and entries[j]["dir"] != 0:
-                if entries[j]["dir"] == 3:  # BACKEND_TO_PROXY
-                    backend_entries.append(entries[j])
-                elif entries[j]["dir"] == 1:  # PROXY_TO_CLIENT
-                    client_chunks.append(entries[j]["data"])
-                j += 1
+            backend_entries = _collect_correlated_entries(
+                entries,
+                start_index=i,
+                request_id=request_id,
+                direction=3,
+            )
+            client_entries = _collect_correlated_entries(
+                entries,
+                start_index=i,
+                request_id=request_id,
+                direction=1,
+            )
+            client_chunks = [entry.get("data", b"") for entry in client_entries]
 
             # Analyze backend responses
             backend_content_len = 0
@@ -1300,9 +1509,15 @@ def analyze_request_response_pairs(
 
             # Timing
             if backend_entries:
-                ttft = backend_entries[0]["ts"] - e["ts"]
-                duration = backend_entries[-1]["ts"] - e["ts"]
-                print(f"Timing: TTFT={ttft:.3f}s, Duration={duration:.3f}s")
+                ttft = _compute_backend_ttft(e, backend_entries)
+                duration = _compute_backend_duration(e, backend_entries)
+                timing_parts = []
+                if ttft is not None:
+                    timing_parts.append(f"TTFT={ttft:.3f}s")
+                if duration is not None:
+                    timing_parts.append(f"Duration={duration:.3f}s")
+                if timing_parts:
+                    print(f"Timing: {', '.join(timing_parts)}")
 
             for entry in backend_entries:
                 chunk = entry["data"]
@@ -1423,7 +1638,7 @@ def analyze_request_response_pairs(
                 for issue in set(issues):
                     print(f"  [!] {issue}")
 
-            i = j
+            i += 1
         else:
             i += 1
 
@@ -1456,11 +1671,13 @@ def export_to_json(
         # Apply backend filter
         if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
             continue
+        meta = e.get("meta", {})
         entry_dict = {
             "seq": e.get("seq"),
             "direction": DIRECTION_NAMES.get(e["dir"], f"Unknown({e['dir']})"),
             "timestamp": e.get("ts"),
             "data_length": len(e.get("data", b"")),
+            "metadata": _normalize_metadata(meta),
         }
 
         # Try to parse as SSE
