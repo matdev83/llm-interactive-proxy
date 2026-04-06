@@ -1,81 +1,82 @@
 # Product Overview
 
-**LLM Interactive Proxy** - A universal gateway for Large Language Model APIs providing intelligent routing, failover, and observability.
+**LLM Interactive Proxy** is a universal control plane for LLM traffic. It sits between
+existing AI clients and provider backends so teams can keep client integrations stable
+while changing routing, safety, and operations at the proxy layer.
 
-## Core Purpose
+## Core Promise
 
-Acts as a transparent intermediary between LLM clients and backend providers, enabling:
-- **Vendor independence**: Single integration point for multiple LLM providers
-- **Operational resilience**: Automatic failover and health-aware routing
-- **Development productivity**: Traffic capture, replay, and debugging tools
-- **Cost management**: Usage tracking, rate limiting, and token accounting
+- **Keep clients unchanged**: point clients at one endpoint instead of rewriting them
+- **Stay vendor-independent**: route across provider families and backend instances
+- **Run with stronger controls**: apply safety, policy, and diagnostics centrally
+- **Debug with evidence**: inspect wire-level captures instead of guessing from logs
 
-## Core Capabilities
+## Capability Pillars (Pattern-Level)
 
-### 1. Multi-Protocol Frontend Support
-- **OpenAI Chat Completions** (`/v1/chat/completions`) - Standard OpenAI SDK compatibility
-- **OpenAI Responses API** (`/v1/responses`) - Structured output generation
-- **Anthropic Messages** (`/anthropic/v1/messages`) - Native Claude support
-- **Dedicated Anthropic Server** (`:8001/v1/messages`) - Drop-in Anthropic replacement
-- **Google Gemini v1beta** - Native Gemini tools and streaming
+### 1. Frontend compatibility surfaces
 
-### 2. Multi-Backend Routing
-- **Major Providers**: OpenAI, Anthropic, Google Gemini, OpenRouter
-- **More Providers**: Additional connectors exist (see `docs/user_guide/backends/overview.md`)
-- **OAuth Support**: OAuth flows exist for selected backends (see `docs/user_guide/backends/overview.md`)
+The product exposes multiple API surfaces so common client SDKs and agent tooling can
+run through one proxy:
 
-### 3. Intelligence & Safety
-- **Test Execution Reminder**: Automatically reminds agents to run tests (14+ languages)
-- **LLM Assessment**: Detects conversation loops and stuck patterns
-- **Angel Verification**: Optional response verification with automatic correction
-- **Dangerous Command Protection**: Blocks destructive git operations
-- **Tool Access Control**: Fine-grained control over LLM tool permissions
-- **File Access Sandboxing**: Restricts file operations to safe directories
+- OpenAI-compatible chat/responses/models surfaces
+- Anthropic-compatible messages surfaces (including dedicated Anthropic host mode)
+- Gemini-compatible v1beta surfaces, including streaming and tool-call paths
+- Operational endpoints for diagnostics and backend reactivation
 
-### 4. Authentication & Authorization
-- **SSO Authentication**: OAuth2-based SSO with configurable providers and login UX
-- **Authorization Modes**: Single-user and enterprise authorization policies
-- **Public Login Protection**: Optional CAPTCHA support for exposed auth endpoints
+Use `docs/user_guide/frontends/overview.md` for exhaustive endpoint details.
 
-### 5. Traffic Management
-- **Model Override**: Force applications to use specific models
-- **Random Model Replacement**: Probabilistically swap models for resilience
-- **API Key Rotation**: Aggregate and auto-rotate keys to maximize free-tier usage
-- **Edit Precision Tuning**: Auto-adjust parameters when models struggle
+### 2. Backend orchestration and resilience
 
-### 6. Observability & Debugging
-- **Wire Capture**: CBOR-encoded binary captures of all traffic
-- **Usage Tracking**: Token consumption, costs, performance metrics
-- **Traffic Replay**: Simulation tools for testing and debugging
-- **Structured Logging**: JSON logs with request correlation
+- Multi-backend routing with selector semantics (`backend:model`, instances, model-only)
+- Health-aware backend lifecycle and failover controls
+- Request shaping and policy-aware backend preparation before provider calls
 
-### 7. Codebuff WebSocket Server
-- Real-time AI communication via WebSocket
-- Session management and streaming responses
-- File context support for AI agents
+### 3. Safety and governance
 
-## Target Use Cases
+- Access modes for local/single-user and shared/multi-user operation
+- Dangerous-command protection, tool access policies, and file sandbox guardrails
+- Optional SSO/OAuth login flows with authorization policies and CAPTCHA support
 
-- **Development Teams**: Unified LLM integration without vendor lock-in, rapid prototyping
-- **Enterprise Deployments**: Centralized access control, cost tracking, rate limiting
-- **AI Agent Platforms**: Reliable backend routing with failover for autonomous agents
-- **Testing & Debugging**: Traffic replay, simulation, and inspection for development
-- **Multi-Cloud Deployments**: Abstract provider differences, maintain consistency
+### 4. Session and response quality controls
 
-## Value Proposition
+- Session enrichment and continuity services across turns
+- Command-aware request pipeline and transform chain
+- Optional quality-verifier and loop/behavior monitoring features
 
-- **Vendor Agnostic**: Switch providers without changing client code
-- **Resilient**: Automatic failover reduces downtime and improves reliability
-- **Observable**: Deep visibility into LLM usage patterns and costs
-- **Safe**: Built-in protections against common AI agent mistakes
-- **Extensible**: Plugin architecture for custom backends and middleware
+### 5. Observability and debugging
+
+- Structured logs and usage accounting
+- Byte-precise CBOR wire captures at request/response boundaries
+- Replay/simulation utilities for troubleshooting regressions
+
+### 6. Extensibility
+
+- In-repo connector model for first-party provider adapters
+- Entry-point plugin contract (`llm_proxy_backends`) for external connector packages
+
+## Primary Use Cases
+
+- **Teams with mixed clients/providers**: one integration point for many backends
+- **Operator-focused deployments**: central policy, auth, and diagnostics
+- **Agent-heavy workflows**: reliable routing plus safety controls for tool-enabled agents
+- **Protocol migration periods**: move between backend providers without client rewrites
+
+## Current Product Direction (Brownfield)
+
+Planning artifacts under `.planning/` currently emphasize:
+
+- Stabilize protocol compatibility on core frontend surfaces (OpenAI/Anthropic/Gemini)
+- Isolate core proxy behavior from optional or connector-specific enhancements
+- Reduce fragility in streaming/non-streaming and low-frequency failure paths
+- Strengthen session/user isolation and regression detection quality
+- Prioritize revenue-aligned capabilities only after stability/security baselines hold
 
 ## Non-Goals
 
-- **Model Training**: Not an ML training platform
-- **Fine-Tuning**: Not a model customization service
-- **Data Storage**: Not a long-term conversation database
-- **Model Hosting**: Not an inference server (routes to external providers)
+- Training or fine-tuning foundation models
+- Building a first-party chat client that replaces existing tools
+- Acting as a standalone model hosting/inference platform
+- Growing backend feature breadth at the cost of core stability
 
 ---
 
@@ -85,4 +86,7 @@ _Updated: 2025-12-22_
 _Focus on patterns and purpose; link out for exhaustive catalogs_
 
 _Updated: 2026-01-01_
-_Reason: Align product memory with current safety/quality feature set (Angel verification)_
+_Reason: Align product memory with then-current safety/quality feature set_
+
+_Updated: 2026-04-06_
+_Reason: Sync with current compatibility surfaces, plugin extensibility, and brownfield stabilization direction from `.planning/`_

@@ -212,6 +212,17 @@ def apply_config_part3(
                 origin="ZAI_API_KEY",
             )
 
+        # zai-coding-plan shares the same API key as zai
+        config_backends["zai-coding-plan"] = config_backends.get("zai-coding-plan", {})
+        config_backends["zai-coding-plan"]["api_key"] = env["ZAI_API_KEY"]
+        if resolution is not None:
+            resolution.record(
+                "backends.zai-coding-plan.api_key",
+                config_backends["zai-coding-plan"]["api_key"],
+                ParameterSource.ENVIRONMENT,
+                origin="ZAI_API_KEY",
+            )
+
     if env.get("ZENMUX_API_KEY"):
         config_backends["zenmux"] = config_backends.get("zenmux", {})
         config_backends["zenmux"]["api_key"] = env["ZENMUX_API_KEY"]

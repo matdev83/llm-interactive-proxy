@@ -33,6 +33,8 @@ GEMINI.md
 .mypy_cache_tests/
 .ruff_cache/
 .agent/
+.opencode/
+
 
 # Test and coverage artifacts
 .pytest_cache/

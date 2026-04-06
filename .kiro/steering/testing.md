@@ -2,36 +2,95 @@
 
 ## Testing Philosophy
 
-This project uses **Test-Driven Development (TDD)** as the default workflow:
+This project treats tests as behavior contracts, not just regression counters.
 
-- **Red → Green → Refactor**: start with a failing test that describes the desired behavior, implement the minimal code to pass, then refactor safely.
-- **Tests are the primary specification**: tests should describe the system’s externally observable behavior (contracts), not internal implementation details.
-- **Regression protection**: tests exist to prevent reintroducing previously fixed bugs and to lock in API/behavioral contracts across refactors.
+- **TDD default**: Red -> Green -> Refactor
+- **Contract-first assertions**: validate observable behavior and protocol shape
+- **Regression focus**: pin bugfixes and edge-case behavior explicitly
+- **Deterministic by default**: prefer isolated, reproducible tests over flaky timing/network paths
 
-## “Tests as Executable Specification” Bar
+## Executable-Specification Standard
 
-Created tests must be **sufficiently detailed** that a maintainer could re-create the intended implementation from the tests alone if source code was accidentally lost.
+Tests should be detailed enough that maintainers can recover intended behavior from
+tests alone.
 
-Practically, this means tests should:
+### What strong tests assert
 
-- **Define the contract**: cover inputs/outputs, edge cases, and error handling (including status codes and error payloads where applicable).
-- **Encode invariants**: assert what must always be true, not just “happy path” output.
-- **Specify side effects**: verify important effects such as persistence, capture behavior, usage accounting, routing choices, and emitted events where relevant.
-- **Cover boundary conditions**: validate behavior at interfaces between services/adapters (DI seams), not only in isolated units.
-- **Stay deterministic**: avoid flaky timing/network dependencies; use fakes/fixtures where needed to make behavior reproducible.
+- Inputs, outputs, and edge/error behavior (including shape/status semantics)
+- Invariants and ordering constraints (especially for streaming and tool calls)
+- Side effects where relevant (captures, persistence, usage/accounting, routing)
+- Boundary correctness across DI seams, adapters, and controller/service handoffs
 
-Non-goals for tests:
+### What to avoid
 
-- Duplicating implementation line-by-line.
-- Overfitting to internal call graphs or private helper functions.
+- Re-encoding private implementation call graphs
+- Brittle assertions tied to non-contract internals
+- Over-mocking domain transformations that should be tested as real behavior
 
-## What “Good Coverage” Looks Like Here
+## Suite Topology and Execution Pattern
 
-- **Unit tests**: pin domain/service behavior with clear inputs/outputs and targeted error cases.
-- **Integration/behavior tests**: validate realistic request flows across key components, including streaming where applicable.
-- **Property tests** (when useful): validate invariants over a range of generated inputs (e.g., parsing/transform pipelines).
+Primary test roots and patterns:
+
+- `tests/unit/`: isolated service/domain/connector logic
+- `tests/integration/`: composed runtime flows and endpoint behavior
+- `tests/property/`: invariant-focused randomized checks
+- `tests/regression/`, `tests/behavior/`, `tests/streaming_regression/`: targeted
+  safety nets for known fragile areas
+
+Pytest configuration and markers are centralized in `pyproject.toml`.
+
+Default execution posture:
+
+- Async mode enabled (`--asyncio-mode=auto`)
+- Parallelized local runs (`-n 4 --dist=loadfile`)
+- Timeout guards enabled by default
+
+## Mocking and Boundary Guidance
+
+- Mock external network boundaries (`httpx`, `respx`, `pytest-httpx`)
+- Use fixtures for reusable setup and DI seam control (`conftest.py` layering)
+- Keep true integration paths for protocol contract tests where composition matters
+- When testing transforms/parsers, assert resulting domain/protocol shapes rather than
+  only "called once" style checks
+
+## High-Value Test Targets in This Codebase
+
+- Frontend protocol compatibility (OpenAI/Anthropic/Gemini)
+- Streaming and non-streaming behavior equivalence where expected
+- Backend failover/retry/circuit-breaker behavior
+- Session/user isolation guarantees
+- Safety controls that must not destabilize the core routing path
+
+## Canonical Commands
+
+Use the in-repo interpreter:
+
+```powershell
+# Default suite (uses project addopts)
+./.venv/Scripts/python.exe -m pytest
+
+# Focused suites
+./.venv/Scripts/python.exe -m pytest tests/unit
+./.venv/Scripts/python.exe -m pytest tests/integration
+
+# Marker-based runs
+./.venv/Scripts/python.exe -m pytest -m "unit"
+./.venv/Scripts/python.exe -m pytest -m "integration"
+```
+
+## Near-Term Testing Direction (Planning-Aligned)
+
+Current planning priorities from `.planning/` emphasize:
+
+- Better regression detection for core behavior, not just larger test count
+- Faster feedback loops for iterative stabilization
+- Stronger provider/protocol coverage in compatibility paths
+- More explicit tests for core-vs-non-core isolation boundaries
 
 ---
 
 _Updated: 2025-12-27_
-_Reason: Clarify that TDD is the default workflow and raise the bar for tests as executable specifications_
+_Reason: Clarify TDD default workflow and tests-as-specification standard_
+
+_Updated: 2026-04-06_
+_Reason: Sync with current pytest runtime posture and planning priorities for stabilization-focused test strategy_

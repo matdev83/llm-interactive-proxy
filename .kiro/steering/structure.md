@@ -2,122 +2,120 @@
 
 ## Mental Model
 
-The codebase is organized around an async FastAPI proxy core with:
-- staged startup (`src/core/app/stages/`)
-- DI-managed services (`src/core/di/`, `src/core/services/`, `src/core/interfaces/`)
-- backend connectors (`src/connectors/`)
-- optional protocol servers/features (e.g., Codebuff WebSocket under `src/codebuff/`)
+Treat the repository as a modular proxy platform with four primary zones:
 
-## High-Signal Map
+1. **Core runtime and orchestration** (`src/core/`)
+2. **Provider adapters** (`src/connectors/`)
+3. **Support subsystems and legacy/top-level modules** (`src/*`)
+4. **Operational surfaces** (`config/`, `tests/`, `docs/`, `scripts/`, `dev/`, `var/`)
 
-### Core engine (`src/core/`)
-Where most cross-cutting proxy logic lives.
+The architecture favors staged startup, DI-managed seams, and transport-neutral
+contracts where possible.
 
-- `src/core/app/`
-  - `controllers/`: HTTP route handlers (OpenAI/Anthropic/Gemini-compatible)
-  - `middleware/`: FastAPI/Starlette middleware (exception shaping, etc.)
-  - `stages/`: staged initialization (startup ordering, registrations)
-- `src/core/adapters/`: domain-centric adapter helpers shared across transports (transports may re-export)
-- `src/core/services/`: orchestration services (routing, safety, usage, captures, processing pipelines)
-  - `src/core/services/backend_completion_flow/`: backend-call orchestration (failover/retry/capture/usage as a coordinator + collaborators)
-- `src/core/domain/`: domain models/envelopes (Pydantic models, response envelopes, wire-capture models)
-- `src/core/interfaces/`: `I*` interfaces used for DI boundaries and test seams
-- `src/core/di/`: DI container implementation + registrations (`registrations/`, `registration_helpers/`)
-- `src/core/ports/`: port-level protocol normalization and streaming primitives (transport-neutral)
-- `src/core/config/`: config models/loaders/validation and precedence logic
-- `src/core/auth/`: SSO authentication/authorization flow and supporting services
-- `src/core/security/`: security middleware and loop-prevention guardrails
-- `src/core/memory/`: session memory capture, summarization, and injection services
-- `src/core/transport/fastapi/`: adapters between domain envelopes and FastAPI request/response types
-  - `adapters/`: modular layer components for response transformation (SSE, metadata, usage, sanitization, capture, streaming, response builders)
-  - `api_adapters.py`: thin re-export of `src/core/adapters/api_adapters.py` for transport usage
-  - `response_adapters.py`: thin facade delegating to adapters/ layer components (may depend on `src/core/ports/`)
-- `src/core/commands/`: chat-embedded command pipeline (parsing/execution/steering integration)
-- `src/core/simulation/`: replay/inspection utilities for debugging captured traffic
-- `src/core/database/`: SQLModel models + Alembic migrations + repositories
+## Organization Patterns
 
-### Backends (`src/connectors/`)
-Provider-specific adapters that call external LLM APIs.
+### 1. Core runtime (`src/core/`)
 
-- Base: `src/connectors/base.py` (`LLMBackend`)
-- Discovery: importing `src.connectors` triggers auto-import of connector modules via `src/connectors/__init__.py`
-- Registration: connector modules register themselves in `backend_registry` (`src/core/services/backend_registry.py`)
-- Import trigger: `src/core/services/backend_imports.py` is imported during CLI startup (`src/core/cli.py`)
+`src/core/` is the primary home for stable business/runtime behavior:
 
-Practical implication: adding a new backend typically means:
-1. Create a new module under `src/connectors/`
-2. Register a factory with `backend_registry.register_backend(...)` at module import time
-3. Implement `LLMBackend` and expose a stable `backend_type`
+- `app/`: FastAPI composition (controllers, middleware wiring, staged startup)
+- `services/`: orchestration-heavy runtime services
+- `domain/`: protocol-neutral models and envelopes
+- `interfaces/`: DI/test seams (`I*` contracts)
+- `ports/` + `adapters/`: boundary contracts and translation helpers
+- `transport/fastapi/`: framework-specific mapping to HTTP/SSE/WebSocket behavior
+- `config/`: typed config loading/validation and precedence resolution
+- `auth/`, `security/`, `memory/`, `database/`: focused capability areas
 
-### Codebuff (`src/codebuff/`)
-WebSocket server and protocol handling for real-time “agent” communication.
+### 2. Backend adapters (`src/connectors/`)
 
-### Top-level feature areas (`src/`)
-Not everything is under `src/core/`; some features live at top-level:
-- `src/loop_detection/`
-- `src/tool_call_loop/`
-- `src/services/`: cross-cutting non-core services (steering policies, test-execution reminder)
-- `src/resources/`: embedded prompt resources and assets (e.g., Codex prompts)
-- plus a few request/response middleware helpers (e.g., `src/request_middleware.py`)
+Connector modules implement provider-specific behavior behind shared backend contracts.
 
-### Configuration and runtime outputs
-- `config/`: example configs, backend config snippets, prompt templates, and schemas
-  - Schemas: `config/schemas/`
-  - Prompts: `config/prompts/`
-- `var/`: runtime state and outputs
-  - `var/logs/`, `var/wire_captures_cbor/`, `var/wire_captures_json/`, `var/db/`, `var/state/`
+Two extension patterns coexist:
 
-### Tests
-- `tests/`: suites mirror the project structure
-  - `tests/unit/`, `tests/integration/`, `tests/property/`, `tests/behavior/`, `tests/regression/`
-  - markers live in `pyproject.toml` under `[tool.pytest.ini_options]`
-  - TDD and test detail expectations (tests as executable specifications): see `.kiro/steering/testing.md`
+- **In-repo connectors** under `src/connectors/`
+- **External plugin connectors** discovered via entry points (`llm_proxy_backends`)
+  using `src/core/plugin_api.py` and
+  `src/core/services/backend_plugin_discovery.py`
 
-### Tooling & Scripts
-- `scripts/`: **End-user tools** only (CLI helpers, inspection tools, admin scripts).
-- `dev/scripts/`: **Development tools** (build, test, lint, maintenance).
-  - `dev/scripts/artifacts/`: Retired/one-off scripts and reproduction tools.
+### 3. Top-level subsystem packages (`src/`)
 
-## Startup Lifecycle (Staged Initialization)
+Not all active code sits under `src/core/`. Important packages outside core include:
 
-Source of truth: `src/core/app/stages/application_stages.py`.
+- `src/codebuff/` (WebSocket/agent-oriented protocol support)
+- `src/loop_detection/` and `src/tool_call_loop/` (loop/tool lifecycle subsystems)
+- `src/services/` (cross-cutting services that are not fully migrated)
+- `src/resources/` (embedded prompt/resource artifacts)
 
-Default stage order:
-1. `InfrastructureStage`
-2. `CoreServicesStage`
-3. `SteeringStage`
-4. `BackendStage`
-5. `HealthCheckStage`
-6. `CommandStage`
-7. `ProcessorStage`
-8. `ControllerStage`
+When touching top-level modules, prefer moving new shared logic into `src/core/`
+instead of deepening legacy coupling.
 
-## Where to Make Changes (Common Work Types)
+### 4. Operational and support surfaces
 
-- **Add/modify HTTP endpoints**: `src/core/app/controllers/` (then ensure stage wiring in `src/core/app/stages/controller.py`)
-- **Add a new backend connector**: `src/connectors/` (+ registration via `backend_registry`)
-- **Change routing/failover logic**: services in `src/core/services/` (routing, backends, resilience)
-- **Change backend completion orchestration**: `src/core/services/backend_completion_flow/` (flow ordering + collaborators)
-- **Change request/response shaping**: `src/core/transport/fastapi/` + middleware/services
-- **Change request processing pipeline**: `src/core/services/request_processor_service.py` + internal phase contracts in `src/core/interfaces/request_processor_internal.py` (wiring in `src/core/app/stages/processor.py`)
-- **Add a new config option**: `src/core/config/app_config.py` + schema in `config/schemas/` + CLI surface in `src/core/cli_support/`
-- **Change error shapes/statuses**: `src/core/common/exceptions.py` + `src/core/app/error_handlers.py`
-- **Change capture behavior**: `src/core/services/*wire_capture*` + `var/wire_captures_cbor/`
+- `config/`: runtime YAML templates, backend definitions, schemas, prompt assets
+- `tests/`: layered test suites (`unit`, `integration`, `property`, `regression`, etc.)
+- `docs/`: user and development guides
+- `scripts/`: end-user operational tooling
+- `dev/scripts/`: development and maintenance tooling
+- `var/`: runtime artifacts (logs, captures, state, local DB files)
 
-## Naming and Imports
+## Startup Lifecycle Pattern
 
-- Prefer absolute imports from `src` (example: `from src.core.common.exceptions import LLMProxyError`)
-- Naming conventions follow standard Python:
-  - modules: `snake_case.py`
-  - classes: `PascalCase`
-  - functions: `snake_case`
-  - interfaces: `I*` (e.g., `IBackendService`)
+Source of truth: `src/core/app/stages/application_stages.py`
+
+Default sequence:
+
+1. Infrastructure
+2. Core services
+3. Steering/safety wiring
+4. Backend wiring
+5. Health checks
+6. Command wiring
+7. Request processing wiring
+8. Controller/route wiring
+
+Implication: initialization changes should usually be made in stage modules, not in
+ad-hoc startup hooks.
+
+## Where to Change Code (By Intent)
+
+- **Frontend/API behavior**: `src/core/app/controllers/` and transport adapters
+- **Core request orchestration**: `src/core/services/request_processor_service.py` +
+  internal contracts under `src/core/interfaces/`
+- **Backend routing/failover behavior**: `src/core/services/backend_*` and
+  `src/core/services/backend_completion_flow/`
+- **Connector behavior**: `src/connectors/` (or external plugin package)
+- **Config semantics**: `src/core/config/` + related CLI applicators and schemas
+- **Safety/auth policy**: `src/core/security/`, `src/core/auth/`, selected services
+- **Wire capture/correlation behavior**: capture services in `src/core/services/` and
+  simulation tooling under `src/core/simulation/`
+
+## Naming and Import Conventions
+
+- Use absolute imports from `src` for application code
+- Naming defaults:
+  - module files: `snake_case.py`
+  - classes/types: `PascalCase`
+  - functions/variables: `snake_case`
+  - interfaces: `I*` prefix
+- Keep transport/framework-specific symbols out of domain contracts when avoidable
+
+## Structural Guardrails (Current Planning Alignment)
+
+Current brownfield planning (`.planning/`) reinforces these structure-level rules:
+
+- Core proxy behavior should stay insulated from optional/non-core features
+- Connector-specific enhancements must not leak into core contracts
+- Streaming and non-streaming paths should converge where practical
+- Session/user isolation boundaries should be explicit and testable
 
 ---
 
 _Updated: 2025-12-27_
 _Reason: Link structure map to TDD/testing steering_
-_Document stable structure and change locations; avoid exhaustive file listings_
 
 _Updated: 2026-01-01_
-_Reason: Reflect ports/adapters split introduced by refactors (hexagonal/transport-neutral components)_
+_Reason: Reflect ports/adapters split introduced by refactors_
+
+_Updated: 2026-04-06_
+_Reason: Sync with plugin extension pattern, current top-level subsystem layout, and brownfield structural priorities from `.planning/`_

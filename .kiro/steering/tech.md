@@ -2,134 +2,145 @@
 
 ## Stack Summary (Fact-Based)
 
-- **Language**: Python 3.10+ (`pyproject.toml`)
-- **Web framework**: FastAPI (async)
-- **ASGI server**: uvicorn (`uvicorn[standard]`)
-- **HTTP client**: httpx (async)
-- **Validation/models**: Pydantic v2
-- **Structured logging**: structlog
-- **Wire capture encoding**: CBOR via `cbor2`
-- **Database layer**: SQLModel + Alembic (see `src/core/database/` and `alembic.ini`)
+- **Language/runtime**: Python 3.10+ (`pyproject.toml`)
+- **Application framework**: FastAPI with async handlers
+- **ASGI server**: Uvicorn (`uvicorn[standard]`)
+- **HTTP I/O**: `httpx[http2]` (async clients and transport helpers)
+- **Data modeling/validation**: Pydantic v2 + SQLModel
+- **Migrations**: Alembic
+- **Wire capture format**: CBOR via `cbor2`
+- **Logging**: Python logging with structured patterns (plus `structlog` dependency)
 
-This is intentionally not a dependency catalog; use `pyproject.toml` for the full list.
+This file captures stable technical patterns; use `pyproject.toml` for exact versions.
 
-## Architecture (Where the “Truth” Lives)
+## Runtime Composition (Source of Truth)
 
-### Staged initialization (startup)
-The application starts via a staged bootstrap. Source of truth:
+### Staged initialization
+
+Startup is dependency-ordered and stage-driven:
+
 - Stage registry: `src/core/app/stages/application_stages.py`
 - Stage implementations: `src/core/app/stages/`
 
-Default stage order:
-1. Infrastructure (`src/core/app/stages/infrastructure.py`)
-2. Core services (`src/core/app/stages/core_services.py`)
-3. Steering/safety wiring (`src/core/app/stages/steering.py`)
-4. Backends (`src/core/app/stages/backend.py`)
-5. Health checks (`src/core/app/stages/health_check.py`)
-6. Command pipeline (`src/core/app/stages/command.py`)
-7. Processing pipeline (`src/core/app/stages/processor.py`)
-8. Controllers/routes (`src/core/app/stages/controller.py`)
+Default order:
+1. `InfrastructureStage`
+2. `CoreServicesStage`
+3. `SteeringStage`
+4. `BackendStage`
+5. `HealthCheckStage`
+6. `CommandStage`
+7. `ProcessorStage`
+8. `ControllerStage`
 
-### Dependency injection (DI)
-- Container: `ServiceCollection` in `src/core/di/container.py`
-- Public registration facade: `src/core/di/services.py` (`register_core_services`)
-- Registration orchestrator: `src/core/di/registrations/_orchestrator.py` (calls into focused registrars under `src/core/di/registrations/`)
-- Interfaces: `src/core/interfaces/` (`I*` naming, used for DI/test seams)
-- Factory style: some registrations use an `IServiceProvider` factory for complex wiring
+### Dependency injection
 
-### Hexagonal boundaries (ports/adapters vs interfaces)
-Refactors introduced a clearer “core vs transport” split:
+- Container + lifetimes: `src/core/di/container.py`
+- Registration facade/orchestration: `src/core/di/services.py` and `src/core/di/registrations/`
+- Contract seams: `src/core/interfaces/` (`I*` naming for service boundaries and testing seams)
 
-- `src/core/interfaces/`: DI/test seams (`I*` contracts), typically class-based and service-oriented
-- `src/core/ports/`: transport-neutral protocol normalization + streaming primitives (used by services/transports)
-- `src/core/adapters/`: small adapter helpers for translating external payloads into domain models (transports may re-export)
+### Core boundary split
 
-Guiding rule: keep transport-specific types (FastAPI/Starlette HTTP request/response) in `src/core/transport/*` and `src/core/app/*`; keep reusable transformation logic transport-neutral where possible.
+The architecture uses a practical boundary split:
 
-### Request processing (ProcessorStage)
-The HTTP request path is orchestrated by a small “orchestrator” plus a set of internal phase components. Source of truth:
-- Orchestrator: `RequestProcessor` in `src/core/services/request_processor_service.py` (stable alias: `src/core/services/request_processor.py`)
-- Phase contracts: `src/core/interfaces/request_processor_internal.py`
+- `src/core/interfaces/`: DI/service contracts
+- `src/core/ports/`: transport-neutral protocol/streaming contracts
+- `src/core/adapters/`: translation helpers between external payloads and domain models
+- `src/core/transport/fastapi/`: FastAPI-specific request/response/exception adapters
+
+Guiding rule: keep FastAPI/Starlette details in transport/app layers; keep reusable
+translation and orchestration logic transport-neutral.
+
+### Request orchestration pattern
+
+Request handling is organized as a thin orchestrator plus collaborator interfaces:
+
+- Orchestrator: `RequestProcessor` in `src/core/services/request_processor_service.py`
+- Internal contracts: `src/core/interfaces/request_processor_internal.py`
 - Wiring: `src/core/app/stages/processor.py`
 
-Key pattern: keep `RequestProcessor` thin and delegate to phase components with clear boundaries:
-- `ISessionEnricher`: session/client context enrichment
-- `IRequestSideEffects`: best-effort side effects (fail-open)
-- `ICommandHandler`: command processing and command-only fast-path
-- `IBackendPreparer`: request preparation + validation (fail-fast on structured validation)
-- `IRequestTransformPipeline`: outbound transforms in a fixed order
-- `IBackendExecutor`: backend execution + persistence side effects
+Typical collaborators include session enrichment, command handling, request transforms,
+backend preparation, and backend execution.
 
-### Backend discovery/registration
-- Import trigger: `src/core/services/backend_imports.py` is imported by `src/core/cli.py`
-- Auto-discovery: `src/connectors/__init__.py` imports connector modules at import time
-- Registry: `backend_registry` in `src/core/services/backend_registry.py`
+### Backend orchestration and extensibility
 
-### Backend completion flow (BackendService orchestration)
-Backend calls are orchestrated via a dedicated coordinator that centralizes failover/retry/capture/usage behavior:
-- Flow orchestrator: `BackendCompletionFlow` in `src/core/services/backend_completion_flow/service.py`
-- Collaborator contracts: `src/core/interfaces/backend_completion_collaborators.py`
-- Wiring: `src/core/di/services.py` and backend stage wiring in `src/core/app/stages/backend.py`
+Backend routing and completion flow are centralized in service orchestration:
+
+- Registry: `src/core/services/backend_registry.py`
+- Completion flow coordinator: `src/core/services/backend_completion_flow/service.py`
+- Backend completion collaborator contracts:
+  `src/core/interfaces/backend_completion_collaborators.py`
+
+Discovery pattern:
+
+- In-repo connectors are imported via `src/core/services/backend_imports.py`
+- External connectors are discovered via Python entry points in group
+  `llm_proxy_backends` through `src/core/services/backend_plugin_discovery.py`
+- Public plugin contract is intentionally stable in `src/core/plugin_api.py`
+
+Optional OAuth connector families are provided via extra dependency
+`llm-interactive-proxy-oauth-connectors` (`[project.optional-dependencies].oauth`).
 
 ## Error Model
 
-- Base exception: `LLMProxyError` in `src/core/common/exceptions.py`
-- Pattern: domain/service code raises `LLMProxyError` subclasses; FastAPI layer maps to JSON responses.
-- Adapters/handlers: see `src/core/app/error_handlers.py` and `src/core/transport/fastapi/exception_adapters.py` (transport-specific mapping)
+- Base hierarchy: `LLMProxyError` (`src/core/common/exceptions.py`)
+- Domain/service layers raise typed proxy exceptions
+- Transport layer maps them to HTTP responses:
+  `src/core/transport/fastapi/exception_adapters.py`
 
-## Configuration & Schemas
+## Configuration Model
 
-- Primary config surface: YAML files under `config/` (example: `config/config.example.yaml`)
-- Schemas: `config/schemas/` (used for validation/documentation)
-- Precedence is designed to be **CLI > ENV > YAML > defaults**:
-  - Entry point: `src/core/cli.py`
-  - Models/loader: `src/core/config/app_config.py`, `src/core/config/config_loader.py`
-  - Resolution logic: `src/core/config/parameter_resolution.py`
+- Primary config artifacts: `config/*.yaml` + schema assets in `config/schemas/`
+- Resolution order: **CLI > ENV > YAML > defaults**
+- Main loader/model path:
+  `src/core/config/app_config.py`, `src/core/config/config_loader.py`,
+  `src/core/config/parameter_resolution.py`
 
-## Observability & Captures
+## Observability and Diagnostics
 
 - Logs: `var/logs/`
-- Wire captures:
-  - CBOR: `var/wire_captures_cbor/`
-  - JSON (debug): `var/wire_captures_json/`
-- Inspection tool: `scripts/inspect_cbor_capture.py`
-- Related docs: `docs/user_guide/debugging/cbor-capture.md`
+- Captures: `var/wire_captures_cbor/` (primary), `var/wire_captures_json/` (debug)
+- Inspection tooling: `scripts/inspect_cbor_capture.py`
+- Runtime diagnostics endpoints are part of the controller surface
 
-## Development Tooling (What CI/Contributors Rely On)
+## Development Toolchain Standards
 
-### Formatting and linting
-- Ruff is used for linting/import sorting (`[tool.ruff]` in `pyproject.toml`)
-- Black is used for formatting (line length 88 by default; see `[tool.ruff] line-length = 88`)
-- Ruff’s formatter is not used; Black is the formatter of record (see canonical commands below)
+### Lint/format
+
+- Ruff (`ruff check --fix`) for linting and import organization
+- Black for formatting (line length 88)
 
 ### Type checking
-- Mypy is enabled (`[tool.mypy]` in `pyproject.toml`)
-- Current posture is **not strict**, but typed defs are required:
-  - `strict = false`
-  - `disallow_untyped_defs = true`
+
+Mypy is enabled with a practical non-strict baseline:
+
+- `strict = false`
+- `warn_return_any = true`
+- `warn_unused_configs = true`
+- targeted overrides for third-party packages as needed
 
 ### Tests
-- Pytest is the test runner; markers are defined in `pyproject.toml` under `[tool.pytest.ini_options]`
-- Default addopts are optimized for local runs (testmon + xdist); see `pyproject.toml` `[tool.pytest.ini_options] addopts`
-- Slow/integration/codex suites are selected explicitly via `-m ...` (marker list is in `pyproject.toml`)
 
-### Test-driven development (TDD)
-- Default workflow is **TDD (Red → Green → Refactor)**.
-- Treat tests as **executable specifications**: new behavior should be introduced by a failing test first.
-- New tests must be detailed enough to re-create intended behavior/contracts even if implementation code was accidentally removed (see `.kiro/steering/testing.md`).
+- Pytest is the runner with async support (`pytest-asyncio`)
+- Default run is parallelized (`pytest-xdist`, `-n 4 --dist=loadfile`)
+- Timeout and marker conventions are centralized in `pyproject.toml`
+
+### TDD posture
+
+The expected workflow remains Red -> Green -> Refactor, with tests treated as
+executable behavior contracts (see `.kiro/steering/testing.md`).
 
 ## Canonical Commands (Windows-first)
 
 Use the in-repo venv interpreter:
 
 ```powershell
-# Run the proxy (CLI entry point)
+# Run the proxy
 ./.venv/Scripts/python.exe -m src.core.cli
 
-# Default tests (respects addopts/markers in pyproject.toml)
+# Run default tests
 ./.venv/Scripts/python.exe -m pytest
 
-# Explicit suites
+# Run selected suites
 ./.venv/Scripts/python.exe -m pytest -m unit
 ./.venv/Scripts/python.exe -m pytest -m integration
 
@@ -139,16 +150,26 @@ Use the in-repo venv interpreter:
 ./.venv/Scripts/python.exe -m mypy src/
 ```
 
-## Further Reading (Codebase-local)
+## Near-Term Technical Priorities (from current planning)
 
-- Architecture overview: `docs/development_guide/architecture.md`
-- Code organization notes: `docs/development_guide/code-organization.md`
+- Keep compatibility contracts explicit and test-pinned on core protocol surfaces
+- Reduce coupling between core proxy path and optional/non-core features
+- Improve resilience and diagnostics without widening architectural fragility
+- Maintain plugin compatibility boundaries so external connector changes fail open
+
+## Further Reading
+
+- `docs/development_guide/architecture.md`
+- `docs/development_guide/code-organization.md`
+- `docs/development_guide/plugin-api.md`
 
 ---
 
 _Updated: 2025-12-27_
-_Reason: Add explicit TDD + “tests as executable specification” guidance_
-_Keep this file factual: describe stable patterns and point to sources of truth_
+_Reason: Add explicit TDD + tests-as-specification guidance_
 
 _Updated: 2026-01-01_
-_Reason: Document ports/adapters split added during refactors (hexagonal boundary clarification)_
+_Reason: Document ports/adapters split added during refactors_
+
+_Updated: 2026-04-06_
+_Reason: Sync with current stage order, plugin discovery contract, and actual tooling posture from `pyproject.toml` and `.planning/`_
