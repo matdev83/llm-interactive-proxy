@@ -292,6 +292,25 @@ class BackendFactory(IBackendFactory):
             for k, v in backend_config.extra.items():
                 init_config[k] = v
 
+        if connector_type == "zai-coding-plan":
+            live_zai_api_key = os.environ.get("ZAI_API_KEY")
+            configured_api_key = init_config.get("api_key")
+            if live_zai_api_key:
+                if configured_api_key != live_zai_api_key:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Overriding zai-coding-plan API key from live ZAI_API_KEY env var"
+                        )
+                    init_config["api_key"] = live_zai_api_key
+                elif logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "zai-coding-plan API key matches live ZAI_API_KEY env var"
+                    )
+            elif logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "zai-coding-plan initialized without live ZAI_API_KEY env var"
+                )
+
         # SECURITY: Removed test environment detection and automatic test key injection
         # Production code should never detect test environment or auto-configure credentials
         default_backend_env = os.environ.get("LLM_BACKEND")

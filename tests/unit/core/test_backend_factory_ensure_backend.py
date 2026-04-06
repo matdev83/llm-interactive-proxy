@@ -56,7 +56,9 @@ def test_create_backend_maps_missing_extracted_backend_to_routing_error() -> Non
     exc = exc_info.value
     assert exc.details.get("code") == "unknown_model"
     assert exc.details.get("backend_type") == "gemini-oauth-plan"
-    assert exc.details.get("optional_package") == "llm-interactive-proxy-oauth-connectors"
+    assert (
+        exc.details.get("optional_package") == "llm-interactive-proxy-oauth-connectors"
+    )
     assert (
         exc.details.get("install_command") == "pip install llm-interactive-proxy[oauth]"
     )
@@ -115,7 +117,9 @@ def test_create_backend_surfaces_multi_user_oauth_guidance() -> None:
     assert exc.details.get("install_command") is None
 
 
-def test_create_backend_blocks_registered_extracted_backend_in_multi_user_mode() -> None:
+def test_create_backend_blocks_registered_extracted_backend_in_multi_user_mode() -> (
+    None
+):
     """Extracted OAuth backends must be blocked before registry lookup in Multi User Mode."""
     from src.core.config.app_config import AppConfig
     from src.core.config.models.access_mode import AccessMode, AccessModeConfig
@@ -250,6 +254,37 @@ async def test_ensure_backend_test_env_injection(factory: BackendFactory) -> Non
         # No automatic test key injection for security - expect None when no key provided
         assert init_config["api_key"] is None
         assert result == mock_backend
+
+
+@pytest.mark.asyncio
+async def test_ensure_backend_zai_coding_plan_prefers_live_env_key(
+    factory: BackendFactory,
+) -> None:
+    """zai-coding-plan must override stale config keys with live ZAI_API_KEY."""
+
+    backend_type = "zai-coding-plan"
+    app_config = factory._config
+    backend_config = BackendConfig(api_key="stale-config-key")
+    mock_backend = MagicMock()
+
+    with (
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
+        patch.dict(os.environ, {"ZAI_API_KEY": "live-env-key"}, clear=False),
+    ):
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
+
+    mock_create.assert_called_once_with(backend_type, app_config)
+    mock_init.assert_called_once()
+    init_config = mock_init.call_args[0][1]
+    assert init_config["api_key"] == "live-env-key"
+    assert result == mock_backend
 
 
 @pytest.mark.asyncio
@@ -508,7 +543,7 @@ class TestBackendFactoryLogRedaction:
         app_config = AppConfig()
         backend_config = BackendConfig(
             api_key="secret-api-key-12345",
-            api_base_url="https://api.example.com",
+            api_url="https://api.example.com",
         )
 
         # Mock the backend creation and initialization
