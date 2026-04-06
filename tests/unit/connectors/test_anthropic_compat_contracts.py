@@ -245,8 +245,7 @@ class TestAnthropicNonStreamingShape:
         mock_response.headers = {}
         mock_response.json.return_value = anthropic_response
         mock_response.raise_for_status = MagicMock()
-
-        anthropic_backend.client.post = AsyncMock(return_value=mock_response)
+        mock_response.aread = AsyncMock()
 
         non_streaming_request = CanonicalChatRequest(
             model="claude-3-haiku-20240307",
@@ -265,7 +264,20 @@ class TestAnthropicNonStreamingShape:
             options={},
         )
 
-        result = await anthropic_backend.chat_completions(connector_request)
+        with (
+            patch.object(
+                anthropic_backend.client,
+                "build_request",
+                return_value=MagicMock(),
+            ),
+            patch.object(
+                anthropic_backend.client,
+                "send",
+                new_callable=AsyncMock,
+            ) as mock_send,
+        ):
+            mock_send.return_value = mock_response
+            result = await anthropic_backend.chat_completions(connector_request)
 
         assert isinstance(result, ResponseEnvelope)
         assert result.status_code == 200

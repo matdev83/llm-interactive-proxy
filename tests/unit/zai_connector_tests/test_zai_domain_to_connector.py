@@ -11,15 +11,33 @@ import httpx
 import pytest
 import pytest_asyncio
 from pytest_httpx import HTTPXMock
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.zai import ZAIConnector
 from src.core.domain.chat import (
+    CanonicalChatRequest,
     ChatMessage,
-    ChatRequest,
     FunctionDefinition,
     ToolDefinition,
 )
 
 TEST_ZAI_API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+
+
+def _connector_chat_request(
+    domain: CanonicalChatRequest,
+    processed_messages: list[ChatMessage],
+    effective_model: str,
+) -> ConnectorChatCompletionsRequest:
+    return ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=processed_messages,
+        effective_model=effective_model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
+    )
 
 
 @pytest_asyncio.fixture(name="zai_backend")
@@ -78,7 +96,7 @@ async def test_chat_completions_basic_request(
     )
 
     # Create a domain request
-    request = ChatRequest(
+    request = CanonicalChatRequest(
         model="glm-4.5",
         messages=[ChatMessage(role="user", content="Hello")],
         temperature=0.7,
@@ -89,9 +107,7 @@ async def test_chat_completions_basic_request(
     # Process the request
     processed_messages = [ChatMessage(role="user", content="Hello")]
     await zai_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="glm-4.5",
+        _connector_chat_request(request, processed_messages, "glm-4.5")
     )
 
     # Get the request that was sent - specify method and URL to get the correct request
@@ -148,7 +164,7 @@ async def test_chat_completions_with_tools(
     ]
 
     # Create a domain request with tools
-    request = ChatRequest(
+    request = CanonicalChatRequest(
         model="glm-4.5",
         messages=[ChatMessage(role="user", content="What's the weather like?")],
         temperature=0.7,
@@ -161,9 +177,7 @@ async def test_chat_completions_with_tools(
     # Process the request
     processed_messages = [ChatMessage(role="user", content="What's the weather like?")]
     await zai_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="glm-4.5",
+        _connector_chat_request(request, processed_messages, "glm-4.5")
     )
 
     # Get the request that was sent - specify method and URL to get the correct request
@@ -201,7 +215,7 @@ async def test_chat_completions_strips_reasoning_payload(
         headers={"Content-Type": "application/json"},
     )
 
-    request = ChatRequest(
+    request = CanonicalChatRequest(
         model="glm-4.5",
         messages=[ChatMessage(role="user", content="Run analysis")],
         reasoning={"effort": "medium", "budget_tokens": 2048},
@@ -212,9 +226,7 @@ async def test_chat_completions_strips_reasoning_payload(
 
     processed_messages = [ChatMessage(role="user", content="Run analysis")]
     await zai_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="glm-4.5",
+        _connector_chat_request(request, processed_messages, "glm-4.5")
     )
 
     sent_request = httpx_mock.get_request(
@@ -242,7 +254,7 @@ async def test_chat_completions_streaming(
     )
 
     # Create a domain request with streaming
-    request = ChatRequest(
+    request = CanonicalChatRequest(
         model="glm-4.5",
         messages=[ChatMessage(role="user", content="Hello")],
         temperature=0.7,
@@ -253,9 +265,7 @@ async def test_chat_completions_streaming(
     # Process the request
     processed_messages = [ChatMessage(role="user", content="Hello")]
     response = await zai_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="glm-4.5",
+        _connector_chat_request(request, processed_messages, "glm-4.5")
     )
 
     # For streaming responses, we need to consume at least one chunk to trigger the request

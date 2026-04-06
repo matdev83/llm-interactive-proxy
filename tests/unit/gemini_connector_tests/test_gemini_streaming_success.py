@@ -13,6 +13,8 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
+from tests.unit.gemini_connector_tests.helpers import gemini_connector_request
+
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
 
@@ -99,11 +101,15 @@ async def test_chat_completions_streaming_success(
 
     # Act
     envelope = await gemini_backend.chat_completions(
-        request_data=sample_chat_request_data,
-        processed_messages=sample_processed_messages,
-        effective_model="test-model",
-        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            sample_chat_request_data,
+            processed_messages=sample_processed_messages,
+            effective_model="test-model",
+            options={
+                "gemini_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
 
     # Assert
@@ -156,11 +162,15 @@ async def test_chat_completions_streaming_usage_chunk(
     )
 
     envelope = await gemini_backend.chat_completions(
-        request_data=sample_chat_request_data,
-        processed_messages=sample_processed_messages,
-        effective_model="test-model",
-        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            sample_chat_request_data,
+            processed_messages=sample_processed_messages,
+            effective_model="test-model",
+            options={
+                "gemini_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
 
     assert isinstance(envelope, StreamingResponseEnvelope)
@@ -219,11 +229,15 @@ async def test_chat_completions_streaming_cancel_request(
     )
 
     envelope = await gemini_backend.chat_completions(
-        request_data=sample_chat_request_data,
-        processed_messages=sample_processed_messages,
-        effective_model="test-model",
-        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            sample_chat_request_data,
+            processed_messages=sample_processed_messages,
+            effective_model="test-model",
+            options={
+                "gemini_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
 
     assert isinstance(envelope, StreamingResponseEnvelope)
@@ -340,11 +354,15 @@ async def test_chat_completions_streaming_uses_httpx_stream_send() -> None:
     )
 
     envelope = await backend.chat_completions(
-        request_data=request,
-        processed_messages=list(request.messages),
-        effective_model="gemini/gemini-pro",
-        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
-        api_key="DUMMY",
+        gemini_connector_request(
+            request,
+            processed_messages=list(request.messages),
+            effective_model="gemini/gemini-pro",
+            options={
+                "gemini_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "api_key": "DUMMY",
+            },
+        )
     )
 
     assert isinstance(envelope, StreamingResponseEnvelope)
@@ -406,11 +424,15 @@ async def test_chat_completions_streaming_network_error_translated() -> None:
     )
 
     envelope = await backend.chat_completions(
-        request_data=request,
-        processed_messages=list(request.messages),
-        effective_model="gemini/gemini-pro",
-        gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
-        api_key="DUMMY",
+        gemini_connector_request(
+            request,
+            processed_messages=list(request.messages),
+            effective_model="gemini/gemini-pro",
+            options={
+                "gemini_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "api_key": "DUMMY",
+            },
+        )
     )
 
     assert isinstance(envelope, StreamingResponseEnvelope)

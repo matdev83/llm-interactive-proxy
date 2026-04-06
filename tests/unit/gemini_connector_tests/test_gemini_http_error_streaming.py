@@ -8,6 +8,8 @@ from src.core.common.exceptions import BackendError, ServiceUnavailableError
 # from starlette.responses import StreamingResponse # F401: Removed
 from src.core.domain.chat import ChatMessage, ChatRequest
 
+from tests.unit.gemini_connector_tests.helpers import gemini_connector_request
+
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
 
@@ -85,11 +87,15 @@ async def test_chat_completions_http_error_streaming(
         # are detected and the stream is closed before iteration begins
         # The error is logged but may not propagate as an exception
         response = await gemini_backend.chat_completions(
-            request_data=sample_chat_request_data,
-            processed_messages=sample_processed_messages,
-            effective_model="test-model",
-            gemini_api_base_url=TEST_GEMINI_API_BASE_URL,
-            api_key="FAKE_KEY",
+            gemini_connector_request(
+                sample_chat_request_data,
+                processed_messages=sample_processed_messages,
+                effective_model="test-model",
+                options={
+                    "gemini_api_base_url": TEST_GEMINI_API_BASE_URL,
+                    "api_key": "FAKE_KEY",
+                },
+            )
         )
 
         from src.core.domain.responses import StreamingResponseEnvelope

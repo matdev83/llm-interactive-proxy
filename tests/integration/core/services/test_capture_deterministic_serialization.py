@@ -320,20 +320,13 @@ class TestCaptureRedactsSecrets:
 
         assert len(session.entries) > 0
 
-        # Decode the data
+        # Dict/list inbound payloads are stored as redacted deterministic JSON bytes.
         entry_data = session.entries[0].data
-        _decoded = json.loads(
-            entry_data.decode("utf-8")
-        )  # pyright: ignore[reportUnusedVariable]
-
-        # Verify sensitive fields are not present in plaintext
-        # Note: CBOR capture stores raw bytes, so redaction happens at serialization time
-        # For this test, we verify that serialize_for_capture doesn't expose secrets
-        # when used for logging (which would use serialize_for_logging with redaction)
-
-        # The actual redaction happens in structured capture and logging, not in CBOR capture
-        # CBOR capture preserves raw bytes for fidelity
-        # This test verifies the infrastructure is in place
+        text = entry_data.decode("utf-8")
+        assert "fake_api_key_for_testing" not in text
+        assert "secret123" not in text
+        decoded = json.loads(text)
+        assert decoded.get("normal_field") == "value"
 
     def test_serialize_for_logging_redacts_in_capture_context(self):
         """serialize_for_logging redacts secrets when used for capture metadata."""

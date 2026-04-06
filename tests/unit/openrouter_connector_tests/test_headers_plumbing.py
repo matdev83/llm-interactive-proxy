@@ -5,6 +5,10 @@ from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 
+from tests.unit.openrouter_connector_tests.helpers import (
+    openrouter_connector_chat_request,
+)
+
 
 def mock_headers_provider(_: str, api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -48,13 +52,14 @@ async def test_headers_plumbing(
 
     # Act
     await openrouter_backend.chat_completions(
-        request_data=request_data,
-        processed_messages=[ChatMessage(role="user", content="Hello")],
-        effective_model="openai/gpt-3.5-turbo",
-        openrouter_api_base_url="https://openrouter.ai/api/v1",
-        openrouter_headers_provider=mock_headers_provider,
-        key_name="test",
-        api_key="TEST-HEADER",
+        openrouter_connector_chat_request(
+            request_data,
+            processed_messages=[ChatMessage(role="user", content="Hello")],
+            effective_model="openai/gpt-3.5-turbo",
+            openrouter_api_base_url="https://openrouter.ai/api/v1",
+            key_name="test",
+            api_key="TEST-HEADER",
+        )
     )
 
     # Assert

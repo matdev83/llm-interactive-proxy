@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, cast
@@ -59,6 +60,10 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
 from src.core.services.quality_verifier_service import QualityVerifierService
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
+from src.core.services.streaming.error_mapping import handle_streaming_error
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +163,65 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         return str(content) if content is not None else ""
 
     @staticmethod
+    def _extract_terminal_error_status(chunk: ProcessedResponse) -> int | None:
+        metadata = getattr(chunk, "metadata", {}) or {}
+        finish_reason = metadata.get("finish_reason")
+        error_payload = metadata.get("error")
+        if isinstance(error_payload, dict):
+            status_code = error_payload.get("status_code")
+            if isinstance(status_code, int) and status_code >= 400:
+                return status_code
+            if finish_reason == "error":
+                return 502
+
+        if finish_reason == "error":
+            return 502
+
+        content = getattr(chunk, "content", None)
+        if isinstance(content, dict):
+            payload_error = content.get("error")
+            if isinstance(payload_error, dict):
+                status_code = payload_error.get("status_code")
+                if isinstance(status_code, int) and status_code >= 400:
+                    return status_code
+                return 502
+
+            choices = content.get("choices")
+            if isinstance(choices, list):
+                for choice in choices:
+                    if (
+                        isinstance(choice, dict)
+                        and choice.get("finish_reason") == "error"
+                    ):
+                        return 502
+
+        if isinstance(content, str | bytes):
+            text = (
+                content.decode("utf-8", errors="replace")
+                if isinstance(content, bytes)
+                else content
+            )
+            for (
+                payload
+            ) in BackendStreamingResponseHandler._try_parse_openai_sse_payloads(text):
+                payload_error = payload.get("error")
+                if isinstance(payload_error, dict):
+                    status_code = payload_error.get("status_code")
+                    if isinstance(status_code, int) and status_code >= 400:
+                        return status_code
+                    return 502
+                choices = payload.get("choices")
+                if isinstance(choices, list):
+                    for choice in choices:
+                        if (
+                            isinstance(choice, dict)
+                            and choice.get("finish_reason") == "error"
+                        ):
+                            return 502
+
+        return None
+
+    @staticmethod
     def _is_sse_done_only(text: str) -> bool:
         """Return True if the payload is only an SSE done marker."""
         if not text:
@@ -231,6 +295,17 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
     def _openai_dict_has_user_visible_output(payload: dict[str, Any]) -> bool:
         # Top-level error payload
         if payload.get("error"):
+            return True
+
+        # Anthropic streaming events (SSE `data:` JSON, not OpenAI-shaped)
+        event_type = payload.get("type")
+        if event_type == "content_block_delta":
+            delta = payload.get("delta")
+            if isinstance(delta, dict):
+                text = delta.get("text")
+                if isinstance(text, str) and text.strip():
+                    return True
+        if event_type in {"content_block_start", "message_start", "message_delta"}:
             return True
 
         choices = payload.get("choices")
@@ -335,8 +410,23 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             return False
         parsed = self._try_parse_openai_sse_payloads(text)
         if parsed:
-            return any(self._openai_dict_has_user_visible_output(p) for p in parsed)
+            if any(self._openai_dict_has_user_visible_output(p) for p in parsed):
+                return True
+            # Parsed OpenAI-shaped `data:` JSON with no visible text (e.g. reasoning-only).
+            return any(self._non_openai_sse_json_is_meaningful(p) for p in parsed)
         return bool(text.strip())
+
+    @staticmethod
+    def _non_openai_sse_json_is_meaningful(payload: dict[str, Any]) -> bool:
+        """Detect provider-native JSON objects embedded in SSE text (non-OpenAI)."""
+        ctype = payload.get("type")
+        return bool(payload.get("candidates")) or (
+            isinstance(ctype, str)
+            and (
+                ctype.startswith("content_block")
+                or ctype in {"message_start", "message_delta", "message_stop"}
+            )
+        )
 
     def _content_has_meaningful_output(self, content: Any) -> bool:
         if isinstance(content, dict):
@@ -617,11 +707,18 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 extensions=request_context.extensions,
                 original_domain_request=request_context.original_domain_request,
             )
-            return self._response_processor.process_streaming_response(
+            processed_stream = self._response_processor.process_streaming_response(
                 original_stream,
                 processing_context.session_id,
                 enriched_context,
             )
+            if not hasattr(processed_stream, "__aiter__"):
+                close = getattr(processed_stream, "close", None)
+                if callable(close):
+                    with contextlib.suppress(Exception):
+                        close()
+                raise TypeError("Streaming middleware returned non-async-iterator")
+            return processed_stream
         except (KeyboardInterrupt, SystemExit):
             # Re-raise system exceptions to allow proper cleanup
             raise
@@ -734,6 +831,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     request_context=request_context,
                 )
             )
+            if not hasattr(verified_stream, "__aiter__"):
+                close = getattr(verified_stream, "close", None)
+                if callable(close):
+                    with contextlib.suppress(Exception):
+                        close()
+                raise TypeError("Quality Verifier returned non-async-iterator stream")
             return verified_stream
         except Exception as err:
             if logger.isEnabledFor(logging.WARNING):
@@ -915,7 +1018,14 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         async def monitored_stream() -> AsyncIterator[ProcessedResponse]:
             swallowed_detected = False
 
-            async for chunk in verified_stream:
+            async for raw_chunk in verified_stream:
+                if isinstance(raw_chunk, ProcessedResponse):
+                    chunk = raw_chunk
+                else:
+                    chunk = ProcessedResponse(
+                        content=normalize_to_processed_chunk_content(raw_chunk),
+                        metadata={},
+                    )
                 # Check for tool-call swallowed
                 metadata = getattr(chunk, "metadata", {}) or {}
                 if (
@@ -1268,7 +1378,36 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
 
                 return False
 
+            def _is_terminal_error_chunk(ch: ProcessedResponse) -> bool:
+                md = getattr(ch, "metadata", {}) or {}
+                if md.get("error"):
+                    return True
+                if md.get("finish_reason") == "error":
+                    return True
+                c = getattr(ch, "content", None)
+                if isinstance(c, dict) and c.get("error"):
+                    return True
+                if isinstance(c, str):
+                    return '"finish_reason": "error"' in c or '"error"' in c
+                if isinstance(c, bytes | bytearray):
+                    try:
+                        decoded = c.decode("utf-8")
+                    except UnicodeDecodeError:
+                        decoded = c.decode("utf-8", errors="ignore")
+                    return '"finish_reason": "error"' in decoded or '"error"' in decoded
+                return False
+
             async for chunk in attach_metadata_stream():
+                if _is_terminal_error_chunk(chunk):
+                    seen_meaningful = True
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Terminal error chunk detected; suppressing empty-stream recovery for session %s",
+                            processing_context.session_id,
+                        )
+                    yield chunk
+                    continue
+
                 meaningful = self._chunk_has_meaningful_output(chunk)
 
                 if meaningful:
@@ -1327,27 +1466,42 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     # must be carried via the structured `error` field.
                     provider = processing_context.backend_name or "unknown"
                     model_name = processing_context.model_name or "unknown"
-                    yield ProcessedResponse(
-                        content="",
-                        metadata={
+                    terminal_error = BackendError(
+                        message="Upstream model returned no user-visible content after retries.",
+                        backend_name=provider,
+                        status_code=502,
+                        code="empty_stream_after_retries",
+                        details={
                             "session_id": processing_context.session_id,
                             "provider": provider,
                             "model": model_name,
-                            "finish_reason": "error",
-                            "error": {
-                                "message": "Upstream model returned no user-visible content after retries.",
-                                "type": "empty_stream_after_retries",
-                                "code": "empty_stream_after_retries",
-                                "retryable": False,
-                                "status_code": 502,
-                            },
-                            # Preserve structured details for logging/diagnostics.
-                            "proxy_warning": {
-                                "message": "empty_stream_after_retries",
-                                "type": "empty_stream_after_retries",
-                            },
-                            "is_done": True,
+                            "reason": "empty_stream_after_retries",
                         },
+                    )
+                    terminal_chunk = await handle_streaming_error(
+                        terminal_error,
+                        stream_id=processing_context.session_id,
+                        provider=provider,
+                    )
+                    terminal_metadata = dict(
+                        getattr(terminal_chunk, "metadata", {}) or {}
+                    )
+                    terminal_metadata.setdefault(
+                        "session_id", processing_context.session_id
+                    )
+                    terminal_metadata.setdefault("model", model_name)
+                    terminal_metadata.setdefault("is_done", True)
+                    terminal_metadata["proxy_warning"] = {
+                        "message": "empty_stream_after_retries",
+                        "type": "empty_stream_after_retries",
+                    }
+
+                    yield ProcessedResponse(
+                        content=normalize_to_processed_chunk_content(
+                            terminal_chunk.to_bytes()
+                        ),
+                        metadata=terminal_metadata,
+                        usage=getattr(terminal_chunk, "usage", None),
                     )
                     return
 
@@ -1364,11 +1518,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 def _should_abort_for_cancellation() -> bool:
                     if self._backend_work_guard is not None:
                         return self._backend_work_guard.is_cancelled(session_key)
-                    if (
-                        self._cancellation_coordinator is None
-                        or context is None
-                        or session_key is None
-                    ):
+                    if self._cancellation_coordinator is None or session_key is None:
                         return False
                     try:
                         self._cancellation_coordinator.ensure_not_cancelled(session_key)
@@ -1447,13 +1597,47 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     metadata=getattr(retry_response, "metadata", {}),
                 )
 
-        content_stream = stream_with_empty_recovery()
+        if os.getenv("LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY", "").lower() in (
+            "1",
+            "true",
+            "yes",
+        ):
+
+            async def stream_without_empty_recovery() -> (
+                AsyncIterator[ProcessedResponse]
+            ):
+                async for chunk in attach_metadata_stream():
+                    yield chunk
+
+            content_stream = stream_without_empty_recovery()
+        else:
+            content_stream = stream_with_empty_recovery()
+
+        prefetched_chunk: ProcessedResponse | None = None
+        effective_status_code = stream.status_code
+        try:
+            prefetched_chunk = await anext(content_stream)
+        except StopAsyncIteration:
+            prefetched_chunk = None
+
+        if prefetched_chunk is not None:
+            terminal_error_status = self._extract_terminal_error_status(
+                prefetched_chunk
+            )
+            if terminal_error_status is not None:
+                effective_status_code = terminal_error_status
+
+        async def _with_prefetched_chunk() -> AsyncIterator[ProcessedResponse]:
+            if prefetched_chunk is not None:
+                yield prefetched_chunk
+            async for chunk in content_stream:
+                yield chunk
 
         return StreamingResponseEnvelope(
-            content=content_stream,
+            content=_with_prefetched_chunk(),
             media_type=stream.media_type,
             headers=stream.headers,
-            status_code=stream.status_code,
+            status_code=effective_status_code,
             cancel_callback=stream.cancel_callback,
             metadata=stream.metadata,
         )

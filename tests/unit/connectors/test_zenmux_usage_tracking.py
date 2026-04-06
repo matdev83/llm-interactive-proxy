@@ -7,12 +7,27 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.zenmux import ZenmuxConnector
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.translation_service import TranslationService
 from src.core.transport.fastapi.response_adapters import to_fastapi_response
+
+
+def _zenmux_connector_req(request: ChatRequest) -> ConnectorChatCompletionsRequest:
+    domain = CanonicalChatRequest.model_validate(request.model_dump())
+    return ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=list(request.messages),
+        effective_model=request.model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
+    )
 
 
 @pytest.mark.asyncio
@@ -35,6 +50,7 @@ async def test_zenmux_non_streaming_response_includes_headers():
     # Set up connector state
     connector.api_key = "test_zenmux_key"
     connector.api_base_url = "https://zenmux.ai/api/v1"
+    connector.disable_health_check()
 
     # Mock response with usage headers
     mock_response = MagicMock()
@@ -64,24 +80,18 @@ async def test_zenmux_non_streaming_response_includes_headers():
         },
     }
 
-    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
-    # Create a test request
     request = ChatRequest(
         model="gpt-4",
         messages=[ChatMessage(role="user", content="Hello")],
         stream=False,
     )
 
-    # Act
-    result = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gpt-4",
-        identity=None,
-    )
+    result = await connector.chat_completions(_zenmux_connector_req(request))
 
-    # Assert
     assert isinstance(result, ResponseEnvelope)
     assert result.headers is not None
     assert "x-request-id" in result.headers
@@ -115,6 +125,7 @@ async def test_zenmux_usage_data_in_client_response():
     # Set up connector state
     connector.api_key = "test_key"
     connector.api_base_url = "https://zenmux.ai/api/v1"
+    connector.disable_health_check()
 
     # Mock backend response with usage data
     mock_response = MagicMock()
@@ -143,7 +154,9 @@ async def test_zenmux_usage_data_in_client_response():
         },
     }
 
-    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     request = ChatRequest(
         model="gpt-4",
@@ -151,13 +164,7 @@ async def test_zenmux_usage_data_in_client_response():
         stream=False,
     )
 
-    # Act - Get response from connector
-    envelope = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gpt-4",
-        identity=None,
-    )
+    envelope = await connector.chat_completions(_zenmux_connector_req(request))
 
     # Convert to FastAPI response (simulating what happens in the controller)
     fastapi_response = to_fastapi_response(envelope)
@@ -201,6 +208,7 @@ async def test_zenmux_response_with_custom_headers():
 
     connector.api_key = "test_key"
     connector.api_base_url = "https://zenmux.ai/api/v1"
+    connector.disable_health_check()
 
     # Mock response with ZenMux-specific headers
     mock_response = MagicMock()
@@ -231,7 +239,9 @@ async def test_zenmux_response_with_custom_headers():
         },
     }
 
-    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     request = ChatRequest(
         model="gpt-4",
@@ -239,13 +249,7 @@ async def test_zenmux_response_with_custom_headers():
         stream=False,
     )
 
-    # Act
-    result = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gpt-4",
-        identity=None,
-    )
+    result = await connector.chat_completions(_zenmux_connector_req(request))
 
     # Assert - ZenMux headers should be preserved for usage tracking
     assert isinstance(result, ResponseEnvelope)

@@ -11,6 +11,10 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import HeaderConfig, HeaderOverrideMode
 
+from tests.unit.openrouter_connector_tests.helpers import (
+    openrouter_connector_chat_request,
+)
+
 
 def mock_headers_provider(_: str, api_key: str) -> dict[str, str]:
     return {
@@ -80,14 +84,15 @@ def test_identity_headers_forwarded(
 
     asyncio.run(
         backend.chat_completions(
-            request_data=request,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="openai/gpt-4",
-            openrouter_api_base_url="https://openrouter.ai/api/v1",
-            openrouter_headers_provider=mock_headers_provider,
-            key_name="call-key",
-            api_key="call-api-key",
-            identity=identity,
+            openrouter_connector_chat_request(
+                request,
+                processed_messages=[ChatMessage(role="user", content="Hello")],
+                effective_model="openai/gpt-4",
+                openrouter_api_base_url="https://openrouter.ai/api/v1",
+                key_name="call-key",
+                api_key="call-api-key",
+                identity=identity,
+            )
         )
     )
 

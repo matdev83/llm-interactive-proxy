@@ -12,7 +12,11 @@ from typing import Any
 
 import httpx
 
-from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry, CaptureSession
+from src.core.domain.cbor_capture import (
+    CaptureDirection,
+    CapturedWireEvent,
+    CaptureSession,
+)
 from src.core.simulation.output_utils import safe_bytes_preview
 from src.core.simulation.timing_controller import TimingController
 
@@ -108,7 +112,7 @@ class ClientSimulator:
             await self._client.aclose()
             self._client = None
 
-    def _get_request_entries(self) -> list[CaptureEntry]:
+    def _get_request_entries(self) -> list[CapturedWireEvent]:
         """Get inbound request entries from client."""
         return [
             e
@@ -119,7 +123,7 @@ class ClientSimulator:
             and e.metadata.chunk_index is None
         ]
 
-    def _get_expected_response_entries(self, after_sequence: int) -> list[CaptureEntry]:
+    def _get_expected_response_entries(self, after_sequence: int) -> list[CapturedWireEvent]:
         """Get expected response entries after a request.
 
         Args:
@@ -129,7 +133,7 @@ class ClientSimulator:
             List of expected response entries
         """
         entries = self._session.entries
-        response_entries: list[CaptureEntry] = []
+        response_entries: list[CapturedWireEvent] = []
         collecting = False
 
         for entry in entries:
@@ -148,7 +152,7 @@ class ClientSimulator:
         return response_entries
 
     async def replay_request(
-        self, entry: CaptureEntry, endpoint: str = "/v1/chat/completions"
+        self, entry: CapturedWireEvent, endpoint: str = "/v1/chat/completions"
     ) -> httpx.Response:
         """Replay a single request.
 
@@ -179,7 +183,7 @@ class ClientSimulator:
     async def consume_response_stream(
         self,
         response: httpx.Response,
-        expected_entries: list[CaptureEntry],
+        expected_entries: list[CapturedWireEvent],
     ) -> ValidationResult:
         """Consume a streaming response and validate against expectations.
 
@@ -291,7 +295,7 @@ class ClientSimulator:
     async def validate_response(
         self,
         response: httpx.Response,
-        expected_entries: list[CaptureEntry],
+        expected_entries: list[CapturedWireEvent],
     ) -> ValidationResult:
         """Validate a non-streaming response against expectations.
 

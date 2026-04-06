@@ -12,7 +12,11 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
-from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry, CaptureSession
+from src.core.domain.cbor_capture import (
+    CaptureDirection,
+    CapturedWireEvent,
+    CaptureSession,
+)
 from src.core.domain.simulation import SimulatorStatistics
 from src.core.simulation.timing_controller import TimingController
 
@@ -24,8 +28,8 @@ class RequestMatch:
     """Result of matching an incoming request to a captured request."""
 
     matched: bool
-    captured_request: CaptureEntry | None = None
-    response_entries: list[CaptureEntry] = field(default_factory=list)
+    captured_request: CapturedWireEvent | None = None
+    response_entries: list[CapturedWireEvent] = field(default_factory=list)
     is_streaming: bool = False
 
 
@@ -53,7 +57,7 @@ class BackendSimulator:
         self._session = session
         self._timing = timing_controller or TimingController()
         self._request_index = 0
-        self._response_queues: dict[int, list[CaptureEntry]] = {}
+        self._response_queues: dict[int, list[CapturedWireEvent]] = {}
         self._prepare_responses()
 
     def _prepare_responses(self) -> None:

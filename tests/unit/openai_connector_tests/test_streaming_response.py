@@ -16,7 +16,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai import OpenAIConnector
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 if TYPE_CHECKING:
@@ -26,6 +28,24 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
+
+
+def _connector_chat_request(
+    chat: ChatRequest,
+    processed_messages: list[ChatMessage],
+    effective_model: str,
+) -> ConnectorChatCompletionsRequest:
+    domain = CanonicalChatRequest.model_validate(chat.model_dump())
+    return ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=processed_messages,
+        effective_model=effective_model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
+    )
 
 
 class MockResponse:
@@ -253,6 +273,7 @@ def connector(mocker: MockerFixture) -> OpenAIConnector:
         mock_instance, config=config, translation_service=translation_service
     )
     connector.api_key = "test-api-key"
+    connector.disable_health_check()
     return connector
 
 
@@ -302,18 +323,14 @@ async def test_streaming_response_async_iterator(
         side_effect=lambda chunk, _: chunk,
     )
 
-    # Create a mock ChatRequest with streaming enabled
-    from src.core.domain.chat import ChatMessage, ChatRequest
-
     request_data = ChatRequest(
         model="test-model",
         messages=[ChatMessage(role="user", content="test")],
         stream=True,
     )
-
-    # Call the method
+    processed = [ChatMessage(role="user", content="test")]
     result = await connector.chat_completions(
-        request_data, [ChatMessage(role="user", content="test")], "test-model"
+        _connector_chat_request(request_data, processed, "test-model")
     )
 
     # Check the result
@@ -415,9 +432,9 @@ async def test_streaming_response_sync_iterator(
         stream=True,
     )
 
-    # Call the method
+    processed = [ChatMessage(role="user", content="test")]
     result = await connector.chat_completions(
-        request_data, [ChatMessage(role="user", content="test")], "test-model"
+        _connector_chat_request(request_data, processed, "test-model")
     )
 
     # Check the result
@@ -521,9 +538,9 @@ async def test_streaming_response_coroutine(
         stream=True,
     )
 
-    # Call the method
+    processed = [ChatMessage(role="user", content="test")]
     result = await connector.chat_completions(
-        request_data, [ChatMessage(role="user", content="test")], "test-model"
+        _connector_chat_request(request_data, processed, "test-model")
     )
 
     # Check the result
@@ -592,9 +609,9 @@ async def test_streaming_response_error(
         stream=True,
     )
 
-    # Call the method
+    processed = [ChatMessage(role="user", content="test")]
     result = await connector.chat_completions(
-        request_data, [ChatMessage(role="user", content="test")], "test-model"
+        _connector_chat_request(request_data, processed, "test-model")
     )
 
     # Verify the result is an error chunk
@@ -648,10 +665,9 @@ async def test_streaming_response_error_closes_response(
         stream=True,
     )
 
+    processed = [ChatMessage(role="user", content="test")]
     result = await connector.chat_completions(
-        request_data,
-        [ChatMessage(role="user", content="test")],
-        "test-model",
+        _connector_chat_request(request_data, processed, "test-model")
     )
 
     # Iterate to trigger error
@@ -713,10 +729,9 @@ async def test_streaming_response_request_error(
         stream=True,
     )
 
+    processed = [ChatMessage(role="user", content="test")]
     result = await connector.chat_completions(
-        request_data,
-        [ChatMessage(role="user", content="test")],
-        "test-model",
+        _connector_chat_request(request_data, processed, "test-model")
     )
 
     chunks = []
@@ -770,10 +785,9 @@ async def test_streaming_response_midstream_request_error(
         stream=True,
     )
 
+    processed = [ChatMessage(role="user", content="test")]
     result = await connector.chat_completions(
-        request_data,
-        [ChatMessage(role="user", content="test")],
-        "test-model",
+        _connector_chat_request(request_data, processed, "test-model")
     )
 
     from src.core.domain.responses import StreamingResponseEnvelope
@@ -815,9 +829,9 @@ async def test_streaming_response_no_auth(connector: OpenAIConnector) -> None:
     # Remove the api key to trigger the auth error
     connector.api_key = None
 
-    # Call the method
+    processed = [ChatMessage(role="user", content="test")]
     result = await connector.chat_completions(
-        request_data, [ChatMessage(role="user", content="test")], "test-model"
+        _connector_chat_request(request_data, processed, "test-model")
     )
 
     # Verify the result is an error chunk

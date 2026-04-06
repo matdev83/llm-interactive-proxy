@@ -63,7 +63,7 @@ async def test_rate_limit_preserves_retry_after_details(mocker):
 
     mocker.patch.object(
         OpenAIConnector,
-        "chat_completions",
+        "_chat_completions_canonical",
         new_callable=AsyncMock,
         side_effect=HTTPException(
             status_code=429,

@@ -13,7 +13,7 @@ import logging
 import threading
 import time
 import uuid
-from collections.abc import AsyncGenerator, Callable, Iterable
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 # ---------------------------------------------------------------------------
@@ -851,7 +851,10 @@ class StreamingExecutor:
                             message="Authenticated session does not support request dispatch",
                             backend_name=self._backend_type,
                         )
-                    request_kwargs = dict(send_settings)
+                    if isinstance(send_settings, Mapping):
+                        request_kwargs = dict(send_settings)
+                    else:
+                        request_kwargs = {}
                     request_kwargs["stream"] = True
                     request_task = asyncio.create_task(
                         asyncio.to_thread(
@@ -984,9 +987,16 @@ class StreamingExecutor:
                 )
                 return
 
-            except google_auth_exceptions.GoogleAuthError as gae:
+            except Exception as exc:
+                _gae_cls = getattr(google_auth_exceptions, "GoogleAuthError", None)
+                if not (
+                    isinstance(_gae_cls, type)
+                    and issubclass(_gae_cls, BaseException)
+                    and isinstance(exc, _gae_cls)
+                ):
+                    raise
                 logger.error(
-                    f"Streaming auth error calling {url}: {gae}",
+                    f"Streaming auth error calling {url}: {exc}",
                     exc_info=True,
                 )
                 error_chunk = self._build_auth_error_chunk(prepared.effective_model)

@@ -15,6 +15,29 @@ class MockHTTPClient(httpx.AsyncClient):
         self.response = response
         self.sent_request: httpx.Request | None = None
 
+    def build_request(
+        self,
+        method: str,
+        url: URL | str,
+        **kwargs: Any,
+    ) -> httpx.Request:
+        """Record the outbound request; mirrors connectors using CaptureAwareAsyncClient.send."""
+        req = httpx.Request(method, url, **kwargs)
+        self.sent_request = req
+        return req
+
+    async def send(
+        self,
+        request: httpx.Request,
+        *,
+        stream: bool = False,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """Return the configured response without network I/O."""
+        self.sent_request = request
+        self.response._request = request
+        return self.response
+
     async def post(
         self,
         url: URL | str,
@@ -24,7 +47,6 @@ class MockHTTPClient(httpx.AsyncClient):
         **kwargs: Any,
     ) -> httpx.Response:
         """Mock the POST request."""
-        print(f"MockHTTPClient.post called with json: {json}")
         if json is not None:
             content = json_module.dumps(json)
 

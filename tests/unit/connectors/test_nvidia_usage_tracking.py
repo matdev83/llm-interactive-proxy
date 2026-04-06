@@ -7,9 +7,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.nvidia import NvidiaConnector
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.translation_service import TranslationService
 from src.core.transport.fastapi.response_adapters import to_fastapi_response
@@ -33,6 +34,7 @@ async def test_nvidia_non_streaming_response_includes_usage() -> None:
 
     connector.api_key = "test-nvidia-key"
     connector.api_base_url = "https://integrate.api.nvidia.com/v1"
+    connector.disable_health_check()
 
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -58,21 +60,28 @@ async def test_nvidia_non_streaming_response_includes_usage() -> None:
             "total_tokens": 15,
         },
     }
-
-    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     request = ChatRequest(
         model="meta/llama3-70b",
         messages=[ChatMessage(role="user", content="Hi")],
         stream=False,
     )
-
-    result = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
+    domain = CanonicalChatRequest.model_validate(request.model_dump())
+    connector_req = ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=list(request.messages),
         effective_model="meta/llama3-70b",
         identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
     )
+
+    result = await connector.chat_completions(connector_req)
 
     assert isinstance(result, ResponseEnvelope)
     assert result.usage is not None
@@ -99,6 +108,7 @@ async def test_nvidia_usage_in_client_response_via_fastapi_adapter() -> None:
 
     connector.api_key = "test_key"
     connector.api_base_url = "https://integrate.api.nvidia.com/v1"
+    connector.disable_health_check()
 
     mock_response = MagicMock()
     mock_response.status_code = 200
@@ -121,21 +131,28 @@ async def test_nvidia_usage_in_client_response_via_fastapi_adapter() -> None:
             "total_tokens": 50,
         },
     }
-
-    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     request = ChatRequest(
         model="meta/llama3-8b",
         messages=[ChatMessage(role="user", content="In")],
         stream=False,
     )
-
-    envelope = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
+    domain = CanonicalChatRequest.model_validate(request.model_dump())
+    connector_req = ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=list(request.messages),
         effective_model="meta/llama3-8b",
         identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
     )
+
+    envelope = await connector.chat_completions(connector_req)
 
     fastapi_response = to_fastapi_response(envelope)
     response_body = json.loads(fastapi_response.body)

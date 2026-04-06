@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.hybrid import HybridConnector, ReasoningPhaseResult
 from src.core.common.exceptions import (
     BackendError,
@@ -846,14 +847,21 @@ class TestErrorHandling:
 
             from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
+            domain = CanonicalChatRequest(
+                model="hybrid:[openai:gpt-4,openai:gpt-3.5]",
+                messages=[ChatMessage(role="user", content="test")],
+            )
             asyncio.run(
                 connector.chat_completions(
-                    request_data=CanonicalChatRequest(
-                        model="hybrid:[openai:gpt-4,openai:gpt-3.5]",
-                        messages=[ChatMessage(role="user", content="test")],
-                    ),
-                    processed_messages=[ChatMessage(role="user", content="test")],
-                    effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5]",
+                    ConnectorChatCompletionsRequest(
+                        request=domain,
+                        processed_messages=[ChatMessage(role="user", content="test")],
+                        effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5]",
+                        identity=None,
+                        cancellation_token=None,
+                        cancellation_coordinator=None,
+                        context=None,
+                    )
                 )
             )
 
@@ -1305,9 +1313,15 @@ class TestHybridToolCallShortCircuit:
             ) as execution_mock,
         ):
             response = await hybrid_connector.chat_completions(
-                request_payload,
-                processed_messages=processed_messages,
-                effective_model=request_payload.model,
+                ConnectorChatCompletionsRequest(
+                    request=request_payload,
+                    processed_messages=processed_messages,
+                    effective_model=request_payload.model,
+                    identity=None,
+                    cancellation_token=None,
+                    cancellation_coordinator=None,
+                    context=None,
+                )
             )
 
         assert isinstance(response, StreamingResponseEnvelope)
@@ -1364,9 +1378,15 @@ class TestHybridToolCallShortCircuit:
             ) as execution_mock,
         ):
             response = await hybrid_connector.chat_completions(
-                request_payload,
-                processed_messages=processed_messages,
-                effective_model=request_payload.model,
+                ConnectorChatCompletionsRequest(
+                    request=request_payload,
+                    processed_messages=processed_messages,
+                    effective_model=request_payload.model,
+                    identity=None,
+                    cancellation_token=None,
+                    cancellation_coordinator=None,
+                    context=None,
+                )
             )
 
         assert isinstance(response, ResponseEnvelope)

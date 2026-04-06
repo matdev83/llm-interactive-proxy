@@ -23,7 +23,6 @@ from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
-    InvalidRequestError,
     RateLimitExceededError,
 )
 from src.core.common.logging_utils import redact_dict
@@ -81,10 +80,6 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     _KILO_VERSION: str = "4.111.0"
     _KILO_USER_AGENT: str = f"Kilo-Code/{_KILO_VERSION}"
 
-    # OpenCode fingerprint constants (for consistent fingerprint matching)
-    _OPENCODE_USER_AGENT: str = "opencode"
-
-    # Allowed outbound headers (both Kilo-Code and OpenCode compatible)
     _ALLOWED_OUTBOUND_HEADERS: frozenset[str] = frozenset(
         {
             "authorization",
@@ -141,9 +136,6 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         self._default_max_tokens = 8192
         self._model_discovery_succeeded = False
 
-        # Current request agent detection (set during request processing, read by get_headers)
-        self._current_request_agent: str | None = None
-
         # Refresh the advertised model list from the provider (falls back to defaults on failure)
         self.available_models: list[str] = []
         self._provider_models: set[str] = set()
@@ -153,49 +145,25 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     def get_headers(
         self,
         identity: IAppIdentityConfig | None = None,
-        request: CanonicalChatRequest | None = None,
     ) -> dict[str, str]:
-        """Return request headers with consistent client fingerprinting.
+        """Return request headers with consistent Kilo-Code fingerprinting.
 
-        ZAI API requires specific client headers for authorization.
-        These headers MUST be consistent with the detected client agent
-        to avoid WAF/429 rejections from fingerprint mismatch.
-
-        Supports both Kilo-Code and OpenCode clients - chooses fingerprint
-        based on the detected client agent from the request.
-
-        Note: The agent is detected from ``_current_request_agent`` which is
-        set during ``chat_completions()`` processing. The optional ``request``
-        parameter is used as a fallback for direct calls (e.g., tests).
+        The ZAI coding plan gateway requires specific client identification headers
+        (Referer, Origin, X-Title, X-KiloCode-Version) to validate the subscription.
+        Always override with the Kilo-Code fingerprint, stripping any client-submitted
+        identity headers from identity overrides that would conflict.
         """
         headers = super().get_headers(identity=identity)
 
-        # Detect client agent for consistent fingerprinting
-        # Prefer instance variable set during chat_completions, fallback to request param
-        detected_agent = getattr(self, "_current_request_agent", None)
-        if detected_agent is None:
-            detected_agent = self._detect_client_agent(request)
-
-        if detected_agent == "opencode":
-            # OpenCode fingerprint: minimal headers, no Kilo-Code metadata
-            headers["User-Agent"] = self._OPENCODE_USER_AGENT
-            # Remove Kilo-Code specific headers that would cause fingerprint mismatch
-            for key in (
-                "Referer",
-                "Origin",
-                "HTTP-Referer",
-                "X-Title",
-                "X-KiloCode-Version",
-            ):
-                headers.pop(key, None)
-        else:
-            # Kilo-Code fingerprint (default for backward compatibility)
-            headers["User-Agent"] = self._KILO_USER_AGENT
-            headers["Referer"] = "https://kilocode.ai"
-            headers["Origin"] = "https://kilocode.ai"
-            headers["HTTP-Referer"] = "https://kilocode.ai"
-            headers["X-Title"] = "Kilo Code"
-            headers["X-KiloCode-Version"] = self._KILO_VERSION
+        # Always use Kilo-Code fingerprint for ZAI coding plan endpoint.
+        # This overrides any identity headers the caller may have set, ensuring
+        # the gateway can match the request to the coding plan subscription.
+        headers["User-Agent"] = self._KILO_USER_AGENT
+        headers["Referer"] = "https://kilocode.ai"
+        headers["Origin"] = "https://kilocode.ai"
+        headers["HTTP-Referer"] = "https://kilocode.ai"
+        headers["X-Title"] = "Kilo Code"
+        headers["X-KiloCode-Version"] = self._KILO_VERSION
 
         # Remove loop guard header for compatibility
         if "x-llmproxy-loop-guard" in headers:
@@ -205,37 +173,11 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         debug_headers = redact_dict(dict(headers) if headers else {})
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "ZAI Coding Plan request headers (agent=%s): %s",
-                detected_agent,
+                "ZAI Coding Plan request headers (fingerprint=kilocode-override): %s",
                 debug_headers,
             )
 
         return self._sanitize_outbound_headers(headers)
-
-    @staticmethod
-    def _detect_client_agent(request: CanonicalChatRequest | None) -> str:
-        """Detect the client agent from the request for fingerprint selection.
-
-        Returns:
-            'opencode' if OpenCode client detected, 'kilocode' otherwise.
-        """
-        if request is None:
-            return "kilocode"
-
-        # Check request.agent field (e.g., "opencode/1.2.26...")
-        agent_str = getattr(request, "agent", None)
-        if isinstance(agent_str, str) and "opencode" in agent_str.lower():
-            return "opencode"
-
-        # Check extra_body for agent field
-        extra_body = getattr(request, "extra_body", None)
-        if isinstance(extra_body, dict):
-            extra_agent = extra_body.get("agent")
-            if isinstance(extra_agent, str) and "opencode" in extra_agent.lower():
-                return "opencode"
-
-        # Default to Kilo-Code for backward compatibility
-        return "kilocode"
 
     def _sanitize_outbound_headers(
         self, headers: dict[str, str] | None
@@ -277,9 +219,6 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         self, request: CanonicalChatRequest
     ) -> AsyncGenerator[object, None]:
         """Force ZAI streaming requests to use SSE-friendly sanitized headers."""
-
-        # Detect client agent for consistent fingerprinting
-        self._current_request_agent = self._detect_client_agent(request)
 
         extra_body = dict(getattr(request, "extra_body", None) or {})
         raw_stream_headers = extra_body.get(_STREAM_HEADERS_OVERRIDE_KEY)
@@ -570,41 +509,19 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     async def chat_completions(  # type: ignore[override]
         self,
         request: ConnectorChatCompletionsRequest,
-        *args: Any,
-        **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Route chat completions, retrying with legacy Claude when balance errors occur.
 
-        This method implements ICanonicalChatCompletionsBackend.
-        The *args/**kwargs are present only for supertype compatibility;
-        legacy callers are rejected.
+        Implements :class:`ICanonicalChatCompletionsBackend` using
+        :class:`ConnectorChatCompletionsRequest` only.
         """
-        if args or kwargs:
-            raise InvalidRequestError(
-                message="ZAI Coding Plan no longer supports the legacy connector API. "
-                "Use the canonical ICanonicalChatCompletionsBackend interface.",
-                details={"backend": self.backend_type},
-            )
-        # Structural enforcement: check cancellation immediately if coordinator and token provided
-        if (
-            request.cancellation_coordinator is not None
-            and request.cancellation_token is not None
-        ):
-            request.cancellation_coordinator.ensure_not_cancelled(
-                request.cancellation_token
-            )
-
-        # Detect client agent from the domain request for consistent fingerprinting
-        domain_request = request.request
-        self._current_request_agent = self._detect_client_agent(domain_request)
-
         # Update model in canonical request if needed
         selected_model = self._select_model(request.effective_model)
         if request.effective_model != selected_model:
             request = replace(request, effective_model=selected_model)
 
         try:
-            return await super().chat_completions(request)
+            return await self._chat_completions_canonical(request)
         except HTTPException as exc:
             if self._should_retry_with_legacy(exc, selected_model):
                 legacy_model = self._LEGACY_MODEL
@@ -617,7 +534,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                         exc_info=True,
                     )
                 legacy_request = replace(request, effective_model=legacy_model)
-                return await super().chat_completions(legacy_request)
+                return await self._chat_completions_canonical(legacy_request)
 
             detail_text = self._detail_to_text(exc.detail)
             provider_details = {

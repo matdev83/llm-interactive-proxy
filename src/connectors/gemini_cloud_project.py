@@ -1291,7 +1291,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Health check passed - backend is ready for use")
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: Any,
         processed_messages: list[Any],

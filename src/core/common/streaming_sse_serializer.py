@@ -290,6 +290,40 @@ class SSESerializer:
         self, chunk: StreamingChunk, content: StreamingContent
     ) -> bytes:
         """Serialize done chunk to SSE bytes (may include content or just [DONE])."""
+        if self._is_terminal_error_like(chunk, content):
+            # Defensive fallback: never collapse terminal errors into bare [DONE].
+            error_dict = self._extract_error_payload(chunk, content)
+            created = (
+                content.metadata.get("created")
+                if isinstance(content.metadata.get("created"), int)
+                else int(time.time())
+            )
+            model = (
+                content.metadata.get("model")
+                if isinstance(content.metadata.get("model"), str)
+                else "unknown"
+            )
+            error_id = (
+                content.metadata.get("id")
+                if isinstance(content.metadata.get("id"), str)
+                else f"chatcmpl-error-{created}"
+            )
+            error_data: dict[str, Any] = {
+                "id": error_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "error",
+                    }
+                ],
+                "error": error_dict,
+            }
+            return f"data: {json.dumps(error_data)}\n\ndata: [DONE]\n\n".encode()
+
         if content._is_empty_completion_payload():  # type: ignore[attr-defined]
             return b"data: [DONE]\n\n"
 
@@ -305,6 +339,37 @@ class SSESerializer:
             # but ensure [DONE] is added since chunk.is_done is True
             return self._serialize_normal_chunk(chunk, content)
         return b"data: [DONE]\n\n"
+
+    @staticmethod
+    def _extract_error_payload(
+        chunk: StreamingChunk, content: StreamingContent
+    ) -> dict[str, Any]:
+        if chunk.metadata.error is not None:
+            payload = chunk.metadata.error.model_dump(exclude_none=True)
+            if isinstance(payload, dict):
+                return payload
+        raw = content.metadata.get("error")
+        if isinstance(raw, dict):
+            return dict(raw)
+        if raw is not None:
+            return {"message": str(raw), "type": "api_error"}
+        return {
+            "message": "Upstream stream terminated with an error.",
+            "type": "streaming_error",
+        }
+
+    @staticmethod
+    def _is_terminal_error_like(
+        chunk: StreamingChunk, content: StreamingContent
+    ) -> bool:
+        if chunk.metadata.finish_reason == "error":
+            return True
+        if chunk.metadata.error is not None:
+            return True
+        raw_error = content.metadata.get("error")
+        if raw_error:
+            return True
+        return isinstance(content.content, dict) and bool(content.content.get("error"))
 
     def serialize(self, content: StreamingContent) -> bytes:
         """Serialize StreamingContent to SSE bytes.

@@ -912,18 +912,25 @@ class ResponseProcessor(IResponseProcessor):
         ) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error in stream processing: {e}", exc_info=True)
-            # Normalize error content and metadata
-            error_content = normalize_to_processed_chunk_content(
-                f"Error in stream processing: {e}"
-            )
+            # Emit a structured terminal error chunk so downstream streaming gates
+            # classify this as a hard failure instead of empty output.
+            error_message = f"Error in stream processing: {e}"
             error_metadata = self._normalize_metadata(
                 {
-                    "error": True,
+                    "finish_reason": "error",
+                    "is_done": True,
+                    "error": {
+                        "message": error_message,
+                        "type": type(e).__name__,
+                        "code": "stream_processing_error",
+                        "retryable": False,
+                        "status_code": 500,
+                    },
                     **({"session_id": session_id} if session_id else {}),
                 }
             )
             yield ProcessedResponse(
-                content=error_content,
+                content="",
                 usage=None,
                 metadata=error_metadata,
             )

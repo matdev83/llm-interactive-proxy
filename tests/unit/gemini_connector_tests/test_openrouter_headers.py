@@ -4,6 +4,8 @@ import httpx
 from src.connectors.gemini import GeminiBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 
+from tests.unit.gemini_connector_tests.helpers import gemini_connector_request
+
 OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
 
 
@@ -63,14 +65,19 @@ def test_openrouter_headers_provider_used() -> None:
                     "HTTP-Referer": "provided-ref",
                 }
 
+            backend.openrouter_headers_provider = provider
+
             await backend.chat_completions(
-                request_data=chat_request,
-                processed_messages=processed_messages,
-                effective_model="models/gemini-1",
-                openrouter_api_base_url=OPENROUTER_API_BASE_URL,
-                openrouter_headers_provider=provider,
-                key_name="gemini",
-                api_key="OPENROUTER_KEY",
+                gemini_connector_request(
+                    chat_request,
+                    processed_messages=processed_messages,
+                    effective_model="models/gemini-1",
+                    options={
+                        "openrouter_api_base_url": OPENROUTER_API_BASE_URL,
+                        "key_name": "gemini",
+                        "api_key": "OPENROUTER_KEY",
+                    },
+                )
             )
 
             assert len(provider_calls) == 2

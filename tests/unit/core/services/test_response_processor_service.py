@@ -374,10 +374,12 @@ class TestResponseProcessor:
 
             assert len(processed_chunks) == 2
             assert processed_chunks[0].content == "valid"
-            assert (
-                processed_chunks[1].content is not None
-                and "Stream error" in processed_chunks[1].content
-            )
+            assert processed_chunks[1].content == ""
+            assert processed_chunks[1].metadata.get("finish_reason") == "error"
+            assert processed_chunks[1].metadata.get("is_done") is True
+            error_payload = processed_chunks[1].metadata.get("error")
+            assert isinstance(error_payload, dict)
+            assert "Stream error" in str(error_payload.get("message"))
 
     @pytest.mark.asyncio
     async def test_process_streaming_response_delegates_to_normalizer(

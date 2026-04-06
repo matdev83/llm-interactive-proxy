@@ -33,6 +33,7 @@ KNOWN_OAUTH_CONNECTORS: set[str] = _EXTRACTED_OAUTH_CONNECTORS.union(
         "openai-codex",  # Uses OAuth via auth.json (special case)
         "opencode-zen",  # Extracted plugin; name doesn't follow -oauth convention
         "cline",  # Extracted plugin; uses OAuth-style token management
+        "kiro-oauth-auto",  # Extracted OAuth backend; logical name uses dashes
     }
 )
 

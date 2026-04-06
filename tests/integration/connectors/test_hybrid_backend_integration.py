@@ -6,6 +6,7 @@ from typing import Any, cast
 from unittest.mock import Mock, patch
 
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.hybrid import HybridConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
@@ -217,17 +218,23 @@ async def test_hybrid_streaming_exposes_reasoning_before_execution() -> None:
         messages=[ChatMessage(**msg) for msg in request_payload["messages"]],
         stream=request_payload.get("stream", False),
     )
+    processed = [ChatMessage(**msg) for msg in request_payload["messages"]]
+    canonical_request = CanonicalChatRequest.model_validate(domain_request.model_dump())
 
     with patch(
         "src.core.di.services.get_required_service",
         side_effect=_service_dispatcher(backend_service, backend_factory),
     ):
         response = await connector.chat_completions(
-            domain_request,
-            processed_messages=[
-                ChatMessage(**msg) for msg in request_payload["messages"]
-            ],
-            effective_model=request_payload["model"],
+            ConnectorChatCompletionsRequest(
+                request=canonical_request,
+                processed_messages=processed,
+                effective_model=request_payload["model"],
+                identity=None,
+                cancellation_token=None,
+                cancellation_coordinator=None,
+                context=None,
+            )
         )
 
     assert isinstance(response, StreamingResponseEnvelope)
@@ -298,17 +305,23 @@ async def test_hybrid_non_streaming_merges_reasoning_into_response() -> None:
         messages=[ChatMessage(**msg) for msg in request_payload["messages"]],
         stream=request_payload.get("stream", False),
     )
+    processed = [ChatMessage(**msg) for msg in request_payload["messages"]]
+    canonical_request = CanonicalChatRequest.model_validate(domain_request.model_dump())
 
     with patch(
         "src.core.di.services.get_required_service",
         side_effect=_service_dispatcher(backend_service, backend_factory),
     ):
         response = await connector.chat_completions(
-            domain_request,
-            processed_messages=[
-                ChatMessage(**msg) for msg in request_payload["messages"]
-            ],
-            effective_model=request_payload["model"],
+            ConnectorChatCompletionsRequest(
+                request=canonical_request,
+                processed_messages=processed,
+                effective_model=request_payload["model"],
+                identity=None,
+                cancellation_token=None,
+                cancellation_coordinator=None,
+                context=None,
+            )
         )
 
     assert isinstance(response, ResponseEnvelope)

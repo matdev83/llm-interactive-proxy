@@ -280,6 +280,44 @@ class TestHandleStreamingError:
 
         assert excinfo.value.details["headers"]["retry-after"] == "7"
 
+    @pytest.mark.asyncio
+    async def test_integrate_streaming_pipeline_empty_stream_uses_error_status(
+        self, monkeypatch
+    ) -> None:
+        """Empty upstream streams should produce explicit error status + chunk."""
+
+        class _EmptyPipeline:
+            async def process_stream(self, *args, **kwargs):
+                if False:
+                    yield b""
+
+        monkeypatch.setattr(
+            "src.core.ports.streaming_integration.create_pipeline_for_provider",
+            lambda *args, **kwargs: _EmptyPipeline(),
+        )
+
+        async def empty_stream():
+            if False:
+                yield b""
+
+        envelope = await integrate_streaming_pipeline(
+            empty_stream(),
+            provider="openai",
+            stream_id="stream-empty",
+            enable_loop_detection=False,
+            enable_tool_call_repair=False,
+            enable_think_tags=False,
+        )
+
+        assert envelope.status_code == 502
+        assert envelope.content is not None
+        first = await anext(envelope.content)
+        if isinstance(first.content, bytes):
+            rendered = first.content.decode("utf-8", errors="replace")
+        else:
+            rendered = str(first.content)
+        assert "error" in rendered
+
 
 class TestErrorChunkSerializationRoundtrip:
     """Tests for error chunk serialization and format compliance."""

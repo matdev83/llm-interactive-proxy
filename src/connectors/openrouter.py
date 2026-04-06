@@ -19,7 +19,6 @@ from src.core.common.exceptions import (
     InvalidRequestError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -307,148 +306,26 @@ class OpenRouterBackend(OpenAIConnector):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request: ConnectorChatCompletionsRequest | Any = None,
-        *args: Any,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Canonical connector API implementation with backward compatibility.
+        """Invoke OpenRouter chat completions using ``ConnectorChatCompletionsRequest`` only.
 
-        This method implements ICanonicalChatCompletionsBackend protocol.
-        For backward compatibility, also accepts legacy signature:
-        chat_completions(request_data, processed_messages, effective_model, ...)
+        Implements :class:`ICanonicalChatCompletionsBackend`. The proxy invokes backends
+        through :class:`ConnectorChatCompletionsRequest`; legacy positional call shapes
+        are not supported at this boundary.
         """
-        # Handle legacy API called with keyword arguments only (request_data=...)
-        if request is None and "request_data" in kwargs:
-            request = kwargs.pop("request_data")
-
-        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
-        if isinstance(request, ConnectorChatCompletionsRequest):
-            return await self._chat_completions_canonical(request)
-
-        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
-        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
-        # This connector should only receive canonical domain models (never dicts).
-
-        request_data = request
-        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
-        effective_model = (
-            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
-        )
-        identity = kwargs.get("identity")
-        cancellation_token = kwargs.get("cancellation_token")
-        cancellation_coordinator = kwargs.get("cancellation_coordinator")
-        context = None  # Legacy API doesn't provide context
-        options = {
-            k: v
-            for k, v in kwargs.items()
-            if k
-            not in [
-                "identity",
-                "cancellation_token",
-                "cancellation_coordinator",
-                "processed_messages",
-                "effective_model",
-                "request_data",
-                "project",
-            ]
-        }
-
-        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
-        if isinstance(request_data, dict):
+        if not isinstance(request, ConnectorChatCompletionsRequest):
             raise InvalidRequestError(
-                message="Legacy connector API received dict input. "
-                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
-                "Expected CanonicalChatRequest or ChatRequest.",
+                message=(
+                    "OpenRouterBackend.chat_completions requires ConnectorChatCompletionsRequest. "
+                    "Legacy request_data/processed_messages/effective_model invocation is not supported."
+                ),
                 details={
-                    "received_type": "dict",
+                    "received_type": type(request).__name__,
                     "connector": "openrouter",
                 },
             )
-
-        # Ensure processed_messages is a Sequence[ChatMessage]
-        if processed_messages:
-            invalid_messages = [
-                (i, type(msg).__name__)
-                for i, msg in enumerate(processed_messages)
-                if not isinstance(msg, ChatMessage)
-            ]
-            if invalid_messages:
-                raise InvalidRequestError(
-                    message="Legacy connector API received non-canonical processed_messages. "
-                    "Expected Sequence[ChatMessage], but received mixed types.",
-                    details={
-                        "invalid_indices": [idx for idx, _ in invalid_messages],
-                        "invalid_types": [typ for _, typ in invalid_messages],
-                        "connector": "openrouter",
-                    },
-                )
-
-        # Accept only canonical domain models
-        if isinstance(request_data, ChatRequest):
-            domain_request = CanonicalChatRequest.model_validate(
-                request_data.model_dump()
-            )
-        elif isinstance(request_data, CanonicalChatRequest):
-            domain_request = request_data
-        else:
-            raise InvalidRequestError(
-                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
-                "Expected CanonicalChatRequest or ChatRequest.",
-                details={
-                    "received_type": type(request_data).__name__,
-                    "connector": "openrouter",
-                },
-            )
-
-        # Extract OpenRouter-specific options from kwargs
-        headers_provider = kwargs.get("openrouter_headers_provider")
-        key_name = kwargs.get("key_name")
-        api_key = kwargs.get("api_key")
-        api_base_url = kwargs.get("openrouter_api_base_url")
-
-        # JSON-SAFETY: Callables must remain as instance attributes, not in options.
-        # Set instance attributes temporarily for this call (will be used by _chat_completions_canonical)
-        original_headers_provider = self.headers_provider
-        original_key_name = self.key_name
-        original_api_key = self.api_key
-        original_api_base_url = self.api_base_url
-
-        try:
-            if headers_provider is not None:
-                self.headers_provider = headers_provider
-            if key_name is not None:
-                self.key_name = key_name
-            if api_key is not None:
-                self.api_key = api_key
-            if api_base_url is not None:
-                self.api_base_url = api_base_url
-
-            # Only JSON-safe values go in options
-            if key_name is not None:
-                options["key_name"] = key_name
-            if api_key is not None:
-                options["api_key"] = api_key
-            if api_base_url is not None:
-                options["openrouter_api_base_url"] = api_base_url
-
-            canonical_request = ConnectorChatCompletionsRequest(
-                request=domain_request,
-                processed_messages=processed_messages,
-                effective_model=effective_model,
-                identity=identity,
-                cancellation_token=cancellation_token,
-                cancellation_coordinator=cancellation_coordinator,
-                context=context,
-                options=options,
-            )
-
-            return await self._chat_completions_canonical(canonical_request)
-        finally:
-            # Restore original values
-            self.headers_provider = original_headers_provider
-            self.key_name = original_key_name
-            self.api_key = original_api_key
-            self.api_base_url = original_api_base_url
+        return await self._chat_completions_canonical(request)
 
     async def _chat_completions_canonical(
         self,

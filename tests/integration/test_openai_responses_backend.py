@@ -12,6 +12,13 @@ from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
 
+def _configure_non_streaming_http_mocks(mock_client: AsyncMock, mock_response: Mock) -> None:
+    """Wire mocks for CaptureAwareAsyncClient path (build_request + send + aread)."""
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = Mock(return_value=Mock(spec=httpx.Request))
+    mock_client.send = AsyncMock(return_value=mock_response)
+
+
 class TestOpenAIResponsesBackendIntegration:
     """Integration tests for OpenAI Responses API backend."""
 
@@ -83,7 +90,7 @@ class TestOpenAIResponsesBackendIntegration:
             ],
             "usage": {"prompt_tokens": 25, "completion_tokens": 15, "total_tokens": 40},
         }
-        mock_client.post.return_value = mock_response
+        _configure_non_streaming_http_mocks(mock_client, mock_response)
 
         # Create a Responses API request
         request_data = {
@@ -141,12 +148,13 @@ class TestOpenAIResponsesBackendIntegration:
         assert choice["finish_reason"] == "stop"
 
         # Verify the HTTP call was made correctly
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert call_args[0][0] == "https://api.openai.com/v1/responses"
+        mock_client.build_request.assert_called_once()
+        bcall = mock_client.build_request.call_args
+        assert bcall.args[0] == "POST"
+        assert str(bcall.args[1]).rstrip("/").endswith("/responses")
 
         # Verify request payload
-        payload = call_args[1]["json"]
+        payload = bcall.kwargs["json"]
         assert payload["model"] == "gpt-4"
         assert "response_format" in payload
         assert payload["response_format"]["type"] == "json_schema"
@@ -178,7 +186,7 @@ class TestOpenAIResponsesBackendIntegration:
                 }
             ],
         }
-        mock_client.post.return_value = mock_response
+        _configure_non_streaming_http_mocks(mock_client, mock_response)
 
         # Simulate a request that came from Anthropic frontend but needs structured output
         anthropic_style_request = {
@@ -313,7 +321,7 @@ class TestOpenAIResponsesBackendIntegration:
                 "code": "invalid_schema",
             }
         }
-        mock_client.post.return_value = mock_response
+        _configure_non_streaming_http_mocks(mock_client, mock_response)
 
         request_data = {
             "model": "gpt-4",
@@ -342,10 +350,13 @@ class TestOpenAIResponsesBackendIntegration:
         assert exc_info.value.status_code == 400
 
         # Test 401 Unauthorized
-        mock_response.status_code = 401
-        mock_response.json.return_value = {
+        mock_response_401 = Mock()
+        mock_response_401.status_code = 401
+        mock_response_401.headers = {}
+        mock_response_401.json.return_value = {
             "error": {"message": "Invalid API key", "type": "authentication_error"}
         }
+        _configure_non_streaming_http_mocks(mock_client, mock_response_401)
 
         with pytest.raises(BackendError) as exc_info:
             await connector.responses(
@@ -380,7 +391,7 @@ class TestOpenAIResponsesBackendIntegration:
                 }
             ],
         }
-        mock_client.post.return_value = mock_response
+        _configure_non_streaming_http_mocks(mock_client, mock_response)
 
         # Original request
         request_data = {
@@ -418,9 +429,8 @@ class TestOpenAIResponsesBackendIntegration:
         assert result.status_code == 200
 
         # Verify that processed messages were used in the request
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        payload = call_args[1]["json"]
+        mock_client.build_request.assert_called_once()
+        payload = mock_client.build_request.call_args.kwargs["json"]
 
         # Should have 2 messages from processed_messages
         assert len(payload["messages"]) == 2

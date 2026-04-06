@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai import OpenAIConnector
 from src.core.config.app_config import AppConfig
 from src.core.config.models.misc import ReasoningModelTokenFloorConfig
@@ -79,12 +80,17 @@ async def test_prepare_payload_handles_sequence_content(
         )
     ]
 
-    await connector.chat_completions(
-        request,
-        processed_messages,
-        "gpt-4",
+    connector_req = ConnectorChatCompletionsRequest(
+        request=request,
+        processed_messages=processed_messages,
+        effective_model="gpt-4",
         identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
     )
+    await connector.chat_completions(connector_req)
 
     assert observed_payloads, "Expected payload normalization to occur"
     payload = observed_payloads[0]

@@ -1,9 +1,10 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.gemini import GeminiBackend
 from src.core.common.exceptions import AuthenticationError
-from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import StreamingResponseEnvelope
 
 
@@ -26,17 +27,23 @@ class TestGeminiStreamingInitError:
             side_effect=AuthenticationError("Init failed")
         )
 
-        # Create a streaming request
         request = CanonicalChatRequest(
-            messages=[{"role": "user", "content": "hi"}],
+            messages=[ChatMessage(role="user", content="hi")],
             model="gemini-pro",
             stream=True,
         )
-
-        # Call chat_completions
-        response = await backend.chat_completions(
-            request_data=request, processed_messages=[], effective_model="gemini-pro"
+        connector_req = ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=[],
+            effective_model="gemini-pro",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
         )
+
+        response = await backend.chat_completions(connector_req)
 
         # Verify it returns a StreamingResponseEnvelope
         assert isinstance(response, StreamingResponseEnvelope)

@@ -400,6 +400,10 @@ class TestBackendPluginDiscovery:
                 return_value=True,
             ),
             patch(
+                "src.core.services.backend_plugin_discovery.is_extracted_backend_name",
+                return_value=False,
+            ),
+            patch(
                 "src.core.services.backend_plugin_discovery.replace_skipped_oauth_connectors"
             ) as replace_skipped_connectors,
             patch(

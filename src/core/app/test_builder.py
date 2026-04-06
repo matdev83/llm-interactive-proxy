@@ -173,7 +173,10 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
             and not getattr(config.auth, "disable_auth", False)
             and not (list(getattr(config.auth, "api_keys", []) or []))
         ):
-            config.auth.api_keys = ["test-proxy-key"]  # type: ignore[attr-defined]
+            new_auth = config.auth.model_copy(
+                update={"api_keys": ["test-proxy-key"]}
+            )
+            config = config.model_copy(update={"auth": new_auth})
     except (AttributeError, TypeError, ValidationError):
         logger.warning(
             "Failed to configure auth defaults for test, continuing without modification",

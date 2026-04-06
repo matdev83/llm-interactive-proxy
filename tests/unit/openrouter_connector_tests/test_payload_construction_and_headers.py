@@ -7,14 +7,17 @@ import pytest_asyncio
 # from fastapi import HTTPException # F401: Removed
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
-
-# from starlette.responses import StreamingResponse # F401: Removed
 from src.core.domain.chat import (
     ChatMessage,
     ChatRequest,
     ImageURL,
     MessageContentPartImage,
     MessageContentPartText,
+)
+
+# from starlette.responses import StreamingResponse # F401: Removed
+from tests.unit.openrouter_connector_tests.helpers import (
+    openrouter_connector_chat_request,
 )
 
 # Default OpenRouter settings for tests
@@ -115,13 +118,14 @@ async def fixture_api_request_and_data(
     )
 
     await openrouter_backend.chat_completions(
-        request_data=sample_chat_request_data,
-        processed_messages=processed_msgs,
-        effective_model=effective_model,
-        openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
-        openrouter_headers_provider=mock_get_openrouter_headers,
-        key_name="test_key",
-        api_key="FAKE_KEY",
+        openrouter_connector_chat_request(
+            sample_chat_request_data,
+            processed_messages=processed_msgs,
+            effective_model=effective_model,
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            key_name="test_key",
+            api_key="FAKE_KEY",
+        )
     )
 
     # Filter for POST request to avoid health check GET request

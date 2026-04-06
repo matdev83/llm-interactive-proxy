@@ -4,6 +4,11 @@ import pytest
 from src.connectors.gemini import GeminiBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 
+from tests.unit.gemini_connector_tests.helpers import (
+    attach_gemini_non_streaming_httpx_mocks,
+    gemini_connector_request,
+)
+
 
 class TestGeminiTemperatureHandling:
     """Test temperature handling in Gemini connector."""
@@ -56,21 +61,21 @@ class TestGeminiTemperatureHandling:
         }
         mock_response.headers = {}
 
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
-        # Call the method
-        await gemini_backend.chat_completions(
-            request_data=sample_request_data,
+        req = gemini_connector_request(
+            sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
-            gemini_api_base_url="https://generativelanguage.googleapis.com",
-            api_key="test-key",
+            options={
+                "gemini_api_base_url": "https://generativelanguage.googleapis.com",
+                "api_key": "test-key",
+            },
         )
+        await gemini_backend.chat_completions(req)
 
-        # Verify the call was made with temperature in generationConfig
-        gemini_backend.client.post.assert_called_once()
-        call_args = gemini_backend.client.post.call_args
-        payload = call_args[1]["json"]  # keyword argument
+        gemini_backend.client.build_request.assert_called_once()
+        payload = gemini_backend.client.build_request.call_args.kwargs["json"]
 
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]
@@ -99,21 +104,21 @@ class TestGeminiTemperatureHandling:
         }
         mock_response.headers = {}
 
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
-        # Call the method without checking for warnings
-        await gemini_backend.chat_completions(
-            request_data=sample_request_data,
+        req = gemini_connector_request(
+            sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
-            gemini_api_base_url="https://generativelanguage.googleapis.com",
-            api_key="test-key",
+            options={
+                "gemini_api_base_url": "https://generativelanguage.googleapis.com",
+                "api_key": "test-key",
+            },
         )
+        await gemini_backend.chat_completions(req)
 
-        # Verify the call was made with clamped temperature
-        gemini_backend.client.post.assert_called_once()
-        call_args = gemini_backend.client.post.call_args
-        payload = call_args[1]["json"]
+        gemini_backend.client.build_request.assert_called_once()
+        payload = gemini_backend.client.build_request.call_args.kwargs["json"]
 
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]
@@ -142,21 +147,21 @@ class TestGeminiTemperatureHandling:
         }
         mock_response.headers = {}
 
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
-        # Call the method
-        await gemini_backend.chat_completions(
-            request_data=sample_request_data,
+        req = gemini_connector_request(
+            sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
-            gemini_api_base_url="https://generativelanguage.googleapis.com",
-            api_key="test-key",
+            options={
+                "gemini_api_base_url": "https://generativelanguage.googleapis.com",
+                "api_key": "test-key",
+            },
         )
+        await gemini_backend.chat_completions(req)
 
-        # Verify the call was made with temperature 0.0
-        gemini_backend.client.post.assert_called_once()
-        call_args = gemini_backend.client.post.call_args
-        payload = call_args[1]["json"]
+        gemini_backend.client.build_request.assert_called_once()
+        payload = gemini_backend.client.build_request.call_args.kwargs["json"]
 
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]
@@ -188,21 +193,21 @@ class TestGeminiTemperatureHandling:
         }
         mock_response.headers = {}
 
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
-        # Call the method
-        await gemini_backend.chat_completions(
-            request_data=sample_request_data,
+        req = gemini_connector_request(
+            sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
-            gemini_api_base_url="https://generativelanguage.googleapis.com",
-            api_key="test-key",
+            options={
+                "gemini_api_base_url": "https://generativelanguage.googleapis.com",
+                "api_key": "test-key",
+            },
         )
+        await gemini_backend.chat_completions(req)
 
-        # Verify the call was made with temperature
-        gemini_backend.client.post.assert_called_once()
-        call_args = gemini_backend.client.post.call_args
-        payload = call_args[1]["json"]
+        gemini_backend.client.build_request.assert_called_once()
+        payload = gemini_backend.client.build_request.call_args.kwargs["json"]
 
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]
@@ -231,21 +236,21 @@ class TestGeminiTemperatureHandling:
         }
         mock_response.headers = {}
 
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
-        # Call the method
-        await gemini_backend.chat_completions(
-            request_data=sample_request_data,
+        req = gemini_connector_request(
+            sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
-            gemini_api_base_url="https://generativelanguage.googleapis.com",
-            api_key="test-key",
+            options={
+                "gemini_api_base_url": "https://generativelanguage.googleapis.com",
+                "api_key": "test-key",
+            },
         )
+        await gemini_backend.chat_completions(req)
 
-        # Verify temperature is in generationConfig
-        gemini_backend.client.post.assert_called_once()
-        call_args = gemini_backend.client.post.call_args
-        payload = call_args[1]["json"]
+        gemini_backend.client.build_request.assert_called_once()
+        payload = gemini_backend.client.build_request.call_args.kwargs["json"]
 
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]
@@ -272,21 +277,21 @@ class TestGeminiTemperatureHandling:
         }
         mock_response.headers = {}
 
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
-        # Call the method
-        await gemini_backend.chat_completions(
-            request_data=sample_request_data,
+        req = gemini_connector_request(
+            sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
-            gemini_api_base_url="https://generativelanguage.googleapis.com",
-            api_key="test-key",
+            options={
+                "gemini_api_base_url": "https://generativelanguage.googleapis.com",
+                "api_key": "test-key",
+            },
         )
+        await gemini_backend.chat_completions(req)
 
-        # Verify no generationConfig was created for temperature
-        gemini_backend.client.post.assert_called_once()
-        call_args = gemini_backend.client.post.call_args
-        payload = call_args[1]["json"]
+        gemini_backend.client.build_request.assert_called_once()
+        payload = gemini_backend.client.build_request.call_args.kwargs["json"]
 
         # generationConfig should not exist or should not contain temperature
         if "generationConfig" in payload:
@@ -322,21 +327,21 @@ class TestGeminiTemperatureHandling:
         }
         mock_response.headers = {}
 
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
-        # Call the method
-        await gemini_backend.chat_completions(
-            request_data=sample_request_data,
+        req = gemini_connector_request(
+            sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
-            gemini_api_base_url="https://generativelanguage.googleapis.com",
-            api_key="test-key",
+            options={
+                "gemini_api_base_url": "https://generativelanguage.googleapis.com",
+                "api_key": "test-key",
+            },
         )
+        await gemini_backend.chat_completions(req)
 
-        # Verify temperature is in generationConfig
-        gemini_backend.client.post.assert_called_once()
-        call_args = gemini_backend.client.post.call_args
-        payload = call_args[1]["json"]
+        gemini_backend.client.build_request.assert_called_once()
+        payload = gemini_backend.client.build_request.call_args.kwargs["json"]
 
         assert "generationConfig" in payload
         assert "temperature" in payload["generationConfig"]
@@ -367,14 +372,16 @@ class TestGeminiTemperatureHandling:
         gemini_backend.client.build_request = Mock(return_value=mock_request)
         gemini_backend.client.send = AsyncMock(return_value=mock_response)
 
-        # Call the method
-        result = await gemini_backend.chat_completions(
-            request_data=sample_request_data,
+        req = gemini_connector_request(
+            sample_request_data,
             processed_messages=sample_processed_messages,
             effective_model="gemini-2.5-pro",
-            gemini_api_base_url="https://generativelanguage.googleapis.com",
-            api_key="test-key",
+            options={
+                "gemini_api_base_url": "https://generativelanguage.googleapis.com",
+                "api_key": "test-key",
+            },
         )
+        result = await gemini_backend.chat_completions(req)
 
         # Verify we got a streaming response
         from src.core.domain.responses import StreamingResponseEnvelope

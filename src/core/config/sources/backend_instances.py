@@ -21,12 +21,15 @@ from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
 
-# Backend instances that are configured primarily through credentials files.
-# Reuse extracted backend names from shared discovery state to avoid drift.
-_EXTRACTED_FILE_BASED_CONNECTORS = set(get_extracted_backend_names())
-_FILE_BASED_CONNECTORS = frozenset(
-    _EXTRACTED_FILE_BASED_CONNECTORS.union({"gemini-cli-cloud-project"})
-)
+def _file_based_connector_names() -> frozenset[str]:
+    """Connectors that use credential files; refreshed each call (not import-time).
+
+    Import-time snapshots could miss optional plugin entry points that appear
+    after the first module load, leaving defaults and duplicate-path checks wrong.
+    """
+    return frozenset(
+        set(get_extracted_backend_names()).union({"gemini-cli-cloud-project"})
+    )
 
 
 def _default_backend_instances_dir() -> Path:
@@ -168,7 +171,7 @@ class BackendInstanceFileSource:
 
         for instance_name, config in discovered.items():
             connector = str(config.get("connector") or instance_name.split(".")[0])
-            if connector not in _FILE_BASED_CONNECTORS:
+            if connector not in _file_based_connector_names():
                 continue
 
             creds_path = config.get("credentials_path")
@@ -198,7 +201,7 @@ class BackendInstanceFileSource:
         registered_backends: set[str],
     ) -> None:
         available_connectors = sorted(
-            _FILE_BASED_CONNECTORS.intersection(registered_backends)
+            _file_based_connector_names().intersection(registered_backends)
         )
         all_instance_names = existing_instance_names.union(discovered.keys())
         claimed_constrained_families: set[str] = set()

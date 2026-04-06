@@ -5,6 +5,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from src.connectors.openai_websocket_client import OpenAIWebSocketClient
+
+# Same group as test_openai_websocket_boundary_capture: shared `websockets.connect` patches.
+pytestmark = pytest.mark.xdist_group("openai_websocket_boundary_capture")
 from src.core.common.exceptions import (
     AuthenticationError,
     InvalidRequestError,

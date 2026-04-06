@@ -1,8 +1,9 @@
 #!/usr/bin/env python
-"""Verify ZAI connector fingerprint consistency fix.
+"""Verify ZAI connector uses consistent Kilo-Code fingerprint for all clients.
 
-Tests that the ZAI connector detects the client agent and uses matching
-headers to avoid WAF/429 rejections from fingerprint mismatches.
+The ZAI coding plan gateway requires specific client identification headers
+(Referer, Origin, X-Title, X-KiloCode-Version) to validate the subscription.
+All requests must use the Kilo-Code fingerprint regardless of the actual client.
 
 Usage:
     ./.venv/Scripts/python.exe dev/scripts/verify_zai_fingerprint_consistency.py
@@ -10,80 +11,26 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 
-def test_opencode_fingerprint() -> None:
-    """OpenCode client should get OpenCode headers, not Kilo-Code."""
-    backend = ZaiCodingPlanBackend(
-        client=AsyncMock(),
-        config=MagicMock(),
-        translation_service=MagicMock(),
-    )
-    backend.api_key = "test-key"
-
-    # Create request with OpenCode agent
-    request = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-        agent="opencode/1.2.26 ai-sdk/provider-utils/3.0.20",
-    )
-
-    headers = backend.get_headers(request=request)
-
-    # Should use OpenCode fingerprint
-    assert headers["User-Agent"] == "opencode", (
-        f"Expected OpenCode UA, got: {headers.get('User-Agent')}"
-    )
-
-    # Should NOT have Kilo-Code specific headers
-    assert "Referer" not in headers, "OpenCode should not have Referer header"
-    assert "Origin" not in headers, "OpenCode should not have Origin header"
-    assert "HTTP-Referer" not in headers, "OpenCode should not have HTTP-Referer"
-    assert "X-Title" not in headers, "OpenCode should not have X-Title"
-    assert "X-KiloCode-Version" not in headers, "OpenCode should not have X-KiloCode-Version"
-
-    print("✅ OpenCode fingerprint: PASS")
-
-
-def test_kilocode_fingerprint() -> None:
-    """Kilo-Code client (or no agent) should get Kilo-Code headers."""
-    backend = ZaiCodingPlanBackend(
-        client=AsyncMock(),
-        config=MagicMock(),
-        translation_service=MagicMock(),
-    )
-    backend.api_key = "test-key"
-
-    # Create request without OpenCode agent (defaults to Kilo-Code)
-    request = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-    )
-
-    headers = backend.get_headers(request=request)
-
-    # Should use Kilo-Code fingerprint
+def _check_kilo_headers(headers: dict[str, str]) -> None:
+    """Assert full Kilo-Code fingerprint is present."""
     assert headers["User-Agent"] == "Kilo-Code/4.111.0", (
         f"Expected Kilo-Code UA, got: {headers.get('User-Agent')}"
     )
-
-    # Should have Kilo-Code specific headers
     assert headers["Referer"] == "https://kilocode.ai"
     assert headers["Origin"] == "https://kilocode.ai"
     assert headers["HTTP-Referer"] == "https://kilocode.ai"
     assert headers["X-Title"] == "Kilo Code"
     assert headers["X-KiloCode-Version"] == "4.111.0"
+    assert "x-llmproxy-loop-guard" not in headers
 
-    print("✅ Kilo-Code fingerprint: PASS")
 
-
-def test_agent_detection_from_extra_body() -> None:
-    """Agent in extra_body should also be detected."""
+def test_opencode_fingerprint() -> None:
+    """OpenCode client must still get Kilo-Code fingerprint."""
     backend = ZaiCodingPlanBackend(
         client=AsyncMock(),
         config=MagicMock(),
@@ -91,20 +38,53 @@ def test_agent_detection_from_extra_body() -> None:
     )
     backend.api_key = "test-key"
 
-    # Create request with OpenCode agent in extra_body
-    request = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-        extra_body={"agent": "opencode/1.0.0"},
+    headers = backend.get_headers(identity=None)
+    _check_kilo_headers(headers)
+    print("PASS: OpenCode client gets Kilo-Code fingerprint")
+
+
+def test_kilocode_fingerprint() -> None:
+    """Kilo-Code client (no agent) gets Kilo-Code headers."""
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(),
+        config=MagicMock(),
+        translation_service=MagicMock(),
+    )
+    backend.api_key = "test-key"
+
+    headers = backend.get_headers(identity=None)
+    _check_kilo_headers(headers)
+    print("PASS: Kilo-Code client gets Kilo-Code fingerprint")
+
+
+def test_identity_override_fingerprint() -> None:
+    """Identity header overrides must still yield Kilo-Code fingerprint."""
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(),
+        config=MagicMock(),
+        translation_service=MagicMock(),
+    )
+    backend.api_key = "test-key"
+
+    from src.core.domain.configuration.app_identity_config import AppIdentityConfig
+
+    identity = AppIdentityConfig.model_validate(
+        {
+            "title": {"default_value": "Other Client", "passthrough_name": "x-title"},
+            "url": {
+                "default_value": "https://other.ai",
+                "passthrough_name": "http-referer",
+            },
+            "user_agent": {
+                "default_value": "OtherClient/1.0",
+                "passthrough_name": "user-agent",
+            },
+        }
     )
 
-    detected = backend._detect_client_agent(request)
-    assert detected == "opencode", f"Expected 'opencode', got: {detected}"
-
-    headers = backend.get_headers(request=request)
-    assert headers["User-Agent"] == "opencode"
-
-    print("✅ Agent detection from extra_body: PASS")
+    headers = backend.get_headers(identity=identity)
+    _check_kilo_headers(headers)
+    print("PASS: Identity overrides still yield Kilo-Code fingerprint")
 
 
 def main() -> int:
@@ -116,15 +96,15 @@ def main() -> int:
     try:
         test_opencode_fingerprint()
         test_kilocode_fingerprint()
-        test_agent_detection_from_extra_body()
+        test_identity_override_fingerprint()
 
         print()
         print("=" * 70)
-        print("ALL TESTS PASSED ✅")
+        print("ALL TESTS PASSED")
         print("=" * 70)
         return 0
     except AssertionError as e:
-        print(f"\n❌ FAIL: {e}")
+        print(f"\nFAIL: {e}")
         return 1
 
 

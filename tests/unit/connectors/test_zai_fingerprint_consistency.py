@@ -1,89 +1,29 @@
 # Fingerprint Consistency Regression Tests for ZAI Coding Plan Connector
-# These tests ensure consistent client fingerprinting to avoid WAF/429 rejections.
+# These tests ensure the connector always uses the Kilo-Code fingerprint
+# to avoid 429 rejections from the ZAI coding plan gateway.
 
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-
-
-def test_detect_client_agent_opencode() -> None:
-    """OpenCode agent in request.agent should be detected."""
-    backend = ZaiCodingPlanBackend(
-        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
-    )
-
-    request = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-        agent="opencode/1.2.26 ai-sdk/provider-utils/3.0.20",
-    )
-
-    assert backend._detect_client_agent(request) == "opencode"
-
-
-def test_detect_client_agent_kilocode_default() -> None:
-    """No agent or non-opencode agent should default to Kilo-Code."""
-    backend = ZaiCodingPlanBackend(
-        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
-    )
-
-    # No agent
-    request = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-    )
-    assert backend._detect_client_agent(request) == "kilocode"
-
-    # Different agent
-    request2 = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-        agent="cline/1.0.0",
-    )
-    assert backend._detect_client_agent(request2) == "kilocode"
-
-
-def test_detect_client_agent_from_extra_body() -> None:
-    """OpenCode agent in extra_body should also be detected."""
-    backend = ZaiCodingPlanBackend(
-        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
-    )
-
-    request = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-        extra_body={"agent": "opencode/1.0.0"},
-    )
-
-    assert backend._detect_client_agent(request) == "opencode"
 
 
 def test_get_headers_opencode_fingerprint() -> None:
-    """OpenCode requests should get minimal headers without Kilo-Code metadata."""
+    """All requests should use Kilo-Code fingerprint regardless of client."""
     backend = ZaiCodingPlanBackend(
         client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
     )
     backend.api_key = "NOT-A-REAL-KEY-just-for-testing"
 
-    request = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-        agent="opencode/1.2.26 ai-sdk/provider-utils/3.0.20",
-    )
+    headers = backend.get_headers()
 
-    headers = backend.get_headers(request=request)
-
-    # Should use OpenCode fingerprint
-    assert headers["User-Agent"] == "opencode"
-
-    # Should NOT have Kilo-Code specific headers
-    assert "Referer" not in headers
-    assert "Origin" not in headers
-    assert "HTTP-Referer" not in headers
-    assert "X-Title" not in headers
-    assert "X-KiloCode-Version" not in headers
+    # Should use Kilo-Code fingerprint even for OpenCode clients
+    assert headers["User-Agent"] == "Kilo-Code/4.111.0"
+    assert headers["Referer"] == "https://kilocode.ai"
+    assert headers["Origin"] == "https://kilocode.ai"
+    assert headers["HTTP-Referer"] == "https://kilocode.ai"
+    assert headers["X-Title"] == "Kilo Code"
+    assert headers["X-KiloCode-Version"] == "4.111.0"
 
 
 def test_get_headers_kilocode_fingerprint() -> None:
@@ -93,12 +33,7 @@ def test_get_headers_kilocode_fingerprint() -> None:
     )
     backend.api_key = "NOT-A-REAL-KEY-just-for-testing"
 
-    request = CanonicalChatRequest(
-        model="glm-4.7",
-        messages=[ChatMessage(role="user", content="test")],
-    )
-
-    headers = backend.get_headers(request=request)
+    headers = backend.get_headers()
 
     # Should use Kilo-Code fingerprint
     assert headers["User-Agent"] == "Kilo-Code/4.111.0"

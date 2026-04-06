@@ -235,6 +235,7 @@ class TestBackendRequestManagerDeduplication:
         backend_request_manager: BackendRequestManager,
         mock_dedup_service: AsyncMock,
         mock_backend_processor: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Verify dedup can still be bypassed via x-llmproxy-no-dedup header."""
         request = ChatRequest(
@@ -243,6 +244,7 @@ class TestBackendRequestManagerDeduplication:
             stream=True,
         )
         session_id = "test-session"
+        monkeypatch.setenv("LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY", "1")
         context = RequestContext(
             headers={
                 "user-agent": "generic-client/1.0",
@@ -254,13 +256,14 @@ class TestBackendRequestManagerDeduplication:
             agent="generic-client/1.0",
         )
 
-        async def _empty_stream():
-            if False:  # pragma: no cover - type hint placeholder
-                yield ProcessedResponse()
-            return
+        async def _minimal_stream():
+            # OpenAI-shaped SSE so empty-stream gate counts output as meaningful.
+            yield ProcessedResponse(
+                content='data: {"choices":[{"index":0,"delta":{"content":"."}}]}\n\n',
+            )
 
         mock_backend_processor.process_backend_request = AsyncMock(
-            return_value=StreamingResponseEnvelope(content=_empty_stream())
+            return_value=StreamingResponseEnvelope(content=_minimal_stream())
         )
         mock_dedup_service.check_and_register.return_value = (True, "hash123")
 
@@ -278,6 +281,7 @@ class TestBackendRequestManagerDeduplication:
         backend_request_manager: BackendRequestManager,
         mock_dedup_service: AsyncMock,
         mock_backend_processor: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """InternLM streaming requests bypass dedup to avoid silent empty duplicates.
 
@@ -286,6 +290,7 @@ class TestBackendRequestManagerDeduplication:
         like a successful but empty completion. For InternLM we bypass dedup so the
         request reaches the backend.
         """
+        monkeypatch.setenv("LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY", "1")
         request = ChatRequest(
             model="internlm:internlm/intern-s1-pro",
             messages=[ChatMessage(role="user", content="test")],
@@ -300,13 +305,13 @@ class TestBackendRequestManagerDeduplication:
             agent="generic-client/1.0",
         )
 
-        async def _empty_stream():
-            if False:  # pragma: no cover - type hint placeholder
-                yield ProcessedResponse()
-            return
+        async def _minimal_stream():
+            yield ProcessedResponse(
+                content='data: {"choices":[{"index":0,"delta":{"content":"."}}]}\n\n',
+            )
 
         mock_backend_processor.process_backend_request = AsyncMock(
-            return_value=StreamingResponseEnvelope(content=_empty_stream())
+            return_value=StreamingResponseEnvelope(content=_minimal_stream())
         )
         mock_dedup_service.check_and_register.return_value = (True, "hash123", 10.0)
 
@@ -323,8 +328,10 @@ class TestBackendRequestManagerDeduplication:
         backend_request_manager: BackendRequestManager,
         mock_dedup_service: AsyncMock,
         mock_backend_processor: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Kimi streaming requests bypass dedup to avoid silent done-only duplicates."""
+        monkeypatch.setenv("LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY", "1")
         request = ChatRequest(
             model="kimi-code:kimi/kimi-for-coding",
             messages=[ChatMessage(role="user", content="test")],
@@ -339,13 +346,13 @@ class TestBackendRequestManagerDeduplication:
             agent="generic-client/1.0",
         )
 
-        async def _empty_stream():
-            if False:  # pragma: no cover - type hint placeholder
-                yield ProcessedResponse()
-            return
+        async def _minimal_stream():
+            yield ProcessedResponse(
+                content='data: {"choices":[{"index":0,"delta":{"content":"."}}]}\n\n',
+            )
 
         mock_backend_processor.process_backend_request = AsyncMock(
-            return_value=StreamingResponseEnvelope(content=_empty_stream())
+            return_value=StreamingResponseEnvelope(content=_minimal_stream())
         )
         mock_dedup_service.check_and_register.return_value = (True, "hash123", 10.0)
 

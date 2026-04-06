@@ -7,9 +7,10 @@ import pytest
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import BackendError
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 
 
 @pytest.fixture
@@ -27,6 +28,7 @@ def openai_connector(mock_client):
     connector = OpenAIConnector(client=mock_client, config=config)
     connector.api_key = "test-api-key"
     connector.available_models = ["gpt-3.5-turbo", "gpt-4"]
+    connector.disable_health_check()
     return connector
 
 
@@ -54,21 +56,26 @@ async def test_chat_completions_uses_default_url(openai_connector, mock_client):
         ],
     }
     mock_response.headers = {"X-Request-ID": "test-request-id"}
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
-    # Configure mock_client.post to return the mock response
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Execute
-    await openai_connector.chat_completions(
-        request_data=request_data,
+    domain = CanonicalChatRequest.model_validate(request_data.model_dump())
+    connector_req = ConnectorChatCompletionsRequest(
+        request=domain,
         processed_messages=processed_messages,
         effective_model=effective_model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
     )
 
-    # Verify
-    mock_client.post.assert_called_once()
-    call_args = mock_client.post.call_args
-    url = call_args[0][0]
+    await openai_connector.chat_completions(connector_req)
+
+    mock_client.build_request.assert_called_once()
+    url = mock_client.build_request.call_args[0][1]
     assert url == "https://api.openai.com/v1/chat/completions"
 
 
@@ -97,22 +104,26 @@ async def test_chat_completions_uses_custom_url(openai_connector, mock_client):
         ],
     }
     mock_response.headers = {"X-Request-ID": "test-request-id"}
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
-    # Configure mock_client.post to return the mock response
-    mock_client.post = AsyncMock(return_value=mock_response)
-
-    # Execute
-    await openai_connector.chat_completions(
-        request_data=request_data,
+    domain = CanonicalChatRequest.model_validate(request_data.model_dump())
+    connector_req = ConnectorChatCompletionsRequest(
+        request=domain,
         processed_messages=processed_messages,
         effective_model=effective_model,
-        openai_url=custom_url,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={"openai_url": custom_url},
     )
 
-    # Verify
-    mock_client.post.assert_called_once()
-    call_args = mock_client.post.call_args
-    url = call_args[0][0]
+    await openai_connector.chat_completions(connector_req)
+
+    mock_client.build_request.assert_called_once()
+    url = mock_client.build_request.call_args[0][1]
     assert url == "https://custom-api.example.com/v1/chat/completions"
 
 
@@ -144,20 +155,28 @@ async def test_chat_completions_headers_override_merges_auth(
         ],
     }
 
-    mock_client.post = AsyncMock(return_value=mock_response)
+    mock_response.aread = AsyncMock()
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(return_value=mock_response)
 
     headers_override = {"X-Test": "value"}
 
-    await openai_connector.chat_completions(
-        request_data=request_data,
+    domain = CanonicalChatRequest.model_validate(request_data.model_dump())
+    connector_req = ConnectorChatCompletionsRequest(
+        request=domain,
         processed_messages=processed_messages,
         effective_model=effective_model,
-        headers_override=headers_override,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={"headers_override": headers_override},
     )
 
-    mock_client.post.assert_called_once()
-    call_args = mock_client.post.call_args
-    sent_headers = call_args[1]["headers"]
+    await openai_connector.chat_completions(connector_req)
+
+    mock_client.build_request.assert_called_once()
+    sent_headers = mock_client.build_request.call_args[1]["headers"]
 
     assert sent_headers["Authorization"] == "Bearer test-api-key"
     assert sent_headers["X-Test"] == "value"
@@ -209,7 +228,8 @@ async def test_handle_non_streaming_read_timeout_raises_backend_error_504(
     openai_connector: OpenAIConnector, mock_client
 ) -> None:
     """ReadTimeout must not be misreported as a generic connect failure."""
-    mock_client.post = AsyncMock(side_effect=httpx.ReadTimeout("timed out"))
+    mock_client.build_request = MagicMock(return_value=MagicMock())
+    mock_client.send = AsyncMock(side_effect=httpx.ReadTimeout("timed out"))
     with pytest.raises(BackendError) as exc_info:
         await openai_connector._handle_non_streaming_response(
             "https://api.openai.com/v1/chat/completions",

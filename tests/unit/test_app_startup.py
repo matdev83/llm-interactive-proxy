@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.app.stages import (
     BackendStage,
@@ -182,14 +182,16 @@ async def test_core_only_mode_keeps_core_api_key_backends_operational(
 
 
 @pytest.mark.xdist_group("isolated")
-def test_core_only_mode_keeps_openai_request_path_operational(monkeypatch) -> None:
+def test_core_only_mode_keeps_openai_request_path_operational(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Core-only mode should still serve OpenAI protocol requests.
 
     Marked for xdist isolation because it mutates process environment
-    variables (OPENAI_API_KEY) and builds a full app via build_compat
-    (which spawns threads). Running this alongside other tests on the
-    same worker can cause race conditions with module-level connector
-    imports and the global backend_registry singleton.
+    variables (OPENAI_API_KEY) and builds a full app via build_compat.
+    Uses ``httpx.AsyncClient(ASGITransport(...))`` inside ``asyncio.run``
+    instead of Starlette ``TestClient`` to avoid thread-pool races under
+    ``pytest-xdist``.
     """
     monkeypatch.setenv("OPENAI_API_KEY", "dummy-key")
     config = AppConfig(
@@ -224,25 +226,30 @@ def test_core_only_mode_keeps_openai_request_path_operational(monkeypatch) -> No
         headers={},
     )
 
-    with (
-        patch(
-            "src.connectors.openai.OpenAIConnector.chat_completions",
-            return_value=stubbed_response,
-        ),
-        TestClient(app) as client,
-    ):
-        response = client.post(
-            "/v1/chat/completions",
-            json={
-                "model": "openai:gpt-4o-mini",
-                "messages": [{"role": "user", "content": "hi"}],
-            },
-        )
+    async def _exercise_app() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            with patch(
+                "src.connectors.openai.OpenAIConnector.chat_completions",
+                return_value=stubbed_response,
+            ):
+                response = await client.post(
+                    "/v1/chat/completions",
+                    json={
+                        "model": "openai:gpt-4o-mini",
+                        "messages": [{"role": "user", "content": "hi"}],
+                    },
+                )
 
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["model"] == "openai:gpt-4o-mini"
-    assert payload["choices"][0]["message"]["content"] == "ok"
+        assert response.status_code == 200, (
+            response.status_code,
+            getattr(response, "text", "")[:800],
+        )
+        payload = response.json()
+        assert payload["model"] == "openai:gpt-4o-mini"
+        assert payload["choices"][0]["message"]["content"] == "ok"
+
+    asyncio.run(_exercise_app())
 
 
 @pytest.mark.asyncio

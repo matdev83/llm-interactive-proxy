@@ -8,6 +8,10 @@ from src.connectors.openrouter import OpenRouterBackend
 # from pytest_httpx import HTTPXMock # F401: Removed
 from src.core.domain.chat import ChatMessage, ChatRequest
 
+from tests.unit.openrouter_connector_tests.helpers import (
+    openrouter_connector_chat_request,
+)
+
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
     "https://openrouter.ai/api/v1"  # Real one for realistic requests
@@ -123,13 +127,14 @@ async def test_chat_completions_http_error_streaming(
 
         # The error is converted to a StreamingContent chunk, not raised as an exception
         response = await openrouter_backend.chat_completions(
-            request_data=sample_chat_request_data,
-            processed_messages=sample_processed_messages,
-            effective_model="test-model",
-            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
-            openrouter_headers_provider=mock_get_openrouter_headers,
-            key_name="test_key",
-            api_key="FAKE_KEY",
+            openrouter_connector_chat_request(
+                sample_chat_request_data,
+                processed_messages=sample_processed_messages,
+                effective_model="test-model",
+                openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+                key_name="test_key",
+                api_key="FAKE_KEY",
+            )
         )
 
         # The error is caught and handled by error_mapping service

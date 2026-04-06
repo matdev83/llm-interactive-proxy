@@ -1,6 +1,20 @@
 """Pytest configuration for streaming regression tests."""
 
+import os
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def streaming_regression_disable_empty_stream_recovery():
+    """Emulator streams are not always OpenAI-shaped; skip empty-stream retry in these tests."""
+    previous = os.environ.get("LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY")
+    os.environ["LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY"] = "1"
+    yield
+    if previous is None:
+        os.environ.pop("LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY", None)
+    else:
+        os.environ["LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY"] = previous
 
 
 @pytest.fixture(autouse=True)

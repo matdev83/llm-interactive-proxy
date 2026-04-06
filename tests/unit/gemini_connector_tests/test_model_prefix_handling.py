@@ -7,6 +7,8 @@ from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 
+from tests.unit.gemini_connector_tests.helpers import gemini_connector_request
+
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
 
@@ -64,13 +66,16 @@ async def test_chat_completions_model_prefix_handled(
     )
 
     response_tuple = await gemini_backend.chat_completions(
-        request_data=sample_chat_request_data,
-        processed_messages=sample_processed_messages,
-        effective_model=effective_model,
-        openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        openrouter_headers_provider=None,
-        key_name="x-goog-api-key",
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            sample_chat_request_data,
+            processed_messages=sample_processed_messages,
+            effective_model=effective_model,
+            options={
+                "openrouter_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "key_name": "x-goog-api-key",
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
     # The response is now a ResponseEnvelope
     assert hasattr(response_tuple, "content")

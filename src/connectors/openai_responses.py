@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import logging
-from typing import Any
-
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai import OpenAIConnector
-from src.core.domain.session_key import SessionKey
+from src.core.common.exceptions import InvalidRequestError
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
-
-logger = logging.getLogger(__name__)
 
 
 class OpenAIResponsesConnector(OpenAIConnector):
@@ -21,24 +18,34 @@ class OpenAIResponsesConnector(OpenAIConnector):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: Any,
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: Any = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
-        **kwargs: Any,
-    ) -> Any:
-        # Structural enforcement: check cancellation immediately if coordinator and token provided
-        if cancellation_coordinator is not None and cancellation_token is not None:
-            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
-        """Override chat_completions to use the Responses API endpoint."""
-        # For the Responses API backend, we should use the responses endpoint
-        # Convert the chat completions request to a responses request
+        request: ConnectorChatCompletionsRequest,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Route canonical chat completions to the Responses API implementation."""
+        if not isinstance(request, ConnectorChatCompletionsRequest):
+            raise InvalidRequestError(
+                message=(
+                    "OpenAIResponsesConnector.chat_completions requires "
+                    "ConnectorChatCompletionsRequest."
+                ),
+                details={
+                    "received_type": type(request).__name__,
+                    "connector": "openai-responses",
+                },
+            )
+        if (
+            request.cancellation_coordinator is not None
+            and request.cancellation_token is not None
+        ):
+            request.cancellation_coordinator.ensure_not_cancelled(
+                request.cancellation_token
+            )
+        options = dict(request.options) if request.options else {}
         return await self.responses(
-            request_data, processed_messages, effective_model, identity, **kwargs
+            request.request,
+            list(request.processed_messages),
+            request.effective_model,
+            request.identity,
+            **options,
         )
 
 

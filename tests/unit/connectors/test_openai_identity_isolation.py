@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai import OpenAIConnector
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 
@@ -67,27 +68,29 @@ async def test_openai_connector_identity_headers_isolated_per_request() -> None:
     identity_b = Mock(spec=IAppIdentityConfig)
     identity_b.get_resolved_headers.return_value = {"X-Test": "beta"}
 
+    def _req(
+        cr: ChatRequest,
+        *,
+        identity: IAppIdentityConfig | None,
+    ) -> ConnectorChatCompletionsRequest:
+        domain = CanonicalChatRequest.model_validate(cr.model_dump())
+        return ConnectorChatCompletionsRequest(
+            request=domain,
+            processed_messages=[],
+            effective_model="gpt-4",
+            identity=identity,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
+
     await asyncio.gather(
-        connector.chat_completions(
-            request_data=request_a,
-            processed_messages=[],
-            effective_model="gpt-4",
-            identity=identity_a,
-        ),
-        connector.chat_completions(
-            request_data=request_b,
-            processed_messages=[],
-            effective_model="gpt-4",
-            identity=identity_b,
-        ),
+        connector.chat_completions(_req(request_a, identity=identity_a)),
+        connector.chat_completions(_req(request_b, identity=identity_b)),
     )
 
-    await connector.chat_completions(
-        request_data=request_c,
-        processed_messages=[],
-        effective_model="gpt-4",
-        identity=None,
-    )
+    await connector.chat_completions(_req(request_c, identity=None))
 
     try:
         alpha_headers = captured_headers["session-alpha"]

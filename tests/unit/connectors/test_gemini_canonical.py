@@ -31,7 +31,6 @@ def mock_config():
     return config
 
 
-
 @pytest.fixture
 def translation_service():
     """Create a translation service."""
@@ -91,24 +90,17 @@ class TestGeminiCanonicalAPI:
             sig = inspect.signature(method)
             params = list(sig.parameters.values())
 
-            # The method has a backward-compatible signature that accepts canonical requests
-            if len(params) > 0:
-                first_param = params[0]
-                param_annotation = first_param.annotation
-                if (
+            if len(params) >= 1 and params[0].name == "request":
+                param_annotation = params[0].annotation
+                assert (
                     param_annotation == ConnectorChatCompletionsRequest
                     or "ConnectorChatCompletionsRequest" in str(param_annotation)
-                    or param_annotation == inspect.Signature.empty
-                    or "Any" in str(param_annotation)
-                ):
-                    return  # Test passes - method supports canonical API
-                else:
-                    pytest.fail(
-                        f"First parameter does not accept ConnectorChatCompletionsRequest. "
-                        f"Got annotation: {param_annotation}"
-                    )
+                ), f"Expected ConnectorChatCompletionsRequest, got {param_annotation}"
             else:
-                pytest.fail("chat_completions method has no parameters")
+                pytest.fail(
+                    "Canonical chat_completions method signature not found. "
+                    f"Found signature with {len(params)} parameters: {[p.name for p in params]}"
+                )
         except (ValueError, TypeError) as e:
             pytest.fail(f"Failed to inspect signature: {e}")
 

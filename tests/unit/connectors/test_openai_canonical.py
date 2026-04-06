@@ -102,7 +102,6 @@ class TestOpenAICanonicalAPI:
                 # Canonical API found
                 param_annotation = params[0].annotation
                 # Check if annotation matches ConnectorChatCompletionsRequest
-                # Note: It might be Union[ConnectorChatCompletionsRequest, Any] due to legacy support
                 assert (
                     param_annotation == ConnectorChatCompletionsRequest
                     or "ConnectorChatCompletionsRequest" in str(param_annotation)

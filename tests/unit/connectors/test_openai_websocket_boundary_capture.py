@@ -7,13 +7,12 @@ import pytest
 from src.connectors.contracts import ConnectorRequestContext
 from src.connectors.openai_websocket_client import OpenAIWebSocketClient
 
+# Serialize with other wire-capture / websocket tests to avoid patch races under xdist.
+pytestmark = pytest.mark.xdist_group("openai_websocket_boundary_capture")
+
 
 @pytest.mark.asyncio
 async def test_openai_websocket_client_captures_outbound_and_inbound_frames() -> None:
-    client = OpenAIWebSocketClient(
-        api_key="test-key",
-        api_base="wss://api.openai.com/v1",
-    )
     context = ConnectorRequestContext(
         request_id="req-openai-ws-boundary",
         session_id="sess-openai-ws-boundary",
@@ -39,17 +38,32 @@ async def test_openai_websocket_client_captures_outbound_and_inbound_frames() ->
     mock_ws.closed = False
     mock_ws.__aiter__ = lambda self=mock_ws: inbound_messages()
 
+    outbound_capture = AsyncMock()
+    inbound_capture = AsyncMock()
+
     with (
         patch("websockets.connect", new_callable=AsyncMock, return_value=mock_ws),
         patch(
+            "src.core.common.wire_boundary_capture.capture_websocket_backend_outbound",
+            outbound_capture,
+        ),
+        patch(
             "src.connectors.openai_websocket_client.capture_websocket_backend_outbound",
-            new_callable=AsyncMock,
-        ) as outbound_capture,
+            outbound_capture,
+        ),
+        patch(
+            "src.core.common.wire_boundary_capture.capture_websocket_backend_inbound",
+            inbound_capture,
+        ),
         patch(
             "src.connectors.openai_websocket_client.capture_websocket_backend_inbound",
-            new_callable=AsyncMock,
-        ) as inbound_capture,
+            inbound_capture,
+        ),
     ):
+        client = OpenAIWebSocketClient(
+            api_key="test-key",
+            api_base="wss://api.openai.com/v1",
+        )
         await client.connect()
         responses = [
             response

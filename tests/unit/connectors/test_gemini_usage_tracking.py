@@ -11,6 +11,11 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.usage_summary import UsageSummary
 from src.core.services.translation_service import TranslationService
 
+from tests.unit.gemini_connector_tests.helpers import (
+    attach_gemini_non_streaming_httpx_mocks,
+    gemini_connector_request,
+)
+
 
 @pytest.mark.asyncio
 async def test_gemini_extracts_usage_from_response():
@@ -51,7 +56,7 @@ async def test_gemini_extracts_usage_from_response():
         },
     }
 
-    mock_client.post = AsyncMock(return_value=mock_response)
+    attach_gemini_non_streaming_httpx_mocks(mock_client, mock_response)
 
     request = ChatRequest(
         model="gemini-pro",
@@ -60,10 +65,12 @@ async def test_gemini_extracts_usage_from_response():
     )
 
     result = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gemini-pro",
-        identity=None,
+        gemini_connector_request(
+            request,
+            processed_messages=list(request.messages),
+            effective_model="gemini-pro",
+            identity=None,
+        )
     )
 
     assert isinstance(result, ResponseEnvelope)
@@ -108,7 +115,7 @@ async def test_gemini_calculates_usage_when_missing():
         ],
     }
 
-    mock_client.post = AsyncMock(return_value=mock_response)
+    attach_gemini_non_streaming_httpx_mocks(mock_client, mock_response)
 
     request = ChatRequest(
         model="gemini-pro",
@@ -117,10 +124,12 @@ async def test_gemini_calculates_usage_when_missing():
     )
 
     result = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gemini-pro",
-        identity=None,
+        gemini_connector_request(
+            request,
+            processed_messages=list(request.messages),
+            effective_model="gemini-pro",
+            identity=None,
+        )
     )
 
     assert isinstance(result, ResponseEnvelope)
@@ -177,7 +186,7 @@ async def test_gemini_calculates_usage_when_zero():
         },
     }
 
-    mock_client.post = AsyncMock(return_value=mock_response)
+    attach_gemini_non_streaming_httpx_mocks(mock_client, mock_response)
 
     request = ChatRequest(
         model="gemini-pro",
@@ -186,10 +195,12 @@ async def test_gemini_calculates_usage_when_zero():
     )
 
     result = await connector.chat_completions(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gemini-pro",
-        identity=None,
+        gemini_connector_request(
+            request,
+            processed_messages=list(request.messages),
+            effective_model="gemini-pro",
+            identity=None,
+        )
     )
 
     assert isinstance(result, ResponseEnvelope)

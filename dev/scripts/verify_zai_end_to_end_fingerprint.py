@@ -1,11 +1,17 @@
 #!/usr/bin/env python
-"""Verify that the ZAI connector sends correct headers for BOTH client types."""
+"""Verify that the ZAI connector always sends Kilo-Code fingerprint headers.
+
+The ZAI coding plan gateway requires specific client identification headers
+(Referer, Origin, X-Title, X-KiloCode-Version) to validate the subscription.
+All requests, regardless of the actual client (OpenCode, Kilo-Code, etc.), must
+use the Kilo-Code fingerprint to avoid 429 errors from unrecognized clients.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import json
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import httpx
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
@@ -14,7 +20,7 @@ from src.core.domain.responses import ResponseEnvelope
 
 
 async def test_opencode_request() -> dict:
-    """Test OpenCode client gets minimal headers."""
+    """Test OpenCode client gets Kilo-Code fingerprint (not minimal headers)."""
     captured: dict = {}
 
     class CapturingTransport(httpx.AsyncBaseTransport):
@@ -114,7 +120,7 @@ async def test_kilocode_request() -> dict:
             ],
             max_tokens=64,
             stream=False,
-            # NO agent field - defaults to Kilo-Code
+            # NO agent field
         )
 
         async def mock_handle(url, payload, headers, session_id, context=None):
@@ -145,61 +151,63 @@ async def test_kilocode_request() -> dict:
     return captured
 
 
+def _check_kilo_headers(headers: dict[str, str], client_name: str) -> tuple[bool, list[str]]:
+    """Verify full Kilo-Code fingerprint is present regardless of actual client."""
+    issues: list[str] = []
+    if headers.get("user-agent") != "Kilo-Code/4.111.0":
+        issues.append(f"{client_name}: User-Agent should be 'Kilo-Code/4.111.0', got '{headers.get('user-agent', 'MISSING')}'")
+    if "referer" not in headers:
+        issues.append(f"{client_name}: Missing Referer header")
+    if "origin" not in headers:
+        issues.append(f"{client_name}: Missing Origin header")
+    if "x-title" not in headers:
+        issues.append(f"{client_name}: Missing X-Title header")
+    if "x-kilocode-version" not in headers:
+        issues.append(f"{client_name}: Missing X-KiloCode-Version header")
+    if "x-llmproxy-loop-guard" in headers:
+        issues.append(f"{client_name}: Unexpected x-llmproxy-loop-guard header")
+    return (len(issues) == 0, issues)
+
+
 async def main() -> int:
     print("=" * 70)
     print("ZAI CONNECTOR FINGERPRINT VERIFICATION (end-to-end)")
     print("=" * 70)
     print()
 
-    # Test OpenCode
-    print("Testing OpenCode request...")
-    opencode = await test_opencode_request()
-    opencode_headers = {k.lower(): v for k, v in opencode.get("connector_headers", {}).items()}
-    print(f"  User-Agent: {opencode_headers.get('user-agent', 'MISSING')}")
-    print(f"  Has Referer: {'referer' in opencode_headers}")
-    print(f"  Has Origin: {'origin' in opencode_headers}")
-    print(f"  Has X-Title: {'x-title' in opencode_headers}")
-    print(f"  Has X-KiloCode-Version: {'x-kilocode-version' in opencode_headers}")
+    all_pass = True
 
-    opencode_pass = (
-        opencode_headers.get("user-agent") == "opencode"
-        and "referer" not in opencode_headers
-        and "origin" not in opencode_headers
-        and "x-title" not in opencode_headers
-        and "x-kilocode-version" not in opencode_headers
-    )
-    print(f"  Result: {'✅ PASS' if opencode_pass else '❌ FAIL'}")
-    print()
+    for label, test_fn in [
+        ("OpenCode client", test_opencode_request),
+        ("Kilo-Code client", test_kilocode_request),
+    ]:
+        print(f"Testing {label}...")
+        captured = await test_fn()
+        headers = {k.lower(): v for k, v in captured.get("connector_headers", {}).items()}
 
-    # Test Kilo-Code
-    print("Testing Kilo-Code request...")
-    kilocode = await test_kilocode_request()
-    kilocode_headers = {k.lower(): v for k, v in kilocode.get("connector_headers", {}).items()}
-    print(f"  User-Agent: {kilocode_headers.get('user-agent', 'MISSING')}")
-    print(f"  Has Referer: {'referer' in kilocode_headers}")
-    print(f"  Has Origin: {'origin' in kilocode_headers}")
-    print(f"  Has X-Title: {'x-title' in kilocode_headers}")
-    print(f"  Has X-KiloCode-Version: {'x-kilocode-version' in kilocode_headers}")
+        print(f"  User-Agent: {headers.get('user-agent', 'MISSING')}")
+        print(f"  Has Referer: {'referer' in headers}")
+        print(f"  Has Origin: {'origin' in headers}")
+        print(f"  Has X-Title: {'x-title' in headers}")
+        print(f"  Has X-KiloCode-Version: {'x-kilocode-version' in headers}")
 
-    kilocode_pass = (
-        kilocode_headers.get("user-agent") == "Kilo-Code/4.111.0"
-        and "referer" in kilocode_headers
-        and "origin" in kilocode_headers
-        and "x-title" in kilocode_headers
-        and "x-kilocode-version" in kilocode_headers
-    )
-    print(f"  Result: {'✅ PASS' if kilocode_pass else '❌ FAIL'}")
-    print()
+        passed, issues = _check_kilo_headers(headers, label)
+        if passed:
+            print(f"  Result: PASS")
+        else:
+            all_pass = False
+            for issue in issues:
+                print(f"  Issue: {issue}")
+            print(f"  Result: FAIL")
+        print()
 
     print("=" * 70)
-    if opencode_pass and kilocode_pass:
-        print("ALL TESTS PASSED ✅")
-        print("=" * 70)
-        return 0
+    if all_pass:
+        print("ALL TESTS PASSED")
     else:
-        print("SOME TESTS FAILED ❌")
-        print("=" * 70)
-        return 1
+        print("SOME TESTS FAILED")
+    print("=" * 70)
+    return 0 if all_pass else 1
 
 
 if __name__ == "__main__":

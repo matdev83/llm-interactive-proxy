@@ -505,6 +505,9 @@ async def test_streaming_executor_emits_keepalive_before_headers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify keepalives are sent while waiting for the initial HTTP response."""
+    # Bind before any code runs that might patch `time.sleep` (other tests / plugins).
+    real_sleep = time.sleep
+
     prepared = PreparedChatRequest(
         auth_session=MagicMock(),
         project_id="p",
@@ -525,9 +528,9 @@ async def test_streaming_executor_emits_keepalive_before_headers(
     response.close = MagicMock()
 
     # Simulate slow response headers (e.g. backend processing a large prompt)
-    # Delay must be > keepalive interval (0.02s) to trigger keepalive
+    # Delay must exceed keepalive interval (0.02s) with margin under parallel CI load.
     def _slow_request(*args, **kwargs):
-        time.sleep(0.03)
+        real_sleep(0.1)
         return response
 
     prepared.auth_session.request = _slow_request

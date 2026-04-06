@@ -16,9 +16,9 @@ import contextlib
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import cbor2
@@ -628,14 +628,26 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
         self._maybe_start_flush_task()
 
         # V2 expects boundary bytes. Prefer raw request bytes when present.
-        data = raw_body if raw_body is not None else _coerce_wire_bytes(request_payload)
+        # Plain dict/list payloads: deterministic JSON with secret redaction for disk safety.
+        if raw_body is not None:
+            data = raw_body
+        elif isinstance(request_payload, dict | list):
+            from src.core.common.contract_serialization import serialize_for_logging
+
+            data = serialize_for_logging(request_payload, redact=True).encode("utf-8")
+        else:
+            data = _coerce_wire_bytes(request_payload)
 
         # Extract model from payload if available
         model: str | None = None
-        if hasattr(request_payload, "model"):
-            model = str(request_payload.model)
-        elif isinstance(request_payload, dict):
-            model = str(request_payload.get("model", ""))
+        if isinstance(request_payload, Mapping):
+            m = request_payload.get("model")
+            if m is not None:
+                model = str(m)
+        elif not isinstance(request_payload, list):
+            model_attr = getattr(cast(Any, request_payload), "model", None)
+            if model_attr is not None:
+                model = str(model_attr)
 
         metadata = self._extract_context_metadata(
             context,

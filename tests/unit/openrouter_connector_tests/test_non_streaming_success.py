@@ -10,6 +10,10 @@ from src.connectors.openrouter import OpenRouterBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 
+from tests.unit.openrouter_connector_tests.helpers import (
+    openrouter_connector_chat_request,
+)
+
 # Default OpenRouter settings for tests
 TEST_OPENROUTER_API_BASE_URL = (
     "https://openrouter.ai/api/v1"  # Real one for realistic requests
@@ -102,13 +106,14 @@ async def test_chat_completions_non_streaming_success(
     )
 
     response_envelope = await openrouter_backend.chat_completions(
-        request_data=sample_chat_request_data,
-        processed_messages=sample_processed_messages,
-        effective_model=effective_model,
-        openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
-        openrouter_headers_provider=mock_get_openrouter_headers,
-        key_name="test_key",
-        api_key="FAKE_KEY",
+        openrouter_connector_chat_request(
+            sample_chat_request_data,
+            processed_messages=sample_processed_messages,
+            effective_model=effective_model,
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            key_name="test_key",
+            api_key="FAKE_KEY",
+        )
     )
     assert isinstance(response_envelope, ResponseEnvelope)
     response_content = response_envelope.content

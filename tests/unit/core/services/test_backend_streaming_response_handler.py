@@ -1445,13 +1445,19 @@ class TestEmptyStreamRecovery:
 
         assert chunks
         terminal = chunks[-1]
-        assert terminal.content in ("", b"")
+        assert terminal.content not in ("", b"")
+        if isinstance(terminal.content, bytes):
+            rendered = terminal.content.decode("utf-8", errors="replace")
+        else:
+            rendered = str(terminal.content)
+        assert "error" in rendered
         assert terminal.metadata.get("finish_reason") == "error"
         assert terminal.metadata.get("is_done") is True
         assert terminal.metadata.get("session_id") == "test-session-123"
         err = terminal.metadata.get("error")
         assert isinstance(err, dict)
-        assert err.get("type") == "empty_stream_after_retries"
+        assert err.get("type") in {"BackendError", "empty_stream_after_retries"}
+        assert err.get("code") == "empty_stream_after_retries"
         assert "message" in err
         warn = terminal.metadata.get("proxy_warning")
         assert isinstance(warn, dict)
@@ -2122,6 +2128,131 @@ class TestFailOpenBehavior:
         async for chunk in result.content:
             result_chunks.append(chunk)
         assert len(result_chunks) == 1
+
+
+class TestTerminalErrorSemantics:
+    """Regression tests for terminal error stream handling."""
+
+    @pytest.mark.asyncio
+    async def test_does_not_retry_when_first_chunk_is_terminal_error(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Terminal error chunks are meaningful and must bypass empty retry."""
+        error_chunk = ProcessedResponse(
+            content="",
+            metadata={
+                "finish_reason": "error",
+                "error": {
+                    "message": "No auth credentials found",
+                    "type": "AuthenticationError",
+                    "status_code": 401,
+                },
+                "is_done": True,
+            },
+        )
+        stream_envelope = StreamingResponseEnvelope(
+            content=async_chunk_iterator([error_chunk])
+        )
+        mock_response_processor.process_streaming_response.return_value = (
+            async_chunk_iterator([error_chunk])
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result.status_code == 401
+        assert result.content is not None
+        chunks: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_not_called()
+        assert len(chunks) == 1
+        assert chunks[0].metadata.get("finish_reason") == "error"
+
+    @pytest.mark.asyncio
+    async def test_empty_stream_retry_stops_on_terminal_error_retry_stream(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Regression: after one empty-stream retry, terminal error must stop retries."""
+        done_only_chunk = ProcessedResponse(content=b"data: [DONE]\n\n", metadata={})
+        retry_terminal_error_chunk = ProcessedResponse(
+            content=(
+                b'data: {"id":"chatcmpl-error-1","object":"chat.completion.chunk",'
+                b'"choices":[{"index":0,"delta":{},"finish_reason":"error"}]}\n\n'
+            ),
+            metadata={"is_done": True},
+        )
+
+        stream_envelope = StreamingResponseEnvelope(
+            content=async_chunk_iterator([done_only_chunk])
+        )
+        retry_envelope = StreamingResponseEnvelope(
+            content=async_chunk_iterator([retry_terminal_error_chunk])
+        )
+        mock_backend_processor.process_backend_request.return_value = retry_envelope
+
+        mock_response_processor.process_streaming_response.side_effect = [
+            async_chunk_iterator([done_only_chunk]),
+            async_chunk_iterator([retry_terminal_error_chunk]),
+        ]
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result.status_code == 502
+        assert result.content is not None
+        chunks: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_called_once()
+        assert len(chunks) == 1
+        assert chunks[0].metadata.get("is_done") is True
 
     @pytest.mark.asyncio
     async def test_continues_stream_when_angel_verification_fails(

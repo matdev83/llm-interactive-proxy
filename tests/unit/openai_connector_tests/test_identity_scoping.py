@@ -2,6 +2,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_responses import OpenAIResponsesConnector
 from src.core.config.app_config import AppConfig
@@ -37,6 +38,7 @@ async def test_chat_completions_clears_identity_between_calls(
     client = AsyncMock()
     connector = OpenAIConnector(client=client, config=AppConfig())
     connector.api_key = "token"
+    connector.disable_health_check()
 
     observed_headers: list[dict[str, str] | None] = []
 
@@ -60,8 +62,30 @@ async def test_chat_completions_clears_identity_between_calls(
     request = _build_request()
     identity = DummyIdentity({"X-Test": "one"})
 
-    await connector.chat_completions(request, [], "gpt-4", identity=identity)
-    await connector.chat_completions(request, [], "gpt-4", identity=None)
+    await connector.chat_completions(
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=[],
+            effective_model="gpt-4",
+            identity=identity,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
+    )
+    await connector.chat_completions(
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=[],
+            effective_model="gpt-4",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
+    )
 
     assert observed_headers[0] is not None
     assert observed_headers[1] is not None
@@ -99,7 +123,18 @@ async def test_chat_completions_uses_identity_without_api_key(
     request = _build_request()
     identity = DummyIdentity({"Authorization": "Bearer identity-token"})
 
-    await connector.chat_completions(request, [], "gpt-4", identity=identity)
+    await connector.chat_completions(
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=[],
+            effective_model="gpt-4",
+            identity=identity,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
+    )
 
     assert observed_headers
     assert observed_headers[0] is not None

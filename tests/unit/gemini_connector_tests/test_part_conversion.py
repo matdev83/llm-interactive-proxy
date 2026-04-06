@@ -7,6 +7,8 @@ from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
 from src.core.domain.chat import ChatMessage, ChatRequest, MessageContentPartText
 
+from tests.unit.gemini_connector_tests.helpers import gemini_connector_request
+
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
 
@@ -49,13 +51,16 @@ async def test_text_part_type_removed(
     )
 
     await gemini_backend.chat_completions(
-        request_data=request_data,
-        processed_messages=processed_messages,
-        effective_model="test-model",
-        openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        openrouter_headers_provider=None,
-        key_name="x-goog-api-key",
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            request_data,
+            processed_messages=processed_messages,
+            effective_model="test-model",
+            options={
+                "openrouter_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "key_name": "x-goog-api-key",
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
 
     request = httpx_mock.get_request()
@@ -91,13 +96,16 @@ async def test_system_message_filtered(
     )
 
     await gemini_backend.chat_completions(
-        request_data=request_data,
-        processed_messages=processed_messages,
-        effective_model="test-model",
-        openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        openrouter_headers_provider=None,
-        key_name="x-goog-api-key",
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            request_data,
+            processed_messages=processed_messages,
+            effective_model="test-model",
+            options={
+                "openrouter_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "key_name": "x-goog-api-key",
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
 
     request = httpx_mock.get_request()
@@ -137,13 +145,16 @@ async def test_dict_processed_messages_are_supported(
     )
 
     await gemini_backend.chat_completions(
-        request_data=request_data,
-        processed_messages=processed_messages,
-        effective_model="test-model",
-        openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        openrouter_headers_provider=None,
-        key_name="x-goog-api-key",
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            request_data,
+            processed_messages=processed_messages,
+            effective_model="test-model",
+            options={
+                "openrouter_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "key_name": "x-goog-api-key",
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
 
     request = httpx_mock.get_request()

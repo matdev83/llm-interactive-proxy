@@ -13,6 +13,8 @@ from src.core.domain.chat import (
     MessageContentPartText,
 )
 
+from tests.unit.gemini_connector_tests.helpers import gemini_connector_request
+
 TEST_GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com"
 
 
@@ -72,12 +74,16 @@ async def test_multimodal_data_url_converts_to_inline_data(
     )
 
     await gemini_backend.chat_completions(
-        request_data=request_data,
-        processed_messages=request_data.messages,
-        effective_model="gemini:models/gemini-pro",
-        openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        key_name="x-goog-api-key",
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            request_data,
+            processed_messages=list(request_data.messages),
+            effective_model="gemini:models/gemini-pro",
+            options={
+                "openrouter_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "key_name": "x-goog-api-key",
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
 
     request = httpx_mock.get_request()
@@ -135,12 +141,16 @@ async def test_multimodal_http_url_converts_to_file_data(
     )
 
     await gemini_backend.chat_completions(
-        request_data=request_data,
-        processed_messages=request_data.messages,
-        effective_model="gemini:gemini-pro",
-        openrouter_api_base_url=TEST_GEMINI_API_BASE_URL,
-        key_name="x-goog-api-key",
-        api_key="FAKE_KEY",
+        gemini_connector_request(
+            request_data,
+            processed_messages=list(request_data.messages),
+            effective_model="gemini:gemini-pro",
+            options={
+                "openrouter_api_base_url": TEST_GEMINI_API_BASE_URL,
+                "key_name": "x-goog-api-key",
+                "api_key": "FAKE_KEY",
+            },
+        )
     )
 
     request = httpx_mock.get_request()

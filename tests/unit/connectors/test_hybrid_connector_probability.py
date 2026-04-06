@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.hybrid import HybridConnector, HybridModelSpec
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope
@@ -83,9 +84,15 @@ async def test_hybrid_connector_uses_reasoning_when_probability_is_high(
 
     # Act
     await hybrid_connector.chat_completions(
-        request_data=request,
-        processed_messages=conversation,
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=conversation,
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     # Assert
@@ -141,9 +148,15 @@ async def test_hybrid_connector_skips_reasoning_when_probability_is_low(
 
     # Act
     await hybrid_connector.chat_completions(
-        request_data=request,
-        processed_messages=conversation,
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=conversation,
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     # Assert
@@ -199,9 +212,15 @@ async def test_hybrid_connector_skips_reasoning_with_zero_probability(
 
     # Act
     await hybrid_connector.chat_completions(
-        request_data=request,
-        processed_messages=conversation,
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=conversation,
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     # Assert
@@ -254,9 +273,15 @@ async def test_hybrid_connector_skips_reasoning_when_backoff_active(
     )
 
     await hybrid_connector.chat_completions(
-        request_data=request,
-        processed_messages=conversation,
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=conversation,
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     hybrid_connector._execute_reasoning_phase.assert_not_called()
@@ -317,9 +342,15 @@ async def test_hybrid_connector_triggers_backoff_after_slow_reasoning(
         side_effect=[0.0] + [5.0] * 10,
     ):
         await hybrid_connector.chat_completions(
-            request_data=request,
-            processed_messages=conversation,
-            effective_model="hybrid:[test:test,test:test]",
+            ConnectorChatCompletionsRequest(
+                request=request,
+                processed_messages=conversation,
+                effective_model="hybrid:[test:test,test:test]",
+                identity=None,
+                cancellation_token=None,
+                cancellation_coordinator=None,
+                context=None,
+            )
         )
 
     assert hybrid_connector._reasoning_backoff_remaining == 3
@@ -369,9 +400,15 @@ async def test_hybrid_connector_uses_reasoning_with_one_probability(
 
     # Act
     await hybrid_connector.chat_completions(
-        request_data=request,
-        processed_messages=[],
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=[],
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     # Assert
@@ -423,9 +460,15 @@ async def test_hybrid_connector_updates_probability_at_runtime(
 
     # Act 1: Call with 100% probability
     await hybrid_connector.chat_completions(
-        request_data=initial_request,
-        processed_messages=[],
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=initial_request,
+            processed_messages=[],
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     # Assert 1: Reasoning phase should be called
@@ -450,9 +493,15 @@ async def test_hybrid_connector_updates_probability_at_runtime(
 
     # Act 2: Call with 0% probability
     await hybrid_connector.chat_completions(
-        request_data=follow_up_request,
-        processed_messages=[],
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=follow_up_request,
+            processed_messages=[],
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     # Assert 2: Reasoning phase should be skipped
@@ -504,9 +553,15 @@ async def test_hybrid_connector_forces_reasoning_on_first_message(
 
     # Act
     await hybrid_connector.chat_completions(
-        request_data=request,
-        processed_messages=[],
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=[],
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     # Assert
@@ -563,9 +618,15 @@ async def test_hybrid_connector_uses_probability_after_first_message(
 
     # Act
     await hybrid_connector.chat_completions(
-        request_data=request,
-        processed_messages=conversation,
-        effective_model="hybrid:[test:test,test:test]",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=conversation,
+            effective_model="hybrid:[test:test,test:test]",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+        )
     )
 
     # Assert

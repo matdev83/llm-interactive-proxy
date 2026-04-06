@@ -13,6 +13,7 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import BackendRegistry
 
+from tests.integration.connector_request_helpers import make_connector_chat_request
 from tests.mocks.mock_http_client import MockHTTPClient
 
 
@@ -101,11 +102,7 @@ class TestCustomModelParameters:
 
         request_data = sample_request_data.model_copy(update={"top_k": 50})
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -130,11 +127,7 @@ class TestCustomModelParameters:
         )
         request_data = sample_request_data.model_copy(update={"top_k": 40})
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -156,11 +149,7 @@ class TestCustomModelParameters:
         await backend.initialize(api_key="test-key", key_name="anthropic")
         request_data = sample_request_data.model_copy(update={"top_k": 30})
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -188,11 +177,7 @@ class TestCustomModelParameters:
             update={"reasoning_effort": "high"}
         )
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -220,11 +205,7 @@ class TestCustomModelParameters:
             update={"reasoning_effort": "high"}
         )
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -254,11 +235,7 @@ class TestCustomModelParameters:
             update={"reasoning_effort": "high"}
         )
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -286,11 +263,7 @@ class TestCustomModelParameters:
 
         request_data = sample_request_data.model_copy(update={"seed": 12345})
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -318,11 +291,7 @@ class TestCustomModelParameters:
 
         request_data = sample_request_data.model_copy(update={"top_p": 0.5})
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -347,11 +316,7 @@ class TestCustomModelParameters:
         )
         request_data = sample_request_data.model_copy(update={"top_p": 0.6})
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -379,11 +344,7 @@ class TestCustomModelParameters:
             update={"stop": ["stop1", "stop2"]}
         )
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -405,11 +366,7 @@ class TestCustomModelParameters:
         await backend.initialize(api_key="test-key", key_name="anthropic")
         request_data = sample_request_data.model_copy(update={"user": "test-user"})
 
-        await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=request_data.model,
-        )
+        await backend.chat_completions(make_connector_chat_request(request_data))
 
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
@@ -438,10 +395,6 @@ class TestCustomModelParameters:
         )
 
         try:
-            await backend.chat_completions(
-                request_data=request_data,
-                processed_messages=request_data.messages,
-                effective_model=request_data.model,
-            )
+            await backend.chat_completions(make_connector_chat_request(request_data))
         except Exception as e:
             pytest.fail(f"Unsupported parameter caused an exception: {e}")

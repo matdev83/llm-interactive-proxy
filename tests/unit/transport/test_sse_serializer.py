@@ -147,6 +147,23 @@ class TestSSESerializerErrorChunks:
         assert payload["choices"][0]["finish_reason"] == "error"
         assert payload["error"]["message"] == "payload_too_large"
 
+    def test_terminal_error_finish_reason_never_collapses_to_done_only(self) -> None:
+        """Done chunks marked as error must serialize to structured error payload."""
+        serializer = SSESerializer()
+        chunk = StreamingContent(
+            content="",
+            metadata={
+                "finish_reason": "error",
+                "model": "test-model",
+            },
+            is_done=True,
+        )
+
+        result_str = serializer.serialize(chunk).decode("utf-8")
+        assert result_str != "data: [DONE]\n\n"
+        assert "finish_reason" in result_str
+        assert '"error"' in result_str
+
 
 class TestSSESerializerCancellationChunks:
     """Test cancellation chunk serialization."""

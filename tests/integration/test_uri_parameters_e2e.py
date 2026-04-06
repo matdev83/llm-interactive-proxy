@@ -28,6 +28,7 @@ from src.core.services.parameter_resolution_service import (
 from src.core.services.translation_service import TranslationService
 from src.core.services.uri_parameter_validator import URIParameterValidator
 
+from tests.integration.connector_request_helpers import make_connector_chat_request
 from tests.mocks.mock_http_client import MockHTTPClient
 
 
@@ -343,9 +344,7 @@ class TestEndToEndURIParameterFlow:
 
         # Execute request
         await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=model_name,
+            make_connector_chat_request(request_data, effective_model=model_name),
         )
 
         # Verify parameters were applied
@@ -384,9 +383,7 @@ class TestEndToEndURIParameterFlow:
         request_data = sample_request.model_copy(update=normalized_params)
 
         await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=model_name,
+            make_connector_chat_request(request_data, effective_model=model_name),
         )
 
         sent_request = mock_http_client.sent_request
@@ -424,9 +421,7 @@ class TestEndToEndURIParameterFlow:
 
         # Execute request
         await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=model_name,
+            make_connector_chat_request(request_data, effective_model=model_name),
         )
 
         # Verify parameters were applied
@@ -465,9 +460,7 @@ class TestEndToEndURIParameterFlow:
         request_data = sample_request.model_copy(update=normalized_params)
 
         await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=model_name,
+            make_connector_chat_request(request_data, effective_model=model_name),
         )
 
         sent_request = mock_http_client.sent_request
@@ -530,9 +523,7 @@ class TestEndToEndURIParameterFlow:
 
         # Execute request
         await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=model_name,
+            make_connector_chat_request(request_data, effective_model=model_name),
         )
 
         # Verify the effective parameter was applied
@@ -822,9 +813,7 @@ class TestGracefulErrorHandling:
 
         # This should not raise an exception
         await backend.chat_completions(
-            request_data=request_data,
-            processed_messages=request_data.messages,
-            effective_model=model_name,
+            make_connector_chat_request(request_data, effective_model=model_name),
         )
 
         # Verify request was sent

@@ -1,12 +1,13 @@
 """Tests for OpenAI Responses API connector."""
 
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import pytest
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_responses import OpenAIResponsesConnector
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatMessage
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.translation_service import TranslationService
 
@@ -41,6 +42,7 @@ class TestOpenAIResponsesConnector:
         )
         connector.api_key = "test-api-key"
         connector.api_base_url = "https://api.openai.com/v1"
+        connector.disable_health_check()
         return connector
 
     @pytest.mark.asyncio
@@ -68,7 +70,9 @@ class TestOpenAIResponsesConnector:
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         }
-        mock_client.post.return_value = mock_response
+        mock_response.aread = AsyncMock()
+        mock_client.build_request = MagicMock(return_value=MagicMock())
+        mock_client.send = AsyncMock(return_value=mock_response)
 
         # Create request data
         request_data = {
@@ -97,13 +101,10 @@ class TestOpenAIResponsesConnector:
         assert "choices" in result.content
         assert len(result.content["choices"]) == 1
 
-        # Verify the HTTP call was made correctly
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        # Check positional arguments (URL) and keyword arguments
-        assert call_args[0][0] == "https://api.openai.com/v1/responses"
+        mock_client.build_request.assert_called_once()
+        call_args = mock_client.build_request.call_args
+        assert call_args[0][1] == "https://api.openai.com/v1/responses"
 
-        # Verify the payload structure
         payload = call_args[1]["json"]
         assert payload["model"] == "gpt-4"
         assert "response_format" in payload
@@ -182,7 +183,9 @@ class TestOpenAIResponsesConnector:
                 }
             ],
         }
-        mock_client.post.return_value = mock_response
+        mock_response.aread = AsyncMock()
+        mock_client.build_request = MagicMock(return_value=MagicMock())
+        mock_client.send = AsyncMock(return_value=mock_response)
 
         # Create request data
         request_data = {
@@ -215,10 +218,8 @@ class TestOpenAIResponsesConnector:
         assert isinstance(result, ResponseEnvelope)
         assert result.status_code == 200
 
-        # Verify the processed messages were used
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        payload = call_args[1]["json"]
+        mock_client.build_request.assert_called_once()
+        payload = mock_client.build_request.call_args[1]["json"]
         assert len(payload["messages"]) == 1
         assert payload["messages"][0]["content"] == "Processed message"
 
@@ -247,7 +248,9 @@ class TestOpenAIResponsesConnector:
                 }
             ],
         }
-        mock_client.post.return_value = mock_response
+        mock_response.aread = AsyncMock()
+        mock_client.build_request = MagicMock(return_value=MagicMock())
+        mock_client.send = AsyncMock(return_value=mock_response)
 
         request_data = {
             "model": "gpt-4",
@@ -274,8 +277,8 @@ class TestOpenAIResponsesConnector:
         )
 
         assert isinstance(result, ResponseEnvelope)
-        mock_client.post.assert_called_once()
-        sent_headers = mock_client.post.call_args[1]["headers"]
+        mock_client.build_request.assert_called_once()
+        sent_headers = mock_client.build_request.call_args[1]["headers"]
         assert sent_headers["Authorization"] == "Bearer test-api-key"
         assert sent_headers["X-Test"] == "123"
 
@@ -297,7 +300,9 @@ class TestOpenAIResponsesConnector:
         mock_response.json.return_value = {
             "error": {"message": "Invalid request", "type": "invalid_request_error"}
         }
-        mock_client.post.return_value = mock_response
+        mock_response.aread = AsyncMock()
+        mock_client.build_request = MagicMock(return_value=MagicMock())
+        mock_client.send = AsyncMock(return_value=mock_response)
 
         # Create request data
         request_data = {
@@ -334,18 +339,28 @@ class TestOpenAIResponsesConnector:
         ) as mock_responses:
             mock_responses.return_value = Mock(spec=ResponseEnvelope)
 
-            request_data = {"model": "gpt-4", "messages": []}
-            processed_messages = []
-            effective_model = "gpt-4"
-
-            await connector.chat_completions(
-                request_data=request_data,
-                processed_messages=processed_messages,
-                effective_model=effective_model,
+            domain = CanonicalChatRequest(
+                model="gpt-4",
+                messages=[ChatMessage(role="user", content="hi")],
+            )
+            connector_req = ConnectorChatCompletionsRequest(
+                request=domain,
+                processed_messages=[],
+                effective_model="gpt-4",
+                identity=None,
+                cancellation_token=None,
+                cancellation_coordinator=None,
+                context=None,
+                options={},
             )
 
+            await connector.chat_completions(connector_req)
+
             mock_responses.assert_called_once_with(
-                request_data, processed_messages, effective_model, None
+                connector_req.request,
+                list(connector_req.processed_messages),
+                connector_req.effective_model,
+                None,
             )
 
     def test_backend_type(self, connector):

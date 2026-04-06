@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from collections.abc import Iterable
 from dataclasses import dataclass
-from functools import lru_cache
 from threading import Lock
 from typing import TYPE_CHECKING, Any
 
@@ -89,7 +88,6 @@ def _load_extracted_from_environment() -> set[str]:
     return {name for name in names if _looks_like_oauth_backend(name)}
 
 
-@lru_cache(maxsize=1)
 def _resolve_extracted_backend_names() -> frozenset[str]:
     names: set[str] = set()
     names.update(_load_extracted_from_environment())

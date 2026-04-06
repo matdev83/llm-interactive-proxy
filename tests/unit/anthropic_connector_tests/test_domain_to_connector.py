@@ -16,7 +16,9 @@ from src.connectors.anthropic import (
     ANTHROPIC_VERSION_HEADER,
     AnthropicBackend,
 )
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.core.domain.chat import (
+    CanonicalChatRequest,
     ChatMessage,
     ChatRequest,
     FunctionDefinition,
@@ -25,6 +27,27 @@ from src.core.domain.chat import (
 from src.core.domain.responses import StreamingResponseEnvelope
 
 TEST_ANTHROPIC_API_BASE_URL = ANTHROPIC_DEFAULT_BASE_URL
+
+
+def _anthropic_connector_request(
+    request: ChatRequest,
+    processed_messages: list[ChatMessage],
+    effective_model: str,
+    *,
+    options: dict | None = None,
+) -> ConnectorChatCompletionsRequest:
+    """Build the canonical contract used by ``AnthropicBackend.chat_completions``."""
+    domain = CanonicalChatRequest.model_validate(request.model_dump())
+    return ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=processed_messages,
+        effective_model=effective_model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options=dict(options) if options else {},
+    )
 
 
 @pytest_asyncio.fixture(name="anthropic_backend")
@@ -75,9 +98,11 @@ async def test_chat_completions_basic_request(
     # Process the request
     processed_messages = [ChatMessage(role="user", content="Hello")]
     await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="claude-3-haiku-20240307",
+        _anthropic_connector_request(
+            request,
+            processed_messages,
+            "claude-3-haiku-20240307",
+        )
     )
 
     # Get the request that was sent
@@ -141,9 +166,11 @@ async def test_chat_completions_with_system_message(
         ChatMessage(role="user", content="What's the weather like?"),
     ]
     await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="claude-3-haiku-20240307",
+        _anthropic_connector_request(
+            request,
+            processed_messages,
+            "claude-3-haiku-20240307",
+        )
     )
 
     # Get the request that was sent
@@ -190,10 +217,12 @@ async def test_chat_completions_merges_custom_headers(
     )
 
     await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=[ChatMessage(role="user", content="Hello")],
-        effective_model="claude-3-haiku-20240307",
-        headers={"x-custom": "value"},
+        _anthropic_connector_request(
+            request,
+            [ChatMessage(role="user", content="Hello")],
+            "claude-3-haiku-20240307",
+            options={"headers": {"x-custom": "value"}},
+        )
     )
 
     sent_request = httpx_mock.get_request()
@@ -234,15 +263,18 @@ async def test_streaming_disconnect_triggers_anthropic_cancel(
     )
 
     response = await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=[ChatMessage(role="user", content="Hello")],
-        effective_model="claude-3-haiku-20240307",
+        _anthropic_connector_request(
+            request,
+            [ChatMessage(role="user", content="Hello")],
+            "claude-3-haiku-20240307",
+        )
     )
 
     assert isinstance(response, StreamingResponseEnvelope)
     assert response.cancel_callback is not None
 
     # Consume the stream to ensure it works
+    assert response.content is not None
     async for _ in response.content:
         break
 
@@ -289,10 +321,12 @@ async def test_chat_completions_merges_metadata(
     )
 
     await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=[ChatMessage(role="user", content="Hello")],
-        effective_model="claude-3-haiku-20240307",
-        project="project-123",
+        _anthropic_connector_request(
+            request,
+            [ChatMessage(role="user", content="Hello")],
+            "claude-3-haiku-20240307",
+            options={"project": "project-123"},
+        )
     )
 
     sent_request = httpx_mock.get_request()
@@ -364,9 +398,11 @@ async def test_chat_completions_with_tools(
     # Process the request
     processed_messages = [ChatMessage(role="user", content="What's the weather like?")]
     await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="claude-3-haiku-20240307",
+        _anthropic_connector_request(
+            request,
+            processed_messages,
+            "claude-3-haiku-20240307",
+        )
     )
 
     # Get the request that was sent
@@ -417,9 +453,11 @@ async def test_chat_completions_stop_string_normalized(
     ]
 
     await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="claude-3-haiku-20240307",
+        _anthropic_connector_request(
+            request,
+            processed_messages,
+            "claude-3-haiku-20240307",
+        )
     )
 
     sent_request = httpx_mock.get_request()
@@ -463,9 +501,11 @@ async def test_chat_completions_stop_list_normalized(
     ]
 
     await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="claude-3-haiku-20240307",
+        _anthropic_connector_request(
+            request,
+            processed_messages,
+            "claude-3-haiku-20240307",
+        )
     )
 
     sent_request = httpx_mock.get_request()
@@ -507,9 +547,11 @@ async def test_chat_completions_streaming(
     # Process the request
     processed_messages = [ChatMessage(role="user", content="Hello")]
     response = await anthropic_backend.chat_completions(
-        request_data=request,
-        processed_messages=processed_messages,
-        effective_model="claude-3-haiku-20240307",
+        _anthropic_connector_request(
+            request,
+            processed_messages,
+            "claude-3-haiku-20240307",
+        )
     )
 
     # Verify the response is a StreamingResponseEnvelope (not StreamingResponse)
@@ -519,6 +561,7 @@ async def test_chat_completions_streaming(
     assert response.media_type == "text/event-stream"
 
     # Consume the stream to trigger the request
+    assert response.content is not None
     async for _ in response.content:
         break
 
@@ -600,9 +643,11 @@ async def test_anthropic_error_handling(
 
     with pytest.raises(httpx.HTTPStatusError) as excinfo:
         await anthropic_backend.chat_completions(
-            request_data=request,
-            processed_messages=processed_messages,
-            effective_model="invalid-model",
+            _anthropic_connector_request(
+                request,
+                processed_messages,
+                "invalid-model",
+            )
         )
 
     # Verify the exception contains the error message

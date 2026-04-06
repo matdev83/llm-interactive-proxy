@@ -312,7 +312,9 @@ async def integrate_streaming_pipeline(
         err = ValueError("Upstream stream ended without any chunks")
         error_chunk = await handle_streaming_error(err, stream_id, provider)
         first_bytes = error_chunk.to_bytes()
-        status_code = 204
+        # Use an explicit error status so transport adapters do not treat this as
+        # a successful no-content response and silently suppress the body.
+        status_code = 502
     except Exception as e:
         # Error before any output: raise a normalized backend exception so
         # higher-level failure handling can apply retry/failover policies.

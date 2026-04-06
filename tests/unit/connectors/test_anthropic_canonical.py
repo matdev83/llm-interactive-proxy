@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import get_type_hints
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -11,6 +12,7 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.core.common.exceptions import InvalidRequestError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -80,41 +82,26 @@ class TestAnthropicCanonicalAPI:
 
     def test_implements_canonical_protocol(self, anthropic_backend):
         """Test that AnthropicBackend implements ICanonicalChatCompletionsBackend."""
-        import inspect
-
-        # Check if canonical method exists by inspecting signature
-        # The method has backward-compatible signature with *args/**kwargs but supports canonical requests
-        method = getattr(anthropic_backend, "chat_completions", None)
-        assert method is not None, "chat_completions method not found"
-
         try:
-            sig = inspect.signature(method)
-            params = list(sig.parameters.values())
+            hints = get_type_hints(AnthropicBackend.chat_completions)
+        except (NameError, TypeError) as e:
+            pytest.fail(f"Failed to resolve chat_completions type hints: {e}")
+        ann = hints.get("request")
+        if ann is not ConnectorChatCompletionsRequest:
+            pytest.fail(
+                "Parameter 'request' must resolve to ConnectorChatCompletionsRequest. "
+                f"Got: {ann!r}"
+            )
 
-            # The method has a backward-compatible signature that accepts canonical requests
-            # Check if first parameter can accept ConnectorChatCompletionsRequest
-            if len(params) > 0:
-                first_param = params[0]
-                # Check if first parameter annotation includes ConnectorChatCompletionsRequest
-                param_annotation = first_param.annotation
-                if (
-                    param_annotation == ConnectorChatCompletionsRequest
-                    or "ConnectorChatCompletionsRequest" in str(param_annotation)
-                    or param_annotation == inspect.Signature.empty
-                    or "Any" in str(param_annotation)
-                ):
-                    # Method can accept canonical requests (either directly or via union type)
-                    # The implementation checks isinstance(request, ConnectorChatCompletionsRequest) at runtime
-                    return  # Test passes - method supports canonical API
-                else:
-                    pytest.fail(
-                        f"First parameter does not accept ConnectorChatCompletionsRequest. "
-                        f"Got annotation: {param_annotation}"
-                    )
-            else:
-                pytest.fail("chat_completions method has no parameters")
-        except (ValueError, TypeError) as e:
-            pytest.fail(f"Failed to inspect signature: {e}")
+    @pytest.mark.asyncio
+    async def test_chat_completions_rejects_non_canonical_request(
+        self, anthropic_backend
+    ):
+        """Non-contract inputs must raise InvalidRequestError (no silent coercion)."""
+        with pytest.raises(InvalidRequestError) as excinfo:
+            await anthropic_backend.chat_completions(object())  # type: ignore[arg-type]
+        assert "ConnectorChatCompletionsRequest" in excinfo.value.message
+        assert excinfo.value.details.get("connector") == "anthropic"
 
     @pytest.mark.asyncio
     async def test_canonical_api_receives_typed_contracts(

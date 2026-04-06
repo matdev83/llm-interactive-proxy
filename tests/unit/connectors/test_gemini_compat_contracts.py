@@ -23,6 +23,10 @@ from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.translation_service import TranslationService
 
+from tests.unit.gemini_connector_tests.helpers import (
+    attach_gemini_non_streaming_httpx_mocks,
+)
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -212,7 +216,7 @@ class TestGeminiNonStreamingShape:
         mock_response.headers = {}
         mock_response.json.return_value = gemini_response
 
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
         non_streaming_request = CanonicalChatRequest(
             model="gemini-1.5-flash",
@@ -379,7 +383,7 @@ class TestGeminiToolCallShape:
         mock_response.status_code = 200
         mock_response.headers = {}
         mock_response.json.return_value = gemini_tool_response
-        gemini_backend.client.post = AsyncMock(return_value=mock_response)
+        attach_gemini_non_streaming_httpx_mocks(gemini_backend.client, mock_response)
 
         with patch.object(
             gemini_backend,

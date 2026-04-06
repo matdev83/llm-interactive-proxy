@@ -24,7 +24,7 @@ pytestmark = pytest.mark.xdist_group("pyright_validation")
 def _calculate_directory_hash(directory: Path) -> str:
     """Calculate a hash of Python files for cache invalidation.
 
-    Uses directory mtime plus sampled file stats for faster hashing.
+    Uses directory mtime plus every ``*.py`` file mtime (stable, avoids stale cache).
     """
     hasher = hashlib.md5()
     try:
@@ -33,12 +33,8 @@ def _calculate_directory_hash(directory: Path) -> str:
     except OSError:
         pass
 
-    py_files = list(directory.rglob("*.py"))
-    sample_size = min(80, len(py_files))
-    step = max(1, len(py_files) // sample_size) if py_files else 1
-    for i, path in enumerate(py_files):
-        if i % step != 0:
-            continue
+    py_files = sorted(directory.rglob("*.py"), key=lambda p: p.as_posix())
+    for path in py_files:
         try:
             file_stat = path.stat()
             hasher.update(

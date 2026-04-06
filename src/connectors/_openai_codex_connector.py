@@ -44,6 +44,7 @@ from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
 from src.connectors._openai_codex_request_translator import CodexRequestTranslator
 from src.connectors._openai_codex_session_detector import SessionDetector
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex.compat import CompatibilityLayer
 from src.connectors.openai_codex.contracts import (
@@ -72,8 +73,13 @@ from src.connectors.openai_codex.tool_schemas import get_codex_tool_schema
 from src.connectors.openai_codex.tools import ToolExecutionService
 from src.connectors.openai_codex.utils import build_codex_user_agent, message_to_text
 from src.core.app.constants.logging_constants import TRACE_LEVEL
-from src.core.common.exceptions import AuthenticationError, ServiceResolutionError
+from src.core.common.exceptions import (
+    AuthenticationError,
+    InvalidRequestError,
+    ServiceResolutionError,
+)
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.model_utils import parse_model_with_params
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -1839,14 +1845,34 @@ class OpenAICodexConnector(OpenAIConnector):
                     self._degrade([f"Authentication failed: {exc!s}"])
                 raise
 
-        try:
-            result = await super().chat_completions(
-                request_data=request_data,
-                processed_messages=processed_messages,
-                effective_model=effective_model,
-                identity=identity,
-                **kwargs,
+        if isinstance(request_data, CanonicalChatRequest):
+            domain_req = request_data
+        elif isinstance(request_data, ChatRequest):
+            domain_req = CanonicalChatRequest.model_validate(request_data.model_dump())
+        else:
+            raise InvalidRequestError(
+                message=(
+                    "OpenAICodexConnector.chat_completions received invalid request_data type."
+                ),
+                details={
+                    "received_type": type(request_data).__name__,
+                    "connector": "openai-codex",
+                },
             )
+
+        connector_request = ConnectorChatCompletionsRequest(
+            request=domain_req,
+            processed_messages=list(processed_messages),
+            effective_model=effective_model,
+            identity=identity,
+            cancellation_token=cancellation_token,
+            cancellation_coordinator=cancellation_coordinator,
+            context=None,
+            options=dict(kwargs),
+        )
+
+        try:
+            result = await super().chat_completions(connector_request)
             if not self.is_functional:
                 self._recover()
             return result
