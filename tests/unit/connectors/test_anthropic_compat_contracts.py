@@ -87,8 +87,8 @@ FULL_TEXT_SSE_CHUNKS = [
 TOOL_USE_SSE_CHUNKS = [
     'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_2","type":"message","role":"assistant","content":[],"model":"claude-3-haiku-20240307","stop_reason":null,"usage":{"input_tokens":15,"output_tokens":0}}}\n\n',
     'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_abc","name":"get_weather","input":{}}}\n\n',
-    'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{"location":"}}\n\n',
-    'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":""Paris"}"}}\n\n',
+    'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"location\\":"}}\n\n',
+    'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"\\"Paris\\"}"}}\n\n',
     'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
     'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":10}}\n\n',
     'event: message_stop\ndata: {"type":"message_stop"}\n\n',
@@ -127,6 +127,30 @@ async def _collect_stream_chunks(
             if isinstance(content, dict):
                 chunks.append(content)
         return chunks
+
+
+def _extract_partial_json_fragments(sse_chunks: list[str]) -> list[str]:
+    """Extract input_json_delta.partial_json fragments from Anthropic SSE fixtures."""
+    fragments: list[str] = []
+    for event in sse_chunks:
+        for line in event.splitlines():
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload:
+                continue
+            event_obj = json.loads(payload)
+            if not isinstance(event_obj, dict):
+                continue
+            delta = event_obj.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            if delta.get("type") != "input_json_delta":
+                continue
+            partial_json = delta.get("partial_json")
+            if isinstance(partial_json, str):
+                fragments.append(partial_json)
+    return fragments
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +382,11 @@ class TestAnthropicToolUseShape:
             len(finish_chunks) > 0
         ), "Tool-use stream must complete with at least one chunk carrying finish_reason"
 
-        # Verify the partial_json values from the fixture concatenate to valid JSON
-        partial_jsons = ['{"location":', '"Paris"}']
+        # Validate fixture partial_json fragments are well-formed and combine to valid JSON.
+        partial_jsons = _extract_partial_json_fragments(TOOL_USE_SSE_CHUNKS)
+        assert (
+            partial_jsons
+        ), "Expected at least one input_json_delta.partial_json fragment in fixture"
         concatenated = "".join(partial_jsons)
         parsed = json.loads(concatenated)
         assert parsed == {

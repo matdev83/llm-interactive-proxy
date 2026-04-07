@@ -17,6 +17,7 @@ from src.core.common.backend_discovery_state import (
     is_running_in_multi_user_mode,
     normalize_backend_name,
 )
+from src.core.common.env_utils import get_env_value_with_windows_persistent_fallback
 from src.core.common.exceptions import RoutingError
 from src.core.common.logging_utils import redact_sensitive_value
 from src.core.config.app_config import AppConfig, BackendConfig
@@ -33,6 +34,36 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _is_sensitive_config_key(key: str) -> bool:
+    normalized = key.strip().lower().replace("-", "_")
+    exact_sensitive_keys = {
+        "api_key",
+        "api_keys",
+        "api_key_path",
+        "credential_path",
+        "headers_provider",
+        "authorization",
+        "set_cookie",
+        "cookie",
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "private_key",
+    }
+    if normalized in exact_sensitive_keys:
+        return True
+    return any(
+        marker in normalized
+        for marker in (
+            "api_key",
+            "token",
+            "secret",
+            "password",
+            "credential",
+        )
+    )
+
+
 def _redact_sensitive_config_values(config: dict[str, Any]) -> dict[str, Any]:
     """Redact sensitive values from config dictionary for safe logging.
 
@@ -42,20 +73,22 @@ def _redact_sensitive_config_values(config: dict[str, Any]) -> dict[str, Any]:
     Returns:
         A new dictionary with sensitive values redacted (replaced with "[REDACTED]").
     """
-    sensitive_keys = {
-        "api_key",
-        "api_key_path",
-        "credential_path",
-        "headers_provider",  # Callables may contain sensitive logic
-    }
-
     redacted: dict[str, Any] = {}
     for key, value in config.items():
-        if key in sensitive_keys:
+        if _is_sensitive_config_key(key):
             redacted[key] = "[REDACTED]"
         elif isinstance(value, dict):
             # Recursively redact nested dictionaries
             redacted[key] = _redact_sensitive_config_values(value)
+        elif isinstance(value, list):
+            redacted[key] = [
+                (
+                    _redact_sensitive_config_values(item)
+                    if isinstance(item, dict)
+                    else item
+                )
+                for item in value
+            ]
         elif callable(value):
             # Redact callables (e.g., header providers)
             redacted[key] = f"<{type(value).__name__} [REDACTED]>"
@@ -293,19 +326,36 @@ class BackendFactory(IBackendFactory):
                 init_config[k] = v
 
         if connector_type == "zai-coding-plan":
-            live_zai_api_key = os.environ.get("ZAI_API_KEY")
+            live_zai_api_key, live_zai_api_key_source = (
+                get_env_value_with_windows_persistent_fallback("ZAI_API_KEY")
+            )
             configured_api_key = init_config.get("api_key")
-            if live_zai_api_key:
-                if configured_api_key != live_zai_api_key:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Overriding zai-coding-plan API key from live ZAI_API_KEY env var"
-                        )
-                    init_config["api_key"] = live_zai_api_key
-                elif logger.isEnabledFor(logging.INFO):
+            if configured_api_key:
+                if (
+                    live_zai_api_key
+                    and str(configured_api_key).strip() != live_zai_api_key
+                    and logger.isEnabledFor(logging.INFO)
+                ):
                     logger.info(
-                        "zai-coding-plan API key matches live ZAI_API_KEY env var"
+                        "Using explicit zai-coding-plan API key from backend config; ignoring %s ZAI_API_KEY",
+                        live_zai_api_key_source,
                     )
+                elif (
+                    live_zai_api_key
+                    and str(configured_api_key).strip() == live_zai_api_key
+                    and logger.isEnabledFor(logging.INFO)
+                ):
+                    logger.info(
+                        "zai-coding-plan API key matches %s ZAI_API_KEY",
+                        live_zai_api_key_source,
+                    )
+            elif live_zai_api_key:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Using zai-coding-plan API key from %s ZAI_API_KEY",
+                        live_zai_api_key_source,
+                    )
+                init_config["api_key"] = live_zai_api_key
             elif logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "zai-coding-plan initialized without live ZAI_API_KEY env var"

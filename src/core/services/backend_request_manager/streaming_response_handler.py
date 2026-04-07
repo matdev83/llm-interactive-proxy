@@ -19,7 +19,7 @@ import contextlib
 import json
 import logging
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -64,6 +64,9 @@ from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
 from src.core.services.streaming.error_mapping import handle_streaming_error
+from src.core.services.streaming.stream_recovery_budget import (
+    mark_stream_meaningful_output,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -672,6 +675,68 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             skip_verification=skip_verification,
         )
 
+    def _resolve_client_reasoning_policy(
+        self, context: RequestContext
+    ) -> tuple[bool, str]:
+        """Resolve client reasoning policy once per stream (not per chunk)."""
+        try:
+            from src.core.common.client_compatibility import (
+                resolve_client_reasoning_policy,
+            )
+            from src.core.interfaces.configuration_interface import IConfig
+
+            cfg: IConfig | None = None
+            app_state = getattr(context, "app_state", None)
+            if app_state is not None:
+                try:
+                    service_provider = getattr(app_state, "service_provider", None)
+                    if service_provider is not None and hasattr(
+                        service_provider, "get_service"
+                    ):
+                        cfg_any = service_provider.get_service(cast(type[Any], IConfig))
+                        if cfg_any is not None and hasattr(cfg_any, "session"):
+                            cfg = cast(IConfig, cfg_any)
+                except Exception:
+                    cfg = None
+
+                for attr in ("config", "app_config"):
+                    candidate = getattr(app_state, attr, None)
+                    if candidate is not None and hasattr(candidate, "session"):
+                        cfg = cast(IConfig, candidate)
+                        break
+
+            if cfg is None:
+                try:
+                    from src.core.di.services import get_service_provider
+
+                    provider = get_service_provider()
+                    cfg_any = provider.get_service(cast(type[Any], IConfig))
+                    cfg = cast(IConfig | None, cfg_any)
+                except Exception:
+                    cfg = None
+
+            headers = getattr(context, "headers", None)
+            ua_val = None
+            if isinstance(headers, Mapping):
+                ua_val = headers.get("user-agent") or headers.get("User-Agent")
+            ua = ua_val if isinstance(ua_val, str) else None
+
+            client_cfg = (
+                getattr(getattr(cfg, "session", None), "client_compatibility", None)
+                if cfg is not None
+                else None
+            )
+            policy = resolve_client_reasoning_policy(
+                headers=headers,
+                client_config=client_cfg,
+                user_agent=ua,
+            )
+            return bool(policy.reasoning_counts_as_meaningful), str(
+                policy.reasoning_mode
+            )
+        except Exception:
+            return False, "passthrough"
+
     def _wrap_with_middleware(
         self,
         original_stream: AsyncIterator[ProcessedResponse],
@@ -1019,13 +1084,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             swallowed_detected = False
 
             async for raw_chunk in verified_stream:
-                if isinstance(raw_chunk, ProcessedResponse):
-                    chunk = raw_chunk
-                else:
-                    chunk = ProcessedResponse(
-                        content=normalize_to_processed_chunk_content(raw_chunk),
-                        metadata={},
-                    )
+                chunk = raw_chunk
                 # Check for tool-call swallowed
                 metadata = getattr(chunk, "metadata", {}) or {}
                 if (
@@ -1212,6 +1271,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             except (AttributeError, TypeError, ValueError):
                 original_request_payload = None
 
+            (
+                client_reasoning_counts_as_meaningful,
+                client_reasoning_mode,
+            ) = self._resolve_client_reasoning_policy(context)
+
             async for chunk in monitored_stream():
                 # monitored_stream() returns AsyncIterator[ProcessedResponse], so chunk is always ProcessedResponse
                 # NFR1.3: Preserve copy-on-write behavior - create new instance instead of mutating
@@ -1256,87 +1320,17 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         "client_os", cast(JsonValue, processing_context.client_os)
                     )
 
-                # Resolve client capabilities using explicit headers and config-driven rules.
-                try:
-                    from collections.abc import Mapping
-
-                    from src.core.common.client_compatibility import (
-                        resolve_client_reasoning_policy,
-                    )
-                    from src.core.interfaces.configuration_interface import IConfig
-
-                    cfg: IConfig | None = None
-                    app_state = getattr(context, "app_state", None)
-                    if app_state is not None:
-                        # FastAPI adapter passes `request.app.state` (Starlette State) as app_state.
-                        # That object does not expose the domain config directly, but it typically
-                        # holds the DI container under `service_provider`.
-                        try:
-                            service_provider = getattr(
-                                app_state, "service_provider", None
-                            )
-                            if service_provider is not None and hasattr(
-                                service_provider, "get_service"
-                            ):
-                                cfg_any = service_provider.get_service(
-                                    cast(type[Any], IConfig)
-                                )
-                                if cfg_any is not None and hasattr(cfg_any, "session"):
-                                    cfg = cast(IConfig, cfg_any)
-                        except Exception:
-                            cfg = None
-
-                        for attr in ("config", "app_config"):
-                            candidate = getattr(app_state, attr, None)
-                            # Avoid isinstance() on abstract/protocol config types.
-                            if candidate is not None and hasattr(candidate, "session"):
-                                cfg = cast(IConfig, candidate)
-                                break
-                    if cfg is None:
-                        try:
-                            from src.core.di.services import get_service_provider
-
-                            provider = get_service_provider()
-                            cfg_any = provider.get_service(cast(type[Any], IConfig))
-                            cfg = cast(IConfig | None, cfg_any)
-                        except Exception:
-                            cfg = None
-
-                    headers = getattr(context, "headers", None)
-                    ua_val = None
-                    if isinstance(headers, Mapping):
-                        ua_val = headers.get("user-agent") or headers.get("User-Agent")
-                    ua = ua_val if isinstance(ua_val, str) else None
-
-                    client_cfg = (
-                        getattr(
-                            getattr(cfg, "session", None), "client_compatibility", None
-                        )
-                        if cfg is not None
-                        else None
-                    )
-                    policy = resolve_client_reasoning_policy(
-                        headers=headers,
-                        client_config=client_cfg,
-                        user_agent=ua,
+                if client_reasoning_counts_as_meaningful:
+                    processed_metadata.setdefault(
+                        "_client_supports_reasoning_fields", True
                     )
 
-                    if policy.reasoning_counts_as_meaningful:
+                if client_reasoning_mode != "passthrough":
+                    processed_metadata.setdefault("_suppress_reasoning_fields", True)
+                    if client_reasoning_mode == "drop":
                         processed_metadata.setdefault(
-                            "_client_supports_reasoning_fields", True
+                            "_coerce_reasoning_into_content", False
                         )
-
-                    if policy.reasoning_mode != "passthrough":
-                        processed_metadata.setdefault(
-                            "_suppress_reasoning_fields", True
-                        )
-                        if policy.reasoning_mode == "drop":
-                            processed_metadata.setdefault(
-                                "_coerce_reasoning_into_content", False
-                            )
-                except Exception:
-                    # Best-effort only.
-                    pass
                 # Create new ProcessedResponse instance with updated metadata (copy-on-write)
                 yield ProcessedResponse(
                     content=chunk.content,
@@ -1349,6 +1343,59 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             seen_meaningful = False
 
             pending_terminal: list[ProcessedResponse] = []
+
+            async def _emit_terminal_stream_error(
+                error: Exception,
+            ) -> ProcessedResponse:
+                provider = processing_context.backend_name or "unknown"
+                model_name = processing_context.model_name or provider
+                terminal_chunk = await handle_streaming_error(
+                    error,
+                    stream_id=processing_context.session_id,
+                    provider=provider,
+                )
+                terminal_metadata = dict(getattr(terminal_chunk, "metadata", {}) or {})
+                terminal_metadata.setdefault(
+                    "session_id", processing_context.session_id
+                )
+                terminal_metadata.setdefault("model", model_name)
+                terminal_metadata.setdefault("is_done", True)
+                terminal_metadata.setdefault("finish_reason", "error")
+
+                error_payload = terminal_metadata.get("error")
+                if not isinstance(error_payload, dict):
+                    error_payload = {
+                        "type": type(error).__name__,
+                        "message": str(error),
+                        "code": "stream_failed",
+                    }
+                    terminal_metadata["error"] = error_payload
+
+                terminal_content = getattr(terminal_chunk, "content", "")
+                if not terminal_content:
+                    import time
+
+                    terminal_content = {
+                        "id": f"chatcmpl-error-{int(time.time())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": model_name,
+                        "choices": [
+                            {"index": 0, "delta": {}, "finish_reason": "error"}
+                        ],
+                        "error": {
+                            "type": error_payload.get("type") or type(error).__name__,
+                            "message": error_payload.get("message") or str(error),
+                            "code": error_payload.get("code") or "stream_failed",
+                            "status_code": error_payload.get("status_code"),
+                        },
+                    }
+
+                return ProcessedResponse(
+                    content=normalize_to_processed_chunk_content(terminal_content),
+                    metadata=terminal_metadata,
+                    usage=getattr(terminal_chunk, "usage", None),
+                )
 
             def _is_terminal_chunk(ch: ProcessedResponse) -> bool:
                 md = getattr(ch, "metadata", {}) or {}
@@ -1397,32 +1444,48 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     return '"finish_reason": "error"' in decoded or '"error"' in decoded
                 return False
 
-            async for chunk in attach_metadata_stream():
-                if _is_terminal_error_chunk(chunk):
-                    seen_meaningful = True
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Terminal error chunk detected; suppressing empty-stream recovery for session %s",
-                            processing_context.session_id,
-                        )
+            try:
+                async for chunk in attach_metadata_stream():
+                    if _is_terminal_error_chunk(chunk):
+                        seen_meaningful = True
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Terminal error chunk detected; suppressing empty-stream recovery for session %s",
+                                processing_context.session_id,
+                            )
+                        yield chunk
+                        continue
+
+                    meaningful = self._chunk_has_meaningful_output(chunk)
+
+                    if meaningful:
+                        if not seen_meaningful:
+                            mark_stream_meaningful_output(context)
+                        seen_meaningful = True
+                        yield chunk
+                        continue
+
+                    # To avoid long periods of silence (client timeouts) we stream
+                    # non-meaningful chunks through, but we hold back terminal
+                    # markers until we decide whether an empty-stream retry is needed.
+                    if not seen_meaningful and _is_terminal_chunk(chunk):
+                        pending_terminal.append(chunk)
+                        continue
+
                     yield chunk
-                    continue
+            except EmptyResponseRetryError:
+                raise
+            except Exception as stream_error:
+                if not seen_meaningful:
+                    raise EmptyResponseRetryError(
+                        recovery_prompt="",
+                        session_id=processing_context.session_id,
+                        retry_count=retry_depth + 1,
+                        original_request=request,
+                    ) from stream_error
 
-                meaningful = self._chunk_has_meaningful_output(chunk)
-
-                if meaningful:
-                    seen_meaningful = True
-                    yield chunk
-                    continue
-
-                # To avoid long periods of silence (client timeouts) we stream
-                # non-meaningful chunks through, but we hold back terminal
-                # markers until we decide whether an empty-stream retry is needed.
-                if not seen_meaningful and _is_terminal_chunk(chunk):
-                    pending_terminal.append(chunk)
-                    continue
-
-                yield chunk
+                yield await _emit_terminal_stream_error(stream_error)
+                return
 
             if not seen_meaningful:
                 # Use retry_depth + 1 to match middleware's retry_count tracking
@@ -1542,9 +1605,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         exc,
                     )
 
-                retry_request = await self._create_retry_request(
-                    request, exc.recovery_prompt
-                )
+                if exc.recovery_prompt:
+                    retry_request = await self._create_retry_request(
+                        request, exc.recovery_prompt
+                    )
+                else:
+                    retry_request = request
 
                 try:
                     retry_response = (

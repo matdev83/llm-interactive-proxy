@@ -14,10 +14,10 @@
 
 ### Resilience and Reliability
 
-- [ ] **REL-01**: Retry logic across all connector families uses a standardized, async-native retry library (stamina) with proper backoff
-- [ ] **REL-02**: Circuit breaker excludes unavailable backends from routing decisions with configurable thresholds
-- [ ] **REL-03**: Streaming sessions are resilient to backend failures without duplicating output or corrupting tool-call state
-- [ ] **REL-04**: Failover between multiple backend instances preserves request context and does not introduce non-deterministic side effects
+- [x] **REL-01**: Retry logic across all connector families uses a standardized, async-native retry library (stamina) with proper backoff
+- [x] **REL-02**: Circuit breaker excludes unavailable backends from routing decisions with configurable thresholds
+- [x] **REL-03**: Streaming sessions are resilient to backend failures without duplicating output or corrupting tool-call state
+- [x] **REL-04**: Failover between multiple backend instances preserves request context and does not introduce non-deterministic side effects
 
 ### Observability and Operator Control
 
@@ -80,10 +80,10 @@ Which phases cover which requirements.
 | COMP-02 | Phase 2 - Compatibility Contract Stabilization | Planned |
 | COMP-03 | Phase 2 - Compatibility Contract Stabilization | Planned |
 | COMP-04 | Phase 2 - Compatibility Contract Stabilization | Planned |
-| REL-01 | Phase 3 - Resilience and Failover Safety | Planned |
-| REL-02 | Phase 3 - Resilience and Failover Safety | Planned |
-| REL-03 | Phase 3 - Resilience and Failover Safety | Planned |
-| REL-04 | Phase 3 - Resilience and Failover Safety | Planned |
+| REL-01 | Phase 3 - Resilience and Failover Safety | Complete |
+| REL-02 | Phase 3 - Resilience and Failover Safety | Complete |
+| REL-03 | Phase 3 - Resilience and Failover Safety | Complete |
+| REL-04 | Phase 3 - Resilience and Failover Safety | Complete |
 | OBS-01 | Phase 4 - Observability and Operator Diagnostics | Planned |
 | OBS-02 | Phase 4 - Observability and Operator Diagnostics | Planned |
 | OBS-03 | Phase 4 - Observability and Operator Diagnostics | Planned |
@@ -105,4 +105,4 @@ Which phases cover which requirements.
 
 ---
 *Requirements defined: 2026-04-04*
-*Last updated: 2026-04-04 after roadmap creation*
+*Last updated: 2026-04-07 after Phase 03 completion*

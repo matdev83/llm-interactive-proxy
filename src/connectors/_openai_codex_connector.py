@@ -1787,10 +1787,15 @@ class OpenAICodexConnector(OpenAIConnector):
         resolved_reasoning_effort = self._resolve_reasoning_effort(
             effective_model, uri_params, request_data
         )
-        if hasattr(request_data, "__dict__"):
-            request_data._codex_resolved_reasoning_effort = resolved_reasoning_effort
-        elif isinstance(request_data, dict):
+        if isinstance(request_data, dict):
             request_data["_codex_resolved_reasoning_effort"] = resolved_reasoning_effort
+        else:
+            # CanonicalChatRequest / ChatRequest are frozen Pydantic models; normal setattr raises.
+            object.__setattr__(
+                request_data,
+                "_codex_resolved_reasoning_effort",
+                resolved_reasoning_effort,
+            )
 
         ok = await self._validate_runtime_credentials()
         errors = self.get_validation_errors()

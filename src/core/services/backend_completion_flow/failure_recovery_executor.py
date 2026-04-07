@@ -197,7 +197,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                     }
                 )
                 if context is not None:
-                    context.extensions["b2bua_attempt_reason"] = "failover"
+                    self._increment_retry_metadata(context, reason="failover")
 
                 return await call_completion_callback(
                     request=attempt_request,
@@ -295,6 +295,24 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             result.error_to_surface,
         )
 
+    @staticmethod
+    def _increment_retry_metadata(context: RequestContext, reason: str) -> None:
+        retry_value = context.extensions.get("retry_attempt")
+        retry_attempt = 0
+        if isinstance(retry_value, int):
+            retry_attempt = max(0, retry_value)
+        elif isinstance(retry_value, float) and retry_value.is_integer():
+            retry_attempt = max(0, int(retry_value))
+        elif isinstance(retry_value, str) and retry_value.strip():
+            try:
+                retry_attempt = max(0, int(retry_value.strip()))
+            except ValueError:
+                retry_attempt = 0
+
+        context.extensions["retry_attempt"] = retry_attempt + 1
+        context.extensions["is_retry"] = True
+        context.extensions["b2bua_attempt_reason"] = reason
+
     async def execute_retry(
         self,
         request: ChatRequest,
@@ -322,15 +340,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
         if context is not None:
-            retry_value = context.extensions.get("retry_attempt")
-            retry_attempt = 0
-            if isinstance(retry_value, int):
-                retry_attempt = retry_value
-            elif isinstance(retry_value, float) and retry_value.is_integer():
-                retry_attempt = int(retry_value)
-            context.extensions["retry_attempt"] = retry_attempt + 1
-            context.extensions["is_retry"] = True
-            context.extensions["b2bua_attempt_reason"] = "retry"
+            self._increment_retry_metadata(context, reason="retry")
 
         if wait_seconds is not None and wait_seconds > 0:
             if logger.isEnabledFor(logging.INFO):
@@ -531,7 +541,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             }
         )
         if context is not None:
-            context.extensions["b2bua_attempt_reason"] = "failover"
+            self._increment_retry_metadata(context, reason="failover")
 
         return await call_completion_callback(
             request=failover_request,

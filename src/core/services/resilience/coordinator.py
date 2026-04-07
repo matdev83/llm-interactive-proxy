@@ -20,13 +20,16 @@ from src.core.interfaces.resilience_interface import (
     ResilienceAction,
     ResilienceDecision,
 )
+from src.core.services.resilience.circuit_breaker_state import (
+    CircuitBreakerStateManager,
+)
 from src.core.services.resilience.rate_limit_state import (
     InstanceStatus,
     RateLimitStateManager,
 )
 
 if TYPE_CHECKING:
-    pass
+    from src.core.services.health.endpoint_registry import EndpointRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,9 @@ class ResilienceCoordinator:
         provider_error_classifier: IProviderErrorClassifier,
         error_handler_chain: IErrorHandler | None = None,
         default_cooldown: float = 60.0,
+        circuit_breaker_state: CircuitBreakerStateManager | None = None,
+        endpoint_registry: EndpointRegistry | None = None,
+        health_gating_enabled: bool = False,
     ) -> None:
         """Initialize the coordinator.
 
@@ -71,6 +77,9 @@ class ResilienceCoordinator:
         self._error_chain = error_handler_chain
         self._default_cooldown = default_cooldown
         self._provider_error_classifier = provider_error_classifier
+        self._circuit_breaker_state = circuit_breaker_state
+        self._endpoint_registry = endpoint_registry
+        self._health_gating_enabled = health_gating_enabled
 
     @property
     def state_manager(self) -> RateLimitStateManager:
@@ -91,6 +100,27 @@ class ResilienceCoordinator:
         Returns:
             ResilienceDecision indicating whether to proceed or reject
         """
+        if self._health_gating_enabled and self._endpoint_registry is not None:
+            backend_name = instance_id.split(":", 1)[0]
+            if not self._endpoint_registry.is_backend_healthy(backend_name):
+                return ResilienceDecision(
+                    action=ActionType.REJECT,
+                    reason="endpoint_unhealthy",
+                    instance_id=instance_id,
+                    model=model,
+                )
+
+        if self._circuit_breaker_state is not None:
+            circuit_decision = self._circuit_breaker_state.check(instance_id)
+            if not circuit_decision.should_proceed:
+                return ResilienceDecision(
+                    action=ActionType.REJECT,
+                    reason=circuit_decision.reason,
+                    cooldown_remaining=circuit_decision.cooldown_remaining,
+                    instance_id=instance_id,
+                    model=model,
+                )
+
         # Check instance first
         instance_status = self._state.get_instance_status(instance_id)
 
@@ -130,6 +160,18 @@ class ResilienceCoordinator:
             model=model,
         )
 
+    def try_acquire_circuit_breaker_probe(self, instance_id: str) -> bool:
+        """Reserve half-open probe capacity for the current request."""
+        if self._circuit_breaker_state is None:
+            return True
+        return self._circuit_breaker_state.try_acquire_half_open_probe(instance_id)
+
+    def release_circuit_breaker_probe(self, instance_id: str) -> None:
+        """Release previously reserved half-open probe capacity."""
+        if self._circuit_breaker_state is None:
+            return
+        self._circuit_breaker_state.release_half_open_probe(instance_id)
+
     def record_success(self, instance_id: str, model: str) -> None:
         """Record a successful request, clearing any model cooldown.
 
@@ -143,6 +185,8 @@ class ResilienceCoordinator:
         """
         # Clear model-level cooldown on success
         self._state.clear_cooldown(instance_id, model)
+        if self._circuit_breaker_state is not None:
+            self._circuit_breaker_state.record_success(instance_id)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(

@@ -147,12 +147,16 @@ class ChatController:
                     return resolved
 
         try:
+            from src.core.di.registrations._backend.core_services import (
+                register_translation_service,
+            )
             from src.core.di.services import (
                 get_service_collection,
                 set_service_provider,
             )
 
             services = get_service_collection()
+            register_translation_service(services)
             fallback_provider = services.build_service_provider()
             try:
                 set_service_provider(fallback_provider)

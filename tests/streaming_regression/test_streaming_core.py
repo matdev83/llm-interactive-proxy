@@ -163,7 +163,7 @@ async def test_anthropic_streaming_incremental_delivery() -> None:
 
     backend = AnthropicStreamingEmulator(
         chunks=chunks,
-        chunk_delay=0.015,
+        chunk_delay=0.025,
     )  # Must exceed emulator 10ms "all_at_once" threshold (see base_emulator.get_timing_stats)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)

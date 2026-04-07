@@ -8,7 +8,7 @@ This roadmap is derived directly from the v1 requirements and ordered for a brow
 
 - [ ] **Phase 1: Boundary and Configuration Hardening** - Freeze internal seams, reduce architectural drag, and prevent contradictory runtime states
 - [x] **Phase 2: Compatibility Contract Stabilization** - Make OpenAI, Anthropic, Gemini, and backend capability behavior explicit and dependable (completed 2026-04-04)
-- [ ] **Phase 3: Resilience and Failover Safety** - Standardize retries, circuit breaking, streaming recovery, and side-effect-safe failover
+- [x] **Phase 3: Resilience and Failover Safety** - Standardize retries, circuit breaking, streaming recovery, and side-effect-safe failover (completed 2026-04-07)
 - [ ] **Phase 4: Observability and Operator Diagnostics** - Add causal tracing, metrics, capture correlation, and live operational visibility
 - [ ] **Phase 5: Tenant Governance, Safety Independence, and Connector Extensibility** - Complete tenant controls, scoped key management, safety isolation, and plugin-ready connector expansion
 
@@ -44,11 +44,17 @@ Plans:
 **Goal**: Make backend instability survivable by normalizing retries, health gating, streaming recovery, and failover semantics across connector families.
 **Depends on**: Phase 2
 **Requirements**: [REL-01, REL-02, REL-03, REL-04]
+**Plans**: 3 plans
 **Success Criteria**:
 1. During transient provider failures, requests retry with bounded async backoff and either recover cleanly or fail with deterministic retry history.
 2. Unhealthy backends stop receiving routed traffic automatically and only re-enter service after configured health thresholds are met.
 3. A user streaming a response does not see duplicated output or corrupted tool-call state when a backend fails mid-stream.
 4. Failover between backend instances preserves request context and avoids repeating non-deterministic side effects.
+
+Plans:
+- [x] 03-01-PLAN.md — Standardize retries with stamina + shared policy (REL-01)
+- [x] 03-02-PLAN.md — Circuit breaker + health gating + routing exclusion semantics (REL-02)
+- [x] 03-03-PLAN.md — Streaming recovery + safe failover semantics (REL-03, REL-04)
 
 ### Phase 4: Observability and Operator Diagnostics
 **Goal**: Give operators evidence-grade visibility into request flow, latency, failures, and routing decisions so incidents can be diagnosed quickly and confidently.
@@ -96,4 +102,4 @@ Plans:
 
 ---
 *Roadmap defined: 2026-04-04*
-*Last updated: 2026-04-04 during roadmap creation from v1 requirements*
+*Last updated: 2026-04-07 (phase 03 completed with verification)*

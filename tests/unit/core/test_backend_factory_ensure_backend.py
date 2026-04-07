@@ -257,10 +257,10 @@ async def test_ensure_backend_test_env_injection(factory: BackendFactory) -> Non
 
 
 @pytest.mark.asyncio
-async def test_ensure_backend_zai_coding_plan_prefers_live_env_key(
+async def test_ensure_backend_zai_coding_plan_keeps_explicit_key_over_live_env(
     factory: BackendFactory,
 ) -> None:
-    """zai-coding-plan must override stale config keys with live ZAI_API_KEY."""
+    """zai-coding-plan explicit key should win over ambient ZAI_API_KEY."""
 
     backend_type = "zai-coding-plan"
     app_config = factory._config
@@ -276,6 +276,115 @@ async def test_ensure_backend_zai_coding_plan_prefers_live_env_key(
             "src.core.services.backend_factory.BackendFactory.initialize_backend",
             new_callable=AsyncMock,
         ) as mock_init,
+        patch(
+            "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
+            return_value=("live-env-key", "process"),
+        ),
+        patch.dict(os.environ, {"ZAI_API_KEY": "live-env-key"}, clear=False),
+    ):
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
+
+    mock_create.assert_called_once_with(backend_type, app_config)
+    mock_init.assert_called_once()
+    init_config = mock_init.call_args[0][1]
+    assert init_config["api_key"] == "stale-config-key"
+    assert result == mock_backend
+
+
+@pytest.mark.asyncio
+async def test_ensure_backend_zai_coding_plan_keeps_explicit_key_over_windows_persistent(
+    factory: BackendFactory,
+) -> None:
+    """zai-coding-plan explicit key should win over Windows persistent env values."""
+
+    backend_type = "zai-coding-plan"
+    app_config = factory._config
+    backend_config = BackendConfig(api_key="stale-config-key")
+    mock_backend = MagicMock()
+
+    with (
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
+        patch(
+            "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
+            return_value=("windows-persistent-key", "windows-user"),
+        ),
+        patch.dict(os.environ, {"ZAI_API_KEY": "stale-process-key"}, clear=False),
+    ):
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
+
+    mock_create.assert_called_once_with(backend_type, app_config)
+    mock_init.assert_called_once()
+    init_config = mock_init.call_args[0][1]
+    assert init_config["api_key"] == "stale-config-key"
+    assert result == mock_backend
+
+
+@pytest.mark.asyncio
+async def test_ensure_backend_zai_coding_plan_keeps_explicit_key_when_no_env_available(
+    factory: BackendFactory,
+) -> None:
+    """Explicit config should survive when neither process nor persistent env has a key."""
+
+    backend_type = "zai-coding-plan"
+    app_config = factory._config
+    backend_config = BackendConfig(api_key="explicit-config-key")
+    mock_backend = MagicMock()
+
+    with (
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
+        patch(
+            "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
+            return_value=(None, "missing"),
+        ),
+        patch.dict(os.environ, {}, clear=False),
+    ):
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
+
+    mock_create.assert_called_once_with(backend_type, app_config)
+    mock_init.assert_called_once()
+    init_config = mock_init.call_args[0][1]
+    assert init_config["api_key"] == "explicit-config-key"
+    assert result == mock_backend
+
+
+@pytest.mark.asyncio
+async def test_ensure_backend_zai_coding_plan_uses_live_env_when_key_missing(
+    factory: BackendFactory,
+) -> None:
+    """zai-coding-plan should use live env value when no explicit key is configured."""
+
+    backend_type = "zai-coding-plan"
+    app_config = factory._config
+    backend_config = BackendConfig(api_key=None)
+    mock_backend = MagicMock()
+
+    with (
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
+        patch(
+            "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
+            return_value=("live-env-key", "process"),
+        ),
         patch.dict(os.environ, {"ZAI_API_KEY": "live-env-key"}, clear=False),
     ):
         result = await factory.ensure_backend(backend_type, app_config, backend_config)
@@ -575,3 +684,40 @@ class TestBackendFactoryLogRedaction:
 
         # Verify that redacted value appears in logs
         assert "[REDACTED]" in log_text, "Logs should contain redacted indicator"
+
+    @pytest.mark.asyncio
+    async def test_logs_redact_api_keys_collections(
+        self, factory: BackendFactory, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        from src.core.config.app_config import AppConfig
+
+        backend_type = "internlm"
+        app_config = AppConfig()
+        backend_config = BackendConfig(
+            api_key="primary-secret-key",
+            api_url="https://api.example.com",
+            extra={"api_keys": ["secret-key-1", "secret-key-2"]},
+        )
+
+        mock_backend = MagicMock()
+        mock_backend.initialize = AsyncMock()
+        mock_backend.instance_name = "internlm"
+
+        with (
+            patch.object(factory, "create_backend", return_value=mock_backend),
+            patch.object(factory, "initialize_backend", new_callable=AsyncMock),
+            caplog.at_level(logging.INFO),
+        ):
+            await factory.ensure_backend(
+                backend_type=backend_type,
+                app_config=app_config,
+                backend_config=backend_config,
+            )
+
+        log_text = caplog.text
+        assert "primary-secret-key" not in log_text
+        assert "secret-key-1" not in log_text
+        assert "secret-key-2" not in log_text
+        assert "[REDACTED]" in log_text

@@ -616,6 +616,46 @@ class TestResponseExecutor:
         assert len(chunks) > 0
 
     @pytest.mark.asyncio
+    async def test_execute_streaming_does_not_restart_after_tool_output_then_auth_error(
+        self,
+        executor,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ):
+        async def tool_then_auth_error_iterator():
+            yield ProcessedResponse(
+                content={
+                    "type": "response.output_item.added",
+                    "item": {"type": "function_call", "name": "apply_patch"},
+                }
+            )
+            yield ProcessedResponse(
+                content={
+                    "error": "auth_failed",
+                    "details": {"status": 401},
+                }
+            )
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = tool_then_auth_error_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+
+        assert result.content is not None
+        chunks = [chunk async for chunk in result.content]
+
+        assert len(chunks) == 2
+        assert mock_base_connector._handle_streaming_response.await_count == 1
+        assert mock_credential_manager.refresh_access_token.await_count == 0
+
+    @pytest.mark.asyncio
     async def test_execute_streaming_chunk_auth_error_retry_exhausted(
         self,
         executor,
@@ -1036,6 +1076,16 @@ class TestResponseExecutor:
 
         assert tool_calls == [{"function": {"name": "bash"}}]
 
+    def test_chunk_has_client_visible_output_for_tool_call_events(self, executor):
+        chunk = ProcessedResponse(
+            content={
+                "type": "response.output_item.added",
+                "item": {"type": "function_call", "name": "apply_patch"},
+            }
+        )
+
+        assert executor._chunk_has_client_visible_output(chunk) is True
+
     @pytest.mark.asyncio
     async def test_execute_streaming_retries_incompatible_tool_call_before_output(
         self, executor, sample_context, streaming_payload
@@ -1132,7 +1182,8 @@ class TestResponseExecutor:
 
             mock_logger.log.assert_called()
             assert any(
-                c.args and c.args[0] == TRACE_LEVEL for c in mock_logger.log.call_args_list
+                c.args and c.args[0] == TRACE_LEVEL
+                for c in mock_logger.log.call_args_list
             )
 
     @pytest.mark.asyncio
@@ -1244,9 +1295,7 @@ class TestResponseExecutor:
             trace_extras = [
                 c.kwargs["extra"]
                 for c in mock_logger.log.call_args_list
-                if c.kwargs.get("extra")
-                and c.args
-                and c.args[0] == TRACE_LEVEL
+                if c.kwargs.get("extra") and c.args and c.args[0] == TRACE_LEVEL
             ]
 
             assert len(trace_extras) > 0

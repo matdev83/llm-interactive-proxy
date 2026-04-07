@@ -526,6 +526,18 @@ properties:
       shared_backend_types:
         type: array
         items: { type: string }
+      circuit_breaker:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          failure_threshold: { type: integer, minimum: 1, maximum: 100 }
+          open_cooldown_seconds:
+            type: number
+            exclusiveMinimum: 0
+            maximum: 3600
+          half_open_success_threshold: { type: integer, minimum: 1, maximum: 10 }
+          half_open_max_inflight: { type: integer, minimum: 1, maximum: 10 }
   routing:
     type: object
     additionalProperties: false

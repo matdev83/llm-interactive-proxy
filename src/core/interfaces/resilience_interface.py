@@ -82,6 +82,28 @@ class IResilienceCoordinator(Protocol):
         """
         ...
 
+    def try_acquire_circuit_breaker_probe(self, instance_id: str) -> bool:
+        """Try to reserve a half-open circuit-breaker probe slot.
+
+        This method is side-effect-free for closed/open-disabled circuits and only
+        mutates in-memory state when the instance is currently in half-open state.
+
+        Args:
+            instance_id: Backend connector instance identifier
+
+        Returns:
+            True when the request may proceed, False when probe capacity is exhausted.
+        """
+        ...
+
+    def release_circuit_breaker_probe(self, instance_id: str) -> None:
+        """Release a previously acquired half-open probe slot, if any.
+
+        Args:
+            instance_id: Backend connector instance identifier
+        """
+        ...
+
     def record_success(self, instance_id: str, model: str) -> None:
         """Record a successful request, potentially clearing cooldowns.
 

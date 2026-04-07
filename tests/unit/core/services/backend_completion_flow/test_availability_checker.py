@@ -3,8 +3,8 @@ from unittest.mock import Mock
 import pytest
 from src.core.common.exceptions import (
     BackendError,
-    RateLimitExceededError,
     RoutingError,
+    ServiceUnavailableError,
 )
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_lifecycle_manager_interface import (
@@ -28,7 +28,9 @@ class TestBackendAvailabilityChecker:
 
     @pytest.fixture
     def resilience_coordinator(self):
-        return Mock(spec=IResilienceCoordinator)
+        mock = Mock(spec=IResilienceCoordinator)
+        mock.try_acquire_circuit_breaker_probe.return_value = True
+        return mock
 
     @pytest.fixture
     def checker(self, lifecycle_manager, resilience_coordinator):
@@ -86,13 +88,13 @@ class TestBackendAvailabilityChecker:
         )
         resilience_coordinator.check_availability.return_value = decision
 
-        with pytest.raises(RateLimitExceededError) as exc:
+        with pytest.raises(ServiceUnavailableError) as exc:
             await checker.check_backend_availability(
                 backend_type="openai", effective_model="gpt-4", allow_failover=True
             )
 
         assert "Circuit breaker open" in str(exc.value)
-        assert exc.value.reset_at is not None
+        assert exc.value.details.get("retry_after_seconds", 0) > 0
 
     @pytest.mark.asyncio
     async def test_happy_path(self, checker, lifecycle_manager, resilience_coordinator):
@@ -106,6 +108,9 @@ class TestBackendAvailabilityChecker:
         # Should not raise
         await checker.check_backend_availability(
             backend_type="openai", effective_model="gpt-4", allow_failover=True
+        )
+        resilience_coordinator.try_acquire_circuit_breaker_probe.assert_called_once_with(
+            "openai"
         )
 
     @pytest.mark.asyncio
@@ -159,3 +164,26 @@ class TestBackendAvailabilityChecker:
             "qwen-oauth:session-123",
             "qwen3-coder-plus",
         )
+        resilience_coordinator.try_acquire_circuit_breaker_probe.assert_called_once_with(
+            "qwen-oauth:session-123"
+        )
+
+    @pytest.mark.asyncio
+    async def test_raises_routing_error_when_half_open_probe_capacity_exhausted(
+        self, checker, lifecycle_manager, resilience_coordinator
+    ):
+        lifecycle_manager.get_disabled_backends.return_value = {}
+        resilience_coordinator.check_availability.return_value = ResilienceDecision(
+            action=ActionType.PROCEED, reason="", cooldown_remaining=0.0
+        )
+        resilience_coordinator.try_acquire_circuit_breaker_probe.return_value = False
+
+        with pytest.raises(RoutingError) as exc:
+            await checker.check_backend_availability(
+                backend_type="openai.1",
+                effective_model="gpt-4",
+                allow_failover=True,
+            )
+
+        assert exc.value.details is not None
+        assert exc.value.details.get("reason") == "half_open_probe_inflight"

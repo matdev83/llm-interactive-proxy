@@ -9,7 +9,7 @@ pytestmark = [pytest.mark.no_global_mock]
 
 
 @pytest.fixture
-async def app():
+async def app(monkeypatch):
     """Create a test app with ZAI backend configured using real backends."""
     from src.core.app.stages import (
         BackendStage,
@@ -28,9 +28,18 @@ async def app():
     )
 
     # Create backend settings with zai configured
-    zai_backend = BackendConfig(api_key=["test-zai-key"])
+    zai_backend = BackendConfig(api_key="test-zai-key")
     backends = BackendSettings(zai_coding_plan=zai_backend)
     auth_config = AuthConfig(disable_auth=True)
+
+    monkeypatch.setattr(
+        "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
+        lambda *args, **kwargs: (None, "missing"),
+    )
+    monkeypatch.setattr(
+        "src.connectors.zai_coding_plan.get_env_value_with_windows_persistent_fallback",
+        lambda *args, **kwargs: (None, "missing"),
+    )
 
     config = AppConfig(backends=backends, auth=auth_config)
 
@@ -137,3 +146,58 @@ def test_zai_coding_plan_backend_integration(
     assert "Hello from ZAI!" in content
     # The model in the response may not have the backend prefix
     assert "glm-4.6" in data["model"]
+
+
+def test_zai_coding_plan_streaming_glm51_reasoning_first_succeeds(
+    client: TestClient, respx_mock: MockRouter
+) -> None:
+    """glm-5.1 reasoning-first SSE streams must survive the full proxy path."""
+
+    respx_mock.get("https://api.z.ai/api/coding/paas/v4/models").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "glm-5.1",
+                        "name": "glm-5.1",
+                        "object": "model",
+                        "created": 1,
+                        "owned_by": "zai",
+                    }
+                ]
+            },
+        )
+    )
+
+    stream_body = (
+        b'data: {"id":"chatcmpl-5-1","object":"chat.completion.chunk","created":1677652288,'
+        b'"model":"glm-5.1","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"Thinking","content":""},"finish_reason":null}]}'
+        b"\n\n"
+        b'data: {"id":"chatcmpl-5-1","object":"chat.completion.chunk","created":1677652288,'
+        b'"model":"glm-5.1","choices":[{"index":0,"delta":{"content":"Hello from glm-5.1"},"finish_reason":"stop"}]}'
+        b"\n\n"
+        b"data: [DONE]\n\n"
+    )
+    respx_mock.post("https://api.z.ai/api/coding/paas/v4/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream;charset=UTF-8"},
+            content=stream_body,
+        )
+    )
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "zai-coding-plan:glm-5.1",
+            "stream": True,
+            "messages": [{"role": "user", "content": "Hello"}],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert "text/event-stream" in (response.headers.get("content-type") or "")
+    assert "reasoning_content" in response.text
+    assert "Hello from glm-5.1" in response.text
+    assert "[DONE]" in response.text

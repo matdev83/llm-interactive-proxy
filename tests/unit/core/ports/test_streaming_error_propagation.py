@@ -219,6 +219,46 @@ class TestHandleStreamingError:
         assert mapped_error.details["headers"]["retry-after"] == "17"
 
     @pytest.mark.asyncio
+    async def test_handle_streaming_error_emits_429_terminal_chunk(self) -> None:
+        """Streaming 429s must produce terminal chunks that keep HTTP 429 semantics."""
+
+        chunk = await handle_streaming_error(
+            HTTPException(
+                status_code=429,
+                detail={
+                    "message": "Too many requests",
+                    "headers": {"retry-after": "9"},
+                },
+            ),
+            stream_id="stream-429-chunk",
+            provider="zai-coding-plan",
+        )
+
+        assert chunk.metadata["finish_reason"] == "error"
+        error_payload = cast(dict[str, Any], chunk.metadata["error"])
+        assert error_payload["status_code"] == 429
+        assert error_payload["type"] == "RateLimitExceededError"
+
+    @pytest.mark.asyncio
+    async def test_handle_streaming_error_preserves_429_in_serialized_bytes(
+        self,
+    ) -> None:
+        """Serialized terminal chunks should carry the 429 status in the OpenAI payload."""
+
+        chunk = await handle_streaming_error(
+            RateLimitExceededError(
+                "Too many requests",
+                details={"headers": {"retry-after": "11"}},
+            ),
+            stream_id="stream-serialized-429",
+            provider="zai-coding-plan",
+        )
+
+        rendered = chunk.to_bytes().decode("utf-8", errors="replace")
+        assert "RateLimitExceededError" in rendered
+        assert '"status_code": 429' in rendered
+
+    @pytest.mark.asyncio
     async def test_openai_normalizer_reraises_early_429(self) -> None:
         """OpenAI normalizer must not swallow early 429s before any chunks."""
 

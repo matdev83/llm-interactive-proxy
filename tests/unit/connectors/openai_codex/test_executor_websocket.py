@@ -66,6 +66,46 @@ class TestCodexTransportAdapterWebSocket:
         assert chunks[0].content["message"]["content"] == "Hello"
         assert chunks[1].content["message"]["content"] == "World"
 
+    async def test_recreates_websocket_client_when_auth_token_changes(self) -> None:
+        """Auth refresh retries must not reuse stale WebSocket credentials."""
+        mock_connector = MagicMock()
+        adapter = _CodexTransportAdapter(mock_connector, use_websocket=True)
+
+        first_client = AsyncMock()
+        second_client = AsyncMock()
+
+        async def _stream_once(*args, **kwargs):  # type: ignore[no-untyped-def]
+            if False:
+                yield None
+
+        first_client.send_response_create = _stream_once
+        second_client.send_response_create = _stream_once
+
+        with patch(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            side_effect=[first_client, second_client],
+        ) as ws_ctor:
+            url = "https://chatgpt.com/backend-api/codex/responses"
+            payload = {"model": "gpt-4", "input": []}
+
+            await adapter.initiate_streaming_request(
+                url,
+                payload,
+                {"Authorization": "Bearer token-1"},
+                "session-1",
+            )
+            await adapter.initiate_streaming_request(
+                url,
+                payload,
+                {"Authorization": "Bearer token-2"},
+                "session-1",
+            )
+
+        assert ws_ctor.call_count == 2
+        assert ws_ctor.call_args_list[0].kwargs["api_key"] == "token-1"
+        assert ws_ctor.call_args_list[1].kwargs["api_key"] == "token-2"
+        first_client.disconnect.assert_awaited_once()
+
     async def test_initiate_websocket_streaming_no_auth(self) -> None:
         """Test WebSocket streaming fails without authorization header."""
         mock_connector = MagicMock()

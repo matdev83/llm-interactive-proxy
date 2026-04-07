@@ -364,12 +364,15 @@ class TestBackendWideCooldown:
         old_val = mod._model_cooldown_until.copy()
         try:
             mod._model_cooldown_until.clear()
-            StreamingExecutor._set_backend_cooldown("test_account", "test_model", 5.0)
-            assert (
-                mod._model_cooldown_until.get(("test_account", "test_model"), 0.0) > 0.0
+            StreamingExecutor._set_backend_cooldown(
+                "gemini-oauth-auto", "test_model", 5.0
             )
             assert (
-                mod._model_cooldown_until[("test_account", "test_model")]
+                mod._model_cooldown_until.get(("gemini-oauth-auto", "test_model"), 0.0)
+                > 0.0
+            )
+            assert (
+                mod._model_cooldown_until[("gemini-oauth-auto", "test_model")]
                 >= _time.monotonic()
             )
         finally:
@@ -384,10 +387,13 @@ class TestBackendWideCooldown:
             import time as _time
 
             far_future = _time.monotonic() + 9999
-            mod._model_cooldown_until[("test_account", "test_model")] = far_future
-            StreamingExecutor._set_backend_cooldown("test_account", "test_model", 1.0)
+            mod._model_cooldown_until[("gemini-oauth-auto", "test_model")] = far_future
+            StreamingExecutor._set_backend_cooldown(
+                "gemini-oauth-auto", "test_model", 1.0
+            )
             assert (
-                mod._model_cooldown_until[("test_account", "test_model")] == far_future
+                mod._model_cooldown_until[("gemini-oauth-auto", "test_model")]
+                == far_future
             )
         finally:
             mod._model_cooldown_until = old_val
@@ -401,7 +407,7 @@ class TestBackendWideCooldown:
             mod._model_cooldown_until.clear()
             assert (
                 StreamingExecutor._get_backend_cooldown_remaining(
-                    "test_account", "test_model"
+                    "gemini-oauth-auto", "test_model"
                 )
                 == 0.0
             )
@@ -416,11 +422,11 @@ class TestBackendWideCooldown:
 
         old_val = mod._model_cooldown_until.copy()
         try:
-            mod._model_cooldown_until[("test_account", "test_model")] = (
+            mod._model_cooldown_until[("gemini-oauth-auto", "test_model")] = (
                 _time.monotonic() + 60
             )
             remaining = StreamingExecutor._get_backend_cooldown_remaining(
-                "test_account", "test_model"
+                "gemini-oauth-auto", "test_model"
             )
             assert remaining > 0.0
         finally:

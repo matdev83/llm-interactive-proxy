@@ -9,6 +9,9 @@ error types:
 
 from src.core.services.resilience.handlers.auth_error_handler import AuthErrorHandler
 from src.core.services.resilience.handlers.base_handler import BaseErrorHandler
+from src.core.services.resilience.handlers.circuit_breaker_handler import (
+    CircuitBreakerErrorHandler,
+)
 from src.core.services.resilience.handlers.rate_limit_handler import (
     RateLimitErrorHandler,
 )
@@ -16,5 +19,6 @@ from src.core.services.resilience.handlers.rate_limit_handler import (
 __all__ = [
     "AuthErrorHandler",
     "BaseErrorHandler",
+    "CircuitBreakerErrorHandler",
     "RateLimitErrorHandler",
 ]

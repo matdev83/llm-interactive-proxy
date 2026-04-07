@@ -28,23 +28,19 @@ It is a compatibility layer, a security layer, a traffic control plane, a debugg
 | Token costs grow with long sessions | Use intelligent context compression and smarter routing to reduce spend |
 | Protocol mismatch blocks experimentation | Use cross-protocol conversion to bridge Anthropic, OpenAI, Gemini, and more |
 
-## Table Of Contents
-
-- [Quick Start](#quick-start)
-- [What Makes It Different](#what-makes-it-different)
-- [Perfect For](#perfect-for)
-- [Feature Highlights](#feature-highlights)
-- [Core Advantages](#core-advantages)
-- [Common Use Cases](#common-use-cases)
-- [Supported Frontend Interfaces](#supported-frontend-interfaces)
-- [Supported Backends](#supported-backends)
-- [Access Modes](#access-modes)
-- [Architecture](#architecture)
-- [Documentation Map](#documentation-map)
-
 ## At a glance
 
 Beyond basic forwarding, the proxy adds cross-protocol translation, tool safety, routing and failover, session-oriented features (including B2BUA-style handling), boundary-level CBOR captures, and usage tracking. Longer narratives, use-case lists, and feature tours live in the [User Guide](docs/user_guide/index.md).
+
+## Resilience Behavior
+
+Recent resilience hardening adds safer retry and failover behavior by default:
+
+- Shared async retry policy (`stamina`-backed) is used in major retry hotspots, with canonical `Retry-After` extraction.
+- Routing availability now includes circuit-breaker and endpoint-health gates (when health checks are enabled), so unstable instances are temporarily excluded instead of repeatedly selected.
+- Streaming recovery avoids retry/failover after meaningful output has already started, preventing duplicate output and tool-call corruption.
+
+`resilience.circuit_breaker` is now a first-class config block in `config.yaml` for threshold/cooldown tuning.
 
 ## Quick Start
 

@@ -46,6 +46,8 @@ def normalize_backend_name(raw_name: str) -> str:
     normalized = raw_name.strip().lower().replace("_", "-")
     if "." in normalized:
         normalized = normalized.split(".", 1)[0]
+    if ":" in normalized:
+        normalized = normalized.split(":", 1)[0]
     return normalized
 
 
@@ -69,11 +71,14 @@ def _load_entry_points(group: str) -> list[Any]:
     src.core.services.backend_plugin_discovery for DRY compliance.
     """
     try:
-        from src.core.services.backend_plugin_discovery import (
-            _load_entry_points as _load,
-        )
+        from src.core.services import backend_plugin_discovery
 
-        return list(_load(group))
+        loader = getattr(backend_plugin_discovery, "_load_entry_points", None)
+        if callable(loader):
+            loaded = loader(group)
+            if isinstance(loaded, Iterable):
+                return list(loaded)
+        return []
     except Exception:
         return []
 

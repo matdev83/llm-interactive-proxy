@@ -7,7 +7,6 @@ providing a focused, testable service for handling streaming HTTP requests.
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import logging
 import threading
@@ -30,7 +29,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 # ---------------------------------------------------------------------------
 _model_cooldown_until: dict[tuple[str, str], float] = (
     {}
-)  # (account, model) -> monotonic time
+)  # (backend_scope, model) -> monotonic time
 _model_cooldown_lock = threading.Lock()
 
 from unittest.mock import Mock
@@ -71,6 +70,13 @@ from src.connectors.gemini_base.tool_sanitizer import (
 )
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import BackendError
+from src.core.common.resilience_retry import (
+    AsyncRetryExecutor,
+    RetryAttemptRecord,
+    RetryBudget,
+    RetryPolicy,
+    extract_retry_after_seconds,
+)
 from src.core.common.wire_boundary_capture import (
     capture_requests_inbound_response,
     capture_requests_outbound_request,
@@ -87,6 +93,14 @@ if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
+
+
+class _GeminiRateLimitRetryError(Exception):
+    """Internal signal for shared rate-limit retry scheduling."""
+
+    def __init__(self, error: BackendError) -> None:
+        super().__init__(str(error))
+        self.error = error
 
 
 @runtime_checkable
@@ -380,6 +394,16 @@ class StreamingExecutor:
             self._max_rate_limit_retry_seconds = float(max_rate_limit_retry_seconds)
         else:
             self._max_rate_limit_retry_seconds = self.MAX_RATE_LIMIT_RETRY_SECONDS
+        self._shared_retry_executor = AsyncRetryExecutor(
+            RetryPolicy(
+                attempts=2,
+                timeout_seconds=None,
+                wait_initial=self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
+                wait_max=self._max_rate_limit_retry_seconds,
+                wait_jitter=0.3,
+                wait_exp_base=2.0,
+            )
+        )
 
     def _mark_retry_attempt(self, context: IRetryContext | None) -> None:
         if context is None:
@@ -397,41 +421,25 @@ class StreamingExecutor:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _get_account_identifier(
-        prepared: PreparedChatRequest, token_refresher: ITokenRefresher | None
+    def _get_backend_cooldown_scope(
+        backend_type: str,
     ) -> str:
-        """Extract a stable account identifier (hash of refresh_token)."""
-        try:
-            if token_refresher:
-                creds = getattr(token_refresher, "_oauth_credentials", None)
-                if isinstance(creds, dict):
-                    rt = creds.get("refresh_token")
-                    if rt and isinstance(rt, str):
-                        return f"rt_{hashlib.md5(rt.encode(), usedforsecurity=False).hexdigest()[:8]}"
-
-            if hasattr(prepared, "auth_session") and hasattr(
-                prepared.auth_session, "credentials"
-            ):
-                creds = prepared.auth_session.credentials
-                rt = getattr(creds, "refresh_token", None)
-                if rt and isinstance(rt, str):
-                    return f"rt_{hashlib.md5(rt.encode(), usedforsecurity=False).hexdigest()[:8]}"
-        except Exception:
-            pass
-
-        return "default"
+        """Return the backend-wide cooldown scope key."""
+        normalized = (backend_type or "gemini").strip().lower()
+        return normalized or "gemini"
 
     @staticmethod
-    def _get_backend_cooldown_remaining(account: str, model: str) -> float:
+    def _get_backend_cooldown_remaining(backend_scope: str, model: str) -> float:
         """Return seconds remaining in the model-wide cooldown, or 0."""
         with _model_cooldown_lock:
             remaining = (
-                _model_cooldown_until.get((account, model), 0.0) - time.monotonic()
+                _model_cooldown_until.get((backend_scope, model), 0.0)
+                - time.monotonic()
             )
         return max(remaining, 0.0)
 
     @staticmethod
-    def _set_backend_cooldown(account: str, model: str, seconds: float) -> None:
+    def _set_backend_cooldown(backend_scope: str, model: str, seconds: float) -> None:
         """Extend the model-wide cooldown to at least *seconds* from now.
 
         Thread-safe; only moves the cooldown forward, never backward.
@@ -439,18 +447,142 @@ class StreamingExecutor:
         global _model_cooldown_until
         new_until = time.monotonic() + seconds
         with _model_cooldown_lock:
-            current = _model_cooldown_until.get((account, model), 0.0)
+            current = _model_cooldown_until.get((backend_scope, model), 0.0)
             if new_until > current:
-                _model_cooldown_until[(account, model)] = new_until
+                _model_cooldown_until[(backend_scope, model)] = new_until
 
     def _extract_retry_after_seconds(self, error: BackendError) -> float | None:
-        details = getattr(error, "details", None)
-        if not isinstance(details, dict):
+        return extract_retry_after_seconds(error)
+
+    @staticmethod
+    def _is_retryable_rate_limit_error(error: BackendError) -> bool:
+        status_code = getattr(error, "status_code", None)
+        if status_code in {429, 502, 503, 504}:
+            return True
+
+        error_code = getattr(error, "code", None)
+        if isinstance(error_code, str):
+            normalized = error_code.lower()
+            return normalized in {
+                "rate_limit_exceeded",
+                "temporarily_unavailable",
+                "service_unavailable",
+                "timeout",
+                "capacity_exceeded",
+            }
+
+        return False
+
+    def _build_rate_limit_retry_exhausted_error(
+        self,
+        *,
+        source_error: BackendError,
+        retry_error: Exception | None,
+    ) -> BackendError:
+        details: dict[str, Any] = {}
+        if isinstance(source_error.details, dict):
+            details.update(source_error.details)
+
+        retry_after = self._extract_retry_after_seconds(source_error)
+        if retry_after is not None:
+            details["retry_after"] = retry_after
+
+        retry_history: list[Any] = []
+        if retry_error is not None:
+            retry_history = getattr(retry_error, "__retry_history__", []) or []
+        details["retry_history"] = [
+            (
+                {
+                    "attempt_num": record.attempt_num,
+                    "wait_for_seconds": record.wait_for_seconds,
+                    "caused_by_type": record.caused_by_type,
+                    "caused_by_message": record.caused_by_message,
+                    "used_retry_after_hint": record.used_retry_after_hint,
+                }
+                if isinstance(record, RetryAttemptRecord)
+                else record
+            )
+            for record in retry_history
+        ]
+
+        return BackendError(
+            message=getattr(source_error, "message", str(source_error)),
+            code=getattr(source_error, "code", None),
+            status_code=getattr(source_error, "status_code", 429),
+            details=details,
+            backend_name=self._backend_type,
+        )
+
+    async def _wait_for_rate_limit_retry(
+        self,
+        error: BackendError,
+        *,
+        retry_budget: RetryBudget | None = None,
+    ) -> RetryAttemptRecord:
+        retry_records: list[RetryAttemptRecord] = []
+        wait_state = {"scheduled": False}
+
+        async def _wait_once() -> None:
+            if not wait_state["scheduled"]:
+                wait_state["scheduled"] = True
+                raise _GeminiRateLimitRetryError(error)
             return None
-        retry_after = details.get("retry_after")
-        if isinstance(retry_after, int | float):
-            return float(retry_after)
-        return None
+
+        def _should_retry(exc: Exception) -> bool:
+            if not isinstance(exc, _GeminiRateLimitRetryError):
+                return False
+            return self._is_retryable_rate_limit_error(exc.error)
+
+        def _retry_after_hint(exc: Exception) -> float | None:
+            if not isinstance(exc, _GeminiRateLimitRetryError):
+                return None
+            retry_after = self._extract_retry_after_seconds(exc.error)
+            if retry_after is None:
+                return None
+            # A Retry-After value of 0 can create hot retry loops; keep a small floor.
+            if retry_after <= 0:
+                return self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+            return retry_after
+
+        try:
+            await self._shared_retry_executor.execute(
+                _wait_once,
+                should_retry=_should_retry,
+                retry_after_extractor=_retry_after_hint,
+                retry_budget=retry_budget,
+                on_retry_scheduled=retry_records.append,
+            )
+        except Exception as retry_error:
+            raise self._build_rate_limit_retry_exhausted_error(
+                source_error=error,
+                retry_error=retry_error,
+            ) from retry_error
+
+        if retry_records:
+            return retry_records[-1]
+
+        raise self._build_rate_limit_retry_exhausted_error(
+            source_error=error,
+            retry_error=None,
+        )
+
+    @staticmethod
+    def _build_rate_limit_retry_keepalive(
+        prepared: PreparedChatRequest,
+    ) -> ProcessedResponse:
+        keepalive_id = f"chatcmpl-keepalive-{uuid.uuid4().hex}"
+        keepalive_created = int(time.time())
+        return ProcessedResponse(
+            content="",
+            metadata={
+                "_keepalive": True,
+                "id": keepalive_id,
+                "model": prepared.effective_model,
+                "created": keepalive_created,
+                "session_id": prepared.session_id,
+                "stream_id": prepared.session_id,
+            },
+        )
 
     async def _record_rate_limit(
         self,
@@ -780,21 +912,20 @@ class StreamingExecutor:
                         },
                     )
 
-                account_id = self._get_account_identifier(prepared, token_refresher)
+                backend_scope = self._get_backend_cooldown_scope(self._backend_type)
 
                 # Respect backend-wide cooldown before dispatching.
                 # When a recent 429 was received (from any account), the
                 # cooldown prevents this request from hitting the same
                 # IP-based rate-limit window.
                 cooldown_remaining = self._get_backend_cooldown_remaining(
-                    account_id, prepared.effective_model
+                    backend_scope, prepared.effective_model
                 )
                 if cooldown_remaining > 0:
                     if cooldown_remaining > self._max_rate_limit_retry_seconds:
                         logger.warning(
-                            "Backend %s (account %s) in extended cooldown for %.1fs. Failing fast instead of waiting.",
+                            "Backend %s in extended cooldown for %.1fs. Failing fast instead of waiting.",
                             prepared.effective_model,
-                            account_id,
                             cooldown_remaining,
                         )
                         raise BackendError(
@@ -1554,9 +1685,9 @@ class StreamingExecutor:
                     retry_after_early or 0,
                     self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
                 )
-                account_id = self._get_account_identifier(prepared, token_refresher)
+                backend_scope = self._get_backend_cooldown_scope(self._backend_type)
                 self._set_backend_cooldown(
-                    account_id, prepared.effective_model, cooldown_early
+                    backend_scope, prepared.effective_model, cooldown_early
                 )
 
             # Handle quota_exceeded errors by yielding error chunk with code 503
@@ -1578,119 +1709,121 @@ class StreamingExecutor:
                 )
                 return
 
-            if retry_policy:
-                attempt = 1 if _rate_limit_retry_attempted else 0
-                decision = retry_policy.should_retry(err, attempt, is_streaming=True)
-                if (
-                    decision.should_retry
-                    and decision.sleep_seconds is not None
-                    and not _rate_limit_retry_attempted
-                ):
-                    sleep_seconds = decision.sleep_seconds
-                    retry_after = self._extract_retry_after_seconds(err)
-                    is_oauth_auto = self._is_oauth_auto_refresher(token_refresher)
-                    preserve_affinity_wait = (
-                        self._should_wait_same_account_on_rate_limit(
-                            token_refresher=token_refresher,
-                            sleep_seconds=sleep_seconds,
-                            retry_after_seconds=retry_after,
-                        )
+            attempt = 1 if _rate_limit_retry_attempted else 0
+            retry_decision = (
+                retry_policy.should_retry(err, attempt, is_streaming=True)
+                if retry_policy is not None
+                else None
+            )
+            should_retry_rate_limit = (
+                not _rate_limit_retry_attempted
+                and self._is_retryable_rate_limit_error(err)
+                and (
+                    retry_decision is None
+                    or retry_decision.should_retry
+                    or retry_decision.reason == "no_retry_after"
+                )
+            )
+            if should_retry_rate_limit:
+                retry_after = self._extract_retry_after_seconds(err)
+                suggested_sleep_seconds = (
+                    retry_decision.sleep_seconds
+                    if retry_decision is not None
+                    and retry_decision.sleep_seconds is not None
+                    else self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+                )
+                predicted_wait_seconds = (
+                    retry_after
+                    if retry_after is not None
+                    else max(
+                        suggested_sleep_seconds,
+                        self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
                     )
-                    rotated_credentials = False
+                )
+                is_oauth_auto = self._is_oauth_auto_refresher(token_refresher)
+                preserve_affinity_wait = self._should_wait_same_account_on_rate_limit(
+                    token_refresher=token_refresher,
+                    sleep_seconds=predicted_wait_seconds,
+                    retry_after_seconds=retry_after,
+                )
+                rotated_credentials = False
 
-                    # Do not perform very long connector-local waits. Either rotate to
-                    # another oauth-auto account or surface the retryable error so the
-                    # failure strategy can fail over.
-                    if sleep_seconds > self._max_rate_limit_retry_seconds:
-                        if is_oauth_auto:
-                            rotated_credentials = (
-                                await self._try_rotate_oauth_auto_account(
-                                    token_refresher=token_refresher,
-                                    prepared=prepared,
-                                    retry_after_seconds=retry_after,
-                                    log_context="Account rotation on 429 (early path)",
-                                )
-                            )
-                            if not rotated_credentials:
-                                logger.info(
-                                    "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
-                                    "surfacing retryable error for upstream failover",
-                                    sleep_seconds,
-                                    self._max_rate_limit_retry_seconds,
-                                )
-                                raise
-                        else:
-                            logger.info(
-                                "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
-                                "surfacing retryable error for upstream failover",
-                                sleep_seconds,
-                                self._max_rate_limit_retry_seconds,
-                            )
-                            raise
-
-                    # For session-affinity flows, keep the same account for short waits.
-                    if (
-                        is_oauth_auto
-                        and not preserve_affinity_wait
-                        and not rotated_credentials
-                    ):
+                if predicted_wait_seconds > self._max_rate_limit_retry_seconds:
+                    if is_oauth_auto:
                         rotated_credentials = await self._try_rotate_oauth_auto_account(
                             token_refresher=token_refresher,
                             prepared=prepared,
                             retry_after_seconds=retry_after,
                             log_context="Account rotation on 429 (early path)",
                         )
-                    sleep_seconds = self._compute_rate_limit_retry_sleep_seconds(
-                        suggested_sleep_seconds=sleep_seconds,
+                        if not rotated_credentials:
+                            logger.info(
+                                "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
+                                "surfacing retryable error for upstream failover",
+                                predicted_wait_seconds,
+                                self._max_rate_limit_retry_seconds,
+                            )
+                            raise
+                    else:
+                        logger.info(
+                            "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
+                            "surfacing retryable error for upstream failover",
+                            predicted_wait_seconds,
+                            self._max_rate_limit_retry_seconds,
+                        )
+                        raise
+
+                if (
+                    is_oauth_auto
+                    and not preserve_affinity_wait
+                    and not rotated_credentials
+                ):
+                    rotated_credentials = await self._try_rotate_oauth_auto_account(
+                        token_refresher=token_refresher,
+                        prepared=prepared,
                         retry_after_seconds=retry_after,
-                        preserve_affinity_wait=preserve_affinity_wait,
-                        rotated_credentials=rotated_credentials,
+                        log_context="Account rotation on 429 (early path)",
                     )
 
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
-                            sleep_seconds,
-                            attempt + 1,
-                        )
+                retry_budget = (
+                    RetryBudget(
+                        wait_initial=predicted_wait_seconds,
+                        wait_max=predicted_wait_seconds,
+                        wait_jitter=0.0,
+                        wait_exp_base=1.0,
+                    )
+                    if retry_after is not None
+                    else None
+                )
+                retry_record = await self._wait_for_rate_limit_retry(
+                    err,
+                    retry_budget=retry_budget,
+                )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
+                        retry_record.wait_for_seconds,
+                        attempt + 1,
+                    )
 
-                    self._mark_retry_attempt(context)
-
-                    # Log progress during long waits (every 10 seconds)
-                    if sleep_seconds > 10.0:
-                        elapsed = 0.0
-                        log_interval = 10.0
-                        while elapsed < sleep_seconds:
-                            wait_time = min(log_interval, sleep_seconds - elapsed)
-                            await asyncio.sleep(wait_time)
-                            elapsed += wait_time
-
-                            remaining = sleep_seconds - elapsed
-                            if remaining > 0 and logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    "Rate limit wait in progress: %.1fs elapsed, %.1fs remaining",
-                                    elapsed,
-                                    remaining,
-                                )
-                    else:
-                        await asyncio.sleep(sleep_seconds)
-                    async for retry_chunk in self._stream_generator(
-                        prepared=prepared,
-                        url=url,
-                        processor=processor,
-                        prompt_tokens=prompt_tokens,
-                        token_refresher=token_refresher,
-                        context=context,
-                        thought_signature_callback=thought_signature_callback,
-                        key_name=key_name,
-                        retry_policy=retry_policy,
-                        _allow_tool_retry=_allow_tool_retry,
-                        without_tools=without_tools,
-                        _auth_retry_attempted=_auth_retry_attempted,
-                        _rate_limit_retry_attempted=True,
-                    ):
-                        yield retry_chunk
-                    return
+                self._mark_retry_attempt(context)
+                async for retry_chunk in self._stream_generator(
+                    prepared=prepared,
+                    url=url,
+                    processor=processor,
+                    prompt_tokens=prompt_tokens,
+                    token_refresher=token_refresher,
+                    context=context,
+                    thought_signature_callback=thought_signature_callback,
+                    key_name=key_name,
+                    retry_policy=retry_policy,
+                    _allow_tool_retry=_allow_tool_retry,
+                    without_tools=without_tools,
+                    _auth_retry_attempted=_auth_retry_attempted,
+                    _rate_limit_retry_attempted=True,
+                ):
+                    yield retry_chunk
+                return
             raise
         except Exception as e:
             logger.error(f"Error in streaming generator: {e}", exc_info=True)
@@ -1881,8 +2014,10 @@ class StreamingExecutor:
                 retry_after or 0,
                 self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
             )
-            account_id = self._get_account_identifier(prepared, token_refresher)
-            self._set_backend_cooldown(account_id, prepared.effective_model, cooldown)
+            backend_scope = self._get_backend_cooldown_scope(self._backend_type)
+            self._set_backend_cooldown(
+                backend_scope, prepared.effective_model, cooldown
+            )
 
         auth_policy = auth_refresh_policy or self._auth_refresh_policy
         auth_attempt = 1 if _auth_retry_attempted else 0
@@ -1972,36 +2107,50 @@ class StreamingExecutor:
             if retry_delay is not None:
                 detail_payload["retry_after"] = retry_delay
 
-        if retry_policy and response.status_code == 429:
+        if response.status_code == 429:
             attempt = 1 if _rate_limit_retry_attempted else 0
-            retry_decision = retry_policy.should_retry(
-                backend_error, attempt, is_streaming=True
+            retry_decision = (
+                retry_policy.should_retry(backend_error, attempt, is_streaming=True)
+                if retry_policy is not None
+                else None
             )
-            sleep_seconds = retry_decision.sleep_seconds
-            if (
-                retry_decision.should_retry
-                and sleep_seconds is not None
-                and not _rate_limit_retry_attempted
-            ):
+            should_retry_rate_limit = (
+                not _rate_limit_retry_attempted
+                and self._is_retryable_rate_limit_error(backend_error)
+                and (
+                    retry_decision is None
+                    or retry_decision.should_retry
+                    or retry_decision.reason == "no_retry_after"
+                )
+            )
+            if should_retry_rate_limit:
                 with contextlib.suppress(Exception):
                     response.close()
 
-                # For multi-account OAuth backends (e.g., gemini-oauth-auto), a 429 can
-                # often be mitigated by rotating to a different account rather than
-                # waiting out the full retry-after window.
-                rotated_credentials = False
                 retry_after = self._extract_retry_after_seconds(backend_error)
+                suggested_sleep_seconds = (
+                    retry_decision.sleep_seconds
+                    if retry_decision is not None
+                    and retry_decision.sleep_seconds is not None
+                    else self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+                )
+                predicted_wait_seconds = (
+                    retry_after
+                    if retry_after is not None
+                    else max(
+                        suggested_sleep_seconds,
+                        self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
+                    )
+                )
+                rotated_credentials = False
                 is_oauth_auto = self._is_oauth_auto_refresher(token_refresher)
                 preserve_affinity_wait = self._should_wait_same_account_on_rate_limit(
                     token_refresher=token_refresher,
-                    sleep_seconds=sleep_seconds,
+                    sleep_seconds=predicted_wait_seconds,
                     retry_after_seconds=retry_after,
                 )
 
-                # Do not perform very long connector-local waits. Either rotate to
-                # another oauth-auto account or surface the retryable error so the
-                # outer failure strategy can fail over.
-                if sleep_seconds > self._max_rate_limit_retry_seconds:
+                if predicted_wait_seconds > self._max_rate_limit_retry_seconds:
                     if is_oauth_auto:
                         rotated_credentials = await self._try_rotate_oauth_auto_account(
                             token_refresher=token_refresher,
@@ -2013,7 +2162,7 @@ class StreamingExecutor:
                             logger.info(
                                 "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
                                 "surfacing retryable error for upstream failover",
-                                sleep_seconds,
+                                predicted_wait_seconds,
                                 self._max_rate_limit_retry_seconds,
                             )
                             raise backend_error
@@ -2021,13 +2170,11 @@ class StreamingExecutor:
                         logger.info(
                             "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
                             "surfacing retryable error for upstream failover",
-                            sleep_seconds,
+                            predicted_wait_seconds,
                             self._max_rate_limit_retry_seconds,
                         )
                         raise backend_error
 
-                # For session-affinity flows, preserve account affinity and wait on
-                # the current account for short retry windows.
                 if (
                     is_oauth_auto
                     and not preserve_affinity_wait
@@ -2040,56 +2187,29 @@ class StreamingExecutor:
                         log_context="Account rotation on 429 (late path)",
                     )
 
-                sleep_seconds = self._compute_rate_limit_retry_sleep_seconds(
-                    suggested_sleep_seconds=sleep_seconds,
-                    retry_after_seconds=retry_after,
-                    preserve_affinity_wait=preserve_affinity_wait,
-                    rotated_credentials=rotated_credentials,
+                retry_budget = (
+                    RetryBudget(
+                        wait_initial=predicted_wait_seconds,
+                        wait_max=predicted_wait_seconds,
+                        wait_jitter=0.0,
+                        wait_exp_base=1.0,
+                    )
+                    if retry_after is not None
+                    else None
                 )
-
+                # Keep stream alive while local retry wait elapses so clients do not
+                # interpret the temporary 429 pause as a stalled connection.
+                yield self._build_rate_limit_retry_keepalive(prepared)
+                retry_record = await self._wait_for_rate_limit_retry(
+                    backend_error,
+                    retry_budget=retry_budget,
+                )
                 logger.info(
                     "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
-                    sleep_seconds,
+                    retry_record.wait_for_seconds,
                     attempt + 1,
                 )
                 self._mark_retry_attempt(context)
-                # Keep the client connection alive while we wait for the retry window.
-                # The BackendService-level failure strategy may not see this 429 because
-                # the connector retries internally; emit OpenAI-compatible keepalive
-                # chunks so agent loops don't break on short retry-after windows.
-                interval_seconds = 8.0
-                elapsed = 0.0
-                keepalive_id = f"chatcmpl-keepalive-{uuid.uuid4().hex}"
-                created = int(time.time())
-                next_log_at = 10.0  # Log every 10 seconds during wait
-
-                while elapsed < sleep_seconds:
-                    yield ProcessedResponse(
-                        content="",
-                        metadata={
-                            "_keepalive": True,
-                            "id": keepalive_id,
-                            "model": prepared.effective_model,
-                            "created": created,
-                            "session_id": prepared.session_id,
-                            "stream_id": prepared.session_id,
-                        },
-                    )
-                    remaining = sleep_seconds - elapsed
-                    step = min(interval_seconds, remaining)
-                    await asyncio.sleep(step)
-                    elapsed += step
-
-                    # Log progress every 10 seconds so it's clear we're waiting, not hung
-                    if elapsed >= next_log_at or (remaining <= 0.1 and elapsed >= 10.0):
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info(
-                                "Rate limit wait in progress: %.1fs elapsed, %.1fs remaining (total: %.1fs)",
-                                elapsed,
-                                max(0, remaining),
-                                sleep_seconds,
-                            )
-                        next_log_at = elapsed + 10.0
                 async for retry_chunk in self._stream_generator(
                     prepared=prepared,
                     url=url,

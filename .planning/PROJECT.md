@@ -19,6 +19,9 @@ Provide a single, stable, protocol-compliant, and commercially credible multi-pr
 - ✓ Staged initialization and DI-based service wiring are established architectural patterns
 - ✓ Typed `BackendCapabilityDescriptor` model wired into `BackendConfig` — backends declare capabilities explicitly (Validated in Phase 02: compatibility-contract-stabilization)
 - ✓ Contract tests pin behavioral parity for OpenAI streaming/tool-call/error shapes, Anthropic event ordering/tool-use, and Gemini tool-call shapes (Validated in Phase 02: compatibility-contract-stabilization)
+- ✓ Shared retry policy and retry-after extraction are standardized for major connector retry hotspots (Validated in Phase 03: resilience-and-failover-safety)
+- ✓ Circuit breaker and endpoint health gating are integrated into availability/routing decisions with deterministic temporary-unavailable signaling (Validated in Phase 03: resilience-and-failover-safety)
+- ✓ Streaming recovery now blocks retry/failover after meaningful output and persists recovery budgets across recursive attempts (Validated in Phase 03: resilience-and-failover-safety)
 
 ### Active
 
@@ -92,4 +95,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-04 after Phase 02 (compatibility-contract-stabilization) completion*
+*Last updated: 2026-04-07 after Phase 03 (resilience-and-failover-safety) completion*

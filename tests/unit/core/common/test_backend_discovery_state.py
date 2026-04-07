@@ -1,6 +1,7 @@
 """Tests for backend discovery shared state helpers."""
 
 from importlib import metadata
+from typing import Any, cast
 
 import pytest
 from src.core.common.backend_discovery_state import (
@@ -41,6 +42,10 @@ def test_normalize_backend_name_normalizes_instance_and_case() -> None:
     assert normalize_backend_name("Gemini_OAuth_Plan.PRIMARY") == "gemini-oauth-plan"
 
 
+def test_normalize_backend_name_strips_model_suffix_after_colon() -> None:
+    assert normalize_backend_name("zai-coding-plan:glm-5.1") == "zai-coding-plan"
+
+
 def test_oauth_install_command_is_stable() -> None:
     assert get_oauth_install_command() == "pip install llm-interactive-proxy[oauth]"
 
@@ -54,7 +59,8 @@ def test_extracted_backend_catalog_matches_plugin_entry_points() -> None:
         if hasattr(discovered, "select"):
             entry_points = discovered.select(group="llm_proxy_backends")
         else:
-            entry_points = discovered.get("llm_proxy_backends", [])
+            legacy_discovered = cast(dict[str, Any], discovered)
+            entry_points = legacy_discovered.get("llm_proxy_backends", ())
 
     discovered_entry_points = {
         ep.name

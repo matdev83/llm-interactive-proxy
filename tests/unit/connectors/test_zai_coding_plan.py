@@ -7,8 +7,14 @@ import pytest
 from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
 from src.connectors.zai_coding_plan import ZaiCodingPlanBackend
-from src.core.common.exceptions import RateLimitExceededError
+from src.core.common.exceptions import AuthenticationError, RateLimitExceededError
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+
+async def async_chunk_iterator(chunks: list[ProcessedResponse]):
+    for chunk in chunks:
+        yield chunk
 
 
 def test_select_model_accepts_glm5_when_not_in_provider_list():
@@ -101,6 +107,69 @@ async def test_health_check_reuses_cached_model_discovery(mocker):
 
     assert healthy is True
     assert mock_client.get.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_initialize_uses_windows_persistent_fallback_when_kwargs_missing(
+    mocker,
+) -> None:
+    ZaiCodingPlanBackend._MODEL_DISCOVERY_CACHE.clear()
+    mock_client = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"data": [{"id": "glm-5.1"}]}
+    mock_client.get.return_value = mock_response
+
+    mocker.patch(
+        "src.connectors.zai_coding_plan.get_env_value_with_windows_persistent_fallback",
+        return_value=("persistent-zai-key", "windows-user"),
+    )
+
+    backend = ZaiCodingPlanBackend(
+        client=mock_client, config=MagicMock(), translation_service=MagicMock()
+    )
+    await backend.initialize()
+
+    assert backend.api_key == "persistent-zai-key"
+
+
+@pytest.mark.asyncio
+async def test_initialize_prefers_kwargs_api_key_over_fallback(mocker) -> None:
+    ZaiCodingPlanBackend._MODEL_DISCOVERY_CACHE.clear()
+    mock_client = AsyncMock()
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+    mock_response.json.return_value = {"data": [{"id": "glm-5.1"}]}
+    mock_client.get.return_value = mock_response
+
+    mocker.patch(
+        "src.connectors.zai_coding_plan.get_env_value_with_windows_persistent_fallback",
+        return_value=("persistent-zai-key", "windows-user"),
+    )
+
+    backend = ZaiCodingPlanBackend(
+        client=mock_client, config=MagicMock(), translation_service=MagicMock()
+    )
+    await backend.initialize(api_key="kwargs-zai-key")
+
+    assert backend.api_key == "kwargs-zai-key"
+
+
+@pytest.mark.asyncio
+async def test_initialize_raises_when_no_api_key_available(mocker) -> None:
+    mocker.patch(
+        "src.connectors.zai_coding_plan.get_env_value_with_windows_persistent_fallback",
+        return_value=(None, "missing"),
+    )
+
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
+    )
+
+    with pytest.raises(AuthenticationError) as excinfo:
+        await backend.initialize()
+
+    assert getattr(excinfo.value, "code", None) == "missing_api_key"
 
 
 @pytest.mark.asyncio
@@ -375,3 +444,48 @@ async def test_stream_completion_uses_sse_accept_without_loop_guard(mocker) -> N
     assert captured_headers.get("accept") == "text/event-stream"
     assert "x-llmproxy-loop-guard" not in captured_headers
     assert captured_headers.get("user-agent") == backend._KILO_USER_AGENT
+
+
+@pytest.mark.asyncio
+async def test_streaming_wrapper_sanitizes_attempt_completion_for_non_default_model(
+    mocker,
+) -> None:
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(),
+        config=MagicMock(),
+        translation_service=MagicMock(),
+    )
+    backend.api_key = "NOT-A-REAL-KEY-just-for-testing"
+    backend.api_base_url = "https://api.z.ai/api/coding/paas/v4"
+
+    attempt_chunk = (
+        'data: {"id":"resp-1","object":"chat.completion.chunk","model":"glm-5.1",'
+        '"choices":[{"delta":{"content":"<attempt_completion><result>sanitized body</result>'
+        '</attempt_completion>"},"finish_reason":"stop"}]}\n\n'
+    )
+    base_handle = SimpleNamespace(
+        iterator=async_chunk_iterator([ProcessedResponse(content=attempt_chunk)]),
+        cancel_callback=AsyncMock(),
+        headers={},
+    )
+    mocker.patch.object(
+        OpenAIConnector,
+        "_handle_streaming_response",
+        new_callable=AsyncMock,
+        return_value=base_handle,
+    )
+
+    wrapped = await backend._handle_streaming_response(
+        url=f"{backend.api_base_url}/chat/completions",
+        payload={"model": "glm-5.1"},
+        headers={"Authorization": "Bearer test"},
+        session_id="session-1",
+        stream_format="responses",
+    )
+
+    emitted = [chunk async for chunk in wrapped.iterator]
+
+    assert any(
+        isinstance(chunk.content, str) and "sanitized body" in chunk.content
+        for chunk in emitted
+    )

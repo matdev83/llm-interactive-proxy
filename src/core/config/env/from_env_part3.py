@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import asdict
 from typing import Any
 
+from src.core.common.env_utils import get_env_value_with_windows_persistent_fallback
 from src.core.config.env.util import (
     env_to_bool as _env_to_bool,
 )
@@ -184,9 +185,21 @@ def apply_config_part3(
                 origin="ANTHROPIC_API_KEY",
             )
 
-    if env.get("ZAI_API_KEY"):
+    zai_key, zai_key_source = get_env_value_with_windows_persistent_fallback(
+        "ZAI_API_KEY", environ=env
+    )
+    if zai_key:
+
+        # Diagnostics: log source metadata only (never log key material).
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "ZAI key diagnostics [from_env_part3]: env_type=%s source=%s",
+                type(env).__name__,
+                zai_key_source,
+            )
+
         config_backends["zai"] = config_backends.get("zai", {})
-        config_backends["zai"]["api_key"] = env["ZAI_API_KEY"]
+        config_backends["zai"]["api_key"] = zai_key
         config_backends["zai"]["api_url"] = _get_env_value(
             env,
             "ZAI_API_BASE_URL",
@@ -214,7 +227,7 @@ def apply_config_part3(
 
         # zai-coding-plan shares the same API key as zai
         config_backends["zai-coding-plan"] = config_backends.get("zai-coding-plan", {})
-        config_backends["zai-coding-plan"]["api_key"] = env["ZAI_API_KEY"]
+        config_backends["zai-coding-plan"]["api_key"] = zai_key
         if resolution is not None:
             resolution.record(
                 "backends.zai-coding-plan.api_key",

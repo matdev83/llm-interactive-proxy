@@ -21,7 +21,6 @@ from src.core.common.exceptions import AuthenticationError, RateLimitExceededErr
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.translation_service import TranslationService
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
@@ -84,6 +83,18 @@ def base_request():
         ),
         options={},
     )
+
+
+class _NoopServiceProvider:
+    """Minimal DI provider used to keep streaming tests unit-scoped."""
+
+    def get_service(self, _service_type: Any) -> None:
+        return None
+
+    def get_required_service(self, _service_type: Any) -> Any:
+        raise AssertionError(
+            "get_required_service should not be called when vtc_enabled=False"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -194,23 +205,10 @@ class TestOpenAIStreamingContractShape:
                 if line.strip():
                     yield line.encode("utf-8")
 
-        async def fake_integrate(raw_stream, *args: Any, **kwargs: Any):
-            chunks = []
-            async for chunk in raw_stream:
-                chunks.append(chunk)
-
-            async def _iter():
-                for c in chunks:
-                    yield ProcessedResponse(content=c)
-
-            return StreamingResponseEnvelope(
-                content=_iter(), media_type="text/event-stream"
-            )
-
         with (
             patch(
-                "src.core.ports.streaming_integration.integrate_streaming_pipeline",
-                side_effect=fake_integrate,
+                "src.core.di.services.get_or_build_service_provider",
+                return_value=_NoopServiceProvider(),
             ),
             patch.object(openai_connector, "stream_completion", fake_stream),
         ):
@@ -232,7 +230,7 @@ class TestOpenAIStreamingContractShape:
     async def test_streaming_chunk_delta_has_role_or_content(
         self, openai_connector, base_request
     ):
-        """Test 2: Each streaming chunk's choices[0].delta has role or content (not empty)."""
+        """Test 2: At least one streaming chunk delta has role/content/tool_calls."""
         streaming_req = ConnectorChatCompletionsRequest(
             request=CanonicalChatRequest(
                 model="gpt-4",
@@ -254,23 +252,10 @@ class TestOpenAIStreamingContractShape:
                 if line.strip():
                     yield line.encode("utf-8")
 
-        async def fake_integrate(raw_stream, *args: Any, **kwargs: Any):
-            chunks = []
-            async for chunk in raw_stream:
-                chunks.append(chunk)
-
-            async def _iter():
-                for c in chunks:
-                    yield ProcessedResponse(content=c)
-
-            return StreamingResponseEnvelope(
-                content=_iter(), media_type="text/event-stream"
-            )
-
         with (
             patch(
-                "src.core.ports.streaming_integration.integrate_streaming_pipeline",
-                side_effect=fake_integrate,
+                "src.core.di.services.get_or_build_service_provider",
+                return_value=_NoopServiceProvider(),
             ),
             patch.object(openai_connector, "stream_completion", fake_stream),
         ):
@@ -319,23 +304,10 @@ class TestOpenAIStreamingContractShape:
                 if line.strip():
                     yield line.encode("utf-8")
 
-        async def fake_integrate(raw_stream, *args: Any, **kwargs: Any):
-            chunks = []
-            async for chunk in raw_stream:
-                chunks.append(chunk)
-
-            async def _iter():
-                for c in chunks:
-                    yield ProcessedResponse(content=c)
-
-            return StreamingResponseEnvelope(
-                content=_iter(), media_type="text/event-stream"
-            )
-
         with (
             patch(
-                "src.core.ports.streaming_integration.integrate_streaming_pipeline",
-                side_effect=fake_integrate,
+                "src.core.di.services.get_or_build_service_provider",
+                return_value=_NoopServiceProvider(),
             ),
             patch.object(openai_connector, "stream_completion", fake_stream),
         ):
@@ -422,23 +394,10 @@ class TestOpenAIToolCallAndErrorShapeContracts:
                 if line.strip():
                     yield line.encode("utf-8")
 
-        async def fake_integrate(raw_stream, *args: Any, **kwargs: Any):
-            chunks = []
-            async for chunk in raw_stream:
-                chunks.append(chunk)
-
-            async def _iter():
-                for c in chunks:
-                    yield ProcessedResponse(content=c)
-
-            return StreamingResponseEnvelope(
-                content=_iter(), media_type="text/event-stream"
-            )
-
         with (
             patch(
-                "src.core.ports.streaming_integration.integrate_streaming_pipeline",
-                side_effect=fake_integrate,
+                "src.core.di.services.get_or_build_service_provider",
+                return_value=_NoopServiceProvider(),
             ),
             patch.object(openai_connector, "stream_completion", fake_stream),
         ):
@@ -501,20 +460,13 @@ class TestOpenAIToolCallAndErrorShapeContracts:
         exc = BackendError(message="Something went wrong", status_code=500)
         http_exc = map_domain_exception_to_http_exception(exc)
 
-        # The detail should contain error shape info
+        # Verify adapter output directly (HTTPException.detail)
         detail = http_exc.detail
-        # BackendError.to_dict() returns {"error": {...}}
-        # map_domain_exception_to_http_exception unwraps it to the inner dict
-        assert detail is not None
-
-        # Reconstruct the full error envelope as it would be serialized
-        error_body = exc.to_dict()
-        assert "error" in error_body, "Missing top-level 'error' key"
-        error = error_body["error"]
-        assert "message" in error, "Missing 'message' in error"
-        assert "type" in error, "Missing 'type' in error"
-        assert isinstance(error["message"], str)
-        assert isinstance(error["type"], str)
+        assert isinstance(detail, dict), f"Expected dict detail, got {type(detail)}"
+        assert "message" in detail, "Missing 'message' in adapter detail"
+        assert "type" in detail, "Missing 'type' in adapter detail"
+        assert isinstance(detail["message"], str)
+        assert isinstance(detail["type"], str)
 
     def test_401_backend_error_maps_to_authentication_error_type(self):
         """Test 8: 401 backend error maps to HTTP 401 with error.type='authentication_error'."""
@@ -523,16 +475,13 @@ class TestOpenAIToolCallAndErrorShapeContracts:
 
         assert http_exc.status_code == 401
 
-        # Verify the error shape via to_dict
-        error_body = exc.to_dict()
-        assert "error" in error_body
-        error = error_body["error"]
-        assert "message" in error
-        assert "type" in error
-        # AuthenticationError class name is the type
+        detail = http_exc.detail
+        assert isinstance(detail, dict), f"Expected dict detail, got {type(detail)}"
+        assert "message" in detail
+        assert "type" in detail
         assert (
-            "Authentication" in error["type"]
-            or "authentication" in error["type"].lower()
+            "Authentication" in detail["type"]
+            or "authentication" in detail["type"].lower()
         )
 
     def test_429_backend_error_maps_to_rate_limit_error(self):
@@ -542,11 +491,8 @@ class TestOpenAIToolCallAndErrorShapeContracts:
 
         assert http_exc.status_code == 429
 
-        # Verify the error shape via to_dict
-        error_body = exc.to_dict()
-        assert "error" in error_body
-        error = error_body["error"]
-        assert "message" in error
-        assert "type" in error
-        # RateLimitExceededError class name contains RateLimit
-        assert "RateLimit" in error["type"] or "rate_limit" in error["type"].lower()
+        detail = http_exc.detail
+        assert isinstance(detail, dict), f"Expected dict detail, got {type(detail)}"
+        assert "message" in detail
+        assert "type" in detail
+        assert "RateLimit" in detail["type"] or "rate_limit" in detail["type"].lower()

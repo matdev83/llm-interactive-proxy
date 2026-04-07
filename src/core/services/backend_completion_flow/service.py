@@ -68,6 +68,9 @@ from src.core.services.resilience.scope import (
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
+from src.core.services.streaming.stream_recovery_budget import (
+    get_or_init_stream_recovery_budget,
+)
 
 # Import EoS adapter (optional dependency)
 try:
@@ -224,18 +227,6 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 return fallback_candidate
 
         return candidate
-
-        # Preserve status_code from original exception when creating new BackendError
-        original_status_code = getattr(exc, "status_code", None)
-        normalized = BackendError(
-            message=f"Backend call failed: {exc!s}",
-            backend_name=backend_type,
-            status_code=(
-                original_status_code if isinstance(original_status_code, int) else None
-            ),
-        )
-        normalized.__cause__ = exc
-        return normalized
 
     async def _enforce_non_forwardable_content(
         self,
@@ -806,10 +797,22 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             raise
 
         # Step 4: Initialize failure strategy tracking
-        start_time = time.time()
-        attempted_backends: list[str] = []
+        attempt_start_time = time.time()
+        recovery_budget = get_or_init_stream_recovery_budget(context)
+        budget_start_time = (
+            recovery_budget.budget_start_time
+            if recovery_budget is not None
+            else attempt_start_time
+        )
+        attempted_backends: list[str] = (
+            recovery_budget.attempted_backends if recovery_budget is not None else []
+        )
         current_backend = backend_type
-        content_started = False
+        content_started = (
+            bool(context.extensions.get("meaningful_output_emitted"))
+            if context is not None
+            else False
+        )
         session_id_for_backend: str | None = None
         outbound_session_id: str | None = None
         attempt_context: RequestContext | None = context
@@ -1059,7 +1062,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     outbound_tokens=outbound_tokens,
                     ctp_record_id=ctp_record_id,
                     ptb_record_id=ptb_record_id,
-                    start_time=start_time,
+                    start_time=attempt_start_time,
                     context=attempt_context,
                     backend_type=backend_type,
                     effective_model=effective_model,
@@ -1213,7 +1216,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         model=effective_model,
                         backend_type=current_backend,
                         attempted_backends=attempted_backends,
-                        start_time=start_time,
+                        start_time=budget_start_time,
                         is_streaming=stream,
                         content_started=content_started,
                         request=canonical_request,

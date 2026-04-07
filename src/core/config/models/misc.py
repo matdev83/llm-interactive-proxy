@@ -48,6 +48,18 @@ class UsageTrackingConfig(DomainModel):
     """Maximum records to keep in memory before applying retention policies."""
 
 
+class CircuitBreakerConfig(DomainModel):
+    """Configuration for backend circuit breaker protection."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    failure_threshold: int = Field(default=3, ge=1, le=100)
+    open_cooldown_seconds: float = Field(default=30.0, gt=0, le=3600)
+    half_open_success_threshold: int = Field(default=1, ge=1, le=10)
+    half_open_max_inflight: int = Field(default=1, ge=1, le=10)
+
+
 class ResilienceConfig(DomainModel):
     """Resilience scoping configuration."""
 
@@ -58,6 +70,9 @@ class ResilienceConfig(DomainModel):
 
     shared_backend_types: list[str] | None = Field(default=None)
     """Backend types that should always use shared resilience state."""
+
+    circuit_breaker: CircuitBreakerConfig = Field(default_factory=CircuitBreakerConfig)
+    """Circuit breaker thresholds and behavior."""
 
 
 class ModelRegistryConfig(DomainModel):

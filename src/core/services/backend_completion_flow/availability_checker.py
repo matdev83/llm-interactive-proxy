@@ -86,7 +86,12 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
             instance_id = build_resilience_instance_id(backend_type, context)
             decision = self._resilience.check_availability(instance_id, effective_model)
             if not decision.should_proceed():
-                normalized_reason = decision.reason.lower()
+                normalized_reason = (decision.reason or "").lower()
+                is_rate_limit = "rate limit" in normalized_reason
+                is_circuit_state = (
+                    "circuit" in normalized_reason or "half_open" in normalized_reason
+                )
+                is_endpoint_unhealthy = "endpoint_unhealthy" in normalized_reason
                 if "unsupported" in normalized_reason:
                     raise RoutingError(
                         message=decision.reason
@@ -101,18 +106,74 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
                         },
                     )
 
+                if is_endpoint_unhealthy:
+                    raise ServiceUnavailableError(
+                        message=decision.reason or "Endpoint unhealthy",
+                        details={
+                            "code": "temporarily_unavailable",
+                            "category": "availability",
+                            "retryable": True,
+                            "backend_type": backend_type,
+                            "model": effective_model,
+                            "reason": decision.reason,
+                        },
+                    )
+
                 if "disabled" in normalized_reason and not decision.cooldown_remaining:
                     raise ServiceUnavailableError(
                         message=decision.reason or "Backend instance disabled",
                         details={"backend": backend_type, "reason": decision.reason},
                     )
 
+                cooldown_remaining = decision.cooldown_remaining
                 cooldown_info = (
-                    f" (retry after {decision.cooldown_remaining:.1f}s)"
-                    if decision.cooldown_remaining
+                    f" (retry after {cooldown_remaining:.1f}s)"
+                    if cooldown_remaining
                     else ""
                 )
-                if decision.cooldown_remaining:
+                if cooldown_remaining:
+                    if is_rate_limit:
+                        raise RateLimitExceededError(
+                            message=f"{decision.reason}{cooldown_info}",
+                            details={
+                                "code": "temporarily_unavailable",
+                                "category": "availability",
+                                "retryable": True,
+                                "backend_type": backend_type,
+                                "model": effective_model,
+                                "reason": decision.reason,
+                            },
+                            reset_at=time.time() + cooldown_remaining,
+                        )
+
+                    raise ServiceUnavailableError(
+                        message=f"{decision.reason}{cooldown_info}",
+                        details={
+                            "code": "temporarily_unavailable",
+                            "category": "availability",
+                            "retryable": True,
+                            "backend_type": backend_type,
+                            "model": effective_model,
+                            "reason": decision.reason,
+                            "retry_after_seconds": cooldown_remaining,
+                            "cooldown_remaining": cooldown_remaining,
+                        },
+                    )
+
+                if is_circuit_state:
+                    raise RoutingError(
+                        message=decision.reason or "Backend temporarily unavailable",
+                        details={
+                            "code": "temporarily_unavailable",
+                            "category": "availability",
+                            "retryable": True,
+                            "backend_type": backend_type,
+                            "model": effective_model,
+                            "reason": decision.reason,
+                        },
+                    )
+
+                if is_rate_limit:
                     raise RateLimitExceededError(
                         message=f"{decision.reason}{cooldown_info}",
                         details={
@@ -123,7 +184,6 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
                             "model": effective_model,
                             "reason": decision.reason,
                         },
-                        reset_at=time.time() + decision.cooldown_remaining,
                     )
 
                 raise RoutingError(
@@ -135,5 +195,20 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
                         "backend_type": backend_type,
                         "model": effective_model,
                         "reason": decision.reason,
+                    },
+                )
+
+            # Availability checks are side-effect free; reserve half-open probe
+            # capacity only when this request is actually admitted for execution.
+            if not self._resilience.try_acquire_circuit_breaker_probe(instance_id):
+                raise RoutingError(
+                    message="half_open_probe_inflight",
+                    details={
+                        "code": "temporarily_unavailable",
+                        "category": "availability",
+                        "retryable": True,
+                        "backend_type": backend_type,
+                        "model": effective_model,
+                        "reason": "half_open_probe_inflight",
                     },
                 )

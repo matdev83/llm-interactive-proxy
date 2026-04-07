@@ -8,7 +8,6 @@ This module implements the ResponseExecutor service that handles:
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import inspect
 import logging
@@ -34,6 +33,7 @@ from src.connectors.openai_codex.interfaces import (
 from src.connectors.openai_codex.utils import build_codex_user_agent
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
+from src.core.common.resilience_retry import AsyncRetryExecutor, RetryPolicy
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
@@ -57,6 +57,7 @@ class _CodexTransportAdapter:
         self._connector = connector
         self._use_websocket = use_websocket
         self._websocket_client: Any = None  # OpenAIWebSocketClient | None
+        self._websocket_api_key: str | None = None
 
     async def initiate_streaming_request(
         self,
@@ -103,6 +104,17 @@ class _CodexTransportAdapter:
         if not api_key:
             raise AuthenticationError(message="No API key in authorization header")
 
+        # Recreate the WebSocket client when auth is refreshed so retries do not
+        # continue with a stale bearer token.
+        if (
+            self._websocket_client is not None
+            and self._websocket_api_key is not None
+            and self._websocket_api_key != api_key
+        ):
+            with contextlib.suppress(Exception):
+                await self._websocket_client.disconnect()
+            self._websocket_client = None
+
         # Initialize WebSocket client if needed
         if self._websocket_client is None:
             from src.connectors.openai_websocket_client import OpenAIWebSocketClient
@@ -117,6 +129,7 @@ class _CodexTransportAdapter:
                 api_key=api_key,
                 api_base=ws_base,
             )
+            self._websocket_api_key = api_key
 
         # Create async generator for streaming
         async def _websocket_stream() -> AsyncIterator[ProcessedResponse]:
@@ -161,9 +174,18 @@ class _CodexTransportAdapter:
                     )
             finally:
                 self._websocket_client = None
+                self._websocket_api_key = None
 
 
 logger = logging.getLogger(__name__)
+
+
+class _CodexRetryDelayError(Exception):
+    """Internal signal used to delegate auth retry waits to stamina."""
+
+    def __init__(self, delay_seconds: float) -> None:
+        super().__init__(f"codex_auth_retry_delay:{delay_seconds}")
+        self.delay_seconds = delay_seconds
 
 
 class ResponseExecutor(IResponseExecutor):
@@ -210,6 +232,16 @@ class ResponseExecutor(IResponseExecutor):
             transport
             if transport is not None
             else _CodexTransportAdapter(base_connector, use_websocket=use_websocket)
+        )
+        self._auth_retry_delay_executor = AsyncRetryExecutor(
+            RetryPolicy(
+                attempts=2,
+                timeout_seconds=None,
+                wait_initial=0.0,
+                wait_max=0.0,
+                wait_jitter=0.0,
+                wait_exp_base=1.0,
+            )
         )
 
     async def execute(
@@ -388,10 +420,8 @@ class ResponseExecutor(IResponseExecutor):
                         guarded_headers = ensure_loop_guard_header(fresh_headers)
                         guarded_headers["conversation_id"] = conversation_id
                         guarded_headers["session_id"] = context.session_id
-                        delay = self._get_retry_delay(attempts_used)
+                        await self._wait_for_auth_retry_delay(attempts_used)
                         attempts_used += 1
-                        if delay > 0:
-                            await asyncio.sleep(delay)
                         continue
 
                     # Non-401 errors or retry limit exceeded - raise immediately
@@ -709,10 +739,8 @@ class ResponseExecutor(IResponseExecutor):
                                         },
                                     },
                                 )
-                            delay = self._get_retry_delay(attempts_used)
+                            await self._wait_for_auth_retry_delay(attempts_used)
                             attempts_used += 1
-                            if delay > 0:
-                                await asyncio.sleep(delay)
                             self._refresh_headers_auth(
                                 current_headers, conversation_id, context.session_id
                             )
@@ -784,6 +812,17 @@ class ResponseExecutor(IResponseExecutor):
                                 )
 
                             if self._should_retry_for_auth_error(processed_chunk):
+                                if visible_output_emitted:
+                                    logger.warning(
+                                        "Skipping stream restart for auth error because visible output was already emitted.",
+                                        extra={
+                                            "backend": "openai-codex",
+                                            "session_id": context.session_id,
+                                            "model": context.effective_model,
+                                        },
+                                    )
+                                    yield processed_chunk
+                                    continue
                                 restart_stream = True
                                 logger.info(
                                     "Codex streaming chunk reported authentication failure; attempting token refresh.",
@@ -941,10 +980,8 @@ class ResponseExecutor(IResponseExecutor):
                                 },
                             )
 
-                        delay = self._get_retry_delay(attempts_used)
+                        await self._wait_for_auth_retry_delay(attempts_used)
                         attempts_used += 1
-                        if delay > 0:
-                            await asyncio.sleep(delay)
                         self._refresh_headers_auth(
                             current_headers, conversation_id, context.session_id
                         )
@@ -1112,6 +1149,9 @@ class ResponseExecutor(IResponseExecutor):
 
     @staticmethod
     def _chunk_has_client_visible_output(chunk: ProcessedResponse) -> bool:
+        if ResponseExecutor._extract_tool_calls(chunk):
+            return True
+
         content = chunk.content
         if isinstance(content, str):
             return bool(content.strip())
@@ -1119,6 +1159,11 @@ class ResponseExecutor(IResponseExecutor):
             return bool(content.strip())
         if not isinstance(content, Mapping):
             return False
+        output = content.get("output")
+        if isinstance(output, list) and any(
+            isinstance(item, Mapping) for item in output
+        ):
+            return True
         choices = content.get("choices")
         if not isinstance(choices, list):
             return False
@@ -1251,6 +1296,34 @@ class ResponseExecutor(IResponseExecutor):
                     if 100 <= numeric <= 599:
                         return numeric
         return None
+
+    async def _wait_for_auth_retry_delay(self, attempt_index: int) -> None:
+        """Sleep using the shared retry executor instead of direct asyncio.sleep."""
+        delay_seconds = self._get_retry_delay(attempt_index)
+        if delay_seconds <= 0:
+            return
+
+        state = {"scheduled": False}
+
+        async def _wait_once() -> None:
+            if not state["scheduled"]:
+                state["scheduled"] = True
+                raise _CodexRetryDelayError(delay_seconds)
+            return None
+
+        def _should_retry(error: Exception) -> bool:
+            return isinstance(error, _CodexRetryDelayError)
+
+        def _extract_delay(error: Exception) -> float | None:
+            if isinstance(error, _CodexRetryDelayError):
+                return error.delay_seconds
+            return None
+
+        await self._auth_retry_delay_executor.execute(
+            _wait_once,
+            should_retry=_should_retry,
+            retry_after_extractor=_extract_delay,
+        )
 
     def _get_retry_delay(self, attempt_index: int) -> float:
         """Get delay for retry attempt.

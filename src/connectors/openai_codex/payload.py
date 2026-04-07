@@ -367,11 +367,10 @@ class PayloadBuilder(IPayloadBuilder):
         """
         request_data = context.request
 
-        # Check for pre-resolved effort (from chat_completions)
-        if hasattr(request_data, "_codex_resolved_reasoning_effort"):
-            resolved = getattr(request_data, "_codex_resolved_reasoning_effort", None)  # type: ignore[attr-defined]
-            if isinstance(resolved, str):
-                return resolved
+        # Pre-resolved effort (from chat_completions); set via object.__setattr__ on frozen requests.
+        resolved = getattr(request_data, "_codex_resolved_reasoning_effort", None)  # type: ignore[attr-defined]
+        if isinstance(resolved, str):
+            return resolved
 
         # Check request data attribute
         if hasattr(request_data, "reasoning_effort"):

@@ -69,19 +69,40 @@ def _register_failure_handling_strategy(
 
 def _register_resilience_coordinator(services: ServiceCollection) -> None:
     """Register the resilience coordinator and its backing state manager."""
+    import contextlib
+
     from src.core.interfaces.provider_error_classifier_interface import (
         IProviderErrorClassifier,
     )
     from src.core.interfaces.resilience_interface import IResilienceCoordinator
     from src.core.services.provider_error_classifier import ProviderErrorClassifier
+    from src.core.services.resilience.circuit_breaker_state import (
+        CircuitBreakerStateManager,
+    )
     from src.core.services.resilience.coordinator import ResilienceCoordinator
     from src.core.services.resilience.handlers import (
         AuthErrorHandler,
+        CircuitBreakerErrorHandler,
         RateLimitErrorHandler,
     )
     from src.core.services.resilience.rate_limit_state import RateLimitStateManager
 
     register_singleton_if_absent(services, RateLimitStateManager)
+
+    def _circuit_breaker_state_factory(
+        provider: IServiceProvider,
+    ) -> CircuitBreakerStateManager:
+        app_config = provider.get_service(AppConfig)
+        if app_config is None:
+            return CircuitBreakerStateManager()
+        return CircuitBreakerStateManager(config=app_config.resilience.circuit_breaker)
+
+    register_singleton_if_absent(
+        services,
+        CircuitBreakerStateManager,
+        implementation_factory=_circuit_breaker_state_factory,
+    )
+
     register_singleton_if_absent(services, ProviderErrorClassifier)
     register_singleton_if_absent(
         services,
@@ -94,7 +115,11 @@ def _register_resilience_coordinator(services: ServiceCollection) -> None:
     def _resilience_coordinator_factory(
         provider: IServiceProvider,
     ) -> ResilienceCoordinator:
+        app_config = provider.get_service(AppConfig)
         state_manager = provider.get_required_service(RateLimitStateManager)
+        circuit_breaker_state = provider.get_required_service(
+            CircuitBreakerStateManager
+        )
         provider_error_classifier: IProviderErrorClassifier = (
             provider.get_required_service(cast(type, IProviderErrorClassifier))
         )
@@ -102,10 +127,30 @@ def _register_resilience_coordinator(services: ServiceCollection) -> None:
         rate_limit_handler = RateLimitErrorHandler(
             state_manager, next_handler=auth_handler
         )
+        circuit_breaker_handler = CircuitBreakerErrorHandler(
+            circuit_breaker_state,
+            next_handler=rate_limit_handler,
+        )
+
+        endpoint_registry = None
+        health_gating_enabled = False
+        if app_config is not None and (
+            app_config.health_check.enabled
+            and app_config.health_check.circuit_breaker_enabled
+        ):
+            with contextlib.suppress(ImportError):
+                from src.core.services.health.endpoint_registry import EndpointRegistry
+
+                endpoint_registry = provider.get_service(EndpointRegistry)
+                health_gating_enabled = endpoint_registry is not None
+
         return ResilienceCoordinator(
             state_manager=state_manager,
-            error_handler_chain=rate_limit_handler,
+            error_handler_chain=circuit_breaker_handler,
             provider_error_classifier=provider_error_classifier,
+            circuit_breaker_state=circuit_breaker_state,
+            endpoint_registry=endpoint_registry,
+            health_gating_enabled=health_gating_enabled,
         )
 
     register_singleton_if_absent(

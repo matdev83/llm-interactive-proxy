@@ -712,6 +712,9 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         # Do not penalize the backend for client disconnect.
                         if stream_error is None and error_classification is None:
                             # No explicit error observed; treat as neutral.
+                            self._resilience.release_circuit_breaker_probe(
+                                resilience_instance_id
+                            )
                             return
 
                         if stream_error is None:

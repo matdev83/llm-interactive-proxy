@@ -595,6 +595,31 @@ class TestExceptionAdapters:
         ]:
             routing_error = RoutingError("routing failed", details={"code": code})
             http_exc = map_domain_exception_to_http_exception(routing_error)
-            assert http_exc.status_code == expected_status, (
-                f"RoutingError with code={code} should map to {expected_status}"
-            )
+            assert (
+                http_exc.status_code == expected_status
+            ), f"RoutingError with code={code} should map to {expected_status}"
+
+    def test_map_domain_exception_to_http_exception_detail_shape(self) -> None:
+        """Adapter detail must expose structured fields directly for clients."""
+        auth_error = AuthenticationError("Invalid API key")
+        auth_http_exc = map_domain_exception_to_http_exception(auth_error)
+
+        assert auth_http_exc.status_code == 401
+        assert isinstance(auth_http_exc.detail, dict)
+        assert auth_http_exc.detail.get("message") == "Invalid API key"
+        assert auth_http_exc.detail.get("type") == "AuthenticationError"
+        # The adapter unwraps to_dict()["error"] so nested envelope should not be required.
+        assert "error" not in auth_http_exc.detail
+
+        rate_error = RateLimitExceededError(
+            "Rate limit exceeded",
+            details={"retry_after": 7},
+        )
+        rate_http_exc = map_domain_exception_to_http_exception(rate_error)
+
+        assert rate_http_exc.status_code == 429
+        assert isinstance(rate_http_exc.detail, dict)
+        assert rate_http_exc.detail.get("message") == "Rate limit exceeded"
+        assert rate_http_exc.detail.get("type") == "RateLimitExceededError"
+        assert isinstance(rate_http_exc.detail.get("details"), dict)
+        assert rate_http_exc.detail["details"].get("retry_after") == 7

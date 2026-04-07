@@ -6,9 +6,7 @@ implementing invisible resilience through wait-and-retry and automatic failover.
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import time
 from typing import TYPE_CHECKING
 
 from src.core.common.exceptions import (
@@ -25,6 +23,7 @@ from src.core.interfaces.failure_strategy_interface import (
     IBackendInstanceDiscovery,
     IFailureHandlingStrategy,
 )
+from src.core.services.resilience.retry_after import extract_retry_after_seconds
 
 if TYPE_CHECKING:
     pass
@@ -258,68 +257,10 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
     def _extract_retry_after(self, error: Exception) -> float | None:
         """Extract retry-after duration from an error.
 
-        Looks for retry-after in multiple places:
-        1. RateLimitExceededError.reset_at (as timestamp, convert to seconds)
-        2. error.details['retry_after'] (as seconds)
-        3. error.details['error']['details'][*]['retryDelay'] (Google format)
+        Delegates parsing to the canonical resilience helper to keep
+        retry-after semantics consistent across connector families.
         """
-        # Check RateLimitExceededError.reset_at
-        if isinstance(error, RateLimitExceededError):
-            reset_at = getattr(error, "reset_at", None)
-            if reset_at is not None:
-                reset_at_float = float(reset_at)
-                # reset_at could be a timestamp or seconds from now
-                now = time.time()
-                if reset_at_float >= now:
-                    return max(0.0, reset_at_float - now)
-                if reset_at_float > 1e9:  # Looks like a Unix timestamp
-                    return max(0.0, reset_at_float - now)
-                return reset_at_float
-
-        # Check details dict
-        details = getattr(error, "details", None)
-        if not details:
-            return None
-
-        # Direct retry_after in details
-        if "retry_after" in details:
-            with contextlib.suppress(TypeError, ValueError):
-                return float(details["retry_after"])
-
-        # Explicit normalized retry_after_seconds in details
-        if "retry_after_seconds" in details:
-            with contextlib.suppress(TypeError, ValueError):
-                return float(details["retry_after_seconds"])
-
-        headers = details.get("headers")
-        if isinstance(headers, dict):
-            retry_after_header = headers.get("retry-after") or headers.get(
-                "Retry-After"
-            )
-            if retry_after_header is not None:
-                with contextlib.suppress(TypeError, ValueError):
-                    return float(retry_after_header)
-
-        # Google-style nested details
-        error_info = details.get("error", details)
-        if isinstance(error_info, dict):
-            details_list = error_info.get("details", [])
-            if isinstance(details_list, list):
-                for detail in details_list:
-                    if not isinstance(detail, dict):
-                        continue
-                    # RetryInfo format
-                    retry_delay = detail.get("retryDelay")
-                    if retry_delay:
-                        return self._parse_duration_string(retry_delay)
-                    # ErrorInfo metadata format
-                    metadata = detail.get("metadata", {})
-                    if isinstance(metadata, dict):
-                        reset_delay = metadata.get("quotaResetDelay")
-                        if reset_delay:
-                            return self._parse_duration_string(reset_delay)
-
-        return None
+        return extract_retry_after_seconds(error)
 
     @staticmethod
     def _has_provider_retry_after_header(error: Exception) -> bool:

@@ -20,6 +20,7 @@ from src.connectors.contracts import (
     ConnectorRequestContext,
 )
 from src.connectors.openai import OpenAIConnector
+from src.core.common.env_utils import get_env_value_with_windows_persistent_fallback
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -97,7 +98,10 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the ZAI coding plan backend."""
         # Get API key from environment or kwargs
-        self.api_key = kwargs.get("api_key") or os.environ.get("ZAI_API_KEY")
+        fallback_api_key, fallback_api_key_source = (
+            get_env_value_with_windows_persistent_fallback("ZAI_API_KEY")
+        )
+        self.api_key = kwargs.get("api_key") or fallback_api_key
 
         if not self.api_key:
             raise AuthenticationError(
@@ -109,7 +113,9 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         masked_key = self._mask_api_key(self.api_key)
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"ZAI Coding Plan backend initialized with API key: {masked_key}"
+                "ZAI Coding Plan backend initialized with API key: %s (source=%s)",
+                masked_key,
+                "kwargs" if kwargs.get("api_key") else fallback_api_key_source,
             )
 
         # Set the OpenAI-compatible API base URL for ZAI
@@ -677,6 +683,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         async def _zai_stream_wrapper() -> AsyncGenerator[ProcessedResponse, None]:
             collected_content: list[str] = []
             sanitized_emitted = False
+            selected_model = str(payload.get("model") or self._DEFAULT_MODEL)
 
             async for chunk in base_handle.iterator:
                 parsed_json: dict[str, Any] | None = None
@@ -692,17 +699,26 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 else:
                     chunk_str = None
 
-                if (
-                    chunk_str
-                    and chunk_str.startswith("data: ")
-                    and '"model": "glm-4.6"' in chunk_str
-                ):
-                    try:
-                        parsed_json = json.loads(chunk_str[len("data: ") :])
-                    except json.JSONDecodeError:
-                        parsed_json = None
+                if chunk_str and "data:" in chunk_str:
+                    for line in chunk_str.splitlines():
+                        line = line.strip()
+                        if not line.startswith("data:"):
+                            continue
+                        data_part = line[len("data:") :].strip()
+                        if not data_part or data_part == "[DONE]":
+                            continue
+                        try:
+                            payload_obj = json.loads(data_part)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(payload_obj, dict):
+                            parsed_json = payload_obj
+                            break
 
                 if parsed_json:
+                    parsed_model = parsed_json.get("model")
+                    if isinstance(parsed_model, str) and parsed_model.strip():
+                        selected_model = parsed_model
                     choices = parsed_json.get("choices") or []
                     if choices:
                         delta = choices[0].get("delta") or {}
@@ -722,7 +738,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                             if sanitized_text:
                                 synthetic_chunk = self._build_synthetic_stream_chunk(
                                     sanitized_text,
-                                    parsed_json.get("model") or "glm-4.6",
+                                    selected_model,
                                 )
                                 yield synthetic_chunk
                                 sanitized_emitted = True
@@ -736,7 +752,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 )
                 if sanitized_text:
                     synthetic_chunk = self._build_synthetic_stream_chunk(
-                        sanitized_text, "glm-4.6"
+                        sanitized_text, selected_model
                     )
                     yield synthetic_chunk
 
