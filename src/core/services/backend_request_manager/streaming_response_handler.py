@@ -26,9 +26,13 @@ from typing import Any, cast
 from pydantic.types import JsonValue
 
 from src.core.common.exceptions import (
+    APIConnectionError,
+    APITimeoutError,
     BackendError,
     LLMProxyError,
     ParsingError,
+    RateLimitExceededError,
+    ServiceUnavailableError,
     SessionCancelledError,
     TranslationError,
 )
@@ -516,6 +520,36 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         recovery_message = ChatMessage(role="user", content=recovery_prompt)
         retry_messages.append(recovery_message)
         return original_request.model_copy(update={"messages": retry_messages})
+
+    @staticmethod
+    def _should_surface_pre_output_error(stream_error: Exception) -> bool:
+        """Return True when a transient pre-output error must bypass empty retry."""
+        if isinstance(
+            stream_error,
+            RateLimitExceededError
+            | ServiceUnavailableError
+            | APIConnectionError
+            | APITimeoutError,
+        ):
+            return True
+
+        status_code = getattr(stream_error, "status_code", None)
+        if isinstance(status_code, int):
+            if status_code == 429:
+                return True
+            if status_code in {408, 425, 503, 504}:
+                return True
+
+        details = getattr(stream_error, "details", None)
+        if isinstance(details, dict):
+            details_status = details.get("status_code")
+            if isinstance(details_status, int):
+                if details_status == 429:
+                    return True
+                if details_status in {408, 425, 503, 504}:
+                    return True
+
+        return False
 
     def _raise_empty_stream_error(self, session_id: str, reason: str) -> None:
         """Raise a backend error when no content is produced after retries."""
@@ -1477,6 +1511,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 raise
             except Exception as stream_error:
                 if not seen_meaningful:
+                    if self._should_surface_pre_output_error(stream_error):
+                        yield await _emit_terminal_stream_error(stream_error)
+                        return
                     raise EmptyResponseRetryError(
                         recovery_prompt="",
                         session_id=processing_context.session_id,

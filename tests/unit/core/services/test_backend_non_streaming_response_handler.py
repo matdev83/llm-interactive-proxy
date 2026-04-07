@@ -21,10 +21,16 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
+from pydantic.types import JsonValue
+from src.core.common.exceptions import (
+    APIConnectionError,
+    APITimeoutError,
+    RateLimitExceededError,
+    ServiceUnavailableError,
+)
 from src.core.domain.backend_request_manager.context_models import (
     ResponseProcessingContext,
     StructuredOutputContext,
-    ToolCallRetryState,
 )
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import ProcessingContext, RequestContext
@@ -41,6 +47,12 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
+
+JsonDict = dict[str, JsonValue]
+
+
+def _meta(data: dict[str, object]) -> JsonDict:
+    return data  # type: ignore[return-value]
 
 
 @pytest.fixture
@@ -129,7 +141,9 @@ def processing_context(base_request: ChatRequest) -> ResponseProcessingContext:
         session_id="test-session-123",
         backend_name="openai",
         model_name="gpt-4",
+        client_os=None,
         original_request=base_request,
+        structured_output=None,
     )
 
 
@@ -286,6 +300,42 @@ class TestResponseProcessing:
         assert call_args.kwargs["context"] == structured_output_context
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error",
+        [
+            RateLimitExceededError(message="Too many requests"),
+            ServiceUnavailableError(message="Temporarily unavailable"),
+            APITimeoutError(message="Timed out", status_code=504),
+            APIConnectionError(message="Connection reset", status_code=502),
+        ],
+    )
+    async def test_temporary_non_streaming_errors_do_not_trigger_empty_retry(
+        self,
+        error: Exception,
+        handler: INonStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Temporary backend failures should propagate without empty-response retry."""
+
+        response = ResponseEnvelope(content="", metadata={})
+        mock_response_processor.process_response.side_effect = error
+
+        with pytest.raises(type(error)) as excinfo:
+            await handler.handle(
+                response=response,
+                request=base_request,
+                context=request_context,
+                processing_context=processing_context,
+            )
+
+        assert str(excinfo.value) == str(error)
+        mock_backend_processor.process_backend_request.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_skips_structured_output_validation_when_no_schema(
         self,
         handler: INonStreamingBackendResponseHandler,
@@ -335,14 +385,16 @@ class TestMetadataFiltering:
         non_serializable_obj = object()
         processed_response = ProcessedResponse(
             content="Hello",
-            metadata={
-                "string_value": "test",
-                "int_value": 42,
-                "bool_value": True,
-                "list_value": [1, 2, 3],
-                "dict_value": {"key": "value"},
-                "non_serializable": non_serializable_obj,
-            },
+            metadata=_meta(
+                {
+                    "string_value": "test",
+                    "int_value": 42,
+                    "bool_value": True,
+                    "list_value": [1, 2, 3],
+                    "dict_value": {"key": "value"},
+                    "non_serializable": non_serializable_obj,
+                }
+            ),
         )
 
         mock_response_processor.process_response.return_value = processed_response
@@ -382,10 +434,7 @@ class TestMetadataFiltering:
         response = ResponseEnvelope(content="Hello", metadata={})
         processed_response = ProcessedResponse(
             content="Hello",
-            metadata={
-                "original_request": base_request,
-                "other_key": "value",
-            },
+            metadata=_meta({"original_request": base_request, "other_key": "value"}),
         )
 
         mock_response_processor.process_response.return_value = processed_response
@@ -445,7 +494,6 @@ class TestToolCallRetryIntegration:
             processed_response,
             processed_retry_response,
         ]
-        ToolCallRetryState(retry_count=0, max_retries=3)
         mock_tool_call_retry_coordinator.handle_non_streaming.return_value = (
             retry_response
         )

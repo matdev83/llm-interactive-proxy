@@ -23,7 +23,14 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.common.exceptions import BackendError, SessionCancelledError
+from src.core.common.exceptions import (
+    APIConnectionError,
+    APITimeoutError,
+    BackendError,
+    RateLimitExceededError,
+    ServiceUnavailableError,
+    SessionCancelledError,
+)
 from src.core.domain.backend_request_manager.context_models import (
     ResponseProcessingContext,
 )
@@ -1761,6 +1768,134 @@ class TestStreamExceptionRecoverySemantics:
         assert retry_request is base_request
         assert len(streamed_chunks) == 1
         assert streamed_chunks[0].content == "Retry response"
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_before_meaningful_output_does_not_trigger_empty_retry(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """HTTP 429 before output must surface as an error chunk, not empty retry."""
+
+        async def failing_stream() -> AsyncIterator[ProcessedResponse]:
+            raise RateLimitExceededError(
+                message="Too many requests",
+                details={"headers": {"retry-after": "7"}},
+            )
+            yield ProcessedResponse(content="", metadata={})  # pragma: no cover
+
+        mock_response_processor.process_streaming_response.return_value = (
+            failing_stream()
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=StreamingResponseEnvelope(content=failing_stream()),
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result.content is not None
+        streamed_chunks: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            streamed_chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_not_called()
+        assert len(streamed_chunks) == 1
+        assert streamed_chunks[0].metadata.get("finish_reason") == "error"
+        error_payload = cast(dict[str, Any], streamed_chunks[0].metadata.get("error"))
+        assert error_payload["status_code"] == 429
+        assert error_payload["type"] == "RateLimitExceededError"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("error", "expected_type", "expected_status"),
+        [
+            (
+                ServiceUnavailableError(message="Upstream temporarily unavailable"),
+                "ServiceUnavailableError",
+                503,
+            ),
+            (
+                APITimeoutError(message="Upstream timed out", status_code=504),
+                "APITimeoutError",
+                504,
+            ),
+            (
+                APIConnectionError(message="Connection reset", status_code=502),
+                "APIConnectionError",
+                502,
+            ),
+        ],
+    )
+    async def test_temporary_pre_output_errors_do_not_trigger_empty_retry(
+        self,
+        error: Exception,
+        expected_type: str,
+        expected_status: int,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Temporary backend failures should surface as terminal errors, not steering."""
+
+        async def failing_stream() -> AsyncIterator[ProcessedResponse]:
+            raise error
+            yield ProcessedResponse(content="", metadata={})  # pragma: no cover
+
+        mock_response_processor.process_streaming_response.return_value = (
+            failing_stream()
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=StreamingResponseEnvelope(content=failing_stream()),
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result.content is not None
+        streamed_chunks: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            streamed_chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_not_called()
+        assert len(streamed_chunks) == 1
+        assert streamed_chunks[0].metadata.get("finish_reason") == "error"
+        error_payload = cast(dict[str, Any], streamed_chunks[0].metadata.get("error"))
+        assert error_payload["status_code"] == expected_status
+        assert error_payload["type"] == expected_type
 
     @pytest.mark.asyncio
     async def test_emits_terminal_error_when_exception_happens_after_meaningful_output(

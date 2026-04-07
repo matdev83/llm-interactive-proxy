@@ -19,7 +19,13 @@ from typing import Any
 
 from pydantic.types import JsonValue
 
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import (
+    APIConnectionError,
+    APITimeoutError,
+    BackendError,
+    RateLimitExceededError,
+    ServiceUnavailableError,
+)
 from src.core.common.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
@@ -126,6 +132,44 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
 
         # Preserve tools and other fields while appending the recovery message
         return original_request.model_copy(update={"messages": retry_messages})
+
+    @staticmethod
+    def _is_transient_backend_error(error: BackendError) -> bool:
+        """Return True when the backend error is a temporary failure."""
+        if isinstance(
+            error,
+            RateLimitExceededError
+            | ServiceUnavailableError
+            | APIConnectionError
+            | APITimeoutError,
+        ):
+            return True
+
+        status_code = getattr(error, "status_code", None)
+        if isinstance(status_code, int) and status_code in {408, 425, 429, 503, 504}:
+            return True
+
+        details = getattr(error, "details", None)
+        if isinstance(details, dict):
+            details_status = details.get("status_code")
+            if isinstance(details_status, int) and details_status in {
+                408,
+                425,
+                429,
+                503,
+                504,
+            }:
+                return True
+
+        return False
+
+    @staticmethod
+    def _is_empty_retry_exhaustion_error(error: BackendError) -> bool:
+        """Return True when BackendError represents exhausted empty-response retries."""
+        details = getattr(error, "details", None)
+        return isinstance(details, dict) and details.get("error_type") == (
+            "empty_response_max_retries_exceeded"
+        )
 
     async def handle(
         self,
@@ -242,9 +286,14 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
                         )
                 return response
         except BackendError as e:
+            if self._is_transient_backend_error(e):
+                raise
+
             # BackendError raised when empty-response max retries exceeded
             # Re-raise to preserve error details and session_id
-            if logger.isEnabledFor(logging.ERROR):
+            if self._is_empty_retry_exhaustion_error(e) and logger.isEnabledFor(
+                logging.ERROR
+            ):
                 logger.error(
                     "Empty response retry limit exceeded for session %s: %s",
                     processing_context.session_id,
