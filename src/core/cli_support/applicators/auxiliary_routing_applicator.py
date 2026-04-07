@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from src.core.cli_support.protocols import CliArgs, CliOverrides
     from src.core.config.parameter_resolution import ParameterResolution
 
+from src.core.config.models.access_mode import AccessMode
 from src.core.config.parameter_resolution import ParameterSource
 from src.core.domain.model_utils import (
     has_explicit_backend_selector,
@@ -131,6 +132,23 @@ class AuxiliaryRoutingApplicator:
                 origin="--auxiliary-routing-max-messages",
             )
 
+        disable_cli = getattr(args, "disable_auxiliary_routing", None)
+        disable_from_base = getattr(
+            args, "auxiliary_routing_disabled_from_base_config", False
+        )
+
+        is_disabled = (
+            bool(disable_cli) if disable_cli is not None else disable_from_base
+        )
+
+        self._try_auto_enable(
+            aux_routing_overrides,
+            overrides,
+            resolution,
+            is_disabled=is_disabled,
+            args=args,
+        )
+
         # Handle disable default OpenRouter flag
         disable_default_openrouter = getattr(
             args, "disable_default_openrouter_auxiliary_routing", None
@@ -158,6 +176,81 @@ class AuxiliaryRoutingApplicator:
 
         if aux_routing_overrides:
             overrides["auxiliary_routing"] = aux_routing_overrides
+
+    def _try_auto_enable(
+        self,
+        aux_routing_overrides: dict[str, Any],
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+        *,
+        is_disabled: bool,
+        args: CliArgs,
+    ) -> None:
+        """Auto-enable auxiliary routing in single user mode with OpenRouter API key.
+
+        Auto-enable is triggered when ALL conditions are met:
+        1. `--disable-auxiliary-routing` is NOT set
+        2. `auxiliary_routing.disable` is NOT set in base config
+        3. Access mode is SINGLE_USER
+        4. OPENROUTER_API_KEY is detected in environment
+        5. `--enable-auxiliary-routing` was NOT explicitly provided (None)
+
+        If auto-enable fires, `enabled` and default `backend`/`model` are set.
+        Explicitly provided `--auxiliary-routing-model` is preserved.
+        """
+        if is_disabled:
+            return
+
+        already_explicitly_enabled = (
+            getattr(args, "auxiliary_routing_enabled", None) is not None
+        )
+        if already_explicitly_enabled:
+            return
+
+        if not _has_openrouter_api_key():
+            return
+
+        access_mode = None
+        override_access_mode = overrides.get("access_mode")
+        if isinstance(override_access_mode, dict):
+            access_mode = override_access_mode.get("mode")
+        elif isinstance(override_access_mode, AccessMode):
+            access_mode = override_access_mode
+
+        if access_mode is None:
+            access_mode = AccessMode.SINGLE_USER
+
+        if access_mode != AccessMode.SINGLE_USER:
+            return
+
+        aux_routing_overrides["enabled"] = True
+        resolution.record(
+            "auxiliary_routing.enabled",
+            True,
+            ParameterSource.DEFAULT,
+            origin="auto-enable (single user mode + OPENROUTER_API_KEY)",
+        )
+
+        already_has_model = "model" in aux_routing_overrides
+        already_has_backend = "backend" in aux_routing_overrides
+        if already_has_model or already_has_backend:
+            return
+
+        aux_routing_overrides["backend"] = _DEFAULT_OPENROUTER_AUXILIARY_BACKEND
+        aux_routing_overrides["model"] = _DEFAULT_OPENROUTER_AUXILIARY_MODEL
+
+        resolution.record(
+            "auxiliary_routing.backend",
+            _DEFAULT_OPENROUTER_AUXILIARY_BACKEND,
+            ParameterSource.DEFAULT,
+            origin="auto-enable OpenRouter default",
+        )
+        resolution.record(
+            "auxiliary_routing.model",
+            _DEFAULT_OPENROUTER_AUXILIARY_MODEL,
+            ParameterSource.DEFAULT,
+            origin="auto-enable OpenRouter default",
+        )
 
     def _apply_default_openrouter_model_if_needed(
         self,

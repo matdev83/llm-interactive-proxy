@@ -285,6 +285,16 @@ def apply_config_part2(
         ),
     }
 
+    config["auxiliary_routing"] = {
+        "disable": _env_to_bool(
+            "DISABLE_AUXILIARY_ROUTING",
+            False,
+            env,
+            path="auxiliary_routing.disable",
+            resolution=resolution,
+        ),
+    }
+
     config["compaction"] = {
         "enabled": _env_to_bool(
             "ENABLE_CONTEXT_COMPACTION",
@@ -299,6 +309,77 @@ def apply_config_part2(
             env,
             path="compaction.token_threshold",
             resolution=resolution,
+        ),
+    }
+
+    config["dynamic_compression"] = {
+        "enabled": _env_to_bool(
+            "DYNAMIC_COMPRESSION_ENABLED",
+            False,
+            env,
+            path="dynamic_compression.enabled",
+            resolution=resolution,
+        ),
+        "level": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_LEVEL",
+            "conservative",
+            path="dynamic_compression.level",
+            resolution=resolution,
+        ),
+        "max_level": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_MAX_LEVEL",
+            "aggressive",
+            path="dynamic_compression.max_level",
+            resolution=resolution,
+        ),
+        "min_bytes": _env_to_int(
+            "DYNAMIC_COMPRESSION_MIN_BYTES",
+            1024,
+            env,
+            path="dynamic_compression.min_bytes",
+            resolution=resolution,
+        ),
+        "disable_categories": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_DISABLE_CATEGORIES",
+            [],
+            path="dynamic_compression.disable_categories",
+            resolution=resolution,
+            transform=_parse_csv_list,
+        ),
+        "disable_methods": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_DISABLE_METHODS",
+            [],
+            path="dynamic_compression.disable_methods",
+            resolution=resolution,
+            transform=_parse_csv_list,
+        ),
+        "disable_tools": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_DISABLE_TOOLS",
+            [],
+            path="dynamic_compression.disable_tools",
+            resolution=resolution,
+            transform=_parse_csv_list,
+        ),
+        "disable_command_prefixes": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_DISABLE_COMMAND_PREFIXES",
+            [],
+            path="dynamic_compression.disable_command_prefixes",
+            resolution=resolution,
+            transform=_parse_csv_list,
+        ),
+        "explicit_format_flags": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_EXPLICIT_FORMAT_FLAGS",
+            [],
+            path="dynamic_compression.explicit_format_flags",
+            resolution=resolution,
+            transform=_parse_csv_list,
         ),
     }
 

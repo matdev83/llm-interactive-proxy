@@ -171,6 +171,7 @@ class ConfigurationApplicator:
 
         # Collect CLI overrides from all domain applicators
         cli_overrides: CliOverrides = {}
+        self._set_auxiliary_routing_base_config_disable(args, base_cfg)
         for applicator in self._applicators:
             applicator.apply(args, cli_overrides, res)
 
@@ -201,6 +202,17 @@ class ConfigurationApplicator:
 
         hydrate_auto_append_first_prompt(final_cfg)
         return final_cfg
+
+    def _set_auxiliary_routing_base_config_disable(
+        self,
+        args: CliArgs,
+        base_cfg: AppConfig,
+    ) -> None:
+        disable_from_base = False
+        aux_cfg = getattr(base_cfg, "auxiliary_routing", None)
+        if aux_cfg is not None:
+            disable_from_base = bool(getattr(aux_cfg, "disable", False))
+        args.auxiliary_routing_disabled_from_base_config = disable_from_base
 
     def _apply_default_log_file(
         self,
@@ -289,6 +301,7 @@ class ConfigurationApplicator:
             AuxiliaryRoutingApplicator,
             BackendApplicator,
             CompactionApplicator,
+            DynamicCompressionApplicator,
             EditPrecisionApplicator,
             EndOfSessionApplicator,
             FailureHandlingApplicator,
@@ -323,6 +336,7 @@ class ConfigurationApplicator:
             RoutingApplicator(),
             AuxiliaryRoutingApplicator(),
             CompactionApplicator(),
+            DynamicCompressionApplicator(),
             SandboxingApplicator(),
             EndOfSessionApplicator(),
         ]

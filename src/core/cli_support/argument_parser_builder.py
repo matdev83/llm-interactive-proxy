@@ -60,6 +60,7 @@ class ArgumentParserBuilder:
         self._add_logging_arguments(parser)
         self._add_feature_flag_arguments(parser)
         self._add_compaction_arguments(parser)
+        self._add_dynamic_compression_arguments(parser)
         self._add_planning_phase_arguments(parser)
         self._add_edit_precision_arguments(parser)
         self._add_activity_tracking_arguments(parser)
@@ -704,6 +705,74 @@ class ArgumentParserBuilder:
             help="Minimum token estimate to trigger compaction (default: 100,000)",
         )
 
+    def _add_dynamic_compression_arguments(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Add dynamic compression arguments."""
+        dynamic_group = parser.add_argument_group(
+            "Dynamic Tool Output Compression",
+            "Options for strategy-based tool output compression in request preparation",
+        )
+        toggle_group = dynamic_group.add_mutually_exclusive_group()
+        toggle_group.add_argument(
+            "--dynamic-compression-enabled",
+            dest="dynamic_compression_enabled",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Enable dynamic tool output compression",
+        )
+        toggle_group.add_argument(
+            "--dynamic-compression-disabled",
+            dest="dynamic_compression_enabled",
+            action="store_const",
+            const=False,
+            help="Disable dynamic tool output compression",
+        )
+        dynamic_group.add_argument(
+            "--dynamic-compression-level",
+            dest="dynamic_compression_level",
+            choices=["conservative", "balanced", "aggressive"],
+            help="Base compression level for matching outputs",
+        )
+        dynamic_group.add_argument(
+            "--dynamic-compression-max-level",
+            dest="dynamic_compression_max_level",
+            choices=["conservative", "balanced", "aggressive"],
+            help="Maximum level allowed during budget-pressure escalation",
+        )
+        dynamic_group.add_argument(
+            "--dynamic-compression-min-bytes",
+            dest="dynamic_compression_min_bytes",
+            type=int,
+            metavar="BYTES",
+            help="Minimum output size in bytes required for compression eligibility",
+        )
+        dynamic_group.add_argument(
+            "--dynamic-compression-disable-categories",
+            dest="dynamic_compression_disable_categories",
+            metavar="CSV",
+            help="Comma-separated tool categories to exclude from compression",
+        )
+        dynamic_group.add_argument(
+            "--dynamic-compression-disable-methods",
+            dest="dynamic_compression_disable_methods",
+            metavar="CSV",
+            help="Comma-separated compression methods to disable",
+        )
+        dynamic_group.add_argument(
+            "--dynamic-compression-disable-tools",
+            dest="dynamic_compression_disable_tools",
+            metavar="CSV",
+            help="Comma-separated tool names to bypass",
+        )
+        dynamic_group.add_argument(
+            "--dynamic-compression-disable-command-prefixes",
+            dest="dynamic_compression_disable_command_prefixes",
+            metavar="CSV",
+            help="Comma-separated command prefixes to bypass",
+        )
+
     def _add_planning_phase_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add planning phase arguments."""
         parser.add_argument(
@@ -1319,6 +1388,13 @@ class ArgumentParserBuilder:
             type=int,
             metavar="N",
             help="Maximum message count for a request to be considered auxiliary (default: 3)",
+        )
+        aux_routing_group.add_argument(
+            "--disable-auxiliary-routing",
+            dest="disable_auxiliary_routing",
+            action="store_true",
+            default=None,
+            help="Disable auxiliary request routing (overrides auto-enable in single user mode)",
         )
         aux_routing_group.add_argument(
             "--disable-default-open-router-auxiliary-routing",
