@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.zai import ZAIConnector
 from src.core.common.exceptions import AuthenticationError
-from src.core.domain.chat import ChatRequest
 
 
 @pytest.fixture
@@ -46,7 +45,9 @@ async def test_initialize_uses_kwargs_api_key_over_env(zai_backend, mock_config)
 
 
 @pytest.mark.asyncio
-async def test_initialize_falls_back_to_env_when_kwargs_missing(zai_backend, mock_config):
+async def test_initialize_falls_back_to_env_when_kwargs_missing(
+    zai_backend, mock_config
+):
     """Should fall back to ZAI_API_KEY when no kwargs key provided."""
     with patch.dict(
         os.environ,
@@ -76,4 +77,4 @@ async def test_get_headers_raises_when_api_key_not_set(zai_backend):
         zai_backend.get_headers(identity=None)
 
     assert excinfo.value.status_code == 401
-    assert "api_key is not set" in str(excinfo.value).lower()
+    assert "zai api key is not set" in str(excinfo.value).lower()

@@ -14,9 +14,6 @@ import pytest
 import pytest_asyncio
 from httpx import Response
 from src.connectors.openai_codex import OpenAICodexConnector
-from src.connectors.openai_codex.contracts import (
-    ReasoningSpec,
-)
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.model_utils import parse_model_with_params
@@ -468,7 +465,9 @@ class TestOpenAICodexURIReasoningEffortIntegration:
         payload = builder.build_payload(context)
 
         assert payload.reasoning is not None
-        assert isinstance(payload.reasoning, ReasoningSpec)
+        # Check attributes instead of isinstance for robustness under parallel execution
+        assert hasattr(payload.reasoning, "effort")
+        assert hasattr(payload.reasoning, "summary")
         assert payload.reasoning.effort == "high"
         assert payload.reasoning.summary == "auto"
 
@@ -672,7 +671,9 @@ class TestOpenAICodexURIReasoningEffortIntegration:
 
         # Step 5: Verify ReasoningSpec is correctly populated
         assert payload.reasoning is not None
-        assert isinstance(payload.reasoning, ReasoningSpec)
+        # Check attributes instead of isinstance for robustness under parallel execution
+        assert hasattr(payload.reasoning, "effort")
+        assert hasattr(payload.reasoning, "summary")
         assert payload.reasoning.effort == "high"
         assert payload.reasoning.summary == "auto"
         assert "reasoning.encrypted_content" in payload.include

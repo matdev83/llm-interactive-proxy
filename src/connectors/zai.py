@@ -3,6 +3,7 @@ ZAI connector for Zhipu AI's GLM models
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -84,13 +85,13 @@ class ZAIConnector(OpenAIConnector):
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize the connector and fetch available models."""
-        self.api_key = kwargs.get("api_key")
+        self.api_key = kwargs.get("api_key") or os.getenv("ZAI_API_KEY")
         if not self.api_key:
             raise ConfigurationError(
                 message="api_key is required for ZAIConnector", code="missing_api_key"
             )
 
-        api_base_url = kwargs.get("api_base_url")
+        api_base_url = kwargs.get("api_base_url") or os.getenv("ZAI_API_BASE_URL")
         if api_base_url:
             self.api_base_url = api_base_url
 

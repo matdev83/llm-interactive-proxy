@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import json
+import sys
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from src.connectors.contracts import ConnectorRequestContext
-from src.connectors.openai_websocket_client import OpenAIWebSocketClient
 
 # Serialize with other wire-capture / websocket tests to avoid patch races under xdist.
 pytestmark = pytest.mark.xdist_group("openai_websocket_boundary_capture")
@@ -13,6 +13,11 @@ pytestmark = pytest.mark.xdist_group("openai_websocket_boundary_capture")
 
 @pytest.mark.asyncio
 async def test_openai_websocket_client_captures_outbound_and_inbound_frames() -> None:
+    # Ensure the module is not cached from previous tests
+    module_name = "src.connectors.openai_websocket_client"
+    if module_name in sys.modules:
+        del sys.modules[module_name]
+
     context = ConnectorRequestContext(
         request_id="req-openai-ws-boundary",
         session_id="sess-openai-ws-boundary",
@@ -48,18 +53,13 @@ async def test_openai_websocket_client_captures_outbound_and_inbound_frames() ->
             outbound_capture,
         ),
         patch(
-            "src.connectors.openai_websocket_client.capture_websocket_backend_outbound",
-            outbound_capture,
-        ),
-        patch(
             "src.core.common.wire_boundary_capture.capture_websocket_backend_inbound",
             inbound_capture,
         ),
-        patch(
-            "src.connectors.openai_websocket_client.capture_websocket_backend_inbound",
-            inbound_capture,
-        ),
     ):
+        # Import after patches are applied to ensure fresh import
+        from src.connectors.openai_websocket_client import OpenAIWebSocketClient
+
         client = OpenAIWebSocketClient(
             api_key="test-key",
             api_base="wss://api.openai.com/v1",
