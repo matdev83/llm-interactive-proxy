@@ -744,11 +744,13 @@ class OpenAICodexConnector(OpenAIConnector):
         return deduplicated
 
     def _render_user_instruction_block(
-        self, sections: Sequence[str]
+        self, sections: Sequence[str | None]
     ) -> dict[str, Any] | None:
         """Render custom instruction sections into a Codex <user_instructions> block."""
         sanitized_sections: list[str] = []
         for section in sections:
+            if section is None:
+                continue
             normalized = section.strip()
             if not normalized:
                 continue
