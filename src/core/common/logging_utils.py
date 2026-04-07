@@ -765,13 +765,20 @@ def _discover_api_keys_from_config_backends(
                             b, f"{b.upper().replace('-', '_')}_API_KEY"
                         )
 
+                        from src.core.common.env_utils import (
+                            get_env_value_with_windows_persistent_fallback,
+                        )
+
+                        env_val, _ = get_env_value_with_windows_persistent_fallback(
+                            env_var
+                        )
+                        process_env_val = os.getenv(env_var)
+
                         if isinstance(ak, list | tuple):
                             for k in ak:
                                 if k:
                                     found.add(str(k))
-                                    # SECURITY WARNING: Log when API keys are found in config
-                                    # Check if the key matches the environment variable (false positive check)
-                                    if str(k) == os.getenv(env_var):
+                                    if str(k) == env_val or str(k) == process_env_val:
                                         continue
 
                                     warn_key = f"backends.{b}.api_key"
@@ -785,9 +792,7 @@ def _discover_api_keys_from_config_backends(
                                             _logged_security_warnings.add(warn_key)
                         else:
                             found.add(str(ak))
-                            # SECURITY WARNING: Log when API keys are found in config
-                            # Check if the key matches the environment variable (false positive check)
-                            if str(ak) == os.getenv(env_var):
+                            if str(ak) == env_val or str(ak) == process_env_val:
                                 continue
 
                             warn_key = f"backends.{b}.api_key"

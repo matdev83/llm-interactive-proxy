@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from src.core.common.logging_utils import (
     ApiKeyRedactionFilter,
+    _discover_api_keys_from_config_backends,
+    _logged_security_warnings,
     discover_api_keys_from_config_and_env,
     format_for_debug_log,
     install_api_key_redaction_filter,
@@ -274,3 +276,158 @@ class TestTruncateForDebugLog:
     def test_format_for_debug_log_truncates(self) -> None:
         out = format_for_debug_log({"k": "v" * 800}, max_chars=80)
         assert "truncated" in out
+
+
+class TestSecurityWarningFalsePositive:
+    """Regression tests for false-positive SECURITY WARNING.
+
+    The API key in config can be populated via
+    get_env_value_with_windows_persistent_fallback() which reads from
+    the Windows persistent registry when the process-level env is stale.
+    The false-positive check must account for this, not just os.getenv().
+    """
+
+    def _make_config(self, backend_name: str, api_key_value: str) -> MagicMock:
+        mock_backend = MagicMock()
+        mock_backend.api_key = api_key_value
+        mock_backends = MagicMock()
+        setattr(mock_backends, backend_name, mock_backend)
+        mock_config = MagicMock()
+        mock_config.backends = mock_backends
+        return mock_config
+
+    def test_no_warning_when_key_matches_env_var(self):
+        """No warning when config key matches the process env var."""
+        key = "sk-from-env-12345678"
+        mock_config = self._make_config("some-backend", key)
+
+        with (
+            patch(
+                "src.core.services.backend_registry.backend_registry"
+            ) as mock_registry,
+            patch.dict(os.environ, {"SOME_BACKEND_API_KEY": key}, clear=False),
+            patch(
+                "src.core.common.logging_utils._logged_security_warnings", new=set()
+            ),
+            patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
+            patch(
+                "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",
+                side_effect=lambda _name, **_kw: (os.environ.get(_name), "process"),
+            ),
+        ):
+            mock_registry.get_registered_backends.return_value = ["some-backend"]
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+
+            found: set[str] = set()
+            _discover_api_keys_from_config_backends(mock_config, found)
+
+            warning_calls = [
+                call.args[0] for call in mock_logger.warning.call_args_list
+            ]
+            assert not any("SECURITY WARNING" in w for w in warning_calls)
+            assert key in found
+
+    def test_no_false_positive_when_key_from_persistent_fallback(
+        self,
+    ):
+        """No warning when key is absent from os.environ but resolves via
+        get_env_value_with_windows_persistent_fallback (Windows registry)."""
+        key = "sk-from-registry-99999"
+        mock_config = self._make_config("zai-coding-plan", key)
+        os.environ.pop("ZAI_CODING_PLAN_API_KEY", None)
+
+        with (
+            patch(
+                "src.core.services.backend_registry.backend_registry"
+            ) as mock_registry,
+            patch(
+                "src.core.common.logging_utils._logged_security_warnings", new=set()
+            ),
+            patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
+            patch(
+                "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",
+                return_value=(key, "windows-user"),
+            ),
+        ):
+            mock_registry.get_registered_backends.return_value = ["zai-coding-plan"]
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+
+            found: set[str] = set()
+            _discover_api_keys_from_config_backends(mock_config, found)
+
+            warning_calls = [
+                call.args[0] for call in mock_logger.warning.call_args_list
+            ]
+            assert not any("SECURITY WARNING" in w for w in warning_calls)
+            assert key in found
+
+    def test_warning_when_key_truly_hardcoded(self):
+        """Warning IS emitted when key is NOT from any env source."""
+        key = "sk-hardcoded-in-config-0000"
+        mock_config = self._make_config("some-backend", key)
+
+        with (
+            patch(
+                "src.core.services.backend_registry.backend_registry"
+            ) as mock_registry,
+            patch(
+                "src.core.common.logging_utils._logged_security_warnings", new=set()
+            ),
+            patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
+            patch(
+                "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",
+                return_value=(None, "missing"),
+            ),
+        ):
+            mock_registry.get_registered_backends.return_value = ["some-backend"]
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+
+            found: set[str] = set()
+            _discover_api_keys_from_config_backends(mock_config, found)
+
+            warning_calls = [
+                call.args[0] for call in mock_logger.warning.call_args_list
+            ]
+            assert any("SECURITY WARNING" in w for w in warning_calls)
+            assert key in found
+
+    def test_no_false_positive_list_keys_from_persistent_fallback(
+        self,
+    ):
+        """No warning for list-type api_key that matches persistent fallback."""
+        key = "sk-registry-list-key"
+        mock_backend = MagicMock()
+        mock_backend.api_key = [key]
+        mock_backends = MagicMock()
+        setattr(mock_backends, "some-backend", mock_backend)
+        mock_config = MagicMock()
+        mock_config.backends = mock_backends
+
+        with (
+            patch(
+                "src.core.services.backend_registry.backend_registry"
+            ) as mock_registry,
+            patch(
+                "src.core.common.logging_utils._logged_security_warnings", new=set()
+            ),
+            patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
+            patch(
+                "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",
+                return_value=(key, "windows-user"),
+            ),
+        ):
+            mock_registry.get_registered_backends.return_value = ["some-backend"]
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+
+            found: set[str] = set()
+            _discover_api_keys_from_config_backends(mock_config, found)
+
+            warning_calls = [
+                call.args[0] for call in mock_logger.warning.call_args_list
+            ]
+            assert not any("SECURITY WARNING" in w for w in warning_calls)
+            assert key in found
