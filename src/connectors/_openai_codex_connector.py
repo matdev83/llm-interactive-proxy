@@ -749,8 +749,6 @@ class OpenAICodexConnector(OpenAIConnector):
         """Render custom instruction sections into a Codex <user_instructions> block."""
         sanitized_sections: list[str] = []
         for section in sections:
-            if section is None:
-                continue
             normalized = section.strip()
             if not normalized:
                 continue

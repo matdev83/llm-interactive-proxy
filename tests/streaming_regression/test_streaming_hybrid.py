@@ -68,7 +68,7 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
 
     reasoning_backend = OpenAIStreamingEmulator(
         chunks=reasoning_chunks,
-        chunk_delay=0.02,  # Increased to 20ms to avoid threshold race condition (< 10ms = buffered)
+        chunk_delay=0.016,
     )
 
     # Execution backend (won't be called in this test)
@@ -76,7 +76,7 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
         "Final answer", chunk_size=5
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.02
+        chunks=execution_chunks, chunk_delay=0.016
     )
 
     app = build_test_app()
@@ -125,7 +125,7 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
     if stats["chunks_sent"] > 0:
         # Check if chunks were sent incrementally (not all at once)
         # The threshold is < 0.01 (10ms), so we need delays > 10ms between chunks
-        # With chunk_delay=0.02 (20ms), max_delay should be >= 0.02
+        # With chunk_delay=0.016 (12ms), max_delay should be >= 0.016
         if stats.get("max_delay", 0) < 0.01:
             # If max_delay is still < 10ms, chunks may have been buffered
             # This can happen if the streaming pipeline collects chunks before forwarding
@@ -220,7 +220,7 @@ async def test_hybrid_combined_streaming() -> None:
     )
     reasoning_backend = OpenAIStreamingEmulator(
         chunks=reasoning_chunks,
-        chunk_delay=0.020,  # Well above 10ms threshold for buffering detection
+        chunk_delay=0.016,
     )
 
     execution_text = "Final comprehensive answer based on reasoning"
@@ -229,7 +229,7 @@ async def test_hybrid_combined_streaming() -> None:
     )
     execution_backend = OpenAIStreamingEmulator(
         chunks=execution_chunks,
-        chunk_delay=0.020,  # Well above 10ms threshold for buffering detection
+        chunk_delay=0.016,
     )
 
     app = build_test_app()
@@ -297,7 +297,7 @@ async def test_hybrid_with_tool_calls_streaming() -> None:
         "Based on tool results, here is the answer", chunk_size=10
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.02
+        chunks=execution_chunks, chunk_delay=0.016
     )
 
     app = build_test_app()

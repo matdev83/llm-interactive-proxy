@@ -87,8 +87,8 @@ async def test_openai_streaming_incremental_delivery() -> None:
     )
 
     backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.02
-    )  # Increased for reliable timing
+        chunks=chunks, chunk_delay=0.016
+    )  # Reduced for faster test execution, still above threshold
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -163,8 +163,8 @@ async def test_anthropic_streaming_incremental_delivery() -> None:
 
     backend = AnthropicStreamingEmulator(
         chunks=chunks,
-        chunk_delay=0.025,
-    )  # Must exceed emulator 10ms "all_at_once" threshold (see base_emulator.get_timing_stats)
+        chunk_delay=0.016,
+    )
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -224,9 +224,7 @@ async def test_gemini_streaming_incremental_delivery() -> None:
         GeminiStreamingEmulator.create_text_chunks(text, chunk_size=8),
     )
 
-    backend = GeminiStreamingEmulator(
-        chunks=chunks, chunk_delay=0.02
-    )  # Increased for reliable timing
+    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.016)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -283,9 +281,7 @@ async def test_openai_tool_call_streaming() -> None:
     """Test that tool calls stream correctly without buffering."""
     chunks = cast(list[str | bytes], OpenAIStreamingEmulator.create_tool_call_chunks())
 
-    backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.02
-    )  # Increased for reliable timing
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.016)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 

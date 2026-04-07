@@ -32,8 +32,8 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 60.0) -> Non
     """
     end = time.time() + timeout
     # Use exponential backoff for more efficient waiting
-    backoff_time = 0.005  # Start with 5ms
-    max_backoff = 0.5  # Max 0.5s between attempts
+    backoff_time = 0.002  # Start with 2ms
+    max_backoff = 0.3  # Max 0.3s between attempts
 
     while time.time() < end:
         try:
@@ -59,6 +59,8 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
 
     # Optimize startup with faster logging and reduced checks
     env["PYTHONUNBUFFERED"] = "1"
+    env["PYTHONOPTIMIZE"] = "1"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
     env["LOG_LEVEL"] = "WARNING"  # Reduce logging overhead
     # Run the real CLI so it configures logging/file handlers
     proc = subprocess.Popen(

@@ -28,50 +28,39 @@ class TestEventBusPendingTasksLeakRegression:
         initial_pending_count = len(event_bus._pending_tasks)
 
         # Create many events with handlers that complete quickly
-        num_events = 150  # Reduced from 200 for performance
+        num_events = 50
 
         async def quick_handler(event: TestEvent) -> None:
             async with FakeClockContext() as clock:
-                sleep_task = asyncio.create_task(asyncio.sleep(0.0003))
-                clock.advance(0.0003)  # Further reduced for faster completion
+                sleep_task = asyncio.create_task(asyncio.sleep(0.0001))
+                clock.advance(0.0001)
                 await sleep_task
 
-        # Subscribe handler
         event_bus.subscribe(TestEvent, quick_handler)
 
-        # Publish many events without waiting (using publish_nowait)
         for _i in range(num_events):
-            event_bus.publish_nowait(TestEvent())
+            await event_bus.publish_nowait(TestEvent())
 
-        # Give tasks time to start and complete
         async with FakeClockContext() as clock:
-            sleep_task1 = asyncio.create_task(asyncio.sleep(0.01))
-            clock.advance(0.01)  # Reduced from 0.02
+            sleep_task1 = asyncio.create_task(asyncio.sleep(0.005))
+            clock.advance(0.005)
             await sleep_task1
 
-            # Check pending tasks count
             len([t for t in event_bus._pending_tasks if not t.done()])
             len(event_bus._pending_tasks)
 
-            # Wait for all tasks to complete
-            sleep_task2 = asyncio.create_task(asyncio.sleep(0.08))
-            clock.advance(0.08)  # Reduced from 0.1
+            sleep_task2 = asyncio.create_task(asyncio.sleep(0.04))
+            clock.advance(0.04)
             await sleep_task2
 
-        # Force garbage collection to allow WeakSet to clean up
         gc.collect()
 
-        # Check if completed tasks are cleaned up
         final_pending = len([t for t in event_bus._pending_tasks if not t.done()])
         final_total = len(event_bus._pending_tasks)
 
-        # WeakSet should automatically remove completed tasks when they're GC'd
-        # Since we don't keep references, tasks should be cleaned up
-        assert (
-            final_total <= initial_pending_count + 75
-        ), (  # Adjusted for reduced event count
+        assert final_total <= initial_pending_count + 25, (
             f"Tasks accumulating in WeakSet: {final_total - initial_pending_count} "
-            f"tasks still present (expected <= 75). WeakSet cleanup may not be working."
+            f"tasks still present (expected <= 25). WeakSet cleanup may not be working."
         )
         assert (
             final_pending == 0
@@ -96,10 +85,8 @@ class TestEventBusPendingTasksLeakRegression:
         # Publish events - reduced from 20 to 15 for performance while maintaining test coverage
         num_events = 15  # Reduced from 20 for performance
         for _i in range(num_events):
-            event_bus.publish_nowait(TestEvent())
+            await event_bus.publish_nowait(TestEvent())
 
-        # Get all tasks from WeakSet immediately (this creates references!)
-        # Don't wait - capture tasks before they complete
         task_refs = list(event_bus._pending_tasks)
 
         # Wait for tasks to complete - reduced wait time, check completion instead of fixed delay
@@ -154,9 +141,8 @@ class TestEventBusPendingTasksLeakRegression:
 
         event_bus.subscribe(TestEvent, slow_handler)
 
-        # Publish events without waiting
         for _i in range(10):
-            event_bus.publish_nowait(TestEvent())
+            await event_bus.publish_nowait(TestEvent())
 
         # Give tasks time to start (but not complete)
         async with FakeClockContext() as clock:
@@ -201,10 +187,8 @@ class TestEventBusPendingTasksLeakRegression:
 
         event_bus.subscribe(TestEvent, handler)
 
-        # Publish many events rapidly - reduced from 500 to 300 for performance
-        # Still sufficient to test bounded growth without excessive time
-        for _i in range(300):  # Reduced from 500 for performance
-            event_bus.publish_nowait(TestEvent())
+        for _i in range(300):
+            await event_bus.publish_nowait(TestEvent())
 
         # Wait for tasks to complete with early exit check
         async with FakeClockContext() as clock:

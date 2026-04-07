@@ -340,7 +340,7 @@ async def test_streaming_with_json_repair() -> None:
     ]
 
     typed_chunks = cast(list[str | bytes | dict[str, Any]], chunks)
-    backend = OpenAIStreamingEmulator(chunks=typed_chunks, chunk_delay=0)
+    backend = OpenAIStreamingEmulator(chunks=typed_chunks, chunk_delay=0.005)
     app = build_test_app()
     app.state.disable_auth = True
     _inject_backend(app, backend)

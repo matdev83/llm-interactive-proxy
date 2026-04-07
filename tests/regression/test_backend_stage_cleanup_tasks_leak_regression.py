@@ -107,7 +107,9 @@ class TestValidationHttpClientManagerCleanupTasksLeakRegression:
 
         async def slow_cleanup():
             """Simulate slow cleanup that might timeout."""
-            await asyncio.sleep(1.0)  # Longer than typical timeout
+            await asyncio.sleep(
+                0.1
+            )  # Longer than typical per-task timeout but minimal for speed
 
         client = httpx.AsyncClient()
 

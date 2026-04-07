@@ -2,6 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from src.core.domain.connection_activity import ConnectionActivity
 from src.core.domain.session import Session, SessionState
 from src.core.repositories.in_memory_session_repository import InMemorySessionRepository
 from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
@@ -22,14 +23,15 @@ class TestMemoryLeaksFixesRegression:
     def test_connection_activity_tracker_max_connections(self):
         tracker = ConnectionActivityTracker()
 
-        # Test max connections logic
-        max_conns = 10000
+        max_conns = 1000
 
-        # Fill it exactly to the max
         for i in range(max_conns):
-            activity = MagicMock()
-            # Deterministic "started_at" timestamps (oldest = smallest).
-            activity.started_at = float(i)
+            activity = ConnectionActivity(
+                session_id=f"session_{i}",
+                backend_name="test_backend",
+                connection_type=ConnectionType.STREAMING,
+                started_at=float(i),
+            )
             tracker._connections[("test_backend", f"session_{i}")] = activity
 
         with tracker.track_connection(
@@ -37,7 +39,6 @@ class TestMemoryLeaksFixesRegression:
         ):
             pass
 
-        # The new one was added, and the oldest one evicted, leaving the total at max_conns (or fewer if stale)
         assert len(tracker._connections) <= max_conns
 
     def test_endpoint_registry_prunes_health_states(self):

@@ -55,20 +55,22 @@ async def test_capacity_error_is_treated_as_retryable_rate_limit():
     mock_response.text = json.dumps(mock_response.json.return_value)
 
     # Patch asyncio.to_thread to return our mock response
-    with patch(
-        "src.connectors.gemini_base.streaming_executor.asyncio.to_thread",
-        AsyncMock(return_value=mock_response),
+    async def passthrough_execute(operation, **kwargs):
+        return await operation()
+
+    with (
+        patch.object(executor._shared_retry_executor, "execute", passthrough_execute),
+        patch(
+            "src.connectors.gemini_base.streaming_executor.asyncio.to_thread",
+            AsyncMock(return_value=mock_response),
+        ),
     ):
-        # Run execution
         try:
-            # We use a loop that would try to yield chunks
             async for _ in executor.execute(prepared, "http://example.com/stream"):
                 pass
         except BackendError as e:
-            # The key assertion: it should be rate_limit_exceeded, NOT quota_exceeded
             assert e.code == "rate_limit_exceeded"
             assert e.status_code == 429
-            # Verify the default 5.0s retry delay we added
             assert e.details.get("retry_after") == 5.0
             return
 

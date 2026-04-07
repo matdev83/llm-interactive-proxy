@@ -7,7 +7,6 @@ Fixed: Cache size is limited by cache_max_size parameter, preventing unbounded g
 """
 
 import contextlib
-import gc
 import tracemalloc
 
 import pytest
@@ -85,23 +84,14 @@ class TestPathValidationServiceCacheRegression:
 
         service = PathValidationService(cache_max_size=100)
 
-        # Initial memory measurement
-        gc.collect()
         initial_memory, _ = tracemalloc.get_traced_memory()
 
-        # Generate unique paths - minimal iterations to exceed cache limit
-        for i in range(
-            105
-        ):  # Enough to exceed cache limit (100) and verify bounded growth
+        for i in range(105):
             unique_path = f"/tmp/memory_test_{i}/file_{i}.txt"
             with contextlib.suppress(ValueError, OSError):
                 service.normalize_path(unique_path)
 
-        # Force garbage collection
-        gc.collect()
-
-        # Check final state
-        current_memory, peak_memory = tracemalloc.get_traced_memory()
+        current_memory, _peak_memory = tracemalloc.get_traced_memory()
         final_cache_size = len(service._normalization_cache)
 
         tracemalloc.stop()

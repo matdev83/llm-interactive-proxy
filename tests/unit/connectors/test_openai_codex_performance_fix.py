@@ -14,13 +14,8 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONNECTOR_PATH = _PROJECT_ROOT / "src" / "connectors" / "_openai_codex_connector.py"
 _EXECUTOR_PATH = _PROJECT_ROOT / "src" / "connectors" / "openai_codex" / "executor.py"
 
-
-def _connector_code() -> str:
-    return _CONNECTOR_PATH.read_text()
-
-
-def _executor_code() -> str:
-    return _EXECUTOR_PATH.read_text()
+_CONNECTOR_CODE = _CONNECTOR_PATH.read_text() if _CONNECTOR_PATH.exists() else ""
+_EXECUTOR_CODE = _EXECUTOR_PATH.read_text() if _EXECUTOR_PATH.exists() else ""
 
 
 class TestOpenAICodexPerformanceOptimization:
@@ -33,7 +28,7 @@ class TestOpenAICodexPerformanceOptimization:
         This was causing slow performance and rapid quota consumption.
         After refactoring, retry logic is in executor.py, not connector.
         """
-        connector_code = _connector_code()
+        connector_code = _CONNECTOR_CODE
         # Retry logic should not be in connector anymore
         retry_pattern = r"for attempt in range.*?except HTTPException.*?if exc\.status_code == 401.*?continue"
         retry_sections = re.findall(retry_pattern, connector_code, re.DOTALL)
@@ -41,7 +36,7 @@ class TestOpenAICodexPerformanceOptimization:
             len(retry_sections) == 0
         ), "Retry logic should not be in connector - it has been moved to executor.py"
 
-        executor_code = _executor_code()
+        executor_code = _EXECUTOR_CODE
 
         # Should have retry logic in executor
         assert (
@@ -64,12 +59,12 @@ class TestOpenAICodexPerformanceOptimization:
         Test that retry logic is efficient and doesn't waste resources.
         After refactoring, retry logic is in executor.py.
         """
-        connector_code = _connector_code()
+        connector_code = _CONNECTOR_CODE
         assert (
             "for attempt in range" not in connector_code
         ), "Retry logic should not be in connector - moved to executor.py"
 
-        executor_code = _executor_code()
+        executor_code = _EXECUTOR_CODE
 
         # Should have retry logic in executor
         assert (
@@ -86,7 +81,7 @@ class TestOpenAICodexPerformanceOptimization:
         Test that session continuity is preserved during token refresh.
         After refactoring, retry logic is in executor.py, not connector.
         """
-        source_code = _executor_code()
+        source_code = _EXECUTOR_CODE
 
         # Executor should derive conversation_id from payload, not generate it
         # Look for conversation_id assignment from payload (not UUID generation)
@@ -112,7 +107,7 @@ class TestOpenAICodexPerformanceOptimization:
         Test that there are no patterns that could cause double processing.
         After refactoring, retry logic is in executor.py.
         """
-        source_code = _executor_code()
+        source_code = _EXECUTOR_CODE
 
         # Look for retry sections (executor uses while True with attempts_used, not for attempt in range)
         retry_pattern = r"while True.*?if.*401.*?attempts_used"
@@ -138,7 +133,7 @@ class TestOpenAICodexPerformanceOptimization:
         Test for indicators of quota-efficient implementation.
         After refactoring, retry logic is in executor.py.
         """
-        executor_code = _executor_code()
+        executor_code = _EXECUTOR_CODE
         # Should have comments indicating the fix in executor
         efficiency_indicators = [
             "retry",
@@ -158,7 +153,7 @@ class TestOpenAICodexPerformanceOptimization:
             f"Found {found_indicators} out of {len(efficiency_indicators)} indicators."
         )
 
-        connector_code = _connector_code()
+        connector_code = _CONNECTOR_CODE
         assert (
             "for attempt in range" not in connector_code
         ), "Connector should not have retry logic - it's been moved to executor"

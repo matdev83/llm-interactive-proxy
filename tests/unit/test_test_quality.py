@@ -391,7 +391,7 @@ def _calculate_directory_hash(directory: Path) -> str:
     # For more accuracy, sample a subset of files (every 10th file)
     # This balances speed with cache invalidation accuracy
     py_files = list(directory.rglob("*.py"))
-    sample_size = min(100, len(py_files))  # Sample up to 100 files
+    sample_size = min(40, len(py_files))  # Sample up to 40 files
     step = max(1, len(py_files) // sample_size) if py_files else 1
 
     for i, py_file in enumerate(py_files):
@@ -745,9 +745,7 @@ def _run_vulture_scan(
         import vulture  # type: ignore[import-untyped]
     except ImportError:
         result = {"unused_items": [], "error": "vulture package not available"}
-        cache.update(
-            {"src_hash": str(src_hash), "timestamp": current_time, **result}
-        )
+        cache.update({"src_hash": str(src_hash), "timestamp": current_time, **result})
         try:
             with open(cache_file, "w", encoding="utf-8") as f:
                 json.dump(cache, f, indent=2)

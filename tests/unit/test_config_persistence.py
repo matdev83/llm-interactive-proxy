@@ -11,6 +11,7 @@ def functional_backend() -> str:
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from src.core.app.test_builder import build_minimal_test_app
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.common.exceptions import ConfigurationError, JSONParsingError
 from src.core.config.app_config import load_config
@@ -133,7 +134,7 @@ def test_save_and_load_persistent_config(
             elif hasattr(e, "details"):  # type: ignore
                 print(f"Error details: {e.details}")  # type: ignore
             raise
-        app2 = build_app(config=app2_config)
+        app2 = build_minimal_test_app(config=app2_config)
 
     caplog.clear()
 

@@ -16,7 +16,6 @@ from src.connectors.contracts import (
 from src.core.common.exceptions import (
     AuthenticationError,
     ConfigurationError,
-    InvalidRequestError,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -237,17 +236,6 @@ class ZAIConnector(OpenAIConnector):
         through :class:`ConnectorChatCompletionsRequest`; legacy positional call shapes
         are not supported at this boundary.
         """
-        if not isinstance(request, ConnectorChatCompletionsRequest):
-            raise InvalidRequestError(
-                message=(
-                    "ZAIConnector.chat_completions requires ConnectorChatCompletionsRequest. "
-                    "Legacy request_data/processed_messages/effective_model invocation is not supported."
-                ),
-                details={
-                    "received_type": type(request).__name__,
-                    "connector": self.backend_type,
-                },
-            )
         return await self._chat_completions_canonical(request)
 
 

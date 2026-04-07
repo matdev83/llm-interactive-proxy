@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.app.controllers import (
@@ -74,6 +76,28 @@ def _extract_error_code(payload: dict[str, object]) -> str | None:
     if isinstance(code, str):
         return code
     return None
+
+
+@pytest.fixture(scope="module")
+def _extracted_backend_app():
+    config = AppConfig(
+        auth=AuthConfig(disable_auth=True),
+        backends=BackendSettings(default_backend="openai"),
+    )
+    yield ApplicationBuilder().add_default_stages().build_compat(config)
+
+
+@contextmanager
+def _without_gemini_oauth_backend():
+    removed_factory = None
+    with backend_registry._lock:
+        removed_factory = backend_registry._factories.pop("gemini-oauth-plan", None)
+    try:
+        yield
+    finally:
+        if removed_factory is not None:
+            with backend_registry._lock:
+                backend_registry._factories["gemini-oauth-plan"] = removed_factory
 
 
 def test_openai_and_anthropic_surfaces_preserve_routing_error_semantics(
@@ -249,35 +273,21 @@ def test_uri_model_selector_is_forwarded_consistently_across_protocol_surfaces(
 
 def test_request_time_missing_extracted_backend_returns_handled_error(
     monkeypatch,
+    _extracted_backend_app,
 ) -> None:
     """Requests targeting missing extracted backends should return deterministic 404."""
     monkeypatch.setenv("DISABLE_AUTH", "true")
     monkeypatch.setenv("REPLACEMENT_ENABLED", "false")
     monkeypatch.delenv("REPLACEMENT_RULES", raising=False)
 
-    config = AppConfig(
-        auth=AuthConfig(disable_auth=True),
-        backends=BackendSettings(default_backend="openai"),
-    )
-    app = ApplicationBuilder().add_default_stages().build_compat(config)
-
-    removed_factory = None
-    with backend_registry._lock:
-        removed_factory = backend_registry._factories.pop("gemini-oauth-plan", None)
-
-    try:
-        with TestClient(app) as client:
-            response = client.post(
-                "/v1/chat/completions",
-                json={
-                    "model": "gemini-oauth-plan:gemini-2.5-pro",
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-            )
-    finally:
-        if removed_factory is not None:
-            with backend_registry._lock:
-                backend_registry._factories["gemini-oauth-plan"] = removed_factory
+    with _without_gemini_oauth_backend(), TestClient(_extracted_backend_app) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gemini-oauth-plan:gemini-2.5-pro",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
 
     assert response.status_code == 404
     payload = response.json()
@@ -294,50 +304,36 @@ def test_request_time_missing_extracted_backend_returns_handled_error(
 
 def test_request_time_missing_extracted_backend_is_consistent_across_protocols(
     monkeypatch,
+    _extracted_backend_app,
 ) -> None:
     """Missing extracted backend guidance should be protocol-consistent."""
     monkeypatch.setenv("DISABLE_AUTH", "true")
     monkeypatch.setenv("REPLACEMENT_ENABLED", "false")
     monkeypatch.delenv("REPLACEMENT_RULES", raising=False)
 
-    config = AppConfig(
-        auth=AuthConfig(disable_auth=True),
-        backends=BackendSettings(default_backend="openai"),
-    )
-    app = ApplicationBuilder().add_default_stages().build_compat(config)
-
-    removed_factory = None
-    with backend_registry._lock:
-        removed_factory = backend_registry._factories.pop("gemini-oauth-plan", None)
-
-    try:
-        with TestClient(app) as client:
-            openai_response = client.post(
-                "/v1/chat/completions",
-                json={
-                    "model": "gemini-oauth-plan:gemini-2.5-pro",
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-            )
-            anthropic_response = client.post(
-                "/anthropic/v1/messages",
-                json={
-                    "model": "gemini-oauth-plan:gemini-2.5-pro",
-                    "max_tokens": 16,
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-            )
-            gemini_response = client.post(
-                "/v1beta/models/test-model:generateContent",
-                json={
-                    "model": "gemini-oauth-plan:gemini-2.5-pro",
-                    "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
-                },
-            )
-    finally:
-        if removed_factory is not None:
-            with backend_registry._lock:
-                backend_registry._factories["gemini-oauth-plan"] = removed_factory
+    with _without_gemini_oauth_backend(), TestClient(_extracted_backend_app) as client:
+        openai_response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gemini-oauth-plan:gemini-2.5-pro",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        anthropic_response = client.post(
+            "/anthropic/v1/messages",
+            json={
+                "model": "gemini-oauth-plan:gemini-2.5-pro",
+                "max_tokens": 16,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+        gemini_response = client.post(
+            "/v1beta/models/test-model:generateContent",
+            json={
+                "model": "gemini-oauth-plan:gemini-2.5-pro",
+                "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+            },
+        )
 
     for response in (openai_response, anthropic_response, gemini_response):
         assert response.status_code == 404
@@ -353,40 +349,33 @@ def test_request_time_missing_extracted_backend_is_consistent_across_protocols(
         )
 
 
-    def test_streaming_request_missing_extracted_backend_returns_handled_error(
-        monkeypatch,
-    ) -> None:
-        """Streaming requests should keep unknown_model semantics for missing extracted backends."""
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        monkeypatch.setenv("REPLACEMENT_ENABLED", "false")
-        monkeypatch.delenv("REPLACEMENT_RULES", raising=False)
-    
-        config = AppConfig(
-            auth=AuthConfig(disable_auth=True),
-            backends=BackendSettings(default_backend="openai"),
+def test_streaming_request_missing_extracted_backend_returns_handled_error(
+    monkeypatch,
+    _extracted_backend_app,
+) -> None:
+    """Streaming requests should keep unknown_model semantics for missing extracted backends."""
+    monkeypatch.setenv("DISABLE_AUTH", "true")
+    monkeypatch.setenv("REPLACEMENT_ENABLED", "false")
+    monkeypatch.delenv("REPLACEMENT_RULES", raising=False)
+
+    with _without_gemini_oauth_backend(), TestClient(_extracted_backend_app) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "gemini-oauth-plan:gemini-2.5-pro",
+                "stream": True,
+                "messages": [{"role": "user", "content": "hi"}],
+            },
         )
-        app = ApplicationBuilder().add_default_stages().build_compat(config)
-    
-        removed_factory = None
-        with backend_registry._lock:
-            removed_factory = backend_registry._factories.pop("gemini-oauth-plan", None)
-    
-        try:
-            with TestClient(app) as client:
-                response = client.post(
-                    "/v1/chat/completions",
-                    json={
-                        "model": "gemini-oauth-plan:gemini-2.5-pro",
-                        "stream": True,
-                        "messages": [{"role": "user", "content": "hi"}],
-                    },
-                )
-        finally:
-            if removed_factory is not None:
-                with backend_registry._lock:
-                    backend_registry._factories["gemini-oauth-plan"] = removed_factory
-    
-        assert response.status_code == 404
-        assert response.headers.get("content-type", "").startswith("text/event-stream")
-        assert "unknown_model" in response.text or "unavailable" in response.text
-    assert "pip install llm-interactive-proxy[oauth]" in response.text
+
+    assert response.status_code == 404
+    payload = response.json()
+    assert _extract_error_code(payload) == "unknown_model"
+    assert (
+        _extract_error_field(payload, "install_command")
+        == "pip install llm-interactive-proxy[oauth]"
+    )
+    assert (
+        _extract_error_field(payload, "optional_package")
+        == "llm-interactive-proxy-oauth-connectors"
+    )

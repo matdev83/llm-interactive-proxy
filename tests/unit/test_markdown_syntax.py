@@ -12,52 +12,78 @@ def get_project_root() -> Path:
     return Path(__file__).parent.parent.parent
 
 
-def run_pymarkdown_scan(file_path: Path) -> tuple[bool, str]:
+def run_pymarkdown_scan_all(
+    project_root: Path, markdown_files: list[Path]
+) -> dict[str, dict[str, bool | str]]:
     """
-    Run pymarkdown scan on a file.
+    Run pymarkdown scan on multiple files in a single subprocess call.
 
     Args:
-        file_path: Path to the Markdown file to scan.
+        project_root: Path to the project root directory.
+        markdown_files: List of paths to the Markdown files to scan.
 
     Returns:
-        A tuple of (success, output) where success is True if no issues found.
+        Dict mapping filename to {"success": bool, "output": str}.
     """
+    results: dict[str, dict[str, bool | str]] = {}
+    existing_files = [f for f in markdown_files if f.exists()]
+    for f in markdown_files:
+        if not f.exists():
+            results[f.name] = {"success": False, "output": "File not found"}
+
+    if not existing_files:
+        return results
+
     try:
-        # Run pymarkdown scan command using the executable directly
-        # Disable rules that are too restrictive for documentation:
-        # - MD013: Line length (80 chars is too short for docs)
-        # - MD036: Emphasis as heading (bold text is acceptable in docs)
-        # - MD024: Duplicate headings (common in docs with repeated sections)
-        # - MD040: Code fence language (not all examples need language tags)
-        # - MD029: Ordered list prefix (allows flexible list numbering)
-        # - MD033: Inline HTML (needed for collapsible sections, etc.)
-        # - MD031: Blank lines around fences (compact formatting is acceptable)
-        # - MD022: Blank lines around headings (compact formatting is acceptable)
-        # - MD007: List indentation (flexible indentation is acceptable)
+        cmd = [
+            ".venv\\Scripts\\pymarkdown.exe",
+            "-d",
+            "MD013,MD036,MD024,MD040,MD029,MD033,MD031,MD022,MD007",
+            "scan",
+        ] + [str(f) for f in existing_files]
+
         result = subprocess.run(
-            [
-                ".venv\\Scripts\\pymarkdown.exe",
-                "-d",
-                "MD013,MD036,MD024,MD040,MD029,MD033,MD031,MD022,MD007",
-                "scan",
-                str(file_path),
-            ],
-            cwd=get_project_root(),
+            cmd,
+            cwd=str(project_root),
             capture_output=True,
             text=True,
             timeout=30,
         )
 
-        # pymarkdown returns non-zero exit code if issues are found
-        success = result.returncode == 0
-        output = result.stdout + result.stderr
+        for md_file in existing_files:
+            filename = md_file.name
+            lines = result.stdout.strip().split("\n")
+            file_issues = [l for l in lines if md_file.name in l]
+            if file_issues:
+                results[filename] = {"success": False, "output": "\n".join(file_issues)}
+            else:
+                err_lines = [
+                    l for l in result.stderr.strip().split("\n") if md_file.name in l
+                ]
+                if err_lines:
+                    results[filename] = {
+                        "success": False,
+                        "output": "\n".join(err_lines),
+                    }
+                else:
+                    results[filename] = {"success": True, "output": ""}
 
-        return success, output
+        return results
 
     except subprocess.TimeoutExpired:
-        return False, "Pymarkdown scan timed out"
+        for md_file in existing_files:
+            results[md_file.name] = {
+                "success": False,
+                "output": "Pymarkdown scan timed out",
+            }
+        return results
     except Exception as e:
-        return False, f"Error running pymarkdown: {e}"
+        for md_file in existing_files:
+            results[md_file.name] = {
+                "success": False,
+                "output": f"Error running pymarkdown: {e}",
+            }
+        return results
 
 
 @pytest.fixture(scope="session")
@@ -65,12 +91,10 @@ def markdown_validation_cache() -> dict:
     """Session-scoped cache for markdown validation results."""
     project_root = get_project_root()
 
-    # Setup cache directory and file
     cache_dir = project_root / ".pytest_cache"
     cache_dir.mkdir(exist_ok=True)
     cache_file = cache_dir / "markdown_validation_cache.json"
 
-    # Files to check
     markdown_files = [
         project_root / "README.md",
         project_root / "AGENTS.md",
@@ -78,7 +102,6 @@ def markdown_validation_cache() -> dict:
         project_root / "CHANGELOG.md",
     ]
 
-    # Calculate hash of markdown files for cache invalidation
     hasher = hashlib.md5()
     for md_file in markdown_files:
         if md_file.exists():
@@ -91,7 +114,6 @@ def markdown_validation_cache() -> dict:
                 pass
     files_hash = hasher.hexdigest()
 
-    # Load existing cache or create empty cache
     cache: dict = {}
     if cache_file.exists():
         try:
@@ -100,9 +122,8 @@ def markdown_validation_cache() -> dict:
         except (OSError, json.JSONDecodeError):
             cache = {}
 
-    # Check if cache is valid (same file hashes and not expired)
     current_time = time.time()
-    cache_timeout = 3600  # 1 hour in seconds
+    cache_timeout = 3600
 
     if (
         cache.get("files_hash") == files_hash
@@ -111,17 +132,8 @@ def markdown_validation_cache() -> dict:
     ):
         return cache
 
-    # Run validation and cache results
-    results = {}
-    for md_file in markdown_files:
-        if not md_file.exists():
-            results[md_file.name] = {"success": False, "output": "File not found"}
-            continue
+    results = run_pymarkdown_scan_all(project_root, markdown_files)
 
-        success, output = run_pymarkdown_scan(md_file)
-        results[md_file.name] = {"success": success, "output": output}
-
-    # Cache the results
     cache.update(
         {
             "files_hash": files_hash,
@@ -130,7 +142,6 @@ def markdown_validation_cache() -> dict:
         }
     )
 
-    # Save updated cache
     try:
         with open(cache_file, "w", encoding="utf-8") as f:
             json.dump(cache, f, indent=2)

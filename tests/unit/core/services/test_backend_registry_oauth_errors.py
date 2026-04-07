@@ -11,6 +11,9 @@ Requirements satisfied:
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,12 +21,48 @@ from pathlib import Path
 import pytest
 from src.core.services.backend_registry import BackendRegistry
 
-# Get the project root directory
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+_PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+_CACHE_FILE = _PROJECT_ROOT / ".pytest_cache" / "oauth_errors_subprocess_cache.json"
+_WATCHED = [
+    _PROJECT_ROOT / "src" / "connectors" / "__init__.py",
+    _PROJECT_ROOT / "src" / "core" / "services" / "backend_registry.py",
+]
+
+
+def _cache_key(script: str) -> str:
+    h = hashlib.md5()
+    h.update(script.encode())
+    for p in _WATCHED:
+        if p.exists():
+            st = p.stat()
+            h.update(f"{p.name}:{st.st_size}:{st.st_mtime}".encode())
+    return h.hexdigest()
+
+
+def _load_cached(key: str) -> dict[str, str] | None:
+    if not _CACHE_FILE.exists():
+        return None
+    try:
+        with open(_CACHE_FILE) as f:
+            data = json.load(f)
+        if data.get("key") == key:
+            return data.get("errors")
+    except (OSError, json.JSONDecodeError):
+        pass
+    return None
+
+
+def _store_cached(key: str, errors: dict[str, str]) -> None:
+    _CACHE_FILE.parent.mkdir(exist_ok=True)
+    try:
+        with open(_CACHE_FILE, "w") as f:
+            json.dump({"key": key, "errors": errors}, f)
+    except OSError:
+        pass
 
 
 def _run_multi_user_oauth_errors() -> dict[str, str]:
-    """Run OAuth error checks in one subprocess (gemini, anthropic, qwen)."""
+    """Run OAuth error checks in one subprocess with disk caching."""
     script = """
 import os
 os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
@@ -38,19 +77,33 @@ for name in ["gemini-oauth-auto", "anthropic-oauth", "qwen-oauth"]:
     except ValueError as e:
         print(f"{name}||{e!s}")
 """
+    key = _cache_key(script)
+    cached = _load_cached(key)
+    if cached is not None:
+        return cached
+
+    env = {
+        **dict(os.environ),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONOPTIMIZE": "1",
+    }
     result = subprocess.run(
         [sys.executable, "-c", script],
-        cwd=str(PROJECT_ROOT),
+        cwd=str(_PROJECT_ROOT),
         capture_output=True,
         text=True,
+        env=env,
     )
     if result.returncode != 0:
         raise RuntimeError(f"Script failed: {result.stderr}")
-    out = {}
+
+    out: dict[str, str] = {}
     for line in result.stdout.strip().split("\n"):
         if "||" in line:
             name, _, msg = line.partition("||")
             out[name.strip()] = msg
+
+    _store_cached(key, out)
     return out
 
 

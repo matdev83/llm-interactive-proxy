@@ -1,5 +1,6 @@
 import ast
 import json
+import os
 import pathlib
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -22,7 +23,7 @@ ALLOWED_FILES = {
 def _calculate_directory_hash(directory: pathlib.Path) -> str:
     """Fast directory hash using mtime and size samples for cache invalidation.
 
-    Optimized version that samples files instead of scanning all, avoiding full file reads.
+    Uses os.scandir/walk instead of rglob for faster traversal on Windows.
     """
     import hashlib
 
@@ -34,15 +35,23 @@ def _calculate_directory_hash(directory: pathlib.Path) -> str:
     except OSError:
         pass
 
-    py_files = list(directory.rglob("*.py"))
-    sample_size = min(50, len(py_files))
+    py_files: list[tuple[str, os.stat_result]] = []
+    for dirpath, _, filenames in os.walk(directory):
+        for fn in filenames:
+            if fn.endswith(".py"):
+                fp = os.path.join(dirpath, fn)
+                try:
+                    py_files.append((fp, os.stat(fp)))
+                except OSError:
+                    continue
+
+    sample_size = min(30, len(py_files))
     step = max(1, len(py_files) // sample_size) if py_files else 1
 
-    for i, py_file in enumerate(py_files):
+    for i, (fp, file_stat) in enumerate(py_files):
         if i % step == 0:
             try:
-                file_stat = py_file.stat()
-                rel_path = py_file.relative_to(directory)
+                rel_path = os.path.relpath(fp, directory)
                 file_data = f"{rel_path}:{file_stat.st_size}:{file_stat.st_mtime}"
                 hasher.update(file_data.encode())
             except OSError:
@@ -87,26 +96,32 @@ def print_check_cache() -> dict[str, Any]:
     else:
         search_paths = [src_dir]
 
-    skip_parts = {
-        "tests",
-        ".venv",
-        "site-packages",
-        ".git",
-        "dev",
-        "examples",
-        "tools",
-        "scripts",
-        "stubs",
-    }
+    skip_parts = frozenset(
+        (
+            "tests",
+            ".venv",
+            "site-packages",
+            ".git",
+            "dev",
+            "examples",
+            "tools",
+            "scripts",
+            "stubs",
+        )
+    )
 
     paths_to_check: list[pathlib.Path] = []
+
     for search_path in search_paths:
-        for path in search_path.rglob("*.py"):
-            if any(skip_part in path.parts for skip_part in skip_parts):
+        for dirpath, _, filenames in os.walk(search_path):
+            if any(skip in dirpath for skip in skip_parts):
                 continue
-            if path in ALLOWED_FILES:
-                continue
-            if path.is_file():
+            for fn in filenames:
+                if not fn.endswith(".py"):
+                    continue
+                path = pathlib.Path(dirpath) / fn
+                if path in ALLOWED_FILES:
+                    continue
                 paths_to_check.append(path)
 
     def _check_one(path: pathlib.Path) -> tuple[str, dict[str, Any]] | None:

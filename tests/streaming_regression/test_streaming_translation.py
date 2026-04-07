@@ -101,8 +101,8 @@ async def test_openai_frontend_gemini_backend_streaming() -> None:
     )
 
     backend = GeminiStreamingEmulator(
-        chunks=chunks, chunk_delay=0.015
-    )  # Set to 15ms to ensure it's above the 10ms buffering detection threshold
+        chunks=chunks, chunk_delay=0.011
+    )  # Keep above 10ms buffering detection threshold, minimized from 15ms
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 
@@ -142,8 +142,8 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
     )
 
     backend = AnthropicStreamingEmulator(
-        chunks=chunks, chunk_delay=0.015
-    )  # Set to 15ms to ensure it's above the 10ms buffering detection threshold
+        chunks=chunks, chunk_delay=0.011
+    )  # Keep above 10ms buffering detection threshold, minimized from 15ms
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 
@@ -183,8 +183,8 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
     )
 
     backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.02
-    )  # Minimal delay; 10ms buffering threshold is in emulator
+        chunks=chunks, chunk_delay=0.011
+    )  # Keep above 10ms buffering detection threshold, minimized from 20ms
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 
@@ -225,8 +225,8 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
     )
 
     backend = GeminiStreamingEmulator(
-        chunks=chunks, chunk_delay=0.05
-    )  # Reduced from 0.1 for performance
+        chunks=chunks, chunk_delay=0.011
+    )  # Keep above 10ms buffering detection threshold, minimized from 50ms
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 

@@ -8,6 +8,7 @@ Feature: streaming-pipeline-refactor
 """
 
 import ast
+import functools
 import importlib
 import inspect
 from pathlib import Path
@@ -16,6 +17,7 @@ import pytest
 
 
 # Helper functions for architectural analysis
+@functools.cache
 def get_module_dependencies(module_path: str) -> set[str]:
     """Extract import dependencies from a Python module.
 
@@ -45,6 +47,7 @@ def get_module_dependencies(module_path: str) -> set[str]:
     return dependencies
 
 
+@functools.cache
 def get_layer_for_module(module_path: str) -> str | None:
     """Determine which architectural layer a module belongs to.
 

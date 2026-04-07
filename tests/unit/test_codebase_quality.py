@@ -88,11 +88,15 @@ def find_files_with_emojis(directories: list[str]) -> list[tuple[str, int, str]]
     project_root = Path(__file__).resolve().parents[2]
     paths_to_check: list[Path] = []
     for directory in directories:
-        dir_path = Path(directory)
-        paths_to_check.extend(f for f in dir_path.rglob("*.py") if f.is_file())
+        for root, _, files in os.walk(directory):
+            for fn in files:
+                if fn.endswith(".py"):
+                    p = Path(root) / fn
+                    if p.is_file():
+                        paths_to_check.append(p)
 
     files_with_emojis: list[tuple[str, int, str]] = []
-    max_workers = min(8, max(1, len(paths_to_check) // 10))
+    max_workers = min(4, max(1, len(paths_to_check) // 10))
     if max_workers <= 1 or len(paths_to_check) < 50:
         for file_path in paths_to_check:
             result = _check_file_for_emojis(file_path, project_root)
@@ -131,7 +135,7 @@ def _calculate_directory_hash(directory: str) -> str:
                 if file.endswith(".py"):
                     py_files.append(os.path.join(root, file))
 
-        sample_size = min(100, len(py_files))
+        sample_size = min(30, len(py_files))
         step = max(1, len(py_files) // sample_size) if py_files else 1
 
         for i, py_file in enumerate(py_files):
@@ -147,6 +151,57 @@ def _calculate_directory_hash(directory: str) -> str:
         pass
 
     return hasher.hexdigest()
+
+
+def _single_pass_scan(
+    directories: list[str],
+) -> tuple[dict[str, str], list[tuple[str, int, str]]]:
+    """Single-pass scan: compute directory hashes AND find emoji files together."""
+    project_root = Path(__file__).resolve().parents[2]
+    dir_hashes: dict[str, str] = {}
+    all_emojis: list[tuple[str, int, str]] = []
+
+    for directory in directories:
+        hasher = hashlib.md5()
+        dir_stat_ok = False
+        try:
+            dir_stat = os.stat(directory)
+            hasher.update(
+                f"{directory}:{dir_stat.st_size}:{dir_stat.st_mtime}".encode()
+            )
+            dir_stat_ok = True
+        except OSError:
+            pass
+
+        if dir_stat_ok:
+            py_files: list[str] = []
+            for root, _, files in os.walk(directory):
+                for file in files:
+                    if file.endswith(".py"):
+                        py_files.append(os.path.join(root, file))
+
+            sample_size = min(30, len(py_files))
+            step = max(1, len(py_files) // sample_size) if py_files else 1
+
+            for i, py_file in enumerate(py_files):
+                if i % step == 0:
+                    try:
+                        file_stat = os.stat(py_file)
+                        rel_path = os.path.relpath(py_file, directory)
+                        file_data = (
+                            f"{rel_path}:{file_stat.st_size}:{file_stat.st_mtime}"
+                        )
+                        hasher.update(file_data.encode())
+                    except OSError:
+                        continue
+
+                result = _check_file_for_emojis(Path(py_file), project_root)
+                if result:
+                    all_emojis.append(result)
+
+        dir_hashes[directory] = hasher.hexdigest()
+
+    return dir_hashes, all_emojis
 
 
 @pytest.fixture(scope="session")
@@ -174,16 +229,16 @@ def emoji_check_cache() -> dict[str, Any]:
     current_time = time.time()
     cache_timeout = 3600
 
-    dir_hashes = {d: _calculate_directory_hash(d) for d in directories}
+    quick_hashes = {d: _calculate_directory_hash(d) for d in directories}
 
     if (
-        cache.get("dir_hashes") == dir_hashes
+        cache.get("dir_hashes") == quick_hashes
         and current_time - cache.get("timestamp", 0) < cache_timeout
         and "files_with_emojis" in cache
     ):
         return cache
 
-    files_with_emojis = find_files_with_emojis(directories)
+    dir_hashes, files_with_emojis = _single_pass_scan(directories)
 
     serialized_results = [
         {"file_path": fp, "line_num": ln, "line": line}

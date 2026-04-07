@@ -79,9 +79,7 @@ async def test_streaming_with_fake_clock_deterministic_timing() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.020
-    )  # Well above 10ms threshold for buffering detection
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.016)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -159,9 +157,7 @@ async def test_streaming_chunk_sequence_deterministic() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=8),
     )
 
-    backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.020
-    )  # Well above 10ms threshold for buffering detection
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.016)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -230,9 +226,7 @@ async def test_streaming_contract_validation_deterministic() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.020
-    )  # Well above 10ms threshold for buffering detection
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.016)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
