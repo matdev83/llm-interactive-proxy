@@ -15,6 +15,7 @@ from typing import Any, cast
 
 from fastapi import HTTPException
 
+from src.connectors.base import strip_vendor_prefix
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
@@ -440,11 +441,21 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         await self._refresh_available_models()
         return bool(self._model_discovery_succeeded)
 
+    _VENDOR_PREFIXES: tuple[str, ...] = ("zai", "z-ai", "zhipu")
+
+    def _strip_known_vendor_prefixes(self, model: str) -> str:
+        stripped = model
+        for prefix in self._VENDOR_PREFIXES:
+            stripped = strip_vendor_prefix(stripped, prefix)
+        return stripped
+
     def _select_model(self, requested_model: str | None) -> str:
         """Pick an appropriate provider model, honoring availability."""
         candidate = requested_model or self._DEFAULT_MODEL
         parsed = parse_model_backend(str(candidate), default_backend=self.backend_type)
-        normalized = parsed.model_name or self._DEFAULT_MODEL
+        normalized = self._strip_known_vendor_prefixes(
+            parsed.model_name or self._DEFAULT_MODEL
+        )
 
         # ZAI coding-plan accepts model IDs outside static discovery results.
         # Preserve explicit user model choice (for example glm-4.7) instead of
