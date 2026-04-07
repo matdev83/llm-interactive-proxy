@@ -761,6 +761,7 @@ def _discover_api_keys_from_config_backends(
                         backend_env_map = {
                             "kimi-code": "KIMI_API_KEY",
                             "internlm": "INTERNAI_API_KEY",
+                            "zai-coding-plan": "ZAI_API_KEY",
                         }
                         env_var = backend_env_map.get(
                             b, f"{b.upper().replace('-', '_')}_API_KEY"
