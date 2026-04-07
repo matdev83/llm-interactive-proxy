@@ -10,7 +10,16 @@ permissions:
   contents: read
 
 jobs:
+  hook-integrity:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Validate pre-commit hook references
+      run: python dev/scripts/validate_pre_commit_hooks.py
+
   routing-unification-compliance:
+    needs: hook-integrity
     runs-on: ubuntu-latest
 
     steps:
@@ -35,6 +44,7 @@ jobs:
         python dev/scripts/check_routing_unification_compliance.py
 
   test-core:
+    needs: hook-integrity
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -111,6 +121,7 @@ jobs:
         fail_ci_if_error: false
 
   plugin-boundary:
+    needs: hook-integrity
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -165,6 +176,7 @@ jobs:
         fi
 
   test-extended-nonblocking:
+    needs: hook-integrity
     runs-on: ubuntu-latest
     continue-on-error: true
     strategy:

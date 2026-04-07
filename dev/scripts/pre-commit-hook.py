@@ -155,7 +155,11 @@ def check_architectural_patterns(files: list[str]) -> bool:
 
     # Verify the linter exists
     if not linter_path.exists():
-        print(f"Error: Architectural linter not found at {linter_path}")
+        print(
+            f"FATAL: Architectural linter not found at {linter_path}. "
+            "This indicates a broken hook configuration.",
+            file=sys.stderr,
+        )
         return False
 
     # Find the Python interpreter to use
@@ -197,9 +201,13 @@ def run_secret_scan() -> bool:
     checker_path = repo_root / "dev" / "scripts" / "pre_commit_api_key_check.py"
 
     if not checker_path.exists():
-        # If checker is missing, do not block commits
-        print(f"Warning: Secret checker not found at {checker_path}. Skipping.")
-        return True
+        print(
+            f"FATAL: Secret checker not found at {checker_path}. "
+            "This indicates a broken hook configuration. "
+            "The pre-commit hook references a script that does not exist.",
+            file=sys.stderr,
+        )
+        return False
 
     # Prefer project venv interpreter
     python_path = _python_executable(repo_root)
@@ -355,12 +363,7 @@ def run_stall_linter_on_staged_tests() -> bool:
         pytest_args.extend(["--stall-lint-file", file_path])
 
     print(f"Running stall-linter on {len(target_test_files)} staged tests files...")
-    result = subprocess.run(
-        pytest_args,
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-    )
+    result = subprocess.run(pytest_args, capture_output=True, text=True, cwd=repo_root)
     if result.returncode != 0:
         if result.stdout:
             print(result.stdout)

@@ -463,9 +463,7 @@ class ApiKeyRedactionFilter(logging.Filter):
                 except (TypeError, ValueError, AttributeError, re.error) as e:
                     if get_logger(__name__).isEnabledFor(logging.DEBUG):
                         get_logger(__name__).debug(
-                            "Failed to apply sanitization pattern: %s",
-                            e,
-                            exc_info=True,
+                            "Failed to apply sanitization pattern: %s", e, exc_info=True
                         )
                     continue
             return s
@@ -841,9 +839,7 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
             found.add(key)
 
 
-def discover_api_keys_from_config_and_env(
-    config: AppConfig | None = None,
-) -> list[str]:
+def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> list[str]:
     """Discover API keys from both in-memory config and environment variables for redaction.
 
     SECURITY NOTICE: This function reads API keys from the in-memory AppConfig object
