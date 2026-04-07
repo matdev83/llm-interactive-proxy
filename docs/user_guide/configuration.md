@@ -430,11 +430,15 @@ routing:
 # Routes auxiliary requests (title/summary generation) to alternative backends
 # to reduce rate limiting pressure on the primary backend.
 #
-# Quality of Life Feature: When enabled and no model is configured, if OPENROUTER_API_KEY
-# (or numbered variants like OPENROUTER_API_KEY_1) is set, the system automatically uses
-# "openrouter:openrouter/free" as the auxiliary model. Set disable_default_openrouter: true
-# to disable this behavior.
+# Automatic Enable (Single User Mode): Auxiliary routing is automatically enabled
+# when OPENROUTER_API_KEY is set, server runs in Single User Mode (default),
+# and disable is not set to true. When auto-enabled with no explicit model,
+# defaults to "openrouter:openrouter/free".
+#
+# disable_default_openrouter: true prevents the default model from being set
+# to "openrouter:openrouter/free" when OPENROUTER_API_KEY is detected.
 auxiliary_routing:
+  disable: false                    # Completely disable auxiliary routing (overrides auto-enable)
   enabled: false                    # Enable auxiliary request routing
   backend: null                     # Optional: Backend to use (e.g., "openrouter")
   model: null                       # Model name (e.g., "gemini-1.5-flash" or "openrouter:gemini-1.5-flash")
