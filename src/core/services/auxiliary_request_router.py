@@ -65,6 +65,7 @@ class AuxiliaryRoutingConfig:
         default_factory=lambda: [
             r"The following is the text to summarize",
             r"Generate a (?:short |brief )?(?:title|summary|heading)",
+            r"\b(?:title|summary) generator\b",
             r"Summarize (?:the|this|my) (?:conversation|text|content|task)",
             r"Create a (?:title|heading) for",
             r"Generate a title for the (?:session|conversation)",
@@ -124,16 +125,13 @@ class AuxiliaryRequestDetector:
         if not messages:
             return False
 
-        # If the client explicitly selected a backend (e.g. "gemini-oauth-auto:..."),
-        # respect that choice and do not override routing.
-        model_selector = getattr(request, "model", None)
-        if isinstance(model_selector, str) and has_explicit_backend_selector(
-            model_selector
-        ):
-            return False
+        detection_messages = self._filter_detection_messages(messages)
 
-        # Check message count threshold
-        if len(messages) > self._config.max_message_count:
+        # Check message count threshold using only system/user messages.
+        # OpenCode title requests may include assistant/tool messages from the
+        # thing being titled, but only a small number of system/user messages
+        # that carry the title-generation instruction itself.
+        if len(detection_messages) > self._config.max_message_count:
             return False
 
         # Check content patterns across the message set.
@@ -146,21 +144,27 @@ class AuxiliaryRequestDetector:
         # If we only scan the last user message, we miss the "Generate a title"
         # marker. Use a combined scan over system/user messages while keeping the
         # strict max_message_count guard to avoid accidental routing of full chats.
-        detection_text = self._extract_detection_text(messages)
+        detection_text = self._extract_detection_text(detection_messages)
         if not detection_text:
             return False
 
         for pattern in self._compiled_patterns:
             if pattern.search(detection_text):
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Detected auxiliary request (pattern: %s, msg_count: %d)",
-                        pattern.pattern[:50],
-                        len(messages),
-                    )
                 return True
 
         return False
+
+    def _filter_detection_messages(self, messages: list[Any]) -> list[Any]:
+        """Return only system/user messages relevant to auxiliary detection."""
+
+        filtered: list[Any] = []
+        for msg in messages:
+            role = getattr(msg, "role", None) or (
+                msg.get("role") if isinstance(msg, dict) else None
+            )
+            if role in {"system", "user"}:
+                filtered.append(msg)
+        return filtered
 
     def _extract_detection_text(self, messages: list[Any]) -> str | None:
         """Extract a combined text blob for auxiliary detection.
@@ -174,12 +178,6 @@ class AuxiliaryRequestDetector:
         text_parts: list[str] = []
 
         for msg in messages:
-            role = getattr(msg, "role", None) or (
-                msg.get("role") if isinstance(msg, dict) else None
-            )
-            if role not in {"system", "user"}:
-                continue
-
             content = getattr(msg, "content", None) or (
                 msg.get("content") if isinstance(msg, dict) else None
             )
