@@ -19,7 +19,11 @@ ZAI (Zhipu AI) is a Chinese AI company that provides access to various language 
 ### Environment Variables
 
 ```bash
+# Standard ZAI backend (Zhipu public API)
 export ZAI_API_KEY="..."
+
+# ZAI Coding Plan backend (GLM Coding Plan subscription)
+export ZAI_CODING_PLAN_API_KEY="..."
 ```
 
 ### CLI Arguments

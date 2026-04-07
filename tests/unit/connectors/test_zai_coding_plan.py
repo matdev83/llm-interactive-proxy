@@ -89,7 +89,7 @@ async def test_health_check_reuses_cached_model_discovery(mocker):
     ZaiCodingPlanBackend._MODEL_DISCOVERY_CACHE.clear()
     mocker.patch.dict(
         "os.environ",
-        {"ZAI_API_KEY": "NOT-A-REAL-KEY-just-for-testing"},
+        {"ZAI_CODING_PLAN_API_KEY": "NOT-A-REAL-KEY-just-for-testing"},
     )
     mock_client = AsyncMock()
     mock_response = MagicMock()
@@ -301,7 +301,7 @@ async def test_sensitive_headers_are_redacted_in_logs(mocker, caplog):
     # 4. Instantiate the backend with a test API key
     mocker.patch.dict(
         "os.environ",
-        {"ZAI_API_KEY": "NOT-A-REAL-KEY-just-for-testing"},
+        {"ZAI_CODING_PLAN_API_KEY": "NOT-A-REAL-KEY-just-for-testing"},
     )
     backend = ZaiCodingPlanBackend(
         client=mock_client,

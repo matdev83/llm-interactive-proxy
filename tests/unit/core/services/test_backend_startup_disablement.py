@@ -39,12 +39,12 @@ def test_does_not_disable_when_any_instance_has_key() -> None:
 
 
 def test_does_not_disable_when_env_var_is_present_for_env_fallback_backend() -> None:
-    # zai-coding-plan reads ZAI_API_KEY directly in the connector.
+    # zai-coding-plan reads ZAI_CODING_PLAN_API_KEY directly in the connector.
     config = AppConfig(backends={"default_backend": "openrouter"})
     disabled = compute_backends_to_disable_at_startup(
         config=config,
         registered_backends=["zai-coding-plan"],
-        env={"ZAI_API_KEY": "val"},
+        env={"ZAI_CODING_PLAN_API_KEY": "val"},
     )
     assert "zai-coding-plan" not in disabled
 

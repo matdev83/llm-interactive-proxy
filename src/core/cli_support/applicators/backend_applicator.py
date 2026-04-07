@@ -263,6 +263,18 @@ class BackendApplicator:
                 origin="--zai-api-key",
             )
 
+        # ZAI Coding Plan
+        if getattr(args, "zai_coding_plan_api_key", None) is not None:
+            normalized_key = _normalize_api_key_value(args.zai_coding_plan_api_key)
+            coding_plan_overrides = backend_overrides.setdefault("zai-coding-plan", {})
+            coding_plan_overrides["api_key"] = normalized_key
+            resolution.record(
+                "backends.zai-coding-plan.api_key",
+                normalized_key,
+                ParameterSource.CLI,
+                origin="--zai-coding-plan-api-key",
+            )
+
         # ZenMux
         if getattr(args, "zenmux_api_base_url", None) is not None:
             zenmux_overrides = backend_overrides.setdefault("zenmux", {})

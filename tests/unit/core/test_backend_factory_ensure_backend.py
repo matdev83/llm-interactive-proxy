@@ -260,7 +260,7 @@ async def test_ensure_backend_test_env_injection(factory: BackendFactory) -> Non
 async def test_ensure_backend_zai_coding_plan_keeps_explicit_key_over_live_env(
     factory: BackendFactory,
 ) -> None:
-    """zai-coding-plan explicit key should win over ambient ZAI_API_KEY."""
+    """zai-coding-plan explicit key should win over ambient ZAI_CODING_PLAN_API_KEY."""
 
     backend_type = "zai-coding-plan"
     app_config = factory._config
@@ -280,7 +280,7 @@ async def test_ensure_backend_zai_coding_plan_keeps_explicit_key_over_live_env(
             "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
             return_value=("live-env-key", "process"),
         ),
-        patch.dict(os.environ, {"ZAI_API_KEY": "live-env-key"}, clear=False),
+        patch.dict(os.environ, {"ZAI_CODING_PLAN_API_KEY": "live-env-key"}, clear=False),
     ):
         result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
@@ -315,7 +315,7 @@ async def test_ensure_backend_zai_coding_plan_keeps_explicit_key_over_windows_pe
             "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
             return_value=("windows-persistent-key", "windows-user"),
         ),
-        patch.dict(os.environ, {"ZAI_API_KEY": "stale-process-key"}, clear=False),
+        patch.dict(os.environ, {"ZAI_CODING_PLAN_API_KEY": "stale-process-key"}, clear=False),
     ):
         result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
@@ -385,7 +385,7 @@ async def test_ensure_backend_zai_coding_plan_uses_live_env_when_key_missing(
             "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
             return_value=("live-env-key", "process"),
         ),
-        patch.dict(os.environ, {"ZAI_API_KEY": "live-env-key"}, clear=False),
+        patch.dict(os.environ, {"ZAI_CODING_PLAN_API_KEY": "live-env-key"}, clear=False),
     ):
         result = await factory.ensure_backend(backend_type, app_config, backend_config)
 

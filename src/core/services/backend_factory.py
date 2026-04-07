@@ -327,7 +327,9 @@ class BackendFactory(IBackendFactory):
 
         if connector_type == "zai-coding-plan":
             live_zai_api_key, live_zai_api_key_source = (
-                get_env_value_with_windows_persistent_fallback("ZAI_API_KEY")
+                get_env_value_with_windows_persistent_fallback(
+                    "ZAI_CODING_PLAN_API_KEY"
+                )
             )
             configured_api_key = init_config.get("api_key")
             if configured_api_key:
@@ -337,7 +339,7 @@ class BackendFactory(IBackendFactory):
                     and logger.isEnabledFor(logging.INFO)
                 ):
                     logger.info(
-                        "Using explicit zai-coding-plan API key from backend config; ignoring %s ZAI_API_KEY",
+                        "Using explicit zai-coding-plan API key from backend config; ignoring %s ZAI_CODING_PLAN_API_KEY",
                         live_zai_api_key_source,
                     )
                 elif (
@@ -346,19 +348,19 @@ class BackendFactory(IBackendFactory):
                     and logger.isEnabledFor(logging.INFO)
                 ):
                     logger.info(
-                        "zai-coding-plan API key matches %s ZAI_API_KEY",
+                        "zai-coding-plan API key matches %s ZAI_CODING_PLAN_API_KEY",
                         live_zai_api_key_source,
                     )
             elif live_zai_api_key:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        "Using zai-coding-plan API key from %s ZAI_API_KEY",
+                        "Using zai-coding-plan API key from %s ZAI_CODING_PLAN_API_KEY",
                         live_zai_api_key_source,
                     )
                 init_config["api_key"] = live_zai_api_key
             elif logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "zai-coding-plan initialized without live ZAI_API_KEY env var"
+                    "zai-coding-plan initialized without live ZAI_CODING_PLAN_API_KEY env var"
                 )
 
         # SECURITY: Removed test environment detection and automatic test key injection

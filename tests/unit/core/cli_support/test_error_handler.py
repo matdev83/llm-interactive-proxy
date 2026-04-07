@@ -418,6 +418,7 @@ class TestApiKeyMissingMessages:
         handler.handle_build_error(error_msg)
         result = output.getvalue()
         assert "ZAI_API_KEY" in result
+        assert "ZAI_CODING_PLAN_API_KEY" in result
 
     def test_api_key_missing_suggests_oauth_alternatives(
         self, error_handler_with_output: tuple[ErrorHandler, io.StringIO]

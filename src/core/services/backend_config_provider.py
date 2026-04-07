@@ -88,15 +88,13 @@ class BackendConfigProvider(IBackendConfigProvider):
             # Credential reuse fallbacks.
             # Some connectors are just protocol variants and should reuse the base backend's credentials
             # when not explicitly configured.
-            if not resolved.api_key:
-                if name_for_fallback in {"openai-responses", "openai_responses"}:
-                    base = self.get_backend_config("openai")
-                    if base and base.api_key:
-                        return BackendConfig(**base.model_dump())
-                if name_for_fallback in {"zai-coding-plan", "zai_coding_plan"}:
-                    base = self.get_backend_config("zai")
-                    if base and base.api_key:
-                        return BackendConfig(**base.model_dump())
+            if not resolved.api_key and name_for_fallback in {
+                "openai-responses",
+                "openai_responses",
+            }:
+                base = self.get_backend_config("openai")
+                if base and base.api_key:
+                    return BackendConfig(**base.model_dump())
 
             return resolved
 
@@ -104,10 +102,6 @@ class BackendConfigProvider(IBackendConfigProvider):
         # (Some call sites expect a BackendConfig object rather than None.)
         if name_for_fallback in {"openai-responses", "openai_responses"}:
             base = self.get_backend_config("openai")
-            if base and base.api_key:
-                return BackendConfig(**base.model_dump())
-        if name_for_fallback in {"zai-coding-plan", "zai_coding_plan"}:
-            base = self.get_backend_config("zai")
             if base and base.api_key:
                 return BackendConfig(**base.model_dump())
 

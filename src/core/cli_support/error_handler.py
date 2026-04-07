@@ -306,6 +306,7 @@ class ErrorHandler:
         lines.append("    * GEMINI_API_KEY for Gemini\n")
         lines.append("    * ANTHROPIC_API_KEY for Anthropic\n")
         lines.append("    * ZAI_API_KEY for ZAI\n")
+        lines.append("    * ZAI_CODING_PLAN_API_KEY for ZAI Coding Plan\n")
         lines.append("  - Or configure a different backend with --default-backend\n")
         lines.append("  - Or use OAuth-based backends:\n")
         lines.append("    * gemini-oauth-plan (uses gemini CLI auth for paid tier)\n")

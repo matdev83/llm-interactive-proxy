@@ -97,16 +97,16 @@ class ZaiCodingPlanBackend(OpenAIConnector):
     )
 
     async def initialize(self, **kwargs: Any) -> None:
-        """Initialize the ZAI coding plan backend."""
+        """Initialize the ZAI Coding plan backend."""
         # Get API key from environment or kwargs
         fallback_api_key, fallback_api_key_source = (
-            get_env_value_with_windows_persistent_fallback("ZAI_API_KEY")
+            get_env_value_with_windows_persistent_fallback("ZAI_CODING_PLAN_API_KEY")
         )
         self.api_key = kwargs.get("api_key") or fallback_api_key
 
         if not self.api_key:
             raise AuthenticationError(
-                message="ZAI_API_KEY environment variable not set",
+                message="ZAI_CODING_PLAN_API_KEY environment variable not set",
                 code="missing_api_key",
             )
 

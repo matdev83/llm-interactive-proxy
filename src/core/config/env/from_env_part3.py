@@ -225,15 +225,27 @@ def apply_config_part3(
                 origin="ZAI_API_KEY",
             )
 
-        # zai-coding-plan shares the same API key as zai
+    # zai-coding-plan uses its own dedicated API key
+    coding_plan_key, coding_plan_key_source = (
+        get_env_value_with_windows_persistent_fallback(
+            "ZAI_CODING_PLAN_API_KEY", environ=env
+        )
+    )
+    if coding_plan_key:
         config_backends["zai-coding-plan"] = config_backends.get("zai-coding-plan", {})
-        config_backends["zai-coding-plan"]["api_key"] = zai_key
+        config_backends["zai-coding-plan"]["api_key"] = coding_plan_key
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "ZAI Coding Plan key diagnostics [from_env_part3]: env_type=%s source=%s",
+                type(env).__name__,
+                coding_plan_key_source,
+            )
         if resolution is not None:
             resolution.record(
                 "backends.zai-coding-plan.api_key",
                 config_backends["zai-coding-plan"]["api_key"],
                 ParameterSource.ENVIRONMENT,
-                origin="ZAI_API_KEY",
+                origin="ZAI_CODING_PLAN_API_KEY",
             )
 
     if env.get("ZENMUX_API_KEY"):

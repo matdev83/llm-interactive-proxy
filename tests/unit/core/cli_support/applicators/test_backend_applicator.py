@@ -49,6 +49,7 @@ class TestBackendApplicator:
             gemini_api_key=None,
             gemini_api_base_url=None,
             zai_api_key=None,
+            zai_coding_plan_api_key=None,
             zenmux_api_base_url=None,
             model_aliases=None,
             enable_antigravity_backend_debugging_override=False,

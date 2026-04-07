@@ -451,6 +451,7 @@ class BackendService(IBackendService):
                 "gemini": "GEMINI_API_KEY",
                 "anthropic": "ANTHROPIC_API_KEY",
                 "zai": "ZAI_API_KEY",
+                "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
                 "zenmux": "ZENMUX_API_KEY",
                 "minimax": "MINIMAX_API_KEY",
             }.get(backend_type)

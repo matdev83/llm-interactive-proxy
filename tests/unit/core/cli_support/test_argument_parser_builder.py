@@ -153,6 +153,7 @@ class TestApiKeyFlags:
             "--gemini-api-key",
             "--gemini-api-base-url",
             "--zai-api-key",
+            "--zai-coding-plan-api-key",
             "--zenmux-api-base-url",
         ],
     )

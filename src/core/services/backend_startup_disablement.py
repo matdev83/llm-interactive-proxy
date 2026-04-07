@@ -58,7 +58,7 @@ _API_KEY_BACKENDS: dict[str, str] = {
     "minimax": "MINIMAX_API_KEY",
     "zenmux": "ZENMUX_API_KEY",
     "zai": "ZAI_API_KEY",
-    "zai-coding-plan": "ZAI_API_KEY",
+    "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
     "kimi-code": "KIMI_API_KEY",
 }
 
@@ -99,7 +99,7 @@ def compute_backends_to_disable_at_startup(
         ):
             continue
         if backend_type == "zai-coding-plan" and _env_keys_present(
-            env_map, "ZAI_API_KEY"
+            env_map, "ZAI_CODING_PLAN_API_KEY"
         ):
             continue
 

@@ -437,6 +437,7 @@ class ArgumentParserBuilder:
         parser.add_argument("--gemini-api-key")
         parser.add_argument("--gemini-api-base-url")
         parser.add_argument("--zai-api-key")
+        parser.add_argument("--zai-coding-plan-api-key")
         parser.add_argument("--zenmux-api-base-url")
 
     def _add_server_arguments(self, parser: argparse.ArgumentParser) -> None:

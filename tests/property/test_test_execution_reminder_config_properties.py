@@ -175,6 +175,7 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
         gemini_api_key=None,
         gemini_api_base_url=None,
         zai_api_key=None,
+        zai_coding_plan_api_key=None,
         zenmux_api_base_url=None,
         enable_sso=None,
         sso_config_path=None,

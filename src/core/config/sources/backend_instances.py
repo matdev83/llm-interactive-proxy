@@ -21,6 +21,7 @@ from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
 
+
 def _file_based_connector_names() -> frozenset[str]:
     """Connectors that use credential files; refreshed each call (not import-time).
 
@@ -61,6 +62,7 @@ class BackendInstanceEnvSource:
             "gemini": "GEMINI_API_KEY",
             "openrouter": "OPENROUTER_API_KEY",
             "zai": "ZAI_API_KEY",
+            "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
             "minimax": "MINIMAX_API_KEY",
             "zenmux": "ZENMUX_API_KEY",
             "kimi-code": "KIMI_API_KEY",

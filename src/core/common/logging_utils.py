@@ -759,7 +759,7 @@ def _discover_api_keys_from_config_backends(
                         backend_env_map = {
                             "kimi-code": "KIMI_API_KEY",
                             "internlm": "INTERNAI_API_KEY",
-                            "zai-coding-plan": "ZAI_API_KEY",
+                            "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
                         }
                         env_var = backend_env_map.get(
                             b, f"{b.upper().replace('-', '_')}_API_KEY"
@@ -820,6 +820,7 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
         "GEMINI_API_KEY",
         "ANTHROPIC_API_KEY",
         "ZAI_API_KEY",
+        "ZAI_CODING_PLAN_API_KEY",
         "MINIMAX_API_KEY",
         "KIMI_API_KEY",
         "INTERNAI_API_KEY",
@@ -855,6 +856,7 @@ def discover_api_keys_from_config_and_env(config: AppConfig | None = None) -> li
     - GEMINI_API_KEY for Gemini
     - ANTHROPIC_API_KEY for Anthropic
     - ZAI_API_KEY for ZAI
+    - ZAI_CODING_PLAN_API_KEY for ZAI Coding Plan
     - MINIMAX_API_KEY for Minimax
     - LLM_INTERACTIVE_PROXY_API_KEY for proxy authentication
 
