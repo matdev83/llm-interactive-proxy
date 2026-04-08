@@ -40,6 +40,10 @@ def register_tool_output_compression_services(
     from src.core.interfaces.tool_output_compression_interface import (
         IToolOutputCompressionService,
     )
+    from src.core.services.compression_metrics_recorder import (
+        CompressionMetricsRecorder,
+    )
+    from src.core.services.compression_recovery_store import CompressionRecoveryStore
     from src.core.services.compression_strategies import (
         AnsiNormalizeStrategy,
         DiagnosticsGroupingStrategy,
@@ -49,14 +53,19 @@ def register_tool_output_compression_services(
         FailurePreservingTruncateStrategy,
         FileDetailLevelsStrategy,
         LineDedupeStrategy,
+        MutatingSuccessAckStrategy,
         OutputPatternMatchRule,
         OutputPatternMatchStrategy,
         PytestFailureFocusStrategy,
         SearchResultsGroupingStrategy,
         SimilarityGroupingStrategy,
+        StatsExtractionSummaryStrategy,
     )
     from src.core.services.compression_strategy_registry import (
         CompressionStrategyRegistry,
+    )
+    from src.core.services.declarative_compression_rules import (
+        DeclarativeRuleRegistry,
     )
     from src.core.services.dynamic_compression_config_resolver import (
         DynamicCompressionConfigResolver,
@@ -198,6 +207,8 @@ def register_tool_output_compression_services(
                 )
             ),
         )
+        registry.register("mutating_success_ack", MutatingSuccessAckStrategy())
+        registry.register("stats_extraction_summary", StatsExtractionSummaryStrategy())
         return registry
 
     register_singleton_if_absent(
@@ -209,7 +220,10 @@ def register_tool_output_compression_services(
     register_singleton_if_absent(services, RuleBasedStrategySelector)
     register_singleton_if_absent(services, MarkerRenderer)
     register_singleton_if_absent(services, DynamicCompressionConfigResolver)
+    register_singleton_if_absent(services, DeclarativeRuleRegistry)
     register_singleton_if_absent(services, LegacyCompressionCompatibilityResolver)
+    register_singleton_if_absent(services, CompressionMetricsRecorder)
+    register_singleton_if_absent(services, CompressionRecoveryStore)
 
     def _register_interface_alias(
         interface_type: type,
@@ -280,6 +294,11 @@ def register_tool_output_compression_services(
             marker_renderer=provider.get_required_service(MarkerRenderer),
             config_resolver=provider.get_required_service(
                 DynamicCompressionConfigResolver
+            ),
+            metrics_recorder=provider.get_required_service(CompressionMetricsRecorder),
+            recovery_store=provider.get_required_service(CompressionRecoveryStore),
+            declarative_rule_registry=provider.get_required_service(
+                DeclarativeRuleRegistry
             ),
         )
 

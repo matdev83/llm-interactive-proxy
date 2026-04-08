@@ -9,8 +9,10 @@ DEFAULT_SESSION_AFFINITY_TTL_SECONDS = 86400
 DEFAULT_SESSION_AFFINITY_MAX_ENTRIES = 10000
 DEFAULT_ALLOW_LEGACY_FALLBACK = True
 
+DEFAULT_OAUTH_CALLBACK_PORT = 1455
+DEFAULT_OAUTH_CALLBACK_PATH = "/auth/callback"
+
 OPENAI_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 OPENAI_OAUTH_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
 OPENAI_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"
 OPENAI_OAUTH_SCOPES: tuple[str, ...] = ("openid", "profile", "email", "offline_access")
-

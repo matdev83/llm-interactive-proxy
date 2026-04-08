@@ -7,6 +7,7 @@ extracted from RequestProcessor during refactoring.
 
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -291,6 +292,56 @@ async def test_prepare_without_app_state_skips_validation(backend_preparer_no_st
     # Assert
     assert result is not None
     assert result.model == "gpt-4"
+
+
+@pytest.mark.asyncio
+async def test_prepare_propagates_dynamic_compression_correlation_to_context(
+    backend_preparer: BackendPreparer,
+    request_context: RequestContext,
+    mock_backend_request_manager: IBackendRequestManager,
+) -> None:
+    session_id = "test-session"
+    request = ChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+    backend_request = request.model_copy(
+        update={
+            "compression_diagnostics": {
+                "dynamic_compression_correlation": {
+                    "records": [
+                        {"correlation_id": "corr-a"},
+                        {"correlation_id": "corr-b"},
+                    ]
+                }
+            }
+        }
+    )
+
+    async def prepare_with_correlation(req, proc):
+        return backend_request
+
+    prepare_backend_request_mock = cast(
+        Any,
+        mock_backend_request_manager.prepare_backend_request,
+    )
+    prepare_backend_request_mock.side_effect = prepare_with_correlation
+    processed = ProcessedResult(
+        modified_messages=[ChatMessage(role="user", content="Hello")],
+        command_executed=False,
+        command_results=[],
+    )
+
+    result = await backend_preparer.prepare(
+        request_context,
+        session_id,
+        request,
+        processed,
+    )
+
+    assert result is not None
+    assert isinstance(request_context.extensions.get("compression_correlation_id"), str)
+    assert request_context.extensions.get("compression_records_count") == 2
 
 
 @pytest.fixture

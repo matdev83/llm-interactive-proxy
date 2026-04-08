@@ -488,6 +488,18 @@ class CredentialManager(ICredentialManager):
 
     async def _load_auth(self, force_reload: bool = False) -> bool:
         """Load credentials, preferring managed OAuth accounts when available."""
+        explicit_legacy_override = (
+            self._auth_path is not None or self._oauth_dir_override is not None
+        )
+        if explicit_legacy_override:
+            if await self._load_legacy_auth(force_reload=force_reload):
+                return True
+            if await self._load_managed_auth(force_reload=force_reload):
+                return True
+            self._active_source = "none"
+            self._managed_current_account = None
+            return False
+
         if await self._load_managed_auth(force_reload=force_reload):
             return True
         if await self._load_legacy_auth(force_reload=force_reload):
@@ -585,6 +597,44 @@ class CredentialManager(ICredentialManager):
 
     def _validate_credentials_file_exists(self) -> ValidationResult:
         """Validate availability of managed accounts or legacy auth.json."""
+        explicit_legacy_override = (
+            self._auth_path is not None or self._oauth_dir_override is not None
+        )
+        if explicit_legacy_override:
+            auth_path = self._discover_auth_path()
+            if auth_path is None:
+                return ValidationResult.failure(
+                    "OAuth credentials file not found in any default location"
+                )
+
+            if not auth_path.exists():
+                return ValidationResult.failure(
+                    f"OAuth credentials file does not exist: {auth_path}"
+                )
+
+            if not auth_path.is_file():
+                return ValidationResult.failure(
+                    f"OAuth credentials path is not a file: {auth_path}"
+                )
+
+            try:
+                with open(auth_path, encoding="utf-8") as f:
+                    json.load(f)
+            except json.JSONDecodeError as e:
+                return ValidationResult.failure(
+                    f"OAuth credentials file contains invalid JSON: {e}"
+                )
+            except PermissionError:
+                return ValidationResult.failure(
+                    f"No permission to read OAuth credentials file: {auth_path}"
+                )
+            except Exception as e:
+                return ValidationResult.failure(
+                    f"Error reading OAuth credentials file: {e}"
+                )
+
+            return ValidationResult.success()
+
         if self._managed_enabled():
             storage_path = self._managed_storage.storage_path
             try:
@@ -968,6 +1018,25 @@ class CredentialManager(ICredentialManager):
             rotated = await self._managed_selector.rotate_on_rate_limit(
                 retry_after_seconds=retry_after_seconds,
                 session_id=session_id,
+            )
+            if rotated is None:
+                return False
+            self._managed_current_account = rotated
+            self._auth_credentials = self._managed_account_to_credentials(rotated)
+            self._active_source = "managed"
+            return True
+
+    async def handle_auth_failure(
+        self,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        """Rotate away from currently failing managed account on auth denial."""
+        async with self._token_refresh_lock:
+            if not await self._load_managed_auth(force_reload=True):
+                return await self._refresh_legacy_access_token()
+            rotated = await self._managed_selector.rotate_on_auth_failure(
+                session_id=session_id
             )
             if rotated is None:
                 return False

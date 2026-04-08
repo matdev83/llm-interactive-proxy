@@ -157,6 +157,8 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         # Apply history compaction to reduce stale tool outputs
         # This is done after command processing but before connector translation
         # Use history compaction if available and we have a token count
+        compaction_feature_enabled = False
+        compaction_mutated_messages = False
         if self._history_compaction_service is not None:
             # Fast approximate token estimate using character count / 4
             # This is O(n) and avoids expensive tokenization for threshold checking
@@ -178,6 +180,7 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
 
                 # Store for exception handler
                 config = compaction_config
+                compaction_feature_enabled = bool(compaction_config.enabled)
 
                 # Check if we should even check compaction (token threshold)
                 # First check: is feature enabled?
@@ -193,6 +196,7 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                             current_token_estimate=token_estimate,
                         )
                     )
+                    compaction_mutated_messages = bool(compaction_result.was_compacted)
                     if compaction_result.was_compacted and logger.isEnabledFor(
                         logging.INFO
                     ):
@@ -279,6 +283,16 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                     compatibility_diagnostics,
                 ) = self._resolve_pytest_compatibility(dynamic_config)
 
+                path_overlap_warnings = self._build_request_path_overlap_warnings(
+                    compaction_enabled=compaction_feature_enabled,
+                    compaction_mutated_messages=compaction_mutated_messages,
+                    dynamic_enabled=bool(dynamic_config.enabled),
+                )
+                compatibility_diagnostics = self._merge_compatibility_warnings(
+                    diagnostics=compatibility_diagnostics,
+                    warnings=path_overlap_warnings,
+                )
+
                 token_budget: int | None = None
                 if self._config is not None and hasattr(
                     self._config, "context_window_override"
@@ -308,6 +322,10 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                     compatibility_diagnostics=compatibility_diagnostics,
                     records_evaluated=len(compression_result.records),
                     records_applied=applied_count,
+                    aggregate_metrics=compression_result.aggregate_metrics.model_dump(
+                        mode="json"
+                    ),
+                    alert_count=len(compression_result.alerts),
                 )
 
                 if compression_result.records:
@@ -321,9 +339,11 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                             len(compression_result.records),
                             applied_count,
                         )
-                final_request = self._attach_compatibility_diagnostics(
+                final_request = self._attach_dynamic_compression_diagnostics(
                     request=final_request,
+                    dynamic_config=dynamic_config,
                     compatibility_diagnostics=compatibility_diagnostics,
+                    compression_result=compression_result,
                 )
             except Exception as exc:
                 # Fail-open: continue request flow unchanged.
@@ -337,21 +357,50 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                     compatibility_diagnostics=compatibility_diagnostics,
                     records_evaluated=0,
                     records_applied=0,
+                    aggregate_metrics=None,
+                    alert_count=0,
                     failure=exc,
                 )
-                final_request = self._attach_compatibility_diagnostics(
+                final_request = self._attach_dynamic_compression_diagnostics(
                     request=final_request,
+                    dynamic_config=dynamic_config,
                     compatibility_diagnostics=compatibility_diagnostics,
+                    compression_result=None,
                 )
 
         # Return the (possibly modified) request
         return final_request
+
+    @staticmethod
+    def _build_request_path_overlap_warnings(
+        *,
+        compaction_enabled: bool,
+        compaction_mutated_messages: bool,
+        dynamic_enabled: bool,
+    ) -> list[str]:
+        """Emit deterministic notes when multiple request-path reductions may stack."""
+        notes: list[str] = []
+        if compaction_enabled and dynamic_enabled:
+            notes.append(
+                "Both history compaction and dynamic tool-output compression are enabled; "
+                "eligible tool outputs are shaped first by compaction (when triggered) and "
+                "then by the dynamic compression pass."
+            )
+        if compaction_mutated_messages and dynamic_enabled:
+            notes.append(
+                "History compaction modified messages before the dynamic tool-output "
+                "compression pass for this request."
+            )
+        return notes
 
     def _resolve_pytest_compatibility(
         self,
         dynamic_config: DynamicCompressionConfig,
     ) -> tuple[DynamicCompressionConfig, DynamicCompressionCompatibilityDiagnostics]:
         legacy_pytest_enabled = True
+        legacy_pytest_min_lines = 30
+        legacy_pytest_configured = False
+        legacy_pytest_min_lines_configured = False
         if self._config is not None:
             session_config = getattr(self._config, "session", None)
             if session_config is not None:
@@ -362,6 +411,15 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                 )
                 if isinstance(maybe_legacy_pytest, bool):
                     legacy_pytest_enabled = maybe_legacy_pytest
+                    legacy_pytest_configured = maybe_legacy_pytest is not True
+                maybe_legacy_min_lines = getattr(
+                    session_config,
+                    "pytest_compression_min_lines",
+                    legacy_pytest_min_lines,
+                )
+                if isinstance(maybe_legacy_min_lines, int):
+                    legacy_pytest_min_lines = max(0, maybe_legacy_min_lines)
+                    legacy_pytest_min_lines_configured = legacy_pytest_min_lines != 30
 
         dynamic_pytest_mode = dynamic_config.methods.get("pytest_failure_focus")
         decision, compatibility_diagnostics = (
@@ -370,12 +428,68 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                 dynamic_pytest_mode=dynamic_pytest_mode,
             )
         )
+        if dynamic_pytest_mode in (None, "inherit_legacy") and legacy_pytest_configured:
+            warning = (
+                "session.pytest_compression_enabled is deprecated; "
+                "set dynamic_compression.methods.pytest_failure_focus instead."
+            )
+            if warning not in compatibility_diagnostics.warnings:
+                compatibility_diagnostics.warnings.append(warning)
+        min_lines_override = self._resolve_pytest_min_lines_override(
+            dynamic_config=dynamic_config,
+            legacy_min_lines=legacy_pytest_min_lines,
+            legacy_control_configured=legacy_pytest_min_lines_configured,
+            compatibility_diagnostics=compatibility_diagnostics,
+        )
         resolved_methods = dict(dynamic_config.methods)
         resolved_methods["pytest_failure_focus"] = decision.effective_enabled
         return (
-            dynamic_config.model_copy(update={"methods": resolved_methods}),
+            dynamic_config.model_copy(
+                update={
+                    "methods": resolved_methods,
+                    "pytest_failure_focus_min_lines": min_lines_override,
+                }
+            ),
             compatibility_diagnostics,
         )
+
+    @staticmethod
+    def _resolve_pytest_min_lines_override(
+        *,
+        dynamic_config: DynamicCompressionConfig,
+        legacy_min_lines: int,
+        legacy_control_configured: bool,
+        compatibility_diagnostics: DynamicCompressionCompatibilityDiagnostics,
+    ) -> int:
+        legacy_control = "session.pytest_compression_min_lines"
+        dynamic_control = "dynamic_compression.pytest_failure_focus_min_lines"
+        dynamic_value = None
+        if dynamic_config.model_extra is not None:
+            dynamic_value = dynamic_config.model_extra.get(
+                "pytest_failure_focus_min_lines"
+            )
+
+        if dynamic_value is not None:
+            try:
+                effective_min_lines = max(0, int(dynamic_value))
+            except (TypeError, ValueError):
+                effective_min_lines = legacy_min_lines
+                compatibility_diagnostics.warnings.append(
+                    "Invalid dynamic pytest min-lines override detected; "
+                    "falling back to session.pytest_compression_min_lines."
+                )
+            compatibility_diagnostics.applied.append(dynamic_control)
+            if effective_min_lines != legacy_min_lines:
+                compatibility_diagnostics.overridden.append(legacy_control)
+            return effective_min_lines
+
+        compatibility_diagnostics.applied.append(legacy_control)
+        if legacy_control_configured:
+            compatibility_diagnostics.warnings.append(
+                "session.pytest_compression_min_lines is deprecated; "
+                "set dynamic_compression.pytest_failure_focus_min_lines instead."
+            )
+        return legacy_min_lines
 
     @staticmethod
     def _merge_compatibility_warnings(
@@ -402,12 +516,16 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         compatibility_diagnostics: DynamicCompressionCompatibilityDiagnostics,
         records_evaluated: int,
         records_applied: int,
+        aggregate_metrics: dict[str, Any] | None,
+        alert_count: int,
         failure: Exception | None = None,
     ) -> None:
         diagnostics_payload = {
             "compatibility": compatibility_diagnostics.model_dump(mode="json"),
             "records_evaluated": records_evaluated,
             "records_applied": records_applied,
+            "aggregate_metrics": aggregate_metrics,
+            "alert_count": alert_count,
         }
         if failure is not None:
             if logger.isEnabledFor(logging.WARNING):
@@ -433,19 +551,172 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                 extra={"dynamic_compression": diagnostics_payload},
             )
 
-    @staticmethod
-    def _attach_compatibility_diagnostics(
+    def _attach_dynamic_compression_diagnostics(
+        self,
         *,
         request: ChatRequest,
+        dynamic_config: DynamicCompressionConfig,
         compatibility_diagnostics: DynamicCompressionCompatibilityDiagnostics,
+        compression_result: Any | None,
     ) -> ChatRequest:
         merged_diagnostics = dict(request.compression_diagnostics or {})
         merged_diagnostics["dynamic_compression_compatibility"] = (
             compatibility_diagnostics.model_dump(mode="json")
         )
+        if compression_result is not None:
+            merged_diagnostics["dynamic_compression_effective_config"] = (
+                self._build_effective_config_diagnostics_payload(
+                    dynamic_config=dynamic_config,
+                    compatibility_diagnostics=compatibility_diagnostics,
+                    compression_result=compression_result,
+                )
+            )
+            merged_diagnostics["dynamic_compression_records"] = [
+                self._safe_record_payload(record)
+                for record in compression_result.records
+            ]
+            merged_diagnostics["dynamic_compression_stats"] = (
+                compression_result.aggregate_metrics.model_dump(mode="json")
+            )
+            merged_diagnostics["dynamic_compression_alerts"] = [
+                alert.model_dump(mode="json") for alert in compression_result.alerts
+            ]
+            merged_diagnostics["dynamic_compression_correlation"] = (
+                self._build_correlation_payload(compression_result.records)
+            )
+            recovery_handles = sorted(
+                {
+                    record.recovery_handle
+                    for record in compression_result.records
+                    if getattr(record, "recovery_handle", None)
+                }
+            )
+            merged_diagnostics["dynamic_compression_recovery"] = {
+                "mode": dynamic_config.recovery.mode,
+                "enabled": dynamic_config.recovery.mode != "never",
+                "handles": recovery_handles,
+                "hint_in_text": bool(dynamic_config.recovery.hint_in_text),
+                "thresholds": {
+                    "min_original_bytes": dynamic_config.recovery.min_original_bytes,
+                    "min_saved_bytes": dynamic_config.recovery.min_saved_bytes,
+                    "max_artifact_bytes": dynamic_config.recovery.max_artifact_bytes,
+                    "max_artifacts": dynamic_config.recovery.max_artifacts,
+                    "retention_seconds": dynamic_config.recovery.retention_seconds,
+                },
+            }
         return request.model_copy(
             update={"compression_diagnostics": merged_diagnostics}
         )
+
+    @staticmethod
+    def _safe_record_payload(record: Any) -> dict[str, Any]:
+        return {
+            "tool_call_id": record.tool_call_id,
+            "tool_name": record.identity.tool_name,
+            "tool_category": record.identity.tool_category,
+            "command_signature": record.identity.command_signature,
+            "command_prefix": record.identity.command_prefix,
+            "original_bytes": record.original_bytes,
+            "compressed_bytes": record.compressed_bytes,
+            "saved_bytes": record.saved_bytes,
+            "elapsed_total_ms": record.elapsed_total_ms,
+            "methods_applied": list(record.methods_applied),
+            "methods": [method.model_dump(mode="json") for method in record.methods],
+            "final_level": record.final_level.value,
+            "applied": record.applied,
+            "failed_open": record.failed_open,
+            "fallback_applied": record.fallback_applied,
+            "failure_reason": record.failure_reason,
+            "marker_inserted": record.marker_inserted,
+            "warnings": list(record.warnings),
+            "original_sha256": record.original_sha256,
+            "compressed_sha256": record.compressed_sha256,
+            "correlation_id": record.correlation_id,
+            "recovery_handle": record.recovery_handle,
+            "recovery_persisted": record.recovery_persisted,
+            "recovery_hint_inserted": record.recovery_hint_inserted,
+            "explicit_format_note": record.explicit_format_note,
+        }
+
+    @staticmethod
+    def _build_correlation_payload(records: list[Any]) -> dict[str, Any]:
+        return {
+            "record_count": len(records),
+            "records": [
+                {
+                    "tool_call_id": record.tool_call_id,
+                    "correlation_id": record.correlation_id,
+                    "original_sha256": record.original_sha256,
+                    "compressed_sha256": record.compressed_sha256,
+                    "saved_bytes": record.saved_bytes,
+                    "methods_applied": list(record.methods_applied),
+                    "recovery_handle": record.recovery_handle,
+                }
+                for record in records
+            ],
+        }
+
+    @staticmethod
+    def _build_effective_config_diagnostics_payload(
+        *,
+        dynamic_config: DynamicCompressionConfig,
+        compatibility_diagnostics: DynamicCompressionCompatibilityDiagnostics,
+        compression_result: Any,
+    ) -> dict[str, Any]:
+        effective_config = (
+            compression_result.effective_config.model_dump(mode="json")
+            if compression_result.effective_config is not None
+            else {
+                "active_controls": [],
+                "inactive_controls": [],
+                "ignored_controls": [],
+                "reasons": {},
+                "fingerprint": None,
+                "warnings": [],
+            }
+        )
+        active_controls = set(effective_config.get("active_controls", []))
+        inactive_controls = set(effective_config.get("inactive_controls", []))
+        ignored_controls = set(effective_config.get("ignored_controls", []))
+        reasons = dict(effective_config.get("reasons", {}))
+        warnings = set(effective_config.get("warnings", []))
+
+        active_controls.update(compatibility_diagnostics.applied)
+        inactive_controls.update(compatibility_diagnostics.inactive)
+        ignored_controls.update(compatibility_diagnostics.ignored)
+        ignored_controls.update(compatibility_diagnostics.overridden)
+        warnings.update(compatibility_diagnostics.warnings)
+
+        for control in compatibility_diagnostics.ignored:
+            reasons.setdefault(
+                control,
+                "Accepted but ignored due to compatibility precedence.",
+            )
+        for control in compatibility_diagnostics.inactive:
+            reasons.setdefault(
+                control,
+                "Accepted but inactive in current runtime context.",
+            )
+        for control in compatibility_diagnostics.overridden:
+            reasons.setdefault(
+                control,
+                "Accepted but overridden by deterministic precedence rules.",
+            )
+        for warning in compatibility_diagnostics.warnings:
+            key = f"compatibility.warning.{len(reasons)}"
+            reasons.setdefault(key, warning)
+
+        return {
+            "enabled": bool(dynamic_config.enabled),
+            "level": dynamic_config.level.value,
+            "max_level": dynamic_config.max_level.value,
+            "active_controls": sorted(active_controls),
+            "inactive_controls": sorted(inactive_controls),
+            "ignored_controls": sorted(ignored_controls),
+            "reasons": reasons,
+            "warnings": sorted(warnings),
+            "fingerprint": effective_config.get("fingerprint"),
+        }
 
     @staticmethod
     def _message_has_content(message: Any) -> bool:

@@ -236,7 +236,7 @@ async def main():
         return 0
     else:
         error_msg = ws_result.get("error", "Unknown")
-        print(f"[CONFIRMED] ChatGPT Codex backend DOES NOT support WebSockets")
+        print("[CONFIRMED] ChatGPT Codex backend DOES NOT support WebSockets")
         print(f"             Error: {error_msg}")
         print()
         

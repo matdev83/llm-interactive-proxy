@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import logging
 import re
@@ -20,6 +21,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 
 from src.connectors.openai_codex.managed_oauth_constants import (
+    DEFAULT_OAUTH_CALLBACK_PATH,
+    DEFAULT_OAUTH_CALLBACK_PORT,
     OPENAI_OAUTH_AUTHORIZE_URL,
     OPENAI_OAUTH_CLIENT_ID,
     OPENAI_OAUTH_SCOPES,
@@ -65,18 +68,23 @@ class ManagedOAuthFlowService:
         """Run OAuth authorization flow and persist resulting account."""
         state = self._generate_state()
         code_verifier, code_challenge = self._generate_pkce_pair()
-        callback_port = int(port) if port else 0
+        callback_port = (
+            int(port) if port is not None else int(DEFAULT_OAUTH_CALLBACK_PORT)
+        )
 
         app = FastAPI()
         code_future: asyncio.Future[str] = asyncio.Future()
 
-        @app.get("/oauth2callback")
         async def oauth_callback(request: Request) -> HTMLResponse:
             return await self._handle_callback(
                 request=request,
                 expected_state=state,
                 code_future=code_future,
             )
+
+        # Use Codex CLI callback path by default; keep legacy alias for compatibility.
+        app.add_api_route(DEFAULT_OAUTH_CALLBACK_PATH, oauth_callback, methods=["GET"])
+        app.add_api_route("/oauth2callback", oauth_callback, methods=["GET"])
 
         config = uvicorn.Config(
             app,
@@ -92,15 +100,19 @@ class ManagedOAuthFlowService:
         while not server.started:
             await asyncio.sleep(0.01)
             if server_task.done():
-                await server_task
-                break
+                with contextlib.suppress(Exception):
+                    await server_task
+                raise ManagedOAuthFlowError(
+                    "OAuth callback server failed to start. "
+                    "Try a different --port or close the process using the current port."
+                )
 
         actual_port = callback_port
         if hasattr(server, "servers") and server.servers:
             sockets = server.servers[0].sockets
             if sockets:
                 actual_port = int(sockets[0].getsockname()[1])
-        redirect_uri = f"http://localhost:{actual_port}/oauth2callback"
+        redirect_uri = self._build_redirect_uri(actual_port)
         auth_url = self._build_authorize_url(
             state=state,
             redirect_uri=redirect_uri,
@@ -130,7 +142,8 @@ class ManagedOAuthFlowService:
             ) from exc
         finally:
             server.should_exit = True
-            await server_task
+            with contextlib.suppress(Exception):
+                await server_task
 
     async def _handle_callback(
         self,
@@ -191,7 +204,9 @@ class ManagedOAuthFlowService:
 
     def _generate_pkce_pair(self) -> tuple[str, str]:
         verifier_bytes = secrets.token_bytes(32)
-        code_verifier = base64.urlsafe_b64encode(verifier_bytes).decode("ascii").rstrip("=")
+        code_verifier = (
+            base64.urlsafe_b64encode(verifier_bytes).decode("ascii").rstrip("=")
+        )
         digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
         code_challenge = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
         return code_verifier, code_challenge
@@ -215,6 +230,9 @@ class ManagedOAuthFlowService:
             "state": state,
         }
         return f"{OPENAI_OAUTH_AUTHORIZE_URL}?{urlencode(params)}"
+
+    def _build_redirect_uri(self, callback_port: int) -> str:
+        return f"http://localhost:{callback_port}{DEFAULT_OAUTH_CALLBACK_PATH}"
 
     async def _exchange_code(
         self,
@@ -353,4 +371,3 @@ class ManagedOAuthFlowService:
         if cleaned[0] in {"_", "-"}:
             cleaned = f"user{cleaned}"
         return cleaned[:64]
-

@@ -20,7 +20,6 @@ from src.core.interfaces.tool_call_reactor_interface import (
     ToolCallContext,
     ToolCallReactionResult,
 )
-from src.core.services.pytest_compression_service import PytestCompressionService
 
 # Import from unified steering policy (replaces legacy pytest_full_suite_handler)
 from src.services.steering.policies.pytest_full_suite_policy import (
@@ -32,6 +31,17 @@ if not logger.handlers:
     logger.addHandler(logging.NullHandler())
 logger.propagate = False
 PASS_THROUGH_RESULT = ToolCallReactionResult(should_swallow=False)
+_DEFAULT_SHELL_TOOL_NAMES = frozenset(
+    {
+        "bash",
+        "exec_command",
+        "execute_command",
+        "run_shell_command",
+        "shell",
+        "local_shell",
+        "container.exec",
+    }
+)
 
 
 def _has_short_flag(token: str, flag_char: str) -> bool:
@@ -121,14 +131,10 @@ class PytestContextSavingHandler(IToolCallHandler):
         self._enabled = enabled
         self._command_cache: OrderedDict[str, str] = OrderedDict()
         self._cache_limit = 256
-        self._compression_service = PytestCompressionService()
         if shell_tool_names is None:
-            default_names = (
-                self._compression_service.shell_tool_names
-                if self._compression_service is not None
-                else PytestCompressionService().shell_tool_names
-            )
-            self._shell_tool_names = {name.lower() for name in default_names}
+            self._shell_tool_names = {
+                name.lower() for name in _DEFAULT_SHELL_TOOL_NAMES
+            }
         else:
             self._shell_tool_names = {name.lower() for name in shell_tool_names}
 

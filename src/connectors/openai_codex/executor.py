@@ -377,9 +377,30 @@ class ResponseExecutor(IResponseExecutor):
                         retry_after_seconds = self._extract_retry_after_seconds(
                             response.headers
                         )
+                        if retry_after_seconds is None:
+                            with contextlib.suppress(Exception):
+                                retry_after_seconds = (
+                                    self._extract_retry_after_from_payload(
+                                        response.json()
+                                    )
+                                )
                         rotated = await self._handle_rate_limit_rotation(
                             retry_after_seconds=retry_after_seconds,
                             session_id=context.session_id,
+                        )
+                        if rotated:
+                            fresh_headers = self._base_connector.get_headers() or {}
+                            guarded_headers = ensure_loop_guard_header(fresh_headers)
+                            guarded_headers["conversation_id"] = conversation_id
+                            guarded_headers["session_id"] = context.session_id
+                            await self._wait_for_auth_retry_delay(attempts_used)
+                            attempts_used += 1
+                            continue
+
+                    # For explicit authorization denials, prefer account rotation.
+                    if response.status_code == 403 and attempts_used < max_retries:
+                        rotated = await self._handle_auth_failure_rotation(
+                            session_id=context.session_id
                         )
                         if rotated:
                             fresh_headers = self._base_connector.get_headers() or {}
@@ -704,6 +725,20 @@ class ResponseExecutor(IResponseExecutor):
                         )
                         # Fall through to consume the stream iterator below
                     except HTTPException as exc:
+                        if exc.status_code == 403 and attempts_used < max_retries:
+                            rotated = await self._handle_auth_failure_rotation(
+                                session_id=context.session_id
+                            )
+                            if rotated:
+                                await self._wait_for_auth_retry_delay(attempts_used)
+                                attempts_used += 1
+                                self._refresh_headers_auth(
+                                    current_headers,
+                                    conversation_id,
+                                    context.session_id,
+                                )
+                                continue
+
                         if exc.status_code == 401 or exc.status_code == 403:
                             if attempts_used >= max_retries:
                                 # Notify connector of authentication failure for degradation
@@ -768,8 +803,11 @@ class ResponseExecutor(IResponseExecutor):
                             )
                             continue
                         if exc.status_code == 429 and attempts_used < max_retries:
+                            retry_after_seconds = (
+                                self._extract_retry_after_from_payload(exc.detail)
+                            )
                             rotated = await self._handle_rate_limit_rotation(
-                                retry_after_seconds=None,
+                                retry_after_seconds=retry_after_seconds,
                                 session_id=context.session_id,
                             )
                             if rotated:
@@ -1268,6 +1306,30 @@ class ResponseExecutor(IResponseExecutor):
             return True
         return False
 
+    async def _handle_auth_failure_rotation(self, *, session_id: str | None) -> bool:
+        rotate_method = getattr(
+            self._base_connector,
+            "_handle_auth_failure_rotation",
+            None,
+        )
+        if callable(rotate_method):
+            result = rotate_method(session_id=session_id)
+            rotated = await result if inspect.isawaitable(result) else bool(result)
+            return bool(rotated)
+
+        fallback_rotate = getattr(self._credential_manager, "handle_auth_failure", None)
+        if not callable(fallback_rotate):
+            return False
+
+        result = fallback_rotate(session_id=session_id)
+        rotated = await result if inspect.isawaitable(result) else bool(result)
+        if rotated:
+            new_token = self._credential_manager.get_access_token()
+            if new_token and hasattr(self._base_connector, "api_key"):
+                self._base_connector.api_key = new_token
+            return True
+        return False
+
     async def _mark_account_used(self) -> None:
         mark_used_method = getattr(self._credential_manager, "mark_account_used", None)
         if not callable(mark_used_method):
@@ -1296,6 +1358,50 @@ class ResponseExecutor(IResponseExecutor):
                     return float(stripped)
                 except ValueError:
                     return None
+        return None
+
+    @staticmethod
+    def _extract_retry_after_from_payload(payload: Any) -> float | None:
+        if not isinstance(payload, Mapping):
+            return None
+
+        key_aliases = (
+            "retry_after",
+            "retry_after_seconds",
+            "retryAfter",
+            "retryAfterSeconds",
+            "retry_after_ms",
+            "retryAfterMs",
+        )
+
+        for key in key_aliases:
+            if key not in payload:
+                continue
+            value = payload.get(key)
+            parsed = None
+            if isinstance(value, int | float):
+                parsed = float(value)
+            elif isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    with contextlib.suppress(ValueError):
+                        parsed = float(stripped)
+            if parsed is None:
+                continue
+            if key.endswith(("_ms", "Ms")):
+                parsed = parsed / 1000.0
+            if parsed > 0:
+                return parsed
+
+        for nested_key in ("details", "detail", "error", "metadata"):
+            nested = payload.get(nested_key)
+            if isinstance(nested, Mapping):
+                nested_value = ResponseExecutor._extract_retry_after_from_payload(
+                    nested
+                )
+                if nested_value is not None:
+                    return nested_value
+
         return None
 
     def _should_retry_for_auth_error(self, chunk: ProcessedResponse | Any) -> bool:

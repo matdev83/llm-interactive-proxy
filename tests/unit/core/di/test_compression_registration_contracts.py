@@ -26,6 +26,8 @@ from src.core.interfaces.tool_identity_resolver_interface import IToolIdentityRe
 from src.core.interfaces.tool_output_compression_interface import (
     IToolOutputCompressionService,
 )
+from src.core.services.compression_metrics_recorder import CompressionMetricsRecorder
+from src.core.services.compression_recovery_store import CompressionRecoveryStore
 from src.core.services.compression_strategy_registry import CompressionStrategyRegistry
 from src.core.services.dynamic_compression_config_resolver import (
     DynamicCompressionConfigResolver,
@@ -88,11 +90,23 @@ def test_compression_contracts_resolve_to_singleton_implementations() -> None:
     )
     assert legacy_resolver_interface is legacy_resolver
 
+    metrics_recorder = provider.get_required_service(CompressionMetricsRecorder)
+    assert provider.get_required_service(CompressionMetricsRecorder) is metrics_recorder
+
+    recovery_store = provider.get_required_service(CompressionRecoveryStore)
+    assert provider.get_required_service(CompressionRecoveryStore) is recovery_store
+
     compression_service = provider.get_required_service(ToolOutputCompressionService)
+    assert (
+        provider.get_required_service(ToolOutputCompressionService)
+        is compression_service
+    )
     compression_service_interface: IToolOutputCompressionService = (
         provider.get_required_service(cast(type, IToolOutputCompressionService))
     )
     assert compression_service_interface is compression_service
+    assert compression_service._metrics_recorder is metrics_recorder
+    assert compression_service._recovery_store is recovery_store
 
 
 def test_compression_registry_factory_populates_default_method_set() -> None:
@@ -114,10 +128,12 @@ def test_compression_registry_factory_populates_default_method_set() -> None:
         "json_ndjson_structural",
         "line_dedupe",
         "log_line_dedupe",
+        "mutating_success_ack",
         "output_pattern_match",
         "pytest_failure_focus",
         "search_results_grouping",
         "sensitive_field_projection",
+        "stats_extraction_summary",
         "truncate_failure_preserving",
         "xml_machine_safeguard",
     ]

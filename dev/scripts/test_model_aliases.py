@@ -73,7 +73,7 @@ def main():
         safe_print(f"Description: {description}")
         success, info = test_model(base_url, api_key, model)
         if success:
-            safe_print(f"Result: [OK] Functional")
+            safe_print("Result: [OK] Functional")
         else:
             safe_print(f"Result: [FAIL] {info}")
     

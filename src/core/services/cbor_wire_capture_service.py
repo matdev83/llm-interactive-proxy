@@ -385,7 +385,9 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
 
         # Extract capture metadata if provided (already JSON-safe)
         capture_fields: dict[str, JsonValue] = {}
+        capture_metadata_keys: set[str] = set()
         if capture_metadata:
+            capture_metadata_keys = set(capture_metadata)
             capture_fields = {
                 "status_code": capture_metadata.get("status_code"),
                 "retry_after_seconds": capture_metadata.get("retry_after_seconds"),
@@ -407,7 +409,28 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 "websocket_message_type": capture_metadata.get(
                     "websocket_message_type"
                 ),
+                "compression_correlation_id": capture_metadata.get(
+                    "compression_correlation_id"
+                ),
+                "compression_records_count": capture_metadata.get(
+                    "compression_records_count"
+                ),
             }
+
+        context_extensions = (
+            context.extensions
+            if context and isinstance(getattr(context, "extensions", None), Mapping)
+            else None
+        )
+        if context_extensions:
+            if "compression_correlation_id" not in capture_metadata_keys:
+                capture_fields["compression_correlation_id"] = context_extensions.get(
+                    "compression_correlation_id"
+                )
+            if "compression_records_count" not in capture_metadata_keys:
+                capture_fields["compression_records_count"] = context_extensions.get(
+                    "compression_records_count"
+                )
 
         # Extract EoS metadata if provided (already JSON-safe)
         eos_fields: dict[str, JsonValue] = {}
@@ -451,6 +474,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
         http_reason_phrase: str | None = None
         http_version: str | None = None
         websocket_message_type: str | None = None
+        compression_correlation_id: str | None = None
+        compression_records_count: int | None = None
 
         if eos_fields:
             eos_val = eos_fields.get("eos", False)
@@ -570,6 +595,24 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             ws_type_val = capture_fields.get("websocket_message_type")
             if isinstance(ws_type_val, str) and ws_type_val:
                 websocket_message_type = ws_type_val
+            compression_correlation_val = capture_fields.get(
+                "compression_correlation_id"
+            )
+            if (
+                isinstance(compression_correlation_val, str)
+                and compression_correlation_val
+            ):
+                compression_correlation_id = compression_correlation_val
+            compression_records_count_val = capture_fields.get(
+                "compression_records_count"
+            )
+            if isinstance(compression_records_count_val, int):
+                compression_records_count = compression_records_count_val
+            elif (
+                isinstance(compression_records_count_val, float)
+                and compression_records_count_val.is_integer()
+            ):
+                compression_records_count = int(compression_records_count_val)
 
         metadata = CaptureMetadata(
             session_id=resolved_session,
@@ -608,6 +651,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             http_reason_phrase=http_reason_phrase,
             http_version=http_version,
             websocket_message_type=websocket_message_type,
+            compression_correlation_id=compression_correlation_id,
+            compression_records_count=compression_records_count,
         )
 
         return metadata
@@ -883,6 +928,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 http_status_code=base_metadata.http_status_code,
                 http_reason_phrase=base_metadata.http_reason_phrase,
                 http_version=base_metadata.http_version,
+                compression_correlation_id=base_metadata.compression_correlation_id,
+                compression_records_count=base_metadata.compression_records_count,
             )
             start_entry = CapturedWireEvent(
                 timestamp=stream_start_ts,
@@ -923,6 +970,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                     http_status_code=base_metadata.http_status_code,
                     http_reason_phrase=base_metadata.http_reason_phrase,
                     http_version=base_metadata.http_version,
+                    compression_correlation_id=base_metadata.compression_correlation_id,
+                    compression_records_count=base_metadata.compression_records_count,
                 )
                 chunk_entry = CapturedWireEvent(
                     timestamp=_get_timestamp(),
@@ -1004,6 +1053,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 http_status_code=base_metadata.http_status_code,
                 http_reason_phrase=base_metadata.http_reason_phrase,
                 http_version=base_metadata.http_version,
+                compression_correlation_id=base_metadata.compression_correlation_id,
+                compression_records_count=base_metadata.compression_records_count,
             )
             end_entry = CapturedWireEvent(
                 timestamp=end_ts,
@@ -1119,6 +1170,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 retry_attempt=base_metadata.retry_attempt,
                 is_retry=base_metadata.is_retry,
                 account_id=base_metadata.account_id,
+                compression_correlation_id=base_metadata.compression_correlation_id,
+                compression_records_count=base_metadata.compression_records_count,
             )
             start_entry = CapturedWireEvent(
                 timestamp=_get_timestamp(),
@@ -1137,6 +1190,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                     session_id=stream_session_id,
                     chunk_index=chunk_count,
                     request_id=base_metadata.request_id,
+                    compression_correlation_id=base_metadata.compression_correlation_id,
+                    compression_records_count=base_metadata.compression_records_count,
                 )
                 chunk_entry = CapturedWireEvent(
                     timestamp=_get_timestamp(),
@@ -1164,6 +1219,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 retry_attempt=base_metadata.retry_attempt,
                 is_retry=base_metadata.is_retry,
                 account_id=base_metadata.account_id,
+                compression_correlation_id=base_metadata.compression_correlation_id,
+                compression_records_count=base_metadata.compression_records_count,
             )
             end_entry = CapturedWireEvent(
                 timestamp=_get_timestamp(),

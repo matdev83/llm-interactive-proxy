@@ -93,6 +93,8 @@ class TestCaptureMetadata:
             is_stream_end=False,
             total_chunks=10,
             total_bytes=1000,
+            compression_correlation_id="ccid-abc",
+            compression_records_count=3,
         )
         result = meta.to_dict()
         assert result["sid"] == "sess-1"
@@ -104,6 +106,8 @@ class TestCaptureMetadata:
         assert result["ci"] == 5
         assert result["ss"] is True
         assert "se" not in result  # False values not included
+        assert result["ccid"] == "ccid-abc"
+        assert result["crc"] == 3
 
     def test_from_dict_roundtrip(self):
         """Test from_dict recreates original metadata."""
@@ -115,6 +119,8 @@ class TestCaptureMetadata:
             backend="anthropic",
             model="claude-3",
             chunk_index=3,
+            compression_correlation_id="ccid-roundtrip",
+            compression_records_count=2,
         )
         dict_form = original.to_dict()
         recreated = CaptureMetadata.from_dict(dict_form)
@@ -125,6 +131,8 @@ class TestCaptureMetadata:
         assert recreated.backend == original.backend
         assert recreated.model == original.model
         assert recreated.chunk_index == original.chunk_index
+        assert recreated.compression_correlation_id == "ccid-roundtrip"
+        assert recreated.compression_records_count == 2
 
     def test_canonical_usage_serialization(self):
         """Test canonical usage is serialized as 'cu' key."""
@@ -454,6 +462,101 @@ class TestCborWireCaptureService:
         assert metadata.session_id is None
         await service.shutdown()
 
+    @pytest.mark.asyncio
+    async def test_extract_context_metadata_includes_compression_correlation_fields(
+        self, mock_config, temp_capture_dir
+    ) -> None:
+        service = CborWireCaptureService(
+            config=mock_config,
+            capture_dir=temp_capture_dir,
+            session_id="capture-session",
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            session_id="sess-corr",
+        )
+
+        metadata = service._extract_context_metadata(
+            context=context,
+            session_id="sess-corr",
+            capture_metadata={
+                "compression_correlation_id": "ccid-123",
+                "compression_records_count": 4,
+            },
+        )
+
+        assert metadata.compression_correlation_id == "ccid-123"
+        assert metadata.compression_records_count == 4
+        await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_extract_context_metadata_falls_back_to_context_extensions_for_compression_fields(
+        self, mock_config, temp_capture_dir
+    ) -> None:
+        service = CborWireCaptureService(
+            config=mock_config,
+            capture_dir=temp_capture_dir,
+            session_id="capture-session",
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            session_id="sess-corr",
+            extensions={
+                "compression_correlation_id": "ccid-from-context",
+                "compression_records_count": 7,
+            },
+        )
+
+        metadata = service._extract_context_metadata(
+            context=context,
+            session_id="sess-corr",
+            capture_metadata=None,
+        )
+
+        assert metadata.compression_correlation_id == "ccid-from-context"
+        assert metadata.compression_records_count == 7
+        await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_extract_context_metadata_preserves_explicit_compression_metadata_precedence(
+        self, mock_config, temp_capture_dir
+    ) -> None:
+        service = CborWireCaptureService(
+            config=mock_config,
+            capture_dir=temp_capture_dir,
+            session_id="capture-session",
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            session_id="sess-corr",
+            extensions={
+                "compression_correlation_id": "ccid-from-context",
+                "compression_records_count": 7,
+            },
+        )
+
+        metadata = service._extract_context_metadata(
+            context=context,
+            session_id="sess-corr",
+            capture_metadata={
+                "compression_correlation_id": "ccid-explicit",
+                "compression_records_count": 2,
+            },
+        )
+
+        assert metadata.compression_correlation_id == "ccid-explicit"
+        assert metadata.compression_records_count == 2
+        await service.shutdown()
+
     def test_extract_context_metadata_populates_b2bua_identity_fields(
         self, capture_service
     ):
@@ -608,6 +711,45 @@ class TestCborWireCaptureService:
         assert entry["meta"]["mod"] == "claude-3"
 
     @pytest.mark.asyncio
+    async def test_capture_inbound_response_uses_context_extensions_for_compression_metadata(
+        self, capture_service
+    ) -> None:
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            request_id="req-with-compression",
+            extensions={
+                "compression_correlation_id": "ccid-response-context",
+                "compression_records_count": 5,
+            },
+        )
+
+        await capture_service.capture_inbound_response(
+            context=context,
+            session_id="test-sess",
+            backend="anthropic",
+            model="claude-3",
+            key_name=None,
+            response_content={"choices": [{"message": {"content": "Hello"}}]},
+            capture_metadata={
+                "transport": "http",
+                "protocol_event": "response",
+            },
+        )
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        assert len(entries) >= 2
+        entry = entries[1]
+        assert entry["meta"]["transport"] == "http"
+        assert entry["meta"]["ccid"] == "ccid-response-context"
+        assert entry["meta"]["crc"] == 5
+
+    @pytest.mark.asyncio
     async def test_capture_outbound_response(self, capture_service):
         """Test capturing outbound response to client."""
         await capture_service.capture_outbound_response(
@@ -672,6 +814,10 @@ class TestCborWireCaptureService:
             client_host="127.0.0.1",
             request_id="req-test-1",
             agent="pytest",
+            extensions={
+                "compression_correlation_id": "ccid-inbound-stream",
+                "compression_records_count": 3,
+            },
         )
 
         async def mock_stream():
@@ -724,6 +870,9 @@ class TestCborWireCaptureService:
         assert len(chunk_entries) == 3
         for entry in chunk_entries:
             assert entry["meta"].get("rid") == "req-test-1"
+        for entry in stream_entries:
+            assert entry["meta"].get("ccid") == "ccid-inbound-stream"
+            assert entry["meta"].get("crc") == 3
 
     @pytest.mark.asyncio
     async def test_wrap_outbound_stream(self, capture_service):
@@ -738,6 +887,10 @@ class TestCborWireCaptureService:
             client_host="127.0.0.1",
             request_id="req-test-2",
             agent="pytest",
+            extensions={
+                "compression_correlation_id": "ccid-outbound-stream",
+                "compression_records_count": 4,
+            },
         )
 
         async def mock_stream():
@@ -777,6 +930,9 @@ class TestCborWireCaptureService:
         assert chunk_entries
         for entry in chunk_entries:
             assert entry["meta"].get("rid") == "req-test-2"
+        for entry in stream_entries:
+            assert entry["meta"].get("ccid") == "ccid-outbound-stream"
+            assert entry["meta"].get("crc") == 4
 
     @pytest.mark.asyncio
     @pytest.mark.xdist_group(name="fake_clock")

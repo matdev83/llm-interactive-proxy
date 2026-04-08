@@ -12,9 +12,8 @@ Tests:
 """
 
 import asyncio
-import sys
-import os
 import json
+import sys
 from pathlib import Path
 
 # Add project root to path
@@ -50,7 +49,7 @@ async def test_websocket_client_direct():
         return False
     
     try:
-        with open(auth_file, 'r') as f:
+        with open(auth_file) as f:
             auth_data = json.load(f)
         
         access_token = auth_data.get('access_token')
@@ -162,7 +161,7 @@ clients, our implementation will work immediately without any changes.
             await client.disconnect()
             return "expected_rejection"
         else:
-            print(f"\nUnexpected error (not the expected policy violation)")
+            print("\nUnexpected error (not the expected policy violation)")
             import traceback
             traceback.print_exc()
             await client.disconnect()

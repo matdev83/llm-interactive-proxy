@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 import os
 import socket
 from pathlib import Path
@@ -13,6 +14,7 @@ from src.core.app.stages.core_services import CoreServicesStage
 from src.core.app.stages.infrastructure import InfrastructureStage
 from src.core.cli import _maybe_run_as_daemon, apply_cli_args, parse_cli_args
 from src.core.config.app_config import AppConfig, ParameterResolution
+from src.core.config.models.backends import BackendConfig
 from src.core.config.parameter_resolution import ParameterSource
 
 # Make sure all connectors are imported and registered
@@ -362,6 +364,84 @@ def test_cli_pytest_compression_flags() -> None:
         mock_load_config.return_value = initial_config_override
         config_override = _unwrap_config(apply_cli_args(args_enable))
         assert config_override.session.pytest_compression_enabled is True
+
+
+def test_apply_cli_args_warns_for_deprecated_pytest_compression_controls(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def fake_load_config(
+        _config_path: Any | None = None,
+        *,
+        resolution: ParameterResolution | None = None,
+        environ: Any | None = None,
+    ) -> AppConfig:
+        assert resolution is not None
+        resolution.record(
+            "session.pytest_compression_min_lines",
+            42,
+            ParameterSource.CONFIG_FILE,
+            origin="test-config",
+        )
+        return AppConfig()
+
+    with (
+        patch("src.core.cli.load_config", side_effect=fake_load_config),
+        caplog.at_level(logging.WARNING),
+    ):
+        _unwrap_config(apply_cli_args(parse_cli_args(["--enable-pytest-compression"])))
+
+    messages = [record.message for record in caplog.records]
+    assert any("session.pytest_compression_enabled" in message for message in messages)
+    assert any(
+        "session.pytest_compression_min_lines" in message for message in messages
+    )
+
+
+def test_apply_cli_args_records_disable_pytest_compression_origin_in_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        patch("src.core.cli.load_config", return_value=AppConfig()),
+        caplog.at_level(logging.WARNING),
+    ):
+        _unwrap_config(apply_cli_args(parse_cli_args(["--disable-pytest-compression"])))
+
+    messages = [record.message for record in caplog.records]
+    assert any(
+        "session.pytest_compression_enabled" in message
+        and "origin=--disable-pytest-compression" in message
+        for message in messages
+    )
+
+
+def test_apply_cli_args_warns_for_deprecated_gemini_truncation_controls(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", "120")
+    monkeypatch.setenv("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES", "8")
+    monkeypatch.setenv("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL", "INFO")
+    config = AppConfig()
+    config.backends["gemini-oauth-auto"] = BackendConfig(
+        extra={"tool_output_truncate_chars": 40}
+    )
+
+    with (
+        patch("src.core.cli.load_config", return_value=config),
+        caplog.at_level(logging.WARNING),
+    ):
+        _unwrap_config(apply_cli_args(parse_cli_args([])))
+
+    messages = [record.message for record in caplog.records]
+    assert any("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS" in message for message in messages)
+    assert any("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES" in message for message in messages)
+    assert any(
+        "GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL" in message for message in messages
+    )
+    assert any(
+        "gemini-oauth-auto.tool_output_truncate_chars" in message
+        for message in messages
+    )
 
 
 def test_cli_pytest_full_suite_steering_flags() -> None:

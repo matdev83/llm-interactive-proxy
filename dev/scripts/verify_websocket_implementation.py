@@ -79,8 +79,8 @@ def check_configuration() -> bool:
     
     try:
         sys.path.insert(0, str(project_root))
-        from src.core.config.app_config import load_config
         from src.connectors.openai_codex.settings import SettingsLoader
+        from src.core.config.app_config import load_config
         
         config = load_config(str(project_root / "config" / "config.yaml"))
         loader = SettingsLoader()
@@ -88,10 +88,10 @@ def check_configuration() -> bool:
         
         ws_enabled = settings.websocket.get("enabled", False)
         
-        print(f"  Configuration loads: [OK]")
+        print("  Configuration loads: [OK]")
         print(f"  WebSocket setting: {settings.websocket}")
         print(f"  WebSocket enabled: {ws_enabled}")
-        print(f"  Environment variable: OPENAI_CODEX_WEBSOCKET_ENABLED")
+        print("  Environment variable: OPENAI_CODEX_WEBSOCKET_ENABLED")
         
         return True
         

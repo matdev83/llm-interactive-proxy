@@ -21,110 +21,110 @@ All `_RTK ref:_` paths in this document are relative to `dev/thrdparty/rtk/src/`
 
 ---
 
-- [ ] 1. Establish dynamic compression configuration governance
-- [ ] 1.1 Define baseline dynamic compression controls and defaults
+- [x] 1. Establish dynamic compression configuration governance
+- [x] 1.1 Define baseline dynamic compression controls and defaults
   - Introduce a global switch, compression levels, escalation limits, and minimum-size thresholds with default-safe behavior.
   - Allow independent enablement for category-level, method-level, and command/tool-scoped controls.
   - Keep effective behavior deterministic for identical configuration inputs.
   - _Requirements: 1.1, 1.2, 1.4, 2.4, 2.6, 12.4_
   - _RTK ref: `core/config.rs:9` (`Config` struct), `core/config.rs:103` (`LimitsConfig` - thresholds and limits model), `core/constants.rs:6` (default values)_
-- [ ] 1.2 Implement deterministic configuration resolution across input sources
+- [x] 1.2 Implement deterministic configuration resolution across input sources
   - Resolve configuration with stable precedence and produce one effective runtime snapshot per request boundary.
   - Apply updated configuration to subsequent requests without mutating in-flight request behavior.
   - Keep repeated startups reproducible when effective inputs are unchanged.
   - _Requirements: 1.6, 12.4_
   - _RTK ref: `core/config.rs:9` (Config loading and defaults resolution)_
-- [ ] 1.3 Implement config integrity checks with explicit fail-open warnings
+- [x] 1.3 Implement config integrity checks with explicit fail-open warnings
   - Detect unknown flags, unsupported options, and contradictory values before policy evaluation.
   - Fail open for affected compression scopes instead of blocking request flow.
   - Emit operator-visible warnings that identify impacted options and scope.
   - _Requirements: 1.5, 12.1, 12.3_
   - _RTK ref: `core/config.rs:9` (Config validation patterns)_
-- [ ] 1.4 Implement legacy and dynamic precedence resolution with ambiguity handling
+- [x] 1.4 Implement legacy and dynamic precedence resolution with ambiguity handling
   - Preserve existing compaction and pytest behavior by default during migration.
   - Resolve legacy and new controls using one deterministic precedence model.
   - Fail open with explicit warnings when overlapping settings stay ambiguous.
   - _Requirements: 11.1, 11.2, 11.3_
   - _RTK ref: (no direct RTK equivalent; this is proxy-specific migration logic)_
-- [ ] 1.5 Implement migration diagnostics and configuration drift handling
+- [x] 1.5 Implement migration diagnostics and configuration drift handling
   - Report which compression controls were applied, ignored, inactive, or overridden.
   - Ensure accepted legacy options either have runtime effect or emit deprecation/inactive warnings.
   - Expose migration decisions in diagnostics-safe metadata for operators.
   - _Requirements: 11.5, 12.1, 12.2, 12.3_
   - _RTK ref: (no direct RTK equivalent; this is proxy-specific migration logic)_
 
-- [ ] 2. Build deterministic selection and orchestration core
-- [ ] 2.1 Implement tool identity resolution for dynamic selection
+- [x] 2. Build deterministic selection and orchestration core
+- [x] 2.1 Implement tool identity resolution for dynamic selection
   - Classify outputs by tool category and command identity using existing categorization infrastructure.
   - Capture deterministic observable metadata (content shape, size, structured-format hints, and diff markers) for rule evaluation.
   - Detect explicit output format flags in tool call arguments (--json, --format, --stat, etc.) and expose as identity metadata.
   - Keep identity resolution stateless across requests.
   - _Requirements: 2.1, 5.1, 5.2, 5.3, 5.8_
   - _RTK ref: `discover/registry.rs:74` (`classify_command` - command classification logic), `discover/rules.rs:14` (`RtkRule` table - maps commands to filter strategies), `discover/lexer.rs:17` (`tokenize` - shell command argument parsing)_
-- [ ] 2.2 Implement deterministic rule matching and ordered pipeline selection
+- [x] 2.2 Implement deterministic rule matching and ordered pipeline selection
   - Select a single compression pipeline using configurable priority ordering and stable tie-breaking.
   - Ensure no-match scenarios pass through unchanged.
   - Apply configured compression level consistently for matched outputs.
   - _Requirements: 2.2, 2.3, 2.4_
   - _RTK ref: `core/toml_filter.rs:661` (`find_matching_filter` - ordered filter matching), `discover/rules.rs:14` (rule priority ordering)_
-- [ ] 2.3 Implement eligibility and feature-flag gating in orchestration
+- [x] 2.3 Implement eligibility and feature-flag gating in orchestration
   - Apply global, category, method, and tool/command disable controls before transformation.
   - Enforce minimum-size thresholds to skip small outputs safely.
   - Keep disabled scopes unmodified while preserving deterministic decision logs.
   - _Requirements: 1.3, 1.4, 2.6, 5.4_
   - _RTK ref: `core/config.rs:103` (`LimitsConfig` - size thresholds), `core/runner.rs:56` (`run_filtered` - eligibility checks before filter application)_
-- [ ] 2.4 Implement fail-open sequential transform execution safeguards
+- [x] 2.4 Implement fail-open sequential transform execution safeguards
   - Execute matched methods in deterministic order without reordering multi-part outputs.
   - Preserve success/failure state and correlation metadata while transforming content.
   - On intermediate failures, return last successful result (or original) instead of propagating errors.
   - _Requirements: 3.1, 3.2, 3.3, 3.6_
   - _RTK ref: `core/runner.rs:56` (`run_filtered` - sequential pipeline with fallback to original on failure), `core/utils.rs:233` (`fallback_tail` - recovery on filter failure)_
-- [ ] 2.5 Implement size-increase rollback and safe pass-through guards
+- [x] 2.5 Implement size-increase rollback and safe pass-through guards
   - Skip any method whose output is larger than its input.
   - Preserve unchanged output when no safe reduction is possible.
   - Keep method-level outcomes visible for debugging and audits.
   - _Requirements: 3.5, 2.3, 10.1_
   - _RTK ref: `core/runner.rs:56` (`run_filtered` - output size comparison logic)_
-- [ ] 2.6 Implement marker policy and bounded budget-pressure escalation
+- [x] 2.6 Implement marker policy and bounded budget-pressure escalation
   - Insert explicit markers for compressed plain-text outputs when marker policy is enabled.
   - Keep structured payload markers out of band to avoid syntax breakage.
   - Escalate compression aggressiveness within configured bounds before size-only request rejection.
   - _Requirements: 2.5, 3.4, 9.6_
   - _RTK ref: `core/tee.rs:182` (`tee_and_hint` - hint/marker insertion pattern), `core/tracking.rs:1025` (`estimate_tokens` - token estimation for budget checks)_
 
-- [ ] 3. Implement RTK-inspired generic compression primitives
-- [ ] 3.1 (P) Implement terminal-control normalization primitives
+- [x] 3. Implement RTK-inspired generic compression primitives
+- [x] 3.1 (P) Implement terminal-control normalization primitives
   - Remove or normalize ANSI/control-sequence noise, cursor updates, and spinner artifacts.
   - Keep output ordering and deterministic content boundaries intact.
   - Align aggressiveness with configured compression level.
   - _Requirements: 4.1, 4.5_
   - _RTK ref: `core/utils.rs:48` (`strip_ansi` - ANSI escape sequence removal with regex), `core/toml_filter.rs:429` (`apply_filter` - `strip_ansi` stage in declarative pipeline)_
-- [ ] 3.2 (P) Implement duplicate line/block reduction primitives
+- [x] 3.2 (P) Implement duplicate line/block reduction primitives
   - Deduplicate repeated lines or blocks with deterministic counting markers.
   - Preserve first-occurrence readability and stable output ordering.
   - Avoid altering unique failure-bearing lines.
   - _Requirements: 4.2, 8.4_
   - _RTK ref: `cmds/system/log_cmd.rs:67` (`analyze_logs` - line deduplication with counts and near-duplicate grouping)_
-- [ ] 3.3 (P) Implement similarity grouping primitives
+- [x] 3.3 (P) Implement similarity grouping primitives
   - Group high-volume similar items by inferred stable keys such as path prefix, rule, or severity.
   - Preserve representative entries and deterministic group ordering.
   - Apply level-based grouping aggressiveness controls.
   - _Requirements: 4.3, 4.5_
   - _RTK ref: `cmds/system/grep_cmd.rs:12` (group-by-file pattern for search results), `cmds/python/mypy_cmd.rs:43` (`filter_mypy_output` - group by file/error code), `cmds/python/ruff_cmd.rs:97` (group by rule)_
-- [ ] 3.4 (P) Implement failure-preserving truncation primitives
+- [x] 3.4 (P) Implement failure-preserving truncation primitives
   - Truncate oversized outputs while retaining failure sections and representative samples.
   - Preserve bounded context around failures using deterministic limits.
   - Keep outputs unmodified when truncation would remove the only actionable failure context.
   - _Requirements: 4.4, 6.3, 8.4_
   - _RTK ref: `core/filter.rs:323` (`smart_truncate` - head/tail preserving truncation with error section retention), `core/utils.rs:25` (`truncate` - basic bounded truncation), `core/utils.rs:233` (`fallback_tail` - recovery tail extraction)_
-- [ ] 3.5 (P) Implement output pattern matching with replacement and guard patterns
+- [x] 3.5 (P) Implement output pattern matching with replacement and guard patterns
   - Match full tool output against configurable regex patterns and replace with short configured messages.
   - Support exclusion guard patterns (unless-style) to prevent false-positive replacements when error indicators are present.
   - Emit configured fallback messages when all compression produces empty result from non-empty input.
   - Keep pattern evaluation bounded with configurable timeout to prevent catastrophic regex backtracking.
   - _Requirements: 4.6, 4.7_
   - _RTK ref: `core/toml_filter.rs:429` (`apply_filter` - `match_output` stage with `pattern`, `message`, and `unless` guard), `filters/*.toml` (many TOML filters use `match_output` with `unless` guards - study examples like gradle, make, cargo)_
-- [ ] 3.6 (P) Implement diff-aware compression for unified diff/patch outputs
+- [x] 3.6 (P) Implement diff-aware compression for unified diff/patch outputs
   - Detect unified diff format (diff headers, hunk markers, +/- lines) in tool outputs.
   - Compress diffs with per-file change statistics (+N -M), retained hunk headers, bounded changed lines per hunk (configurable, default 100), and configurable total line cap (default 500).
   - Preserve error-relevant diff sections and passthrough for explicit format flags (--stat, --numstat).
@@ -132,67 +132,67 @@ All `_RTK ref:_` paths in this document are relative to `dev/thrdparty/rtk/src/`
   - _Requirements: 4.8_
   - _RTK ref: `cmds/git/git.rs:296` (`compact_diff` - the primary diff compression implementation with per-file stats, hunk headers, bounded lines), `cmds/git/diff_cmd.rs:9` (`run` - diff detection and routing)_
 
-- [ ] 4. Implement listing, search, and file-read compression strategies
-- [ ] 4.1 (P) Implement hierarchical compression for directory listings
+- [x] 4. Implement listing, search, and file-read compression strategies
+- [x] 4.1 (P) Implement hierarchical compression for directory listings
   - Convert large flat listings into hierarchy-preserving summaries.
   - Maintain deterministic structure and item ordering for navigation.
   - Filter well-known noise directories (node_modules, .git, target, __pycache__, .venv, vendor) with operator-configurable noise directory list.
   - Support independent disable control for listing compression.
   - _Requirements: 6.1, 6.4, 6.6_
   - _RTK ref: `cmds/system/ls.rs:108` (`compact_ls` - flat listing to hierarchical summary with extension stats), `cmds/system/tree.rs:65` (`filter_tree_output` - tree view compression), `cmds/system/constants.rs:1` (`NOISE_DIRS` - canonical noise directory list)_
-- [ ] 4.2 (P) Implement grouped compression for search outputs
+- [x] 4.2 (P) Implement grouped compression for search outputs
   - Group matches by file and deduplicate repeated safe match lines.
   - Preserve surrounding context up to configured limits and truncate excess deterministically.
   - Preserve actionable anchors (file path and line number when present) in the compressed output.
   - Support independent disable control for search-result compression.
   - _Requirements: 6.2, 6.3, 6.4, 6.5_
   - _RTK ref: `cmds/system/grep_cmd.rs:12` (`run` - grep output grouping by file with match limits), `cmds/system/grep_cmd.rs:155` (`clean_line` - line cleanup), `cmds/system/find_cmd.rs:193` (`run` - find output compression with path grouping)_
-- [ ] 4.3 (P) Implement multi-level file-content detail compression
+- [x] 4.3 (P) Implement multi-level file-content detail compression
   - Support full-text, structure-focused, and signature-focused detail levels for large file outputs.
   - Preserve top-level structure and add explicit omission markers at reduced-detail levels.
   - Keep behavior deterministic for identical inputs and level settings, including optional line-number output when enabled.
   - _Requirements: 7.1, 7.2, 7.6_
   - _RTK ref: `core/filter.rs:8` (`FilterLevel` enum - detail level definitions), `core/filter.rs:156` (`MinimalFilter` - structure-only extraction), `core/filter.rs:233` (`AggressiveFilter` - signature-only extraction), `core/filter.rs:42` (`Language` - file-type-aware filtering), `cmds/system/read.rs:9` (`run` - file read compression with line numbers)_
-- [ ] 4.4 Implement automatic detail-level selection and file-type heuristics
+- [x] 4.4 Implement automatic detail-level selection and file-type heuristics
   - Select detail level automatically from output size and active compression level when unset.
   - Determine file type from extension/content heuristics and treat unknown types as plain text.
   - Ensure data-oriented file types use structure-safe reductions instead of code-comment/body stripping transforms.
   - Keep selection deterministic and transparent for troubleshooting.
   - _Requirements: 7.4, 7.5, 7.8_
   - _RTK ref: `core/filter.rs:42` (`Language` enum - maps file extensions to language-specific filters), `core/filter.rs:37` (`FilterStrategy` - strategy selection per language)_
-- [ ] 4.5 Implement safe fallbacks for structure-extraction failures
+- [x] 4.5 Implement safe fallbacks for structure-extraction failures
   - Fall back to configured safer detail behavior when extraction fails.
   - Record fallback decisions with enough context for diagnostics.
   - Keep request flow fail-open and stable when extraction errors occur.
   - _Requirements: 7.3, 3.1_
   - _RTK ref: `core/utils.rs:233` (`fallback_tail` - fallback when filter fails), `core/runner.rs:56` (`run_filtered` - fail-open fallback to original output)_
-- [ ] 4.6 Implement known-tool preference with generic fallback in file workflows
+- [x] 4.6 Implement known-tool preference with generic fallback in file workflows
   - Prefer tool-tuned behavior when source command identity is known.
   - Fall back to generic primitives when tool identity is unknown or unsupported.
   - Keep command/category disable controls effective across both paths.
   - _Requirements: 5.2, 5.3, 5.4_
   - _RTK ref: `discover/registry.rs:74` (`classify_command` - command-to-handler routing), `discover/rules.rs:14` (rule table mapping commands to specialized filters vs generic fallback)_
-- [ ] 4.7 Implement deterministic line-window reductions for file reads
+- [x] 4.7 Implement deterministic line-window reductions for file reads
   - Support configured head-like (`max_lines`) and tail-like (`last_n_lines`) reductions for large file outputs.
   - Keep omission markers and detail-level semantics stable when line-window reductions are active.
   - Ensure line-window behavior is deterministic and debuggable across repeated runs.
   - _Requirements: 7.7, 7.2, 7.6_
   - _RTK ref: `core/toml_filter.rs:429` (`apply_filter` - `head_lines`/`tail_lines` stages with joiner message), `cmds/system/read.rs:9` (`run` - line-window reductions for file reads)_
 
-- [ ] 5. Implement failure-focused and structured payload strategies
-- [ ] 5.1 Implement failure-focused reduction for tests, linting, and build outputs
+- [x] 5. Implement failure-focused and structured payload strategies
+- [x] 5.1 Implement failure-focused reduction for tests, linting, and build outputs
   - Prioritize failures and actionable diagnostics over passing noise.
   - Compress all-success outputs to minimal confirmation summaries.
   - Preserve unmodified failure sections when compression would remove sole failure context.
   - _Requirements: 8.1, 8.3, 8.4_
   - _RTK ref: `cmds/python/pytest_cmd.rs:52` (`filter_pytest_output`), `cmds/rust/cargo_cmd.rs:20` (`run` - cargo test/build failure focus), `cmds/rust/runner.rs:102` (`filter_errors`), `cmds/go/go_cmd.rs:43` (`run_test`), `cmds/js/vitest_cmd.rs:218` (`run`), `cmds/ruby/rspec_cmd.rs:65` (`run`), `cmds/dotnet/dotnet_cmd.rs:21` (`run_build`)_
-- [ ] 5.2 Implement diagnostics grouping by file and rule/code
+- [x] 5.2 Implement diagnostics grouping by file and rule/code
   - Group lint/typecheck diagnostics by file and by rule/code where available.
   - Preserve deterministic grouping and actionable message context.
   - Ensure grouped output remains easy to map back to affected files.
   - _Requirements: 8.2_
   - _RTK ref: `cmds/python/mypy_cmd.rs:43` (`filter_mypy_output` - group by file and error code), `cmds/python/ruff_cmd.rs:97` (`filter_ruff_check_json` - group by rule with JSON parsing), `cmds/js/lint_cmd.rs:88` (`run` - eslint output grouping), `cmds/js/tsc_cmd.rs:40` (`filter_tsc_output`), `cmds/ruby/rubocop_cmd.rs:53` (`run`), `cmds/go/golangci_cmd.rs:83` (`run` - golangci-lint grouping)_
-- [ ] 5.3 Implement pytest compatibility strategy with override-safe migration
+- [x] 5.3 Implement pytest compatibility strategy with override-safe migration
   - Integrate existing pytest compression behavior as default compatibility mode.
   - Allow explicit dynamic override while preserving legacy behavior by default.
   - Keep migration diagnostics explicit whenever override behavior changes output.
@@ -200,143 +200,143 @@ All `_RTK ref:_` paths in this document are relative to `dev/thrdparty/rtk/src/`
   - Note: after this strategy is verified equivalent, the legacy code in `ResponseManagerService` is removed in task group 10 (legacy unification).
   - _Requirements: 8.5, 11.1, 11.5, 14.1_
   - _RTK ref: `cmds/python/pytest_cmd.rs:52` (`filter_pytest_output` - the definitive pytest output filtering implementation with failure extraction, summary parsing, and pass-noise removal). Also study the CURRENT proxy implementation at `src/core/services/response_manager_service.py:886` (`_filter_pytest_output`) to ensure behavioral equivalence._
-- [ ] 5.4 (P) Implement JSON and NDJSON structural compression
+- [x] 5.4 (P) Implement JSON and NDJSON structural compression
   - Emit structure-only summaries for large JSON payloads while preserving key/type shape.
   - Apply configurable depth limits, key count caps per object, array element caps (retaining representative elements with count annotations), and long string value truncation with type/length annotations (string[N], url, date).
   - Summarize NDJSON by repeated record shapes with deterministic counts.
   - Respect configured thresholds and fail-open behavior on parse problems.
   - _Requirements: 9.1, 9.2, 9.4_
   - _RTK ref: `cmds/system/json_cmd.rs:91` (`filter_json_compact` - JSON depth-limited compression with key/array caps), `cmds/system/json_cmd.rs:181` (`filter_json_string` - string value truncation with type annotations)_
-- [ ] 5.5 (P) Implement parseability-preserving XML and machine-format safeguards
+- [x] 5.5 (P) Implement parseability-preserving XML and machine-format safeguards
   - Compress XML and other configured machine-parseable formats without breaking syntax validity.
   - Bypass unsafe transforms or apply explicitly approved plain-text fallback rules when parsing fails.
   - Keep post-compression outputs machine-parseable for supported structured formats.
   - _Requirements: 9.4, 9.5_
   - _RTK ref: (no direct XML equivalent in RTK; use `cmds/system/json_cmd.rs:91` patterns for structural compression approach and fail-open fallback)_
-- [ ] 5.6 (P) Implement noisy-log deduplication with error retention
+- [x] 5.6 (P) Implement noisy-log deduplication with error retention
   - Deduplicate repeated or near-repeated log lines/blocks using normalized keys for volatile fields (for example: timestamps, UUIDs, IDs, hashes, ephemeral paths), while preserving representative originals.
   - Preserve error-indicating entries even when normalization would group many lines together.
   - Maintain deterministic log section ordering after reduction.
   - Keep log reductions compatible with generic marker and fail-open policies.
   - _Requirements: 9.3, 4.2_
   - _RTK ref: `cmds/system/log_cmd.rs:67` (`analyze_logs` - timestamp/UUID normalization, near-duplicate grouping with counts, error line preservation)_
-- [ ] 5.7 Implement sensitive-field projection policies for high-risk outputs
+- [x] 5.7 Implement sensitive-field projection policies for high-risk outputs
   - Apply strategy-specific masking/removal defaults for sensitive categories such as environment dumps and cloud control-plane payloads.
   - Support explicit allowlist exceptions for secret-retrieval commands where values are required by command intent.
   - Emit diagnostics describing which projection policy was applied without leaking raw secrets.
   - _Requirements: 9.7, 12.2, 12.3_
   - _RTK ref: `cmds/system/env_cmd.rs:148` (`mask_value` - sensitive value masking logic), `cmds/system/env_cmd.rs:9` (`run` - env-var output processing with key-based sensitivity detection)_
 
-- [ ] 6. Integrate broad tool coverage and extensibility into runtime flow
-- [ ] 6.1 Implement category coverage policies for required tool families
+- [x] 6. Integrate broad tool coverage and extensibility into runtime flow
+- [x] 6.1 Implement category coverage policies for required tool families
   - Ensure dynamic compression policies cover git, diff/patch, listing, reads, search, tests (pytest, vitest, go test, cargo test, rspec, minitest, playwright, .NET), lint/typecheck (ruff, mypy, eslint, tsc, rubocop, golangci-lint, clippy), build (cargo, make, gradle, maven, dotnet, gcc, swift), formatters (black, prettier, biome, ruff format), container/kubernetes, cloud/infrastructure CLI (AWS, gcloud, terraform, helm, ansible), database CLI (psql), environment-variable dumps, GitHub CLI, package managers (pip, npm, pnpm, brew, bundle, composer, poetry, uv), and HTTP/JSON (curl, wget) outputs.
   - Use declarative rules for tools not covered by code-based strategies to maximize out-of-the-box coverage.
   - Keep coverage definitions deterministic and auditable by category.
   - Validate safe generic fallback when specialized behavior is unavailable.
   - _Requirements: 5.1, 5.3, 5.7, 5.8, 9.7, 13.6_
   - _RTK ref: `discover/rules.rs:14` (complete command-to-handler mapping table), `filters/*.toml` (58+ declarative filters covering tools beyond code-based handlers). Study the RTK `src/cmds/` directory structure for the full set of specialized handlers per language/tool family._
-- [ ] 6.2 Implement request-path integration for tool outputs only
+- [x] 6.2 Implement request-path integration for tool outputs only
   - Apply dynamic compression in request preparation before backend translation.
   - Restrict compression to eligible tool outputs and preserve non-tool messages unchanged.
   - Keep request ordering and context structure deterministic end to end.
   - _Requirements: 2.1, 3.3_
   - _RTK ref: (proxy-specific integration; no direct RTK equivalent - RTK intercepts at the shell layer via `core/runner.rs:56`)_
-- [ ] 6.3 Implement double-reduction prevention across overlapping features
+- [x] 6.3 Implement double-reduction prevention across overlapping features
   - Prevent dynamic compression and connector-level truncation from reducing the same payload path twice.
   - Apply deterministic overlap resolution when multiple reduction features are enabled.
   - Emit fail-open warnings when overlap settings remain ambiguous.
   - _Requirements: 11.2, 11.3, 11.4_
   - _RTK ref: (proxy-specific; no direct RTK equivalent)_
-- [ ] 6.4 Implement runtime controls for per-tool, per-command, and per-category opt-out
+- [x] 6.4 Implement runtime controls for per-tool, per-command, and per-category opt-out
   - Enforce opt-out controls at decision time for known tools and categories.
   - Keep opt-out behavior deterministic across repeated requests.
   - Confirm disabled scopes bypass transformations and markers.
   - _Requirements: 5.4, 1.3_
   - _RTK ref: `core/config.rs:9` (Config disable controls pattern)_
-- [ ] 6.5 Implement explicit-format passthrough detection for tool outputs
+- [x] 6.5 Implement explicit-format passthrough detection for tool outputs
   - Detect when tool call arguments contain explicit output format flags (--json, --format, --stat, --numstat, --output-format) and prefer format-aware compression or passthrough.
   - Keep detection deterministic and configurable for additional format-indicating flags.
   - Ensure passthrough decisions are logged in compression metadata for diagnostics.
   - _Requirements: 5.8_
   - _RTK ref: `cmds/git/git.rs:296` (`compact_diff` - detects `--stat`/`--numstat` for passthrough), `cmds/git/gh_cmd.rs:182` (`run` - detects `--json` flag for JSON-mode handling)_
-- [ ] 6.6 Implement extension onboarding path for new strategy types
+- [x] 6.6 Implement extension onboarding path for new strategy types
   - Support adding new tool-specific strategies without modifying existing strategy logic.
   - Keep orchestration contracts stable so client integrations remain unchanged.
   - Ensure new strategies can participate in ordered rule selection immediately after registration.
   - _Requirements: 5.5, 2.2_
   - _RTK ref: `core/toml_filter.rs:175` (`TomlFilterRegistry` - registry pattern for dynamically adding filters)_
-- [ ] 6.7 Implement concise acknowledgement strategies for mutating command successes
+- [x] 6.7 Implement concise acknowledgement strategies for mutating command successes
   - Reduce verbose success output for low-diagnostic side-effect commands to compact acknowledgements with key outcomes.
   - Preserve outcome identifiers needed by agents/operators (for example: commit hash, branch name, changed-file counts).
   - Keep failure paths uncompressed enough to remain actionable and fail-open compliant.
   - _Requirements: 5.6, 3.1, 8.3_
   - _RTK ref: `cmds/git/git.rs:296` (`compact_diff` - success path emitting compact summary with key outcomes), `core/utils.rs:192` (`exit_code_from_output` - success/failure detection for acknowledgement decisions)_
-- [ ] 6.8 Implement stats-first summaries for high-volume informational commands
+- [x] 6.8 Implement stats-first summaries for high-volume informational commands
   - Add strategy profiles for informational command outputs (for example: git status/log/diff summaries, dependency/list outputs) that preserve aggregate counts/deltas/status buckets.
   - Retain bounded representative detail samples alongside the aggregate summary for drill-down workflows.
   - Ensure deterministic summary ordering and transparent fallback to generic strategies when profiling is unavailable.
   - _Requirements: 5.7, 5.2, 5.3, 3.1_
   - _RTK ref: `cmds/git/git.rs:594` (`format_status_output` - git status stats extraction), `cmds/git/git.rs:517` (`filter_log_output` - git log summarization with entry limits), `cmds/python/pip_cmd.rs:16` (`run` - package list summarization), `cmds/js/npm_cmd.rs:76` (`run` - npm output stats)_
 
-- [ ] 7. Implement observability, auditing, and troubleshooting surfaces
-- [ ] 7.1 Implement per-output compression telemetry records
+- [x] 7. Implement observability, auditing, and troubleshooting surfaces
+- [x] 7.1 Implement per-output compression telemetry records
   - Record original/compressed sizes, applied methods, and elapsed time for each processed output.
   - Capture fail-open and fallback events without leaking raw sensitive payload content.
   - Keep telemetry schema stable for diagnostics and regression assertions.
   - _Requirements: 10.1, 3.1_
   - _RTK ref: `core/tracking.rs:91` (`Tracker` struct - per-command tracking records), `core/tracking.rs:351` (`record` - recording method results with sizes and timing)_
-- [ ] 7.2 Implement wire-capture correlation metadata for compressed outputs
+- [x] 7.2 Implement wire-capture correlation metadata for compressed outputs
   - Correlate transformed outputs with original sources using request-safe identifiers.
   - Respect retention and redaction policies for correlated troubleshooting data.
   - Keep correlation deterministic and auditable across repeated flows.
   - _Requirements: 10.2_
   - _RTK ref: (proxy-specific CBOR wire capture; no direct RTK equivalent)_
-- [ ] 7.3 Implement aggregate savings metrics surfaces
+- [x] 7.3 Implement aggregate savings metrics surfaces
   - Publish aggregate byte/token savings and compression utilization metrics.
   - Break down metrics by method, category, and level for operator insight.
   - Keep metrics available through existing observability patterns.
   - _Requirements: 10.3_
   - _RTK ref: `core/tracking.rs:1025` (`estimate_tokens` - token estimation for savings calculation), `core/tracking.rs:91` (`Tracker` - aggregate metrics accumulation)_
-- [ ] 7.4 Implement operator alerts for frequent failures and fallbacks
+- [x] 7.4 Implement operator alerts for frequent failures and fallbacks
   - Surface repeated method failures or fallback-heavy behavior through logs/metrics.
   - Include enough context for remediation without exposing payload secrets.
   - Apply rate-safe reporting so operational noise stays actionable.
   - _Requirements: 10.4_
   - _RTK ref: (proxy-specific alerting; no direct RTK equivalent)_
-- [ ] 7.5 Implement effective-configuration diagnostics for operators
+- [x] 7.5 Implement effective-configuration diagnostics for operators
   - Expose redaction-safe effective compression configuration and migration decisions.
   - Report inactive or ignored options with reason and affected scope.
   - Keep diagnostic state deterministic across restarts with identical inputs.
   - _Requirements: 12.1, 12.2, 12.3, 12.4, 11.5_
   - _RTK ref: (proxy-specific diagnostics; no direct RTK equivalent)_
-- [ ] 7.6 Implement truncation recovery-handle workflow with bounded retention
+- [x] 7.6 Implement truncation recovery-handle workflow with bounded retention
   - Persist bounded raw-output artifacts when truncation exceeds configured thresholds and recovery retention is enabled.
   - Emit redaction-safe recovery handles in diagnostics (and optional text hints for plain-text outputs) without mutating structured payload syntax.
   - Fail open when artifact persistence fails, emitting warnings but never blocking request flow.
   - _Requirements: 10.5, 3.1, 12.1_
   - _RTK ref: `core/tee.rs:145` (`tee_raw` - raw output persistence with size thresholds), `core/tee.rs:182` (`tee_and_hint` - recovery hint insertion pattern), `core/tee.rs:228` (`TeeMode` - retention mode configuration), `core/tee.rs:8` (`MIN_TEE_SIZE` - minimum size for artifact retention)_
 
-- [ ] 9. Implement operator-definable declarative compression rules
-- [ ] 9.1 Implement declarative rule registry with startup validation
+- [x] 9. Implement operator-definable declarative compression rules
+- [x] 9.1 Implement declarative rule registry with startup validation
   - Load declarative rule definitions from configuration (YAML block and/or separate rule files).
   - Validate regex patterns, stage names, and rule structure at startup.
   - Fail open for individual invalid rules with operator-visible warnings; do not block startup.
   - Ship a set of built-in declarative rules covering 50+ common development tools modeled after RTK's TOML filter library.
   - _Requirements: 13.1, 13.5, 13.6_
   - _RTK ref: `core/toml_filter.rs:175` (`TomlFilterRegistry` - registry that loads, validates, and indexes filter definitions at startup), `core/toml_filter.rs:134` (`CompiledFilter` - compiled/validated filter structure), `filters/README.md` (filter format documentation), `filters/*.toml` (58+ built-in filter definitions to port to YAML)_
-- [ ] 9.2 Implement the 8-stage declarative filter pipeline
+- [x] 9.2 Implement the 8-stage declarative filter pipeline
   - Execute the composable text-processing stages in deterministic order: ANSI strip, regex replace, match_output with unless guards, strip/keep lines, per-line truncate, head/tail, max_lines, on_empty.
   - Ensure each stage is independently bypassable and fail-open safe.
   - Support bounded regex evaluation timeout to prevent catastrophic backtracking.
   - _Requirements: 13.2_
   - _RTK ref: `core/toml_filter.rs:429` (`apply_filter` - THE primary reference for the 8-stage pipeline implementation. Study this function line-by-line: it implements strip_ansi, replace, match_output+unless, strip_lines/keep_lines, truncate_lines_at, head_lines/tail_lines with joiner, max_lines, and on_empty fallback in exactly this order)_
-- [ ] 9.3 Implement declarative rule matching and precedence with code-based strategies
+- [x] 9.3 Implement declarative rule matching and precedence with code-based strategies
   - Match declarative rules to tool outputs using configurable predicates (command prefix regex, tool category, tool name pattern).
   - Resolve conflicts with code-based strategies using deterministic precedence model (code-based wins by default; explicit override flag available).
   - Keep matching deterministic and auditable via diagnostics.
   - _Requirements: 13.3, 13.4_
   - _RTK ref: `core/toml_filter.rs:661` (`find_matching_filter` - filter matching by command pattern), `core/toml_filter.rs:134` (`CompiledFilter` - match predicate structure with `match_command` regex)_
-- [ ] 9.4 (P) Add unit and integration tests for declarative filter rules
+- [x] 9.4 (P) Add unit and integration tests for declarative filter rules
   - Cover rule loading, validation, and fail-open for malformed rules.
   - Cover each of the 8 pipeline stages independently and in composition.
   - Cover match_output with and without unless guards, on_empty fallback, and precedence resolution with code-based strategies.
@@ -344,20 +344,20 @@ All `_RTK ref:_` paths in this document are relative to `dev/thrdparty/rtk/src/`
   - _Requirements: 13.1, 13.2, 13.3, 13.4, 13.5, 13.6_
   - _RTK ref: `core/toml_filter.rs` (inline `#[cfg(test)]` module with test cases for each pipeline stage), `filters/*.toml` (use these TOML definitions as test case sources - load each, apply to representative input, verify output matches RTK behavior)_
 
-- [ ] 8. Verify end-to-end behavior with unit, integration, and regression tests
-- [ ] 8.1 (P) Add unit tests for configuration resolution, validation, and precedence safety
+- [x] 8. Verify end-to-end behavior with unit, integration, and regression tests
+- [x] 8.1 (P) Add unit tests for configuration resolution, validation, and precedence safety
   - Cover default-disabled behavior, unknown-option warnings, and fail-open handling.
   - Cover deterministic legacy-vs-dynamic precedence and ambiguity fallback behavior.
   - Cover deterministic effective-state reporting for repeated startup inputs.
   - _Requirements: 1.2, 1.5, 11.2, 11.3, 12.1, 12.3, 12.4_
   - _RTK ref: `core/config.rs` (inline tests for config parsing and defaults)_
-- [ ] 8.2 (P) Add unit tests for selection, orchestration, and escalation behavior
+- [x] 8.2 (P) Add unit tests for selection, orchestration, and escalation behavior
   - Cover deterministic rule ordering, no-match pass-through, and feature-flag gating.
   - Cover sequential fail-open execution, size-increase rollback, and metadata preservation.
   - Cover marker policy and bounded escalation before size-only failure.
   - _Requirements: 2.2, 2.3, 2.5, 3.2, 3.5, 3.6, 9.6_
   - _RTK ref: `core/runner.rs` (inline tests for `run_filtered` pipeline behavior), `discover/registry.rs` (inline tests for `classify_command`)_
-- [ ] 8.3 (P) Add unit tests for generic, listing/search, file-detail, pattern-match, and diff strategies
+- [x] 8.3 (P) Add unit tests for generic, listing/search, file-detail, pattern-match, and diff strategies
   - Cover ANSI normalization, dedupe counts, grouping determinism, and failure-preserving truncation.
   - Cover output pattern matching with replacement, exclusion guard patterns, and on_empty fallback.
   - Cover diff-aware compression (per-file stats, hunk truncation, passthrough for explicit format flags).
@@ -365,31 +365,31 @@ All `_RTK ref:_` paths in this document are relative to `dev/thrdparty/rtk/src/`
   - Cover detail-level selection, omission markers, line-window/line-number behavior, file-type heuristics, data-safe reductions, and extraction fallback decisions.
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8_
   - _RTK ref: Port test cases from inline `#[cfg(test)]` modules in: `core/utils.rs` (ANSI tests), `core/filter.rs` (truncation/detail-level tests), `cmds/git/git.rs` (diff compression tests), `cmds/system/ls.rs` (listing tests), `cmds/system/grep_cmd.rs` (search tests), `cmds/system/read.rs` (file read tests), `core/toml_filter.rs` (pattern match/pipeline tests)_
-- [ ] 8.4 (P) Add unit tests for failure-focused and structured/log strategies
+- [x] 8.4 (P) Add unit tests for failure-focused and structured/log strategies
   - Cover failure prioritization, diagnostics grouping, and all-success summary minimization.
   - Cover pytest compatibility mode versus explicit override behavior.
   - Cover JSON/NDJSON/XML/log compression with parseability guarantees, sensitive-field projection behavior, and fail-open fallback paths.
   - _Requirements: 8.1, 8.2, 8.3, 8.5, 9.1, 9.2, 9.3, 9.4, 9.5, 9.7, 11.1_
   - _RTK ref: Port test cases from: `cmds/python/pytest_cmd.rs` (pytest tests), `cmds/python/mypy_cmd.rs`, `cmds/python/ruff_cmd.rs`, `cmds/js/tsc_cmd.rs` (diagnostics tests), `cmds/system/json_cmd.rs` (JSON compression tests), `cmds/system/log_cmd.rs` (log dedup tests), `cmds/system/env_cmd.rs` (sensitive-field tests)_
-- [ ] 8.5 Add integration tests for request-path placement and overlap protection
+- [x] 8.5 Add integration tests for request-path placement and overlap protection
   - Verify compression is applied at request preparation stage for eligible tool outputs only.
   - Verify no output reordering and correlation/status preservation across transformed multi-part content.
   - Verify overlap handling prevents double reduction with connector-level truncation.
   - _Requirements: 2.1, 3.2, 3.3, 11.4_
   - _RTK ref: (proxy-specific integration; no direct RTK equivalent)_
-- [ ] 8.6 Add regression and diagnostics contract tests
+- [x] 8.6 Add regression and diagnostics contract tests
   - Verify legacy behavior remains stable by default for compaction and pytest compression during migration.
   - Verify per-output telemetry, aggregate savings metrics, wire-capture correlation contracts, and truncation recovery-handle contracts.
   - Verify migration diagnostics report applied/ignored/overridden settings consistently.
   - _Requirements: 10.1, 10.2, 10.3, 10.5, 11.1, 11.5_
   - _RTK ref: (proxy-specific regression; no direct RTK equivalent)_
-- [ ] 8.7 Add fail-open resilience tests for runtime error scenarios
+- [x] 8.7 Add fail-open resilience tests for runtime error scenarios
   - Simulate method failures, parse errors, and invalid config inputs to confirm request flow remains available.
   - Verify fallback result selection (last-successful or original) across multi-method pipelines.
   - Verify warnings/alerts are emitted for recurring fallback-heavy behavior.
   - _Requirements: 3.1, 3.6, 9.4, 10.4_
   - _RTK ref: `core/runner.rs` (fail-open patterns in `run_filtered`), `core/utils.rs:233` (`fallback_tail` error recovery)_
-- [ ] 8.8 Add coverage for command-summary behaviors, passthrough detection, and sensitive-output safety
+- [x] 8.8 Add coverage for command-summary behaviors, passthrough detection, and sensitive-output safety
   - Verify compact acknowledgement behavior for successful side-effect commands while preserving key outcome identifiers.
   - Verify stats-first summary behavior for high-volume informational command outputs, including bounded representative detail retention.
   - Verify explicit-format passthrough detection for tool outputs with --json, --format, --stat flags.
@@ -398,23 +398,23 @@ All `_RTK ref:_` paths in this document are relative to `dev/thrdparty/rtk/src/`
   - _Requirements: 5.6, 5.7, 5.8, 9.7, 10.5_
   - _RTK ref: Port test cases from: `cmds/git/git.rs` (git command summary tests), `cmds/git/gh_cmd.rs` (GitHub CLI passthrough tests), `cmds/system/env_cmd.rs` (sensitive-field tests), `cmds/cloud/aws_cmd.rs` (cloud CLI tests), `core/tee.rs` (recovery handle tests)_
 
-- [ ] 10. Unify and remove legacy compression code (post-verification)
-- [ ] 10.1 Remove dead code: `compress_next_tool_call_reply` session flag
+- [x] 10. Unify and remove legacy compression code (post-verification)
+- [x] 10.1 Remove dead code: `compress_next_tool_call_reply` session flag
   - Remove the `compress_next_tool_call_reply` field from session state model. This flag is written by `PytestCompressionHandler` but never read by any consumer.
   - This is a prerequisite cleanup that can be done immediately (no behavioral dependency).
   - _Requirements: 14.4_
   - _RTK ref: (proxy-specific cleanup; no RTK equivalent)_
-- [ ] 10.2 Write contract tests pinning current pytest compression behavior
+- [x] 10.2 Write contract tests pinning current pytest compression behavior
   - Create snapshot/golden-file tests that capture current `ResponseManagerService._filter_pytest_output` behavior for representative inputs (all-pass, mixed pass/fail, all-fail, short output below threshold, traceback output, command-not-found output).
   - These tests must pass against BOTH the legacy code and the new `pytest_failure_focus` strategy before legacy code is removed.
   - _Requirements: 14.6_
   - _RTK ref: `cmds/python/pytest_cmd.rs:52` (`filter_pytest_output` - use RTK's test cases alongside current proxy behavior as golden inputs)_
-- [ ] 10.3 Write contract tests pinning current Gemini tool-output truncation behavior
+- [x] 10.3 Write contract tests pinning current Gemini tool-output truncation behavior
   - Create tests that capture current `ChatRequestPreparer._truncate_tool_outputs_if_configured` behavior for representative inputs (small output untouched, char-limit truncation, line-limit truncation, interaction with compaction-enabled skip).
   - These tests must pass against the new dynamic compression system before legacy Gemini truncation is removed.
   - _Requirements: 14.6_
   - _RTK ref: (proxy-specific; no RTK equivalent)_
-- [ ] 10.4 Unify pytest detection into `ToolIdentityResolver`
+- [x] 10.4 Unify pytest detection into `ToolIdentityResolver`
   - Absorb `PytestCompressionService.scan_for_pytest` detection logic (shell tool name list + `\bpy\.?test\b` regex) into `ToolIdentityResolver`.
   - Verify that `ToolIdentityResolver` detects all pytest invocations that the legacy detection finds.
   - Delete `src/core/services/pytest_compression_service.py` after verification.
@@ -422,27 +422,27 @@ All `_RTK ref:_` paths in this document are relative to `dev/thrdparty/rtk/src/`
   - Remove DI registration from `src/core/di/registrations/tooling.py` (`_register_pytest_compression_service`) and handler registration from `post_build_actions.py`.
   - _Requirements: 14.2_
   - _RTK ref: `discover/registry.rs:74` (`classify_command` - study how RTK classifies commands for the unified identity resolver)_
-- [ ] 10.5 Remove legacy pytest compression from `ResponseManagerService`
+- [x] 10.5 Remove legacy pytest compression from `ResponseManagerService`
   - Remove `_apply_pytest_compression_sync`, `_filter_pytest_output`, `_filter_pytest_output_with_metrics`, and `_is_pytest_command` from `ResponseManagerService`.
   - Update `format_command_result_for_agent` to no longer call pytest compression — the dynamic compression pipeline now handles all pytest output reduction.
   - Verify all contract tests from task 10.2 pass against the new `pytest_failure_focus` strategy.
   - Verify existing `ResponseManagerService` tests still pass (non-pytest paths unchanged).
   - _Requirements: 14.1_
   - _RTK ref: (proxy-specific removal)_
-- [ ] 10.6 Remove legacy Gemini tool-output truncation from `ChatRequestPreparer`
+- [x] 10.6 Remove legacy Gemini tool-output truncation from `ChatRequestPreparer`
   - Remove `_truncate_tool_outputs_if_configured`, `_resolve_tool_output_truncation_limits`, `_truncate_text_content`, and `_is_compaction_enabled` from `ChatRequestPreparer`.
   - Remove the truncation call from `prepare_chat_request`.
   - Verify all contract tests from task 10.3 pass against dynamic compression.
   - Verify existing Gemini connector tests still pass.
   - _Requirements: 14.3_
   - _RTK ref: (proxy-specific removal)_
-- [ ] 10.7 Deprecate and sunset legacy configuration fields
+- [x] 10.7 Deprecate and sunset legacy configuration fields
   - Add deprecation warnings for: `session.pytest_compression_enabled`, `pytest_compression_min_lines`, `PYTEST_COMPRESSION_MIN_LINES`, CLI `--enable-pytest-compression`/`--disable-pytest-compression`, Gemini `tool_output_truncate_*` extras, `GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS`, `GEMINI_TOOL_OUTPUT_TRUNCATE_LINES`, `GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL`.
   - When any deprecated field is set, emit an operator-visible warning at startup explaining the new equivalent config field under `dynamic_compression.*`.
   - Legacy fields continue to function during the deprecation period via the compatibility resolver.
   - _Requirements: 14.5_
   - _RTK ref: (proxy-specific config migration)_
-- [ ] 10.8 Implement skip-already-processed guards in dynamic compression
+- [x] 10.8 Implement skip-already-processed guards in dynamic compression
   - Detect and skip tool outputs that have already been processed by other services:
     - Compaction stubs: detect `[COMPACTED]` marker or `_compacted` metadata flag.
     - Artifact previews: detect `<system-reminder>` artifact markers.

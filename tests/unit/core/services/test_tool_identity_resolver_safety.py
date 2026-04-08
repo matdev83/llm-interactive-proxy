@@ -119,6 +119,50 @@ def test_extract_command_identity_is_deterministic_across_command_shapes(
     assert (first_signature, first_prefix) == (expected_signature, expected_prefix)
 
 
+@pytest.mark.parametrize(
+    "command, expected_prefix",
+    [
+        ("git status --short", "git status"),
+        ("npm test -- --watch", "npm test"),
+        ("go test ./...", "go test"),
+        ("uv pip install requests", "uv pip install"),
+    ],
+)
+def test_extract_command_identity_preserves_common_safe_subcommand_prefixes(
+    command: str,
+    expected_prefix: str,
+) -> None:
+    resolver = ToolIdentityResolver()
+
+    signature, prefix = resolver._extract_command_identity(command)
+
+    assert signature is not None
+    assert prefix == expected_prefix
+
+
+@pytest.mark.parametrize(
+    "command, expected_prefix",
+    [
+        (
+            "curl https://internal.example.local/path?api_key=topsecret",
+            "curl",
+        ),
+        ("cat C:/Users/Mateusz/private-secrets.txt", "cat"),
+        ("python ./scripts/run_sensitive_task.py --token abc123", "python"),
+    ],
+)
+def test_extract_command_identity_sanitizes_unsafe_argument_like_prefix_tokens(
+    command: str,
+    expected_prefix: str,
+) -> None:
+    resolver = ToolIdentityResolver()
+
+    signature, prefix = resolver._extract_command_identity(command)
+
+    assert signature is not None
+    assert prefix == expected_prefix
+
+
 def test_detect_content_type_bounds_ndjson_scan_by_line_count(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -168,3 +212,63 @@ def test_resolve_tool_output_reuses_supplied_tool_lookup() -> None:
 
     assert context is not None
     assert resolver.lookup_build_calls == 1
+
+
+@pytest.mark.parametrize(
+    "tool_name, arguments",
+    [
+        ("shell", '{"command":"pytest -q tests/unit"}'),
+        ("bash", {"command": "python -m pytest tests/unit -q"}),
+        ("exec_command", {"cmd": "py.test -q"}),
+        ("container.exec", {"args": ["python", "-m", "pytest", "-q"]}),
+        ("shell", {"command": "uv run pytest -q tests/unit"}),
+        ("shell", {"command": "uv run -m pytest -q tests/unit"}),
+        ("shell", {"command": "poetry run pytest -q tests/unit"}),
+        ("shell", {"command": "pipenv run pytest -q tests/unit"}),
+    ],
+)
+def test_scan_for_pytest_matches_legacy_detection_contract(
+    tool_name: str,
+    arguments: str | dict[str, object],
+) -> None:
+    resolver = ToolIdentityResolver()
+
+    detected = resolver.scan_for_pytest(tool_name=tool_name, arguments=arguments)
+
+    assert detected is not None
+    assert "pytest" in detected.lower() or "py.test" in detected.lower()
+
+
+@pytest.mark.parametrize(
+    "tool_name, arguments",
+    [
+        ("read_file", '{"command":"pytest -q tests/unit"}'),
+        ("shell", '{"command":"python -m unittest -q"}'),
+        ("shell", {"command": "echo pytest"}),
+        ("shell", {"command": "uv pip install pytest"}),
+        ("shell", {"command": "uv run --with pytest python app.py"}),
+        ("shell", {"command": "poetry run echo pytest"}),
+        ("shell", {"command": "pipenv run python -m unittest -q"}),
+    ],
+)
+def test_scan_for_pytest_ignores_non_matching_inputs(
+    tool_name: str,
+    arguments: str | dict[str, object],
+) -> None:
+    resolver = ToolIdentityResolver()
+
+    detected = resolver.scan_for_pytest(tool_name=tool_name, arguments=arguments)
+
+    assert detected is None
+
+
+def test_resolve_tool_output_normalizes_python_m_pytest_as_pytest_signature() -> None:
+    resolver = ToolIdentityResolver()
+    messages = _build_messages("python -m pytest tests/unit -q", "FAILED one\nsummary")
+
+    context = resolver.resolve_tool_output(messages=messages, tool_message=messages[1])
+
+    assert context is not None
+    assert context.identity.command_signature == "pytest"
+    assert context.identity.command_prefix is not None
+    assert context.identity.command_prefix.startswith("pytest")

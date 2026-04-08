@@ -5,7 +5,7 @@ These tests verify that:
 - ToolCallReactorService and InMemoryToolCallHistoryTracker are registered correctly
 - ToolCallReactorOrchestrator and related interfaces are registered correctly
 - DangerousCommandService is registered correctly
-- PytestCompressionService is registered correctly
+- Legacy pytest compression registration has been removed
 - Tooling services are optional (disabled features don't block startup)
 - Integration with orchestrator works
 - Idempotency is preserved
@@ -126,23 +126,9 @@ class TestToolingRegistrarSupportingServices:
             dangerous_service, DangerousCommandService
         )
 
-    def test_pytest_compression_service_registration(self) -> None:
-        """Verify PytestCompressionService is registered."""
-        services = ServiceCollection()
-        config = AppConfig()
-
-        tooling.register(services, config)
-        provider = services.build_service_provider()
-
-        from src.core.services.pytest_compression_service import (
-            PytestCompressionService,
-        )
-
-        compression_service = provider.get_service(PytestCompressionService)
-        # May be None if not registered - that's acceptable for optional services
-        assert compression_service is None or isinstance(
-            compression_service, PytestCompressionService
-        )
+    def test_tooling_module_has_no_legacy_pytest_registration_hook(self) -> None:
+        """Legacy PytestCompressionService registration should be removed."""
+        assert not hasattr(tooling, "_register_pytest_compression_service")
 
     def test_tooling_services_optional_when_disabled(self) -> None:
         """Verify tooling services don't block startup when disabled."""

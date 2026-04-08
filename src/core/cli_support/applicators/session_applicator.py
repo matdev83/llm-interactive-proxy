@@ -343,11 +343,16 @@ class SessionApplicator:
         if getattr(args, "pytest_compression_enabled", None) is not None:
             session = overrides.setdefault("session", {})
             session["pytest_compression_enabled"] = args.pytest_compression_enabled
+            origin = (
+                "--enable-pytest-compression"
+                if args.pytest_compression_enabled
+                else "--disable-pytest-compression"
+            )
             resolution.record(
                 "session.pytest_compression_enabled",
                 args.pytest_compression_enabled,
                 ParameterSource.CLI,
-                origin="--enable-pytest-compression",
+                origin=origin,
             )
 
         if getattr(args, "pytest_full_suite_steering_enabled", None) is not None:

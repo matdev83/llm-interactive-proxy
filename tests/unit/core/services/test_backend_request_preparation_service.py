@@ -13,14 +13,28 @@ Tests cover request preparation behavior including:
 Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 8.1, 9.1
 """
 
+# mypy: ignore-errors
+
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.config.models.backends import BackendConfig
+from src.core.config.models.session import SessionConfig
+from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
 from src.core.domain.configuration.compaction_config import CompactionConfig
+from src.core.domain.configuration.dynamic_compression_config import (
+    CompressionMarkerConfig,
+    CompressionRecoveryConfig,
+    CompressionRule,
+    CompressionRulePredicate,
+    DynamicCompressionConfig,
+)
+from src.core.domain.dynamic_compression import ToolOutputContext
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.backend_request_manager_components import (
     IBackendRequestPreparation,
@@ -32,6 +46,12 @@ from src.core.interfaces.history_compaction_interface import (
 )
 from src.core.services.backend_request_preparation_service import (
     BackendRequestPreparationService,
+)
+from src.core.services.compression_strategy_registry import CompressionStrategyRegistry
+from src.core.services.rule_based_strategy_selector import RuleBasedStrategySelector
+from src.core.services.tool_identity_resolver import ToolIdentityResolver
+from src.core.services.tool_output_compression_service import (
+    ToolOutputCompressionService,
 )
 
 
@@ -619,6 +639,534 @@ class TestInterfaceImplementation:
         """Service should have prepare method."""
         assert hasattr(preparation_service, "prepare")
         assert callable(preparation_service.prepare)
+
+
+class TestDynamicCompressionRequestPathToolOnly:
+    """Dynamic compression runs on the request path and must not rewrite non-tool text."""
+
+    @staticmethod
+    def _tool_thread(*, tool_content: str) -> list[ChatMessage]:
+        return [
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    ToolCall(
+                        id="tc-1",
+                        function=FunctionCall(
+                            name="shell",
+                            arguments='{"command":"git status"}',
+                        ),
+                    )
+                ],
+            ),
+            ChatMessage(role="tool", tool_call_id="tc-1", content=tool_content),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_preserves_non_tool_messages_when_compression_skips_large_min_bytes(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(
+            enabled=True,
+            min_bytes=50_000_000,
+        )
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        user = ChatMessage(role="user", content="user-payload")
+        messages = [user, *self._tool_thread(tool_content="tool-payload")]
+        request = ChatRequest(model="gpt-4", messages=messages)
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages[0] is user
+        assert result.messages[1] is messages[1]
+        assert result.messages[2] is messages[2]
+
+    @pytest.mark.asyncio
+    async def test_emits_request_path_overlap_notes_when_compaction_and_dynamic_enabled(
+        self,
+        mock_config: IConfig,
+        mock_compaction_service: IHistoryCompactionService,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=10, max_tokens=100_000
+        )
+        mock_config.dynamic_compression = DynamicCompressionConfig(
+            enabled=True,
+            min_bytes=50_000_000,
+        )
+        compacted = [
+            ChatMessage(role="user", content="u"),
+            *TestDynamicCompressionRequestPathToolOnly._tool_thread(
+                tool_content="tool-payload"
+            ),
+        ]
+        mock_compaction_service.compact_history = AsyncMock(
+            return_value=CompactionResult(
+                messages=compacted,
+                compacted_count=1,
+                bytes_saved=10,
+                tokens_saved_estimate=2,
+                original_message_count=3,
+            )
+        )
+        service = BackendRequestPreparationService(
+            history_compaction_service=mock_compaction_service,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="x" * 400),
+                *TestDynamicCompressionRequestPathToolOnly._tool_thread(
+                    tool_content="tool-payload"
+                ),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        dx = (result.compression_diagnostics or {}).get(
+            "dynamic_compression_compatibility"
+        )
+        assert dx is not None
+        warn_text = " ".join(dx.get("warnings", []))
+        assert "history compaction" in warn_text.lower()
+        assert "dynamic tool-output compression" in warn_text.lower()
+
+
+class TestDynamicCompressionLegacyPytestWarnings:
+    """Warnings for legacy pytest controls should be signal-only, not default noise."""
+
+    @staticmethod
+    def _tool_thread(*, tool_content: str) -> list[ChatMessage]:
+        return [
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    ToolCall(
+                        id="tc-legacy-pytest-1",
+                        function=FunctionCall(
+                            name="shell",
+                            arguments='{"command":"pytest -q"}',
+                        ),
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                tool_call_id="tc-legacy-pytest-1",
+                content=tool_content,
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_default_inherit_path_omits_legacy_pytest_deprecation_warnings(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(
+            enabled=True,
+            min_bytes=50_000_000,
+        )
+        mock_config.session = SessionConfig()
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content="tool-payload"),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        diagnostics = (result.compression_diagnostics or {}).get(
+            "dynamic_compression_compatibility"
+        )
+        assert diagnostics is not None
+        warnings = diagnostics.get("warnings", [])
+        assert all(
+            "session.pytest_compression_enabled is deprecated" not in warning
+            for warning in warnings
+        )
+        assert all(
+            "session.pytest_compression_min_lines is deprecated" not in warning
+            for warning in warnings
+        )
+
+    @pytest.mark.asyncio
+    async def test_non_default_legacy_pytest_controls_emit_deprecation_warnings(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(
+            enabled=True,
+            min_bytes=50_000_000,
+        )
+        mock_config.session = SessionConfig(
+            pytest_compression_enabled=False,
+            pytest_compression_min_lines=99,
+        )
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content="tool-payload"),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        diagnostics = (result.compression_diagnostics or {}).get(
+            "dynamic_compression_compatibility"
+        )
+        assert diagnostics is not None
+        warnings = " ".join(diagnostics.get("warnings", []))
+        assert "session.pytest_compression_enabled is deprecated" in warnings
+        assert "session.pytest_compression_min_lines is deprecated" in warnings
+
+
+class TestGeminiLegacyTruncationHandoffContracts:
+    """Request-path handoff contracts for Gemini connector truncation compatibility."""
+
+    @staticmethod
+    def _tool_thread(*, tool_content: str) -> list[ChatMessage]:
+        return [
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    ToolCall(
+                        id="tc-gemini-contract",
+                        function=FunctionCall(
+                            name="shell",
+                            arguments='{"command":"git status"}',
+                        ),
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                tool_call_id="tc-gemini-contract",
+                content=tool_content,
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_request_path_handoff_keeps_small_output_untouched(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
+        mock_config.backends = {
+            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_chars": 40})
+        }
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        small_output = "small output"
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content=small_output),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages[2].content == small_output
+        diagnostics = result.compression_diagnostics or {}
+        assert "gemini_legacy_truncation_compatibility" not in diagnostics
+
+    @pytest.mark.asyncio
+    async def test_request_path_handoff_preserves_char_limited_output_for_connector_stage(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        max_chars = 40
+        payload = "x" * 200
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
+        mock_config.backends = {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"tool_output_truncate_chars": max_chars}
+            )
+        }
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content=payload),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages[2].content == payload
+        assert "... [CONTENT TRUNCATED] ..." not in str(result.messages[2].content)
+        diagnostics = result.compression_diagnostics or {}
+        assert "gemini_legacy_truncation_compatibility" not in diagnostics
+
+    @pytest.mark.asyncio
+    async def test_request_path_handoff_preserves_line_limited_output_for_connector_stage(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        max_lines = 5
+        payload = "\n".join(f"line-{idx}" for idx in range(20))
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
+        mock_config.backends = {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"tool_output_truncate_lines": max_lines}
+            )
+        }
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content=payload),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages[2].content == payload
+        assert "... [CONTENT TRUNCATED] ..." not in str(result.messages[2].content)
+        diagnostics = result.compression_diagnostics or {}
+        assert "gemini_legacy_truncation_compatibility" not in diagnostics
+
+    @pytest.mark.asyncio
+    async def test_request_path_handoff_preserves_output_when_compaction_enabled(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        payload = "x" * 200
+        mock_config.compaction = CompactionConfig(enabled=True)
+        mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
+        mock_config.backends = {
+            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_chars": 40})
+        }
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content=payload),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages[2].content == payload
+        diagnostics = result.compression_diagnostics or {}
+        assert "gemini_legacy_truncation_compatibility" not in diagnostics
+
+
+class TestDynamicCompressionObservabilitySurfaces:
+    """Task group 7 diagnostics are attached to request metadata safely."""
+
+    class _HalfTrimStrategy:
+        def compress(
+            self,
+            content: str,
+            *,
+            context: ToolOutputContext,
+            level: object,
+        ) -> str:
+            if len(content) <= 4:
+                return content
+            return content[: len(content) // 2]
+
+    @staticmethod
+    def _tool_thread(*, tool_content: str) -> list[ChatMessage]:
+        return [
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    ToolCall(
+                        id="tc-observe-1",
+                        function=FunctionCall(
+                            name="shell",
+                            arguments='{"command":"git status"}',
+                        ),
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                tool_call_id="tc-observe-1",
+                content=tool_content,
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_attaches_effective_config_records_stats_and_recovery_handles(
+        self,
+        mock_config: IConfig,
+        tmp_path: Path,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(
+            enabled=True,
+            min_bytes=0,
+            marker=CompressionMarkerConfig(enabled=False),
+            methods={"trim": True},
+            rules=[
+                CompressionRule(
+                    name="trim",
+                    priority=1,
+                    when=CompressionRulePredicate(command_signature="git"),
+                    pipeline=["trim"],
+                )
+            ],
+            recovery=CompressionRecoveryConfig(
+                mode="always",
+                min_original_bytes=1,
+                min_saved_bytes=1,
+                storage_dir=str(tmp_path),
+                max_artifacts=8,
+                max_artifact_bytes=4096,
+                retention_seconds=3600,
+                hint_in_text=False,
+            ),
+        )
+        registry = CompressionStrategyRegistry()
+        registry.register("trim", self._HalfTrimStrategy())
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(
+                strategy_registry=registry,
+                identity_resolver=ToolIdentityResolver(),
+                selector=RuleBasedStrategySelector(),
+            ),
+        )
+
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="summarize"),
+                *self._tool_thread(tool_content="repeat\nrepeat\nrepeat\n"),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        diagnostics = result.compression_diagnostics or {}
+        assert "dynamic_compression_effective_config" in diagnostics
+        assert "dynamic_compression_records" in diagnostics
+        assert "dynamic_compression_stats" in diagnostics
+        assert "dynamic_compression_correlation" in diagnostics
+        assert "dynamic_compression_recovery" in diagnostics
+
+        effective = diagnostics["dynamic_compression_effective_config"]
+        assert "dynamic_compression.enabled" in effective["active_controls"]
+        assert isinstance(effective["reasons"], dict)
+
+        records = diagnostics["dynamic_compression_records"]
+        assert len(records) == 1
+        assert records[0]["saved_bytes"] > 0
+        assert records[0]["elapsed_total_ms"] >= 0
+        assert "content" not in records[0]
+        assert "payload" not in records[0]
+
+        correlation = diagnostics["dynamic_compression_correlation"]["records"][0]
+        assert correlation["correlation_id"]
+        assert "repeat" not in json.dumps(correlation).lower()
+
+        recovery = diagnostics["dynamic_compression_recovery"]
+        assert recovery["enabled"] is True
+        assert recovery["handles"]
 
 
 class TestNoCommandExecution:

@@ -126,6 +126,7 @@ dev/local_auto_append_prompt.txt
 # OAuth account credentials (never commit!)
 var/gemini_oauth_accounts/
 var/kiro_oauth_accounts/
+var/openai_codex_oauth_accounts/
 
 # LevelDB test data (may contain sensitive data)
 leveldb_test/

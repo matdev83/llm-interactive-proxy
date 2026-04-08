@@ -22,6 +22,8 @@ _ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 _LINE_NUMBER_RE = re.compile(r"^\s*\d+[:|]")
 _DIFF_MARKER_RE = re.compile(r"^(diff --git|@@ |\+\+\+ |--- )")
 _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_SAFE_PREFIX_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_PYTEST_COMMAND_RE = re.compile(r"\bpy\.?test\b", re.IGNORECASE)
 _NDJSON_MAX_SCAN_LINES = 200
 _NDJSON_MAX_SCAN_BYTES = 256 * 1024
 
@@ -36,6 +38,52 @@ class ToolIdentityResolver:
         "--numstat",
         "--shortstat",
         "--output-format",
+    )
+    _two_segment_subcommand_signatures = frozenset({"uv"})
+    _cmd_safe_switches = frozenset({"/c", "/k", "/s"})
+    _option_tokens_with_value = frozenset(
+        {
+            "-C",
+            "-c",
+            "-f",
+            "-m",
+            "-p",
+            "--config",
+            "--cwd",
+            "--file",
+            "--git-dir",
+            "--prefix",
+            "--project",
+            "--work-tree",
+        }
+    )
+    _legacy_shell_tool_names = frozenset(
+        {
+            "bash",
+            "exec_command",
+            "execute_command",
+            "run_shell_command",
+            "shell",
+            "local_shell",
+            "container.exec",
+        }
+    )
+    _pytest_wrapper_executables = frozenset(
+        {"uv", "uv.exe", "poetry", "poetry.exe", "pipenv", "pipenv.exe"}
+    )
+    _uv_run_options_with_value = frozenset(
+        {
+            "-m",
+            "--module",
+            "--python",
+            "--with",
+            "--with-editable",
+            "--extra",
+            "--group",
+            "--no-group",
+            "--index",
+            "--default-index",
+        }
     )
 
     def build_tool_call_lookup(
@@ -78,6 +126,9 @@ class ToolIdentityResolver:
         tool_name, tool_args = self._resolve_tool_name_and_args(tool_message, lookup)
         command = self._extract_command_string(tool_args)
         signature, prefix = self._extract_command_identity(command)
+        if self.scan_for_pytest(tool_name=tool_name, arguments=tool_args) is not None:
+            signature = "pytest"
+            prefix = "pytest"
 
         explicit_flags = tuple(
             flag.strip().lower()
@@ -124,6 +175,142 @@ class ToolIdentityResolver:
             structured_format=(content_type.value if is_structured else None),
             is_machine_parseable=is_structured,
         )
+
+    def scan_for_pytest(
+        self,
+        *,
+        tool_name: str,
+        arguments: str | dict[str, Any] | None,
+    ) -> str | None:
+        """Legacy-compatible pytest detection (tool allowlist + command regex)."""
+        if tool_name.lower() not in self._legacy_shell_tool_names:
+            return None
+        command = self._extract_command_string(arguments)
+        if not command:
+            return None
+        if self._is_pytest_invocation_tokens(self._safe_split(command)):
+            return command
+        return None
+
+    def _is_pytest_invocation_tokens(
+        self,
+        tokens: list[str],
+        *,
+        max_wrapper_depth: int = 3,
+    ) -> bool:
+        normalized_tokens = self._strip_env_prefix(tokens)
+        if not normalized_tokens:
+            return False
+
+        executable = self._normalize_executable(normalized_tokens[0]).lower()
+        remainder = normalized_tokens[1:]
+        if executable in {"pytest", "py.test", "pytest.exe", "py.test.exe"}:
+            return True
+        if executable in {
+            "python",
+            "python.exe",
+            "python3",
+            "python3.exe",
+            "py",
+            "py.exe",
+        }:
+            lowered_tokens = [token.lower() for token in remainder]
+            for idx, token in enumerate(lowered_tokens):
+                if token != "-m":
+                    continue
+                if idx + 1 < len(lowered_tokens) and _PYTEST_COMMAND_RE.fullmatch(
+                    lowered_tokens[idx + 1]
+                ):
+                    return True
+            return False
+        if executable in self._pytest_wrapper_executables and max_wrapper_depth > 0:
+            wrapped = self._unwrap_pytest_wrapper_tokens(
+                executable=executable,
+                tokens=remainder,
+            )
+            if not wrapped:
+                return False
+            return self._is_pytest_invocation_tokens(
+                wrapped,
+                max_wrapper_depth=max_wrapper_depth - 1,
+            )
+        return bool(_PYTEST_COMMAND_RE.fullmatch(executable))
+
+    def _unwrap_pytest_wrapper_tokens(
+        self,
+        *,
+        executable: str,
+        tokens: list[str],
+    ) -> list[str]:
+        if not tokens:
+            return []
+
+        idx = 0
+        while idx < len(tokens):
+            token = tokens[idx].strip()
+            lowered = token.lower()
+            if not token:
+                idx += 1
+                continue
+            if lowered == "run":
+                idx += 1
+                break
+            if token.startswith("-"):
+                if "=" in token:
+                    idx += 1
+                    continue
+                if lowered in self._option_tokens_with_value and idx + 1 < len(tokens):
+                    idx += 2
+                    continue
+                idx += 1
+                continue
+            return []
+        else:
+            return []
+
+        wrapped = tokens[idx:]
+        if wrapped and wrapped[0] == "--":
+            wrapped = wrapped[1:]
+        if executable in {"uv", "uv.exe"}:
+            wrapped = self._strip_uv_run_options(wrapped)
+        return wrapped
+
+    def _strip_uv_run_options(self, tokens: list[str]) -> list[str]:
+        if not tokens:
+            return []
+
+        idx = 0
+        module_target: str | None = None
+        while idx < len(tokens):
+            token = tokens[idx].strip()
+            lowered = token.lower()
+            if not token:
+                idx += 1
+                continue
+            if lowered == "--":
+                idx += 1
+                break
+            if lowered in {"-m", "--module"}:
+                if idx + 1 >= len(tokens):
+                    return []
+                module_target = tokens[idx + 1]
+                idx += 2
+                continue
+            if token.startswith("-"):
+                if "=" in token:
+                    idx += 1
+                    continue
+                if lowered in self._uv_run_options_with_value and idx + 1 < len(tokens):
+                    idx += 2
+                    continue
+                idx += 1
+                continue
+            break
+
+        remaining = [entry for entry in tokens[idx:] if entry.strip()]
+        if module_target is not None:
+            return ["python", "-m", module_target, *remaining]
+        return remaining
 
     def _resolve_tool_name_and_args(
         self,
@@ -193,16 +380,57 @@ class ToolIdentityResolver:
             return None, None
 
         executable = self._normalize_executable(normalized_tokens[0])
+        signature = executable.lower()
         rest = normalized_tokens[1:]
 
-        if executable == "git":
+        if signature == "git":
             rest = self._strip_git_global_options(rest)
 
-        signature = executable.lower()
-        prefix = signature
-        if rest and not rest[0].startswith("-"):
-            prefix = f"{signature} {rest[0].lower()}"
+        prefix_tokens = self._extract_prefix_tokens(signature=signature, tokens=rest)
+        prefix = " ".join([signature, *prefix_tokens]) if prefix_tokens else signature
         return signature, prefix
+
+    def _extract_prefix_tokens(self, *, signature: str, tokens: list[str]) -> list[str]:
+        if not tokens:
+            return []
+
+        first = tokens[0].strip().lower()
+        if signature == "cmd" and first in self._cmd_safe_switches:
+            return [first]
+
+        max_tokens = 2 if signature in self._two_segment_subcommand_signatures else 1
+        collected: list[str] = []
+        idx = 0
+        while idx < len(tokens) and len(collected) < max_tokens:
+            token = tokens[idx].strip()
+            if not token:
+                idx += 1
+                continue
+            if token.startswith("-"):
+                if "=" in token:
+                    idx += 1
+                    continue
+                if token in self._option_tokens_with_value and idx + 1 < len(tokens):
+                    idx += 2
+                    continue
+                idx += 1
+                continue
+            if not self._is_safe_prefix_token(token):
+                break
+            collected.append(token.lower())
+            idx += 1
+        return collected
+
+    @staticmethod
+    def _is_safe_prefix_token(token: str) -> bool:
+        lowered = token.lower()
+        if lowered.startswith(("http://", "https://", "file://", "ssh://", "git@")):
+            return False
+        if any(
+            marker in token for marker in ("/", "\\", ":", "=", "@", "?", "&", "%", "#")
+        ):
+            return False
+        return bool(_SAFE_PREFIX_TOKEN_RE.fullmatch(token))
 
     def _extract_explicit_format_flags(
         self,

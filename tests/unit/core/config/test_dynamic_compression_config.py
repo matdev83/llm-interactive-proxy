@@ -15,17 +15,22 @@ from src.core.services.rule_based_strategy_selector import RuleBasedStrategySele
 
 def _tool_output_context(
     *,
-    command_signature: str,
+    command_signature: str | None,
+    command_prefix: str | None = None,
+    tool_name: str = "shell",
+    tool_category: str = "command_execution",
     content: str,
     content_type: ToolOutputContentType = ToolOutputContentType.TEXT,
     has_explicit_format: bool = False,
 ) -> ToolOutputContext:
     context = ToolOutputContext.for_text(
-        tool_name="shell",
-        tool_category="command_execution",
+        tool_name=tool_name,
+        tool_category=tool_category,
         content=content,
         command_signature=command_signature,
-        command_prefix=command_signature,
+        command_prefix=(
+            command_prefix if command_prefix is not None else command_signature
+        ),
     )
     return context.model_copy(
         update={
@@ -64,6 +69,8 @@ def test_dynamic_compression_defaults_include_rtk_generic_primitives() -> None:
     assert cfg.methods["sensitive_field_projection"] is True
     assert cfg.methods["output_pattern_match"] is True
     assert cfg.methods["diff_compact"] is True
+    assert cfg.methods["mutating_success_ack"] is True
+    assert cfg.methods["stats_extraction_summary"] is True
     assert cfg.methods["directory_tree_summary"] is True
     assert cfg.methods["search_results_grouping"] is True
     assert cfg.methods["file_detail_levels"] is True
@@ -82,6 +89,108 @@ def test_dynamic_compression_defaults_include_rtk_generic_primitives() -> None:
     assert "cargo_outputs" in rule_names
     assert "json_ndjson_structural" in rule_names
     assert "xml_machine_safeguard" in rule_names
+    assert "git_status_stats_first" in rule_names
+    assert "git_diff_compact" in rule_names
+    assert "diff_command_compact" in rule_names
+    assert any(name.startswith("git_mutating__") for name in rule_names)
+    assert "rg_search_grouping" in rule_names
+    assert "docker_cli_text" in rule_names
+    assert "brew_outputs" in rule_names
+    assert "bundle_outputs" in rule_names
+    assert "composer_outputs" in rule_names
+    assert "patch_outputs" in rule_names
+    assert "category_search_grouping" in rule_names
+    assert "category_list_dir_summary" in rule_names
+    assert "category_file_read_details" in rule_names
+    assert "category_view_file_details" in rule_names
+    assert "generic_text_fallback" in rule_names
+
+
+def test_default_generic_fallback_rule_selects_unknown_command_signature() -> None:
+    cfg = DynamicCompressionConfig(enabled=True)
+    selector = RuleBasedStrategySelector()
+    context = _tool_output_context(
+        command_signature="customcli",
+        command_prefix="customcli run heavy-task",
+        content=("repeat this line\n" * 128),
+    )
+
+    selected = selector.select_rule(context, cfg)
+    assert selected is not None
+    assert selected.name == "generic_text_fallback"
+
+
+def test_default_category_rules_cover_non_shell_tool_families() -> None:
+    cfg = DynamicCompressionConfig(enabled=True)
+    selector = RuleBasedStrategySelector()
+    payload = ("line\n" * 160) + "tail\n"
+    expected = {
+        "search": "category_search_grouping",
+        "list_dir": "category_list_dir_summary",
+        "file_read": "category_file_read_details",
+        "view_file": "category_view_file_details",
+    }
+
+    for tool_category, expected_rule in expected.items():
+        context = _tool_output_context(
+            tool_name=tool_category,
+            tool_category=tool_category,
+            command_signature=None,
+            command_prefix=None,
+            content=payload,
+        )
+        selected = selector.select_rule(context, cfg)
+        assert selected is not None
+        assert selected.name == expected_rule
+
+
+def test_default_missing_family_rules_cover_task_list_families() -> None:
+    cfg = DynamicCompressionConfig(enabled=True)
+    selector = RuleBasedStrategySelector()
+    payload = ("diagnostic line\n" * 160) + "done\n"
+    cases = {
+        ("brew", "brew install ripgrep"): "brew_outputs",
+        ("bundle", "bundle install"): "bundle_outputs",
+        ("composer", "composer install"): "composer_outputs",
+        ("patch", "patch -p1 < update.patch"): "patch_outputs",
+    }
+
+    for (signature, prefix), expected_rule in cases.items():
+        context = _tool_output_context(
+            command_signature=signature,
+            command_prefix=prefix,
+            content=payload,
+        )
+        selected = selector.select_rule(context, cfg)
+        assert selected is not None
+        assert selected.name == expected_rule
+
+    diff_context = _tool_output_context(
+        command_signature="diff",
+        command_prefix="diff -u old.txt new.txt",
+        content=(
+            "--- old.txt\n+++ new.txt\n@@ -1,1 +1,2 @@\n-old\n+new\n+extra\n" * 40
+        ),
+    )
+    selected_diff = selector.select_rule(diff_context, cfg)
+    assert selected_diff is not None
+    assert selected_diff.name == "diff_command_compact"
+
+
+def test_disable_command_prefixes_are_case_insensitive_and_deterministic() -> None:
+    cfg = DynamicCompressionConfig(
+        disable_command_prefixes=[
+            "Git Status",
+            "git status",
+            " GIT STATUS ",
+            "GIT DIFF --STAT",
+        ]
+    )
+
+    assert cfg.disable_command_prefixes == [
+        "git status",
+        "git diff --stat",
+    ]
 
 
 def test_default_sensitive_rules_require_text_and_non_explicit_format() -> None:

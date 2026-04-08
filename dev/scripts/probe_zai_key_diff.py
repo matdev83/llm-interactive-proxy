@@ -2,8 +2,9 @@
 """Direct probe to test if the OLD key works with different payloads.
 Tests both glm-4.7-flash (works in proxy) and glm-5.1 (fails) with the
 exact same payload shape the proxy sends (~70KB, 16 tools, 6-8 messages)."""
-import time
 import json
+import time
+
 import httpx
 
 # The OLD key that CBOR shows the proxy using

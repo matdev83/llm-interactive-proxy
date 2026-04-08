@@ -225,7 +225,7 @@ async def main():
         
     elif http_success and not ws_success:
         ws_error = ws_result.get("error", "Unknown")
-        print(f"[INFO] HTTP/SSE works, but WebSocket failed")
+        print("[INFO] HTTP/SSE works, but WebSocket failed")
         print(f"WebSocket Error: {ws_error}")
         print()
         

@@ -226,7 +226,14 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         if context is None:
             return None
         metadata: dict[str, JsonValue] = {}
-        for key in ("account_id", "retry_attempt", "is_retry", "call_purpose"):
+        for key in (
+            "account_id",
+            "retry_attempt",
+            "is_retry",
+            "call_purpose",
+            "compression_correlation_id",
+            "compression_records_count",
+        ):
             if key in context.extensions:
                 metadata[key] = context.extensions[key]
         return metadata or None

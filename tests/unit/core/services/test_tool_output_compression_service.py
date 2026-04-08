@@ -32,6 +32,19 @@ from src.core.services.tool_output_compression_service import (
 
 
 def _build_tool_messages(command: str, output: str) -> list[ChatMessage]:
+    return _build_messages_for_tool(
+        tool_name="shell",
+        arguments=f'{{"command":"{command}"}}',
+        output=output,
+    )
+
+
+def _build_messages_for_tool(
+    *,
+    tool_name: str,
+    arguments: str,
+    output: str,
+) -> list[ChatMessage]:
     return [
         ChatMessage(
             role="assistant",
@@ -39,7 +52,8 @@ def _build_tool_messages(command: str, output: str) -> list[ChatMessage]:
                 ToolCall(
                     id="tc-1",
                     function=FunctionCall(
-                        name="shell", arguments=f'{{"command":"{command}"}}'
+                        name=tool_name,
+                        arguments=arguments,
                     ),
                 )
             ],
@@ -91,6 +105,62 @@ class _LevelAwareStrategy:
         if level == CompressionLevel.BALANCED:
             return content[:120]
         return content[:60]
+
+
+class _NonMonotonicLevelStrategy:
+    def compress(
+        self,
+        content: str,
+        *,
+        context: ToolOutputContext,
+        level: CompressionLevel,
+    ) -> str:
+        if level == CompressionLevel.CONSERVATIVE:
+            return content[:170]
+        if level == CompressionLevel.BALANCED:
+            return content[:90]
+        return content[:140]
+
+
+class _AggressiveFailAfterBalancedStrategy:
+    def compress(
+        self,
+        content: str,
+        *,
+        context: ToolOutputContext,
+        level: CompressionLevel,
+    ) -> str:
+        if level == CompressionLevel.CONSERVATIVE:
+            return content[:170]
+        if level == CompressionLevel.BALANCED:
+            return content[:110]
+        raise RuntimeError("aggressive failure")
+
+
+class _TrimOneStrategy:
+    def compress(
+        self,
+        content: str,
+        *,
+        context: ToolOutputContext,
+        level: CompressionLevel,
+    ) -> str:
+        if len(content) <= 1:
+            return content
+        return content[:-1]
+
+
+class _HalfTrimStrategy:
+    def compress(
+        self,
+        content: str,
+        *,
+        context: ToolOutputContext,
+        level: CompressionLevel,
+    ) -> str:
+        if len(content) <= 2:
+            return content
+        return content[: len(content) // 2]
 
 
 class _TokenReplaceStrategy:
@@ -264,27 +334,134 @@ async def test_service_skips_small_outputs_and_disabled_categories() -> None:
 
 
 @pytest.mark.asyncio
-async def test_marker_policy_inserts_for_text_and_suppresses_for_json() -> None:
+async def test_service_skips_compaction_stub_outputs_already_processed() -> None:
     registry = CompressionStrategyRegistry()
-    registry.register("ok", _SuffixStrategy("-ok"))
+    registry.register("half_trim", _HalfTrimStrategy())
     service = ToolOutputCompressionService(
         strategy_registry=registry,
         identity_resolver=ToolIdentityResolver(),
         selector=RuleBasedStrategySelector(),
     )
-    text_messages = _build_tool_messages("git status", "hello")
-    json_messages = _build_tool_messages("cat data.json", '{"a": 1, "b": 2}')
-
+    compacted_payload = (
+        "[COMPACTED] Previous output for foo.py (2048 bytes) was removed "
+        "because a newer result exists."
+    )
+    messages = _build_tool_messages("git status", compacted_payload)
     cfg = DynamicCompressionConfig(
         enabled=True,
         min_bytes=0,
-        methods={"ok": True},
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.messages[1].content == compacted_payload
+    assert result.records[0].applied is False
+    assert "skipped_already_processed_compaction" in result.records[0].warnings
+
+
+@pytest.mark.asyncio
+async def test_service_skips_outputs_marked_compacted_in_metadata() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    messages = _build_tool_messages("git status", "x" * 200)
+    messages[1] = messages[1].model_copy(update={"metadata": {"_compacted": True}})
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.messages[1].content == "x" * 200
+    assert result.records[0].applied is False
+    assert "skipped_already_processed_compaction" in result.records[0].warnings
+
+
+@pytest.mark.asyncio
+async def test_service_skips_artifact_preview_system_reminder_outputs() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    artifact_preview = (
+        "<system-reminder> Extracted artifact from /tmp/demo.log. "
+        "Showing first 200 lines.</system-reminder>\n"
+        "line-1\nline-2\nline-3\nline-4\nline-5\nline-6\n"
+    )
+    messages = _build_tool_messages("cat /tmp/demo.log", artifact_preview)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
         rules=[
             CompressionRule(
                 name="default",
                 priority=1,
                 when=CompressionRulePredicate(),
-                pipeline=["ok"],
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.messages[1].content == artifact_preview
+    assert result.records[0].applied is False
+    assert "skipped_already_processed_artifact_preview" in result.records[0].warnings
+
+
+@pytest.mark.asyncio
+async def test_marker_policy_inserts_for_text_and_suppresses_for_json() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    text_messages = _build_tool_messages("git status", "hello world\n" * 20)
+    json_messages = _build_tool_messages("cat data.json", '{"a": 1, "b": 2}')
+
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(include_sizes=False, include_methods=False),
+        methods={"half_trim": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(),
+                pipeline=["half_trim"],
             )
         ],
     )
@@ -296,6 +473,37 @@ async def test_marker_policy_inserts_for_text_and_suppresses_for_json() -> None:
     assert "[COMPRESSED" not in str(json_result.messages[1].content)
     assert text_result.records[0].marker_inserted is True
     assert json_result.records[0].marker_inserted is False
+
+
+@pytest.mark.asyncio
+async def test_marker_insertion_rolls_back_when_it_would_increase_size() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("trim_one", _TrimOneStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    messages = _build_tool_messages("git status", "abcdefghij")
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        methods={"trim_one": True},
+        rules=[
+            CompressionRule(
+                name="trim-one",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["trim_one"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.messages[1].content == "abcdefghi"
+    assert result.records[0].marker_inserted is False
+    assert "marker_rolled_back_size_increase" in result.records[0].warnings
 
 
 @pytest.mark.asyncio
@@ -334,6 +542,89 @@ async def test_budget_pressure_escalation_respects_max_level() -> None:
 
     assert result.records[0].final_level == CompressionLevel.AGGRESSIVE
     assert len(str(result.messages[1].content)) <= 80
+
+
+@pytest.mark.asyncio
+async def test_budget_escalation_prefers_best_candidate_when_aggressive_degrades() -> (
+    None
+):
+    registry = CompressionStrategyRegistry()
+    registry.register("non_monotonic", _NonMonotonicLevelStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    payload = "x" * 240
+    messages = _build_tool_messages("git status", payload)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        level=CompressionLevel.CONSERVATIVE,
+        max_level=CompressionLevel.AGGRESSIVE,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"non_monotonic": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["non_monotonic"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(
+        messages=messages,
+        config=cfg,
+        target_token_budget=10,
+    )
+
+    assert result.records[0].final_level == CompressionLevel.BALANCED
+    assert len(str(result.messages[1].content)) == 90
+    assert result.records[0].failed_open is False
+
+
+@pytest.mark.asyncio
+async def test_budget_escalation_preserves_successful_candidate_on_fail_open() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("fail_aggressive", _AggressiveFailAfterBalancedStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    payload = "x" * 240
+    messages = _build_tool_messages("git status", payload)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        level=CompressionLevel.CONSERVATIVE,
+        max_level=CompressionLevel.AGGRESSIVE,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"fail_aggressive": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["fail_aggressive"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(
+        messages=messages,
+        config=cfg,
+        target_token_budget=20,
+    )
+
+    record = result.records[0]
+    assert record.final_level == CompressionLevel.BALANCED
+    assert len(str(result.messages[1].content)) == 110
+    assert record.failed_open is True
+    assert record.failure_reason == "pipeline_fail_open"
+    assert all(method.error is None for method in record.methods)
 
 
 @pytest.mark.asyncio
@@ -486,6 +777,24 @@ async def test_service_logs_info_for_fail_open_outcome(
     assert metadata["bytes_in"] == 5
     assert metadata["bytes_out"] == 5
     assert "content" not in metadata
+
+
+@pytest.mark.asyncio
+async def test_service_suppresses_debug_for_compression_disabled_noop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _build_service_with_default_registry()
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(compression_service_module, "logger", capture_logger)
+    messages = _build_tool_messages("python script.py", "stdout line")
+    cfg = DynamicCompressionConfig(enabled=False)
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.records[0].applied is False
+    assert result.records[0].failed_open is False
+    assert len(capture_logger.info_calls) == 0
+    assert len(capture_logger.debug_calls) == 0
 
 
 def test_selector_no_match_returns_none() -> None:
@@ -749,3 +1058,156 @@ async def test_service_uses_effective_runtime_file_detail_line_numbers() -> None
     assert "1: def alpha(x):" in compressed
     assert "34: class Demo:" in compressed
     assert "lines omitted" in compressed
+
+
+@pytest.mark.asyncio
+async def test_default_rules_apply_generic_fallback_for_unknown_command() -> None:
+    service = _build_service_with_default_registry()
+    content = ("repeat warning line\n" * 160) + "done\n"
+    messages = _build_tool_messages("customcli run report", content)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        rules=DynamicCompressionConfig().rules,
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+    compressed = str(result.messages[1].content)
+
+    assert compressed != content
+    assert result.records[0].applied is True
+    assert "line_dedupe" in result.records[0].methods_applied
+
+
+@pytest.mark.asyncio
+async def test_default_rules_apply_category_search_grouping_for_non_shell_tools() -> (
+    None
+):
+    service = _build_service_with_default_registry()
+    search_output = "".join(
+        f"src/a.py:{10 + idx}:def target_{idx}()\n" for idx in range(40)
+    )
+    messages = _build_messages_for_tool(
+        tool_name="search",
+        arguments='{"query":"target","path":"src"}',
+        output=search_output,
+    )
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        rules=DynamicCompressionConfig().rules,
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+    compressed = str(result.messages[1].content)
+
+    assert "[file] src/a.py" in compressed
+    assert "10: def target_0()" in compressed
+    assert result.records[0].applied is True
+    assert any(
+        method.name == "search_results_grouping" for method in result.records[0].methods
+    )
+
+
+@pytest.mark.asyncio
+async def test_default_rules_apply_category_file_read_details_for_non_shell_tools() -> (
+    None
+):
+    service = _build_service_with_default_registry()
+    file_content = (
+        "def alpha(x):\n"
+        + "".join(f"    alpha_value_{idx} = {idx}\n" for idx in range(60))
+        + "    return x\n\n"
+        + "class Demo:\n"
+        + "".join(f"    demo_value_{idx} = {idx}\n" for idx in range(60))
+        + "    pass\n"
+    )
+    messages = _build_messages_for_tool(
+        tool_name="read_file",
+        arguments='{"path":"src/example.py"}',
+        output=file_content,
+    )
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        rules=DynamicCompressionConfig().rules,
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+    compressed = str(result.messages[1].content)
+
+    assert "def alpha(x):" in compressed
+    assert "lines omitted" in compressed
+    assert result.records[0].applied is True
+    assert any(
+        method.name == "file_detail_levels" for method in result.records[0].methods
+    )
+
+
+@pytest.mark.asyncio
+async def test_default_rules_route_git_status_through_stats_first_pipeline() -> None:
+    service = _build_service_with_default_registry()
+    lines = ["## develop...origin/develop"]
+    lines += [f" M services/long_name_module_{i:02d}.py" for i in range(20)]
+    content = "\n".join(lines) + "\n"
+    messages = _build_tool_messages("git status", content)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        rules=DynamicCompressionConfig().rules,
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+    compressed = str(result.messages[1].content)
+
+    assert "git status: paths=" in compressed
+    assert "services/long_name_module_00.py" in compressed
+
+
+@pytest.mark.asyncio
+async def test_default_rules_route_git_commit_through_mutating_ack() -> None:
+    service = _build_service_with_default_registry()
+    content = (
+        "[main deadbeef1234567890] Fix things\n"
+        " 2 files changed, 4 insertions(+), 1 deletion(-)\n"
+        + "remote: Resolving deltas: 100%\n" * 40
+    )
+    messages = _build_tool_messages("git commit", content)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        rules=DynamicCompressionConfig().rules,
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+    out = str(result.messages[1].content)
+
+    assert "deadbeef1234567890" in out
+    assert "branch=main" in out
+
+
+@pytest.mark.asyncio
+async def test_git_diff_stat_explicit_format_is_not_matched_by_default_rules() -> None:
+    service = _build_service_with_default_registry()
+    stat_out = (
+        " example.py | 10 +++++++++-\n" * 25
+    ) + " 1 file changed, 5 insertions(+)\n"
+    messages = _build_tool_messages(
+        "git diff --stat --color=never",
+        stat_out,
+    )
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        rules=DynamicCompressionConfig().rules,
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.messages[1].content == stat_out

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Test all qwen-oauth models for functionality."""
 
-import json
 import sys
-import time
 
 import requests
 
@@ -46,7 +44,7 @@ def test_model(base_url: str, api_key: str, model: str) -> bool:
             if choices:
                 return True
         return False
-    except Exception as e:
+    except Exception:
         return False
 
 
@@ -79,10 +77,10 @@ def main():
     for i, model in enumerate(models, 1):
         safe_print(f"\n{i}/{len(models)}. Testing model: {model}")
         if test_model(base_url, api_key, model):
-            safe_print(f"   [OK] Model is functional")
+            safe_print("   [OK] Model is functional")
             working_models.append(model)
         else:
-            safe_print(f"   [FAIL] Model failed or not available")
+            safe_print("   [FAIL] Model failed or not available")
             failed_models.append(model)
     
     safe_print("\n" + "=" * 70)

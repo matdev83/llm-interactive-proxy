@@ -253,6 +253,10 @@ dynamic_compression:
   # Generic pattern and diff controls
   output_pattern_rules: []
   output_pattern_regex_timeout_ms: 25
+  # Declarative operator-defined rules (RTK-style 8-stage text pipeline)
+  declarative_rules: []
+  declarative_rule_files: []        # Optional extra YAML/JSON files containing declarative_rules
+  declarative_regex_timeout_ms: 25  # Bounded regex evaluation for full-output matching stages
   diff_max_lines_per_hunk: 100
   diff_max_total_lines: 500
 

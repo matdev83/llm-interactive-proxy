@@ -7,6 +7,8 @@ extracted from RequestProcessor during refactoring.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -112,6 +114,10 @@ class BackendPreparer(IBackendPreparer):
         # Prepare backend request
         backend_request = await self._backend_request_manager.prepare_backend_request(
             request, processed
+        )
+        self._propagate_dynamic_compression_correlation(
+            context=context,
+            backend_request=backend_request,
         )
 
         # Enforce per-model context window limits (front-end enforcement)
@@ -455,3 +461,42 @@ class BackendPreparer(IBackendPreparer):
                     )
 
         return backend_request
+
+    @staticmethod
+    def _propagate_dynamic_compression_correlation(
+        *,
+        context: RequestContext,
+        backend_request: ChatRequest | None,
+    ) -> None:
+        if backend_request is None:
+            return
+        diagnostics = getattr(backend_request, "compression_diagnostics", None)
+        if not isinstance(diagnostics, dict):
+            return
+        correlation = diagnostics.get("dynamic_compression_correlation")
+        if not isinstance(correlation, dict):
+            return
+        records = correlation.get("records")
+        if not isinstance(records, list):
+            return
+        correlation_ids = [
+            str(item.get("correlation_id")).strip()
+            for item in records
+            if isinstance(item, dict) and item.get("correlation_id")
+        ]
+        if not correlation_ids:
+            return
+
+        seed = json.dumps(
+            {
+                "request_id": context.request_id,
+                "session_id": context.session_id,
+                "correlation_ids": sorted(set(correlation_ids)),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        context.extensions["compression_correlation_id"] = hashlib.sha256(
+            seed.encode("utf-8")
+        ).hexdigest()[:20]
+        context.extensions["compression_records_count"] = len(records)

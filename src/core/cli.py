@@ -137,10 +137,94 @@ def apply_cli_args(
 
     applicator = ConfigurationApplicator()
     final_cfg = applicator.apply_overrides(args, base_cfg, resolution=res)
+    _emit_legacy_compression_deprecation_warnings(config=final_cfg, resolution=res)
 
     if return_resolution:
         return final_cfg, res
     return final_cfg
+
+
+def _emit_legacy_compression_deprecation_warnings(
+    *, config: AppConfig, resolution: ParameterResolution
+) -> None:
+    report_by_name = {entry.name: entry for entry in resolution.build_report(config)}
+    deprecated_controls = {
+        "session.pytest_compression_enabled": (
+            "dynamic_compression.methods.pytest_failure_focus"
+        ),
+        "session.pytest_compression_min_lines": (
+            "dynamic_compression.pytest_failure_focus_min_lines"
+        ),
+    }
+    for legacy_control, replacement in deprecated_controls.items():
+        entry = report_by_name.get(legacy_control)
+        if entry is None or entry.source.value == "default":
+            continue
+        origin = entry.origin or entry.source.value
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Deprecated legacy compression control configured: %s. "
+                "Use %s instead. origin=%s",
+                legacy_control,
+                replacement,
+                origin,
+            )
+
+    deprecated_env_controls = {
+        "PYTEST_COMPRESSION_MIN_LINES": (
+            "dynamic_compression.pytest_failure_focus_min_lines"
+        ),
+        "GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS": (
+            "dynamic_compression.methods.compact_acknowledgement + "
+            "dynamic_compression.methods.failure_focus"
+        ),
+        "GEMINI_TOOL_OUTPUT_TRUNCATE_LINES": (
+            "dynamic_compression.methods.compact_acknowledgement + "
+            "dynamic_compression.methods.failure_focus"
+        ),
+        "GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL": "dynamic_compression telemetry logging",
+    }
+    for env_key, replacement in deprecated_env_controls.items():
+        if os.environ.get(env_key) is None:
+            continue
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Deprecated legacy compression environment variable configured: %s. "
+                "Use %s instead.",
+                env_key,
+                replacement,
+            )
+
+    legacy_gemini_extra_keys = (
+        "tool_output_truncate_chars",
+        "truncate_tool_output_threshold",
+        "truncateToolOutputThreshold",
+        "tool_output_max_chars",
+        "tool_output_truncate_lines",
+        "truncate_tool_output_lines",
+        "truncateToolOutputLines",
+        "tool_output_max_lines",
+    )
+    configured_legacy_extras: list[str] = []
+    backends = getattr(config, "backends", None)
+    backend_items = getattr(backends, "__dict__", {})
+    if isinstance(backend_items, dict):
+        for backend_name, backend_config in backend_items.items():
+            if backend_name.startswith("_") or backend_name == "default_backend":
+                continue
+            extras = getattr(backend_config, "extra", None)
+            if not isinstance(extras, dict):
+                continue
+            for key in legacy_gemini_extra_keys:
+                if extras.get(key) is not None:
+                    configured_legacy_extras.append(f"{backend_name}.{key}")
+
+    if configured_legacy_extras and logger.isEnabledFor(logging.WARNING):
+        logger.warning(
+            "Deprecated legacy compression backend extras configured: %s. "
+            "Use dynamic_compression.* controls instead.",
+            ",".join(sorted(configured_legacy_extras)),
+        )
 
 
 def _is_admin() -> bool:

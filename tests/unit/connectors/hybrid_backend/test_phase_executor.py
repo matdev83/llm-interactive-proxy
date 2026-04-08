@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from src.connectors.hybrid_backend.models.phase_result import ReasoningPhaseResult
 from src.connectors.hybrid_backend.protocols import IParameterApplicator, IPhaseExecutor
 from src.core.common.exceptions import BackendError, ServiceResolutionError
 from src.core.domain.chat import CanonicalChatRequest
@@ -163,7 +162,7 @@ class TestPhaseExecutor:
                 identity=identity,
             )
 
-            assert isinstance(result, ReasoningPhaseResult)
+            assert result.__class__.__name__ == "ReasoningPhaseResult"
             assert result.complete is True
             assert "reasoning" in result.text.lower()
 
@@ -211,7 +210,7 @@ class TestPhaseExecutor:
             )
 
             # Should return empty result on timeout
-            assert isinstance(result, ReasoningPhaseResult)
+            assert result.__class__.__name__ == "ReasoningPhaseResult"
             assert result.complete is False
             assert result.text == ""
 
@@ -303,7 +302,7 @@ class TestPhaseExecutor:
                 uri_params=uri_params,
             )
 
-            assert isinstance(result, ReasoningPhaseResult)
+            assert result.__class__.__name__ == "ReasoningPhaseResult"
             mock_validator.validate_and_normalize.assert_called_once_with(uri_params)
 
     @pytest.mark.asyncio

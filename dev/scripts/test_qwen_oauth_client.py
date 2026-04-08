@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 
+
 # Unicode handling for Windows
 def safe_print(msg: str):
     """Print message handling encoding issues on Windows."""
@@ -124,14 +125,14 @@ def test_chat_completion(base_url: str = "http://127.0.0.1:8000", api_key: str =
             if choices:
                 message = choices[0].get("message", {})
                 content = message.get("content", "") if isinstance(message, dict) else ""
-                safe_print(f"   [OK] Response received:")
+                safe_print("   [OK] Response received:")
                 safe_print(f"     {content[:200]}")
                 return True
             else:
-                safe_print(f"   [FAIL] No choices in response")
+                safe_print("   [FAIL] No choices in response")
                 safe_print(f"   Response: {json.dumps(data, indent=2)[:500]}")
         else:
-            safe_print(f"   [FAIL] Request failed")
+            safe_print("   [FAIL] Request failed")
             try:
                 error_data = response.json()
                 safe_print(f"   Error: {json.dumps(error_data, indent=2)}")

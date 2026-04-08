@@ -193,12 +193,12 @@ async def main() -> int:
 
         passed, issues = _check_kilo_headers(headers, label)
         if passed:
-            print(f"  Result: PASS")
+            print("  Result: PASS")
         else:
             all_pass = False
             for issue in issues:
                 print(f"  Issue: {issue}")
-            print(f"  Result: FAIL")
+            print("  Result: FAIL")
         print()
 
     print("=" * 70)

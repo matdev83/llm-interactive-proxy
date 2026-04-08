@@ -1,33 +1,31 @@
 from __future__ import annotations
 
 import pytest
-from src.core.services.pytest_compression_service import PytestCompressionService
+from src.core.services.tool_identity_resolver import ToolIdentityResolver
 
 
 @pytest.fixture()
-def service() -> PytestCompressionService:
-    return PytestCompressionService()
+def resolver() -> ToolIdentityResolver:
+    return ToolIdentityResolver()
 
 
 def test_scan_for_pytest_detects_input_string(
-    service: PytestCompressionService,
+    resolver: ToolIdentityResolver,
 ) -> None:
     arguments = {"input": "pytest -q"}
 
-    result = service.scan_for_pytest("bash", arguments)
+    result = resolver.scan_for_pytest(tool_name="bash", arguments=arguments)
 
-    assert result is not None
-    assert result.command == "pytest -q"
+    assert result == "pytest -q"
 
 
 def test_scan_for_pytest_handles_mixed_case_tool_name(
-    service: PytestCompressionService,
+    resolver: ToolIdentityResolver,
 ) -> None:
     """Ensure detection works when the tool name uses different casing."""
 
     arguments = "pytest --maxfail=1"
 
-    result = service.scan_for_pytest("Bash", arguments)
+    result = resolver.scan_for_pytest(tool_name="Bash", arguments=arguments)
 
-    assert result is not None
-    assert result.command == "pytest --maxfail=1"
+    assert result == "pytest --maxfail=1"

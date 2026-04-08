@@ -16,7 +16,7 @@ from unittest import mock
 
 import pytest
 from src.core.cli_support.protocols import CliArgs, CliOverrides
-from src.core.config.parameter_resolution import ParameterResolution
+from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 
 class TestSessionApplicator:
@@ -156,6 +156,32 @@ class TestSessionApplicator:
 
         assert "session" in overrides
         assert overrides["session"].get("pytest_compression_enabled") is True
+        cli_records = resolution.latest_by_source(ParameterSource.CLI)
+        assert "session.pytest_compression_enabled" in cli_records
+        assert (
+            cli_records["session.pytest_compression_enabled"].origin
+            == "--enable-pytest-compression"
+        )
+
+    def test_apply_pytest_compression_disabled_records_disable_origin(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that disabling pytest compression records disable origin."""
+        empty_args.pytest_compression_enabled = False
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert "session" in overrides
+        assert overrides["session"].get("pytest_compression_enabled") is False
+        cli_records = resolution.latest_by_source(ParameterSource.CLI)
+        assert "session.pytest_compression_enabled" in cli_records
+        assert (
+            cli_records["session.pytest_compression_enabled"].origin
+            == "--disable-pytest-compression"
+        )
 
     def test_apply_tool_access_overrides(
         self,

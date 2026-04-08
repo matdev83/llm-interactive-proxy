@@ -242,23 +242,12 @@ class ISessionState(IValueObject, ISessionStateMutator):
 
     @property
     @abstractmethod
-    def compress_next_tool_call_reply(self) -> bool:
-        """Get whether the next tool call reply should be compressed."""
-
-    @property
-    @abstractmethod
     def pytest_compression_min_lines(self) -> int:
         """Get minimum line threshold for pytest compression."""
 
     @abstractmethod
     def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
         """Create a new state with updated pytest_compression_enabled flag."""
-
-    @abstractmethod
-    def with_compress_next_tool_call_reply(
-        self, should_compress: bool
-    ) -> ISessionState:
-        """Create a new state with updated compress_next_tool_call_reply flag."""
 
     @abstractmethod
     def with_pytest_compression_min_lines(self, min_lines: int) -> ISessionState:

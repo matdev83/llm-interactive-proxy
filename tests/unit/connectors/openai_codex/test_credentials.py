@@ -409,7 +409,12 @@ class TestCredentialManager:
                 )
             )
 
-            await manager.initialize(auth_path=temp_auth_file)
+            original_default_paths = manager._default_auth_paths
+            manager._default_auth_paths = lambda: [temp_auth_file]
+            try:
+                await manager.initialize(auth_path=None)
+            finally:
+                manager._default_auth_paths = original_default_paths
 
             assert manager.get_access_token() == "managed_access_token"
             assert manager._active_source == "managed"

@@ -21,6 +21,32 @@ from src.core.services.legacy_compression_compatibility_resolver import (
 )
 
 
+def _legacy_truncate(
+    value: str,
+    *,
+    max_chars: int | None,
+    max_lines: int | None,
+) -> str:
+    marker = "... [CONTENT TRUNCATED] ..."
+    text = value
+    if isinstance(max_lines, int) and max_lines > 0:
+        lines = text.splitlines()
+        if len(lines) > max_lines:
+            head = max(1, max_lines // 5)
+            tail = max_lines - head
+            text = "\n".join(lines[:head] + [marker] + lines[-tail:])
+
+    if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
+        head = max(1, max_chars // 5)
+        tail = max_chars - head - len(marker)
+        if tail <= 0:
+            text = text[:max_chars]
+        else:
+            text = text[:head] + marker + text[-tail:]
+
+    return text
+
+
 class MockConnectorContext(IConnectorContext):
     def __init__(
         self,
@@ -176,7 +202,9 @@ class RaisingResolver(ForcedTruncationResolver):
 
 
 @pytest.mark.asyncio
-async def test_prepare_uses_legacy_resolver_for_truncation_precedence() -> None:
+async def test_prepare_runs_connector_truncation_resolver_and_applies_decision() -> (
+    None
+):
     config = AppConfig()
     config.compaction.enabled = True
     config.backends["gemini-oauth-auto"] = BackendConfig(
@@ -207,18 +235,26 @@ async def test_prepare_uses_legacy_resolver_for_truncation_precedence() -> None:
 
     prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
 
-    assert resolver.calls
+    assert len(resolver.calls) == 1
+    assert resolver.calls[0]["connector_max_chars"] == 300
     assert resolver.calls[0]["compaction_enabled"] is True
     assert resolver.calls[0]["dynamic_compression_enabled"] is False
-    assert resolver.calls[0]["connector_max_chars"] == 300
     content = prepared.canonical_request.messages[0].content
     assert isinstance(content, str)
-    assert content != original_tool_output
-    assert "CONTENT TRUNCATED" in content
+    assert content == _legacy_truncate(
+        original_tool_output,
+        max_chars=40,
+        max_lines=None,
+    )
+    dx = prepared.canonical_request.compression_diagnostics or {}
+    compat = dx.get("gemini_legacy_truncation_compatibility")
+    assert isinstance(compat, dict)
+    assert compat.get("source") == "forced"
+    assert compat.get("truncated_tool_messages") == 1
 
 
 @pytest.mark.asyncio
-async def test_prepare_fails_open_when_legacy_truncation_resolver_errors(
+async def test_prepare_fails_open_with_deterministic_fallback_when_resolver_errors(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     config = AppConfig()
@@ -250,8 +286,105 @@ async def test_prepare_fails_open_when_legacy_truncation_resolver_errors(
 
     content = prepared.canonical_request.messages[0].content
     assert isinstance(content, str)
-    assert content == original_tool_output
+    assert content == _legacy_truncate(
+        original_tool_output,
+        max_chars=80,
+        max_lines=None,
+    )
     assert any(
-        "compatibility resolution failed open" in record.message.lower()
+        "compatibility resolution failed open" in r.message.lower()
+        for r in caplog.records
+    )
+    dx = prepared.canonical_request.compression_diagnostics or {}
+    compat = dx.get("gemini_legacy_truncation_compatibility")
+    assert isinstance(compat, dict)
+    assert compat.get("resolver_failed_open") is True
+    assert compat.get("source") == "fallback_legacy"
+    assert compat.get("truncated_tool_messages") == 1
+
+
+@pytest.mark.asyncio
+async def test_prepare_warns_legacy_controls_are_deprecated_but_active_via_compatibility_path(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL", "DEBUG")
+    config = AppConfig()
+    config.backends["gemini-oauth-auto"] = BackendConfig(
+        extra={"tool_output_truncate_lines": 2}
+    )
+    context = MockConnectorContext(config=config)
+    translation_service = MagicMock()
+    translation_service.from_domain_to_gemini_request = MagicMock(
+        return_value={"contents": []}
+    )
+    preparer = ChatRequestPreparer(
+        connector_context=context,
+        message_converter=MockMessageConverter(),
+        prompt_limiter=MockPromptLimiter(),
+        request_body_builder=MockRequestBodyBuilder(),
+        translation_service=translation_service,
+    )
+
+    request_data = CanonicalChatRequest(
+        model="gemini-2.5-pro",
+        session_id="sess-deprecated-controls",
+        messages=[ChatMessage(role="tool", content="line-1\nline-2\nline-3\n")],
+    )
+
+    with caplog.at_level("WARNING"):
+        prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
+
+    assert prepared.canonical_request.messages[0].content == _legacy_truncate(
+        "line-1\nline-2\nline-3\n",
+        max_chars=None,
+        max_lines=2,
+    )
+    assert any(
+        "legacy gemini connector truncation controls are deprecated but active via compatibility path"
+        in record.message.lower()
+        for record in caplog.records
+    )
+    assert any(
+        "gemini_tool_output_truncation_log_level" in record.message.lower()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_prepare_warns_legacy_controls_are_deprecated_and_inactive_with_compaction(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = AppConfig()
+    config.compaction.enabled = True
+    config.backends["gemini-oauth-auto"] = BackendConfig(
+        extra={"tool_output_truncate_chars": 40}
+    )
+    context = MockConnectorContext(config=config)
+    translation_service = MagicMock()
+    translation_service.from_domain_to_gemini_request = MagicMock(
+        return_value={"contents": []}
+    )
+    preparer = ChatRequestPreparer(
+        connector_context=context,
+        message_converter=MockMessageConverter(),
+        prompt_limiter=MockPromptLimiter(),
+        request_body_builder=MockRequestBodyBuilder(),
+        translation_service=translation_service,
+    )
+
+    request_data = CanonicalChatRequest(
+        model="gemini-2.5-pro",
+        session_id="sess-deprecated-controls-inactive",
+        messages=[ChatMessage(role="tool", content="x" * 120)],
+    )
+
+    with caplog.at_level("WARNING"):
+        prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
+
+    assert prepared.canonical_request.messages[0].content == "x" * 120
+    assert any(
+        "legacy gemini connector truncation controls are deprecated and inactive for this request"
+        in record.message.lower()
         for record in caplog.records
     )

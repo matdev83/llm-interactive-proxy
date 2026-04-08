@@ -39,7 +39,7 @@ async def test_tool_call_reactor_handlers_are_wired_up(
     # Legacy handler should NOT be present when unified is active (default)
     assert "config_steering_handler" not in registered_handlers
     assert "unified_tool_security_handler" in registered_handlers
-    assert "pytest_compression_handler" in registered_handlers
+    assert "pytest_compression_handler" not in registered_handlers
 
     # Assert that emit_legacy_log_enabled is correctly passed through
     from src.services.steering import UnifiedSteeringHandler
@@ -58,7 +58,7 @@ async def test_tool_call_reactor_handlers_are_wired_up(
     assert "unified_tool_security_handler" in service_handlers
     assert "config_steering_handler" not in service_handlers
     assert "unified_tool_security_handler" in service_handlers
-    assert "pytest_compression_handler" in service_handlers
+    assert "pytest_compression_handler" not in service_handlers
 
 
 @pytest.mark.asyncio

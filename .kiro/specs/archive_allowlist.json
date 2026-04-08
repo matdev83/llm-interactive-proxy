@@ -16,6 +16,10 @@
     {
       "spec": "oauth-connectors-extraction",
       "reason": "Spec completed and retained in active folder during connector package rollout"
+    },
+    {
+      "spec": "compression-layer-rtk-inspired",
+      "reason": "Spec completed and retained in active folder during final validation pass"
     }
   ]
 }

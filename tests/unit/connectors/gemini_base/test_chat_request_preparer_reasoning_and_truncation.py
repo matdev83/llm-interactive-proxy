@@ -17,6 +17,32 @@ from src.core.config.models.backends import BackendConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 
+def _legacy_truncate(
+    value: str,
+    *,
+    max_chars: int | None,
+    max_lines: int | None,
+) -> str:
+    marker = "... [CONTENT TRUNCATED] ..."
+    text = value
+    if isinstance(max_lines, int) and max_lines > 0:
+        lines = text.splitlines()
+        if len(lines) > max_lines:
+            head = max(1, max_lines // 5)
+            tail = max_lines - head
+            text = "\n".join(lines[:head] + [marker] + lines[-tail:])
+
+    if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
+        head = max(1, max_chars // 5)
+        tail = max_chars - head - len(marker)
+        if tail <= 0:
+            text = text[:max_chars]
+        else:
+            text = text[:head] + marker + text[-tail:]
+
+    return text
+
+
 class MockConnectorContext(IConnectorContext):
     def __init__(
         self,
@@ -175,7 +201,7 @@ async def test_prepare_can_keep_reasoning_content_when_configured(
 
 
 @pytest.mark.asyncio
-async def test_prepare_truncates_tool_output_when_configured(
+async def test_prepare_applies_legacy_char_truncation_when_request_path_reduction_is_inactive(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
@@ -214,10 +240,72 @@ async def test_prepare_truncates_tool_output_when_configured(
 
     prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
 
-    truncated = prepared.canonical_request.messages[0].content
-    assert isinstance(truncated, str)
-    assert len(truncated) < len(long_output)
-    assert "CONTENT TRUNCATED" in truncated
+    content = prepared.canonical_request.messages[0].content
+    assert isinstance(content, str)
+    assert content == _legacy_truncate(
+        long_output,
+        max_chars=40,
+        max_lines=None,
+    )
+    diagnostics = prepared.canonical_request.compression_diagnostics or {}
+    compat = diagnostics.get("gemini_legacy_truncation_compatibility")
+    assert isinstance(compat, dict)
+    assert compat.get("source") == "connector"
+    assert compat.get("truncated_tool_messages") == 1
+
+
+@pytest.mark.asyncio
+async def test_prepare_applies_legacy_line_truncation_when_request_path_reduction_is_inactive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
+    monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES", raising=False)
+    config = AppConfig()
+    config.backends["gemini-oauth-auto"] = BackendConfig(
+        extra={"tool_output_truncate_lines": 5}
+    )
+
+    context = MockConnectorContext(config=config)
+    converter = MockMessageConverter()
+    limiter = MockPromptLimiter()
+    builder = MockRequestBodyBuilder()
+
+    translation_service = MagicMock()
+    translation_service.from_domain_to_gemini_request = MagicMock(
+        return_value={"contents": []}
+    )
+
+    preparer = ChatRequestPreparer(
+        connector_context=context,
+        message_converter=converter,
+        prompt_limiter=limiter,
+        request_body_builder=builder,
+        translation_service=translation_service,
+    )
+
+    long_output = "\n".join(f"line-{idx}" for idx in range(20))
+    request_data = CanonicalChatRequest(
+        model="gemini-2.5-pro",
+        session_id="sess-3-lines",
+        messages=[
+            ChatMessage(role="tool", content=long_output),
+        ],
+    )
+
+    prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
+
+    content = prepared.canonical_request.messages[0].content
+    assert isinstance(content, str)
+    assert content == _legacy_truncate(
+        long_output,
+        max_chars=None,
+        max_lines=5,
+    )
+    diagnostics = prepared.canonical_request.compression_diagnostics or {}
+    compat = diagnostics.get("gemini_legacy_truncation_compatibility")
+    assert isinstance(compat, dict)
+    assert compat.get("source") == "connector"
+    assert compat.get("truncated_tool_messages") == 1
 
 
 @pytest.mark.asyncio
@@ -262,10 +350,15 @@ async def test_prepare_skips_truncation_when_compaction_enabled(
     content = prepared.canonical_request.messages[0].content
     assert isinstance(content, str)
     assert content == long_output
+    diagnostics = prepared.canonical_request.compression_diagnostics or {}
+    compat = diagnostics.get("gemini_legacy_truncation_compatibility")
+    assert isinstance(compat, dict)
+    assert compat.get("source") == "history_compaction"
+    assert compat.get("truncated_tool_messages") == 0
 
 
 @pytest.mark.asyncio
-async def test_prepare_uses_underscore_backend_key_extras(
+async def test_prepare_does_not_apply_connector_truncation_from_backend_extras(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
@@ -302,7 +395,6 @@ async def test_prepare_uses_underscore_backend_key_extras(
 
     prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
 
-    truncated = prepared.canonical_request.messages[0].content
-    assert isinstance(truncated, str)
-    assert len(truncated) < len(long_output)
-    assert "CONTENT TRUNCATED" in truncated
+    content = prepared.canonical_request.messages[0].content
+    assert isinstance(content, str)
+    assert content == long_output

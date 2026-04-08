@@ -147,22 +147,31 @@ class LegacyCompressionCompatibilityResolver:
         if connector_max_lines is not None:
             configured_controls.append(self._CONNECTOR_TRUNCATION_LINES_CONTROL)
 
+        diagnostics.connector_truncation_configured = bool(configured_controls)
+
         if compaction_enabled or dynamic_compression_enabled:
             applied_controls: list[str] = []
+            active_stages: list[str] = []
             if compaction_enabled:
                 applied_controls.append(self._COMPACTION_CONTROL)
+                active_stages.append("history_compaction")
             if dynamic_compression_enabled:
                 applied_controls.append(self._DYNAMIC_COMPRESSION_CONTROL)
+                active_stages.append("dynamic_compression")
             diagnostics.applied.extend(applied_controls)
+            diagnostics.active_request_path_stages = list(active_stages)
 
             warning: str | None = None
             if configured_controls:
                 diagnostics.ignored.extend(configured_controls)
                 diagnostics.overridden.extend(configured_controls)
                 diagnostics.inactive.extend(configured_controls)
+                stage_summary = ", ".join(active_stages)
                 warning = (
-                    "Connector-level tool output truncation ignored because "
-                    "history compaction or dynamic compression is enabled."
+                    "Connector-level tool output truncation is disabled because "
+                    f"request-path reduction is already active ({stage_summary}). "
+                    "Rely on history compaction and/or dynamic tool-output compression "
+                    "for tool payloads instead of connector truncation."
                 )
                 diagnostics.warnings.append(warning)
             else:
@@ -171,6 +180,27 @@ class LegacyCompressionCompatibilityResolver:
                         self._CONNECTOR_TRUNCATION_CHARS_CONTROL,
                         self._CONNECTOR_TRUNCATION_LINES_CONTROL,
                     ]
+                )
+
+            if compaction_enabled and dynamic_compression_enabled:
+                overlap = (
+                    "Both history compaction and dynamic tool-output compression are enabled; "
+                    "tool-bearing history may be reduced in multiple sequential stages "
+                    "before connector translation."
+                )
+                diagnostics.overlap_notes.append(overlap)
+                if configured_controls:
+                    diagnostics.overlap_notes.append(
+                        "Ambiguous overlap: connector truncation limits are configured but "
+                        "would stack with request-path compaction/dynamic compression; "
+                        "connector truncation stays disabled to avoid cutting the same tool "
+                        "payload twice at different layers."
+                    )
+            elif configured_controls:
+                single = active_stages[0] if active_stages else "request-path reduction"
+                diagnostics.overlap_notes.append(
+                    f"Connector truncation limits are ignored while {single} handles "
+                    "tool-output shaping on the request path."
                 )
 
             if compaction_enabled and dynamic_compression_enabled:
@@ -242,3 +272,6 @@ class ConnectorTruncationCompatibilityDiagnostics(DomainModel):
     inactive: list[str] = Field(default_factory=list)
     overridden: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    overlap_notes: list[str] = Field(default_factory=list)
+    active_request_path_stages: list[str] = Field(default_factory=list)
+    connector_truncation_configured: bool = False

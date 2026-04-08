@@ -74,6 +74,8 @@ class CaptureMetadata:
     http_reason_phrase: str | None = None
     http_version: str | None = None
     websocket_message_type: str | None = None  # "text" | "binary"
+    compression_correlation_id: str | None = None
+    compression_records_count: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values for compact CBOR."""
@@ -160,6 +162,10 @@ class CaptureMetadata:
             result["http_version"] = self.http_version
         if self.websocket_message_type is not None:
             result["ws_message_type"] = self.websocket_message_type
+        if self.compression_correlation_id is not None:
+            result["ccid"] = self.compression_correlation_id
+        if self.compression_records_count is not None:
+            result["crc"] = self.compression_records_count
         return result
 
     @classmethod
@@ -207,6 +213,8 @@ class CaptureMetadata:
             http_reason_phrase=data.get("http_reason"),
             http_version=data.get("http_version"),
             websocket_message_type=data.get("ws_message_type"),
+            compression_correlation_id=data.get("ccid"),
+            compression_records_count=data.get("crc"),
         )
 
 
@@ -259,6 +267,8 @@ class CapturedWireEvent:
     http_reason_phrase: str | None = None
     http_version: str | None = None
     websocket_message_type: str | None = None
+    compression_correlation_id: str | None = None
+    compression_records_count: int | None = None
 
     def __init__(
         self,
@@ -309,6 +319,8 @@ class CapturedWireEvent:
         http_reason_phrase: str | None = None,
         http_version: str | None = None,
         websocket_message_type: str | None = None,
+        compression_correlation_id: str | None = None,
+        compression_records_count: int | None = None,
     ) -> None:
         if metadata is not None:
             if session_id is None:
@@ -393,6 +405,10 @@ class CapturedWireEvent:
                 http_version = metadata.http_version
             if websocket_message_type is None:
                 websocket_message_type = metadata.websocket_message_type
+            if compression_correlation_id is None:
+                compression_correlation_id = metadata.compression_correlation_id
+            if compression_records_count is None:
+                compression_records_count = metadata.compression_records_count
 
         object.__setattr__(self, "timestamp", timestamp)
         object.__setattr__(self, "direction", direction)
@@ -439,6 +455,16 @@ class CapturedWireEvent:
         object.__setattr__(self, "http_reason_phrase", http_reason_phrase)
         object.__setattr__(self, "http_version", http_version)
         object.__setattr__(self, "websocket_message_type", websocket_message_type)
+        object.__setattr__(
+            self,
+            "compression_correlation_id",
+            compression_correlation_id,
+        )
+        object.__setattr__(
+            self,
+            "compression_records_count",
+            compression_records_count,
+        )
 
     @classmethod
     def from_metadata(
@@ -504,6 +530,8 @@ class CapturedWireEvent:
             http_reason_phrase=self.http_reason_phrase,
             http_version=self.http_version,
             websocket_message_type=self.websocket_message_type,
+            compression_correlation_id=self.compression_correlation_id,
+            compression_records_count=self.compression_records_count,
         )
 
     def to_dict(self) -> dict[str, Any]:

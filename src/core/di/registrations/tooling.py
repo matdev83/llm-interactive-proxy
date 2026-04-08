@@ -1,7 +1,7 @@
 """
 Tooling registrar.
 
-Registers tool call reactor, pytest compression, and dangerous command handling services.
+Registers tool call reactor and supporting services.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     - Tool call reactor service and history tracker
     - Tool call reactor orchestrator and related interfaces
     - Dangerous command handling
-    - Pytest compression
     - JSON repair service
     - Tool access policy service
 
@@ -41,7 +40,6 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
 
     # Register supporting services (optional)
     _register_dangerous_command_service(services, app_config)
-    _register_pytest_compression_service(services, app_config)
     _register_json_repair_service(services, app_config)
     _register_tool_access_policy_service(services, app_config)
 
@@ -474,21 +472,6 @@ def _register_dangerous_command_service(
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Registered DangerousCommandService")
-
-
-def _register_pytest_compression_service(
-    services: ServiceCollection, app_config: AppConfig | None
-) -> None:
-    """Register pytest compression service."""
-    from src.core.services.pytest_compression_service import (
-        PytestCompressionService,
-    )
-
-    # PytestCompressionService is always available (no config needed)
-    register_singleton_if_absent(services, PytestCompressionService)
-
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("Registered PytestCompressionService")
 
 
 def _register_json_repair_service(

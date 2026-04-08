@@ -360,7 +360,9 @@ class ChatRequestPreparer:
         canonical_request = self._strip_reasoning_content_if_configured(
             canonical_request
         )
-        canonical_request = self._truncate_tool_outputs_if_configured(canonical_request)
+        canonical_request = self._apply_legacy_connector_truncation_compatibility(
+            canonical_request
+        )
 
         # Inject stored thought_signatures for clients that don't preserve extra_content
         # Uses IThoughtSignatureService interface
@@ -703,70 +705,6 @@ class ChatRequestPreparer:
 
         return canonical_request
 
-    def _truncate_tool_outputs_if_configured(self, canonical_request: Any) -> Any:
-        max_chars, max_lines = self._resolve_tool_output_truncation_limits()
-        if max_chars is None and max_lines is None:
-            return canonical_request
-
-        messages = getattr(canonical_request, "messages", None)
-        if not isinstance(messages, list) or not messages:
-            return canonical_request
-
-        updated_messages: list[Any] = []
-        truncated_count = 0
-        total_saved = 0
-        for msg in messages:
-            role = (
-                msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-            )
-            if role != "tool":
-                updated_messages.append(msg)
-                continue
-
-            content = (
-                msg.get("content")
-                if isinstance(msg, dict)
-                else getattr(msg, "content", None)
-            )
-            if not isinstance(content, str):
-                updated_messages.append(msg)
-                continue
-
-            truncated_text, truncated, saved = self._truncate_text_content(
-                content, max_chars=max_chars, max_lines=max_lines
-            )
-            if not truncated:
-                updated_messages.append(msg)
-                continue
-
-            if isinstance(msg, dict):
-                updated = dict(msg)
-                updated["content"] = truncated_text
-                updated_messages.append(updated)
-            else:
-                if hasattr(msg, "model_copy"):
-                    updated_messages.append(
-                        msg.model_copy(update={"content": truncated_text})
-                    )
-                else:
-                    with contextlib.suppress(Exception):
-                        msg.content = truncated_text
-                    updated_messages.append(msg)
-
-            truncated_count += 1
-            total_saved += saved
-
-        if truncated_count > 0:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Truncated %d tool outputs before Code Assist translation (saved %d chars)",
-                    truncated_count,
-                    total_saved,
-                )
-            return self._replace_messages(canonical_request, updated_messages)
-
-        return canonical_request
-
     def _replace_messages(self, canonical_request: Any, messages: list[Any]) -> Any:
         if hasattr(canonical_request, "model_copy"):
             try:
@@ -791,136 +729,399 @@ class ChatRequestPreparer:
 
         return True
 
-    def _resolve_tool_output_truncation_limits(self) -> tuple[int | None, int | None]:
-        max_chars, max_lines = self._resolve_configured_tool_output_truncation_limits()
+    def _apply_legacy_connector_truncation_compatibility(
+        self, canonical_request: Any
+    ) -> Any:
+        if not self._is_gemini_oauth_backend():
+            return canonical_request
+
+        (
+            configured_controls,
+            configured_limit_controls,
+            connector_max_chars,
+            connector_max_lines,
+            parse_warnings,
+        ) = self._resolve_legacy_connector_truncation_limits()
+        if os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL") is not None:
+            configured_controls.append("env:GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL")
+
+        if not configured_controls:
+            return canonical_request
+
         compaction_enabled = self._is_compaction_enabled()
         dynamic_compression_enabled = self._is_dynamic_compression_enabled()
-        try:
-            decision, diagnostics = (
-                self._legacy_compression_compatibility_resolver.resolve_connector_truncation_with_diagnostics(
-                    connector_max_chars=max_chars,
-                    connector_max_lines=max_lines,
-                    compaction_enabled=compaction_enabled,
-                    dynamic_compression_enabled=dynamic_compression_enabled,
+
+        source = "connector_unset"
+        resolver_failed_open = False
+        effective_max_chars: int | None = None
+        effective_max_lines: int | None = None
+        compatibility_warnings: list[str] = list(parse_warnings)
+        compatibility_payload: dict[str, Any] | None = None
+
+        if configured_limit_controls:
+            try:
+                decision, diagnostics = (
+                    self._legacy_compression_compatibility_resolver.resolve_connector_truncation_with_diagnostics(
+                        connector_max_chars=connector_max_chars,
+                        connector_max_lines=connector_max_lines,
+                        compaction_enabled=compaction_enabled,
+                        dynamic_compression_enabled=dynamic_compression_enabled,
+                    )
                 )
+                effective_max_chars = decision.effective_max_chars
+                effective_max_lines = decision.effective_max_lines
+                source = decision.source
+                compatibility_warnings.extend(diagnostics.warnings)
+                compatibility_payload = diagnostics.model_dump(mode="json")
+            except Exception:
+                resolver_failed_open = True
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Legacy Gemini truncation compatibility resolution failed open; "
+                        "using deterministic fallback precedence.",
+                        exc_info=True,
+                    )
+                if compaction_enabled or dynamic_compression_enabled:
+                    source = "fallback_request_path"
+                    effective_max_chars = None
+                    effective_max_lines = None
+                else:
+                    source = "fallback_legacy"
+                    effective_max_chars = connector_max_chars
+                    effective_max_lines = connector_max_lines
+                compatibility_warnings.append(
+                    "Legacy Gemini truncation compatibility resolution failed open; "
+                    "applied deterministic fallback precedence."
+                )
+
+        canonical_request, truncated_count = self._truncate_tool_outputs_if_configured(
+            canonical_request=canonical_request,
+            max_chars=effective_max_chars,
+            max_lines=effective_max_lines,
+        )
+
+        if logger.isEnabledFor(logging.WARNING):
+            serialized_controls = ",".join(sorted(set(configured_controls)))
+            has_valid_limit = (
+                connector_max_chars is not None or connector_max_lines is not None
             )
-        except Exception as exc:
-            if logger.isEnabledFor(logging.WARNING):
+            if configured_limit_controls and (
+                effective_max_chars is not None or effective_max_lines is not None
+            ):
                 logger.warning(
-                    "Connector truncation compatibility resolution failed open; "
-                    "disabling connector-level tool output truncation: %s",
-                    exc,
-                    exc_info=True,
+                    "Legacy Gemini connector truncation controls are deprecated but "
+                    "active via compatibility path during migration; "
+                    "migrate to request-path compaction/dynamic compression controls. "
+                    "controls=%s source=%s effective_chars=%s effective_lines=%s",
+                    serialized_controls,
+                    source,
+                    effective_max_chars,
+                    effective_max_lines,
                 )
-            return None, None
+            elif configured_limit_controls and not has_valid_limit:
+                logger.warning(
+                    "Legacy Gemini connector truncation controls are deprecated; "
+                    "configured values are invalid or non-positive, so no truncation "
+                    "was applied. controls=%s source=%s",
+                    serialized_controls,
+                    source,
+                )
+            elif configured_limit_controls:
+                logger.warning(
+                    "Legacy Gemini connector truncation controls are deprecated and "
+                    "inactive for this request because request-path reduction is active. "
+                    "controls=%s source=%s",
+                    serialized_controls,
+                    source,
+                )
+            else:
+                logger.warning(
+                    "Legacy Gemini truncation logging controls are deprecated. controls=%s",
+                    serialized_controls,
+                )
 
-        if decision.source in {
-            "history_compaction",
-            "dynamic_compression",
-            "history_compaction+dynamic_compression",
-        }:
-            self._log_truncation_skip()
+            for warning in sorted(
+                {item.strip() for item in compatibility_warnings if item.strip()}
+            ):
+                logger.warning("%s", warning)
 
-        if diagnostics.warnings and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Connector truncation compatibility diagnostics: %s",
-                diagnostics.model_dump(mode="json"),
-            )
+        diagnostics_payload: dict[str, Any] = {
+            "configured_controls": sorted(set(configured_controls)),
+            "effective_max_chars": effective_max_chars,
+            "effective_max_lines": effective_max_lines,
+            "source": source,
+            "truncated_tool_messages": truncated_count,
+            "compaction_enabled": compaction_enabled,
+            "dynamic_compression_enabled": dynamic_compression_enabled,
+            "resolver_failed_open": resolver_failed_open,
+            "warnings": sorted(
+                {item.strip() for item in compatibility_warnings if item.strip()}
+            ),
+        }
+        if compatibility_payload is not None:
+            diagnostics_payload["compatibility"] = compatibility_payload
+        return self._attach_connector_truncation_diagnostics(
+            canonical_request=canonical_request,
+            payload=diagnostics_payload,
+        )
 
-        return decision.effective_max_chars, decision.effective_max_lines
-
-    def _resolve_configured_tool_output_truncation_limits(
+    def _resolve_legacy_connector_truncation_limits(
         self,
-    ) -> tuple[int | None, int | None]:
-        env_chars = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS")
-        env_lines = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES")
-
+    ) -> tuple[list[str], list[str], int | None, int | None, list[str]]:
+        warnings: list[str] = []
+        configured_controls: list[str] = []
+        configured_limit_controls: list[str] = []
         extras = self._get_backend_extras()
 
-        max_chars = self._coerce_positive_int(env_chars)
-        if max_chars is None:
-            for key in (
-                "tool_output_truncate_chars",
-                "truncate_tool_output_threshold",
-                "truncateToolOutputThreshold",
-                "tool_output_max_chars",
-            ):
-                if key in extras:
-                    max_chars = self._coerce_positive_int(extras.get(key))
-                    if max_chars is not None:
-                        break
+        max_chars: int | None = None
+        max_lines: int | None = None
 
-        max_lines = self._coerce_positive_int(env_lines)
-        if max_lines is None:
-            for key in (
-                "tool_output_truncate_lines",
-                "truncate_tool_output_lines",
-                "truncateToolOutputLines",
-                "tool_output_max_lines",
-            ):
-                if key in extras:
-                    max_lines = self._coerce_positive_int(extras.get(key))
-                    if max_lines is not None:
-                        break
+        char_keys = (
+            "tool_output_truncate_chars",
+            "truncate_tool_output_threshold",
+            "truncateToolOutputThreshold",
+            "tool_output_max_chars",
+        )
+        line_keys = (
+            "tool_output_truncate_lines",
+            "truncate_tool_output_lines",
+            "truncateToolOutputLines",
+            "tool_output_max_lines",
+        )
 
-        return max_chars, max_lines
+        for key in char_keys:
+            raw = extras.get(key)
+            if raw is None:
+                continue
+            label = f"backend.extra:{key}"
+            configured_controls.append(label)
+            configured_limit_controls.append(label)
+            parsed = self._parse_legacy_limit(raw, control=label, warnings=warnings)
+            if parsed is None:
+                continue
+            if max_chars is None:
+                max_chars = parsed
+            elif parsed != max_chars:
+                warnings.append(
+                    f"Multiple legacy Gemini character truncation controls are configured; "
+                    f"using first configured backend value ({max_chars})."
+                )
+
+        for key in line_keys:
+            raw = extras.get(key)
+            if raw is None:
+                continue
+            label = f"backend.extra:{key}"
+            configured_controls.append(label)
+            configured_limit_controls.append(label)
+            parsed = self._parse_legacy_limit(raw, control=label, warnings=warnings)
+            if parsed is None:
+                continue
+            if max_lines is None:
+                max_lines = parsed
+            elif parsed != max_lines:
+                warnings.append(
+                    f"Multiple legacy Gemini line truncation controls are configured; "
+                    f"using first configured backend value ({max_lines})."
+                )
+
+        env_chars = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS")
+        if env_chars is not None:
+            label = "env:GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS"
+            configured_controls.append(label)
+            configured_limit_controls.append(label)
+            parsed = self._parse_legacy_limit(
+                env_chars,
+                control=label,
+                warnings=warnings,
+            )
+            if parsed is not None:
+                if max_chars is not None and parsed != max_chars:
+                    warnings.append(
+                        "env:GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS overrides backend "
+                        "character truncation controls due to deterministic precedence."
+                    )
+                max_chars = parsed
+
+        env_lines = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES")
+        if env_lines is not None:
+            label = "env:GEMINI_TOOL_OUTPUT_TRUNCATE_LINES"
+            configured_controls.append(label)
+            configured_limit_controls.append(label)
+            parsed = self._parse_legacy_limit(
+                env_lines,
+                control=label,
+                warnings=warnings,
+            )
+            if parsed is not None:
+                if max_lines is not None and parsed != max_lines:
+                    warnings.append(
+                        "env:GEMINI_TOOL_OUTPUT_TRUNCATE_LINES overrides backend line "
+                        "truncation controls due to deterministic precedence."
+                    )
+                max_lines = parsed
+
+        return (
+            configured_controls,
+            configured_limit_controls,
+            max_chars,
+            max_lines,
+            warnings,
+        )
+
+    @staticmethod
+    def _parse_legacy_limit(
+        value: Any,
+        *,
+        control: str,
+        warnings: list[str],
+    ) -> int | None:
+        if isinstance(value, bool):
+            warnings.append(
+                f"Ignoring {control}: expected a positive integer, received boolean."
+            )
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            warnings.append(
+                f"Ignoring {control}: expected a positive integer, received {value!r}."
+            )
+            return None
+        if parsed <= 0:
+            warnings.append(
+                f"Ignoring {control}: expected a positive integer, received {parsed}."
+            )
+            return None
+        return parsed
 
     def _is_compaction_enabled(self) -> bool:
-        connector = self._connector_context
-        config = getattr(connector, "config", None)
-        if config is None:
-            return False
-
+        config = getattr(self._connector_context, "config", None)
         compaction = getattr(config, "compaction", None)
         if isinstance(compaction, dict):
             return bool(compaction.get("enabled"))
         return bool(getattr(compaction, "enabled", False))
 
     def _is_dynamic_compression_enabled(self) -> bool:
-        connector = self._connector_context
-        config = getattr(connector, "config", None)
-        if config is None:
-            return False
+        config = getattr(self._connector_context, "config", None)
+        dynamic_compression = getattr(config, "dynamic_compression", None)
+        if isinstance(dynamic_compression, dict):
+            return bool(dynamic_compression.get("enabled"))
+        return bool(getattr(dynamic_compression, "enabled", False))
 
-        dynamic = getattr(config, "dynamic_compression", None)
-        if isinstance(dynamic, dict):
-            return bool(dynamic.get("enabled"))
-        return bool(getattr(dynamic, "enabled", False))
+    def _is_gemini_oauth_backend(self) -> bool:
+        backend_type = str(getattr(self._connector_context, "backend_type", "") or "")
+        normalized = backend_type.strip().lower().replace("_", "-")
+        return normalized.startswith("gemini-oauth")
 
-    def _log_truncation_skip(self) -> None:
-        level = self._resolve_truncation_log_level()
-        if level is None:
-            return
-        if logger.isEnabledFor(level):
-            logger.log(
-                level,
-                "Skipping tool output truncation because history compaction or dynamic compression is enabled",
+    def _truncate_tool_outputs_if_configured(
+        self,
+        *,
+        canonical_request: Any,
+        max_chars: int | None,
+        max_lines: int | None,
+    ) -> tuple[Any, int]:
+        if max_chars is None and max_lines is None:
+            return canonical_request, 0
+
+        messages = getattr(canonical_request, "messages", None)
+        if not isinstance(messages, list) or not messages:
+            return canonical_request, 0
+
+        updated_messages: list[Any] = []
+        truncated_count = 0
+        for msg in messages:
+            role = (
+                msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
             )
+            content = (
+                msg.get("content")
+                if isinstance(msg, dict)
+                else getattr(msg, "content", None)
+            )
+            if role != "tool" or not isinstance(content, str):
+                updated_messages.append(msg)
+                continue
 
-    def _resolve_truncation_log_level(self) -> int | None:
-        env_value = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL")
-        level = self._coerce_log_level(env_value)
-        if level is not None or env_value is not None:
-            return level
+            truncated = self._truncate_text_content(
+                content,
+                max_chars=max_chars,
+                max_lines=max_lines,
+            )
+            if truncated == content:
+                updated_messages.append(msg)
+                continue
 
-        extras = self._get_backend_extras()
-        extra_value = extras.get("tool_output_truncation_log_level")
-        return self._coerce_log_level(extra_value)
+            truncated_count += 1
+            if isinstance(msg, dict):
+                replaced = dict(msg)
+                replaced["content"] = truncated
+                updated_messages.append(replaced)
+                continue
+
+            if hasattr(msg, "model_copy"):
+                with contextlib.suppress(Exception):
+                    updated_messages.append(
+                        msg.model_copy(update={"content": truncated})
+                    )
+                    continue
+
+            with contextlib.suppress(Exception):
+                msg.content = truncated
+            updated_messages.append(msg)
+
+        if truncated_count == 0:
+            return canonical_request, 0
+        return (
+            self._replace_messages(canonical_request, updated_messages),
+            truncated_count,
+        )
 
     @staticmethod
-    def _coerce_log_level(value: Any) -> int | None:
-        if value is None:
-            return None
-        if isinstance(value, int):
-            return value if value >= 0 else None
-        if isinstance(value, str):
-            normalized = value.strip().lower()
-            if normalized in {"off", "none", "false", "0"}:
-                return None
-            level = logging.getLevelName(normalized.upper())
-            if isinstance(level, int):
-                return level
-        return None
+    def _truncate_text_content(
+        value: str,
+        *,
+        max_chars: int | None,
+        max_lines: int | None,
+    ) -> str:
+        marker = "... [CONTENT TRUNCATED] ..."
+        text = value
+        if isinstance(max_lines, int) and max_lines > 0:
+            lines = text.splitlines()
+            if len(lines) > max_lines:
+                head = max(1, max_lines // 5)
+                tail = max_lines - head
+                text = "\n".join(lines[:head] + [marker] + lines[-tail:])
+
+        if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
+            head = max(1, max_chars // 5)
+            tail = max_chars - head - len(marker)
+            if tail <= 0:
+                text = text[:max_chars]
+            else:
+                text = text[:head] + marker + text[-tail:]
+
+        return text
+
+    @staticmethod
+    def _attach_connector_truncation_diagnostics(
+        *,
+        canonical_request: Any,
+        payload: dict[str, Any],
+    ) -> Any:
+        diagnostics = getattr(canonical_request, "compression_diagnostics", None)
+        merged = dict(diagnostics) if isinstance(diagnostics, dict) else {}
+        merged["gemini_legacy_truncation_compatibility"] = payload
+
+        if hasattr(canonical_request, "model_copy"):
+            with contextlib.suppress(Exception):
+                return canonical_request.model_copy(
+                    update={"compression_diagnostics": merged}
+                )
+
+        with contextlib.suppress(Exception):
+            canonical_request.compression_diagnostics = merged
+        return canonical_request
 
     def _get_backend_extras(self) -> dict[str, Any]:
         connector = self._connector_context
@@ -982,50 +1183,6 @@ class ChatRequestPreparer:
             if normalized in {"0", "false", "no", "off"}:
                 return False
         return None
-
-    @staticmethod
-    def _coerce_positive_int(value: Any) -> int | None:
-        if value is None:
-            return None
-        try:
-            coerced = int(value)
-        except (TypeError, ValueError):
-            return None
-        if coerced <= 0:
-            return None
-        return coerced
-
-    @staticmethod
-    def _truncate_text_content(
-        value: str, *, max_chars: int | None, max_lines: int | None
-    ) -> tuple[str, bool, int]:
-        if max_chars is None and max_lines is None:
-            return value, False, 0
-
-        marker = "... [CONTENT TRUNCATED] ..."
-        original_len = len(value)
-        text = value
-        truncated = False
-
-        if isinstance(max_lines, int) and max_lines > 0:
-            lines = text.splitlines()
-            if len(lines) > max_lines:
-                head = max(1, max_lines // 5)
-                tail = max_lines - head
-                text = "\n".join(lines[:head] + [marker] + lines[-tail:])
-                truncated = True
-
-        if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
-            head = max(1, max_chars // 5)
-            tail = max_chars - head - len(marker)
-            if tail <= 0:
-                text = text[:max_chars]
-            else:
-                text = text[:head] + marker + text[-tail:]
-            truncated = True
-
-        saved = max(original_len - len(text), 0) if truncated else 0
-        return text, truncated, saved
 
     def _count_tool_calls_with_thought_signature(self, canonical_request: Any) -> int:
         messages = getattr(canonical_request, "messages", None)

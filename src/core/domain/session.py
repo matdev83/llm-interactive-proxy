@@ -74,7 +74,6 @@ class SessionState(ValueObject):
     is_cline_agent: bool = False
     vtc_enabled: bool = False  # Virtual Tool Calling mode for Cline-like clients
     pytest_compression_enabled: bool = True
-    compress_next_tool_call_reply: bool = False
     pytest_compression_min_lines: int = 0
     planning_phase_turn_count: int = 0
     planning_phase_file_write_count: int = 0
@@ -137,12 +136,6 @@ class SessionState(ValueObject):
     def with_pytest_compression_enabled(self, enabled: bool) -> SessionState:
         """Create a new session state with updated pytest_compression_enabled flag."""
         return self.model_copy(update={"pytest_compression_enabled": enabled})
-
-    def with_compress_next_tool_call_reply(self, should_compress: bool) -> SessionState:
-        """Create a new session state with updated compress_next_tool_call_reply flag."""
-        return self.model_copy(
-            update={"compress_next_tool_call_reply": should_compress}
-        )
 
     def with_pytest_compression_min_lines(self, min_lines: int) -> SessionState:
         """Create a new session state with updated pytest_compression_min_lines value."""
@@ -359,11 +352,6 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         return self._state.pytest_compression_enabled
 
     @property
-    def compress_next_tool_call_reply(self) -> bool:
-        """Whether the next tool call reply should be compressed."""
-        return self._state.compress_next_tool_call_reply
-
-    @property
     def pytest_compression_min_lines(self) -> int:
         """Minimum line threshold for pytest compression."""
         return self._state.pytest_compression_min_lines
@@ -468,15 +456,6 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         """Create a new session state with updated pytest_compression_enabled flag."""
         new_state = cast(SessionState, self._state).with_pytest_compression_enabled(
             enabled
-        )
-        return SessionStateAdapter(new_state)
-
-    def with_compress_next_tool_call_reply(
-        self, should_compress: bool
-    ) -> ISessionState:
-        """Create a new session state with updated compress_next_tool_call_reply flag."""
-        new_state = cast(SessionState, self._state).with_compress_next_tool_call_reply(
-            should_compress
         )
         return SessionStateAdapter(new_state)
 

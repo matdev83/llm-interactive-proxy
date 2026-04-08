@@ -1514,6 +1514,35 @@ class OpenAICodexConnector(OpenAIConnector):
             return True
         return False
 
+    async def _handle_auth_failure_rotation(
+        self,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        """Rotate managed OAuth accounts on repeated auth denials."""
+        rotate_method = getattr(self._credential_manager, "handle_auth_failure", None)
+        if not callable(rotate_method):
+            return False
+
+        try:
+            result = rotate_method(session_id=session_id)
+            rotated = await result if inspect.isawaitable(result) else bool(result)
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to rotate managed OAuth account after auth failure: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return False
+
+        if rotated:
+            token = self._credential_manager.get_access_token()
+            if token:
+                self.api_key = token
+            return True
+        return False
+
     # -----------------------------
     # Health Tracking API (stale token handling pattern)
     # -----------------------------

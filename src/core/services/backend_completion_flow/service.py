@@ -519,7 +519,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             capture_metadata["retry_after_seconds"] = retry_after
 
         if context is not None:
-            for key in ("account_id", "retry_attempt", "is_retry"):
+            for key in (
+                "account_id",
+                "retry_attempt",
+                "is_retry",
+                "compression_correlation_id",
+                "compression_records_count",
+            ):
                 if key in context.extensions:
                     capture_metadata[key] = context.extensions[key]
 

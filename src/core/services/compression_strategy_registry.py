@@ -12,10 +12,26 @@ logger = logging.getLogger(__name__)
 
 
 class CompressionStrategyRegistry:
-    """Deterministic strategy registry keyed by method name."""
+    """Deterministic strategy registry keyed by method name.
+
+    Custom strategies can be registered at runtime (for example via
+    :meth:`register_extension_strategy`) and referenced from
+    ``dynamic_compression.rules`` pipelines without changing
+    :class:`~src.core.services.tool_output_compression_service.ToolOutputCompressionService`.
+    """
 
     def __init__(self) -> None:
         self._strategies: dict[str, CompressionStrategy] = {}
+
+    def register_extension_strategy(
+        self, method_name: str, strategy: CompressionStrategy
+    ) -> None:
+        """Register a custom compression method for config-driven rule pipelines.
+
+        This is the supported extension entry point: add the method here, then
+        reference it by name in ``CompressionRule.pipeline`` in configuration.
+        """
+        self.register(method_name, strategy)
 
     def register(self, method_name: str, strategy: CompressionStrategy) -> None:
         normalized = method_name.strip()

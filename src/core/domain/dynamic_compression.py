@@ -80,6 +80,57 @@ class CompressionMethodRecord(DomainModel):
     skipped_reason: str | None = None
 
 
+class CompressionMethodAggregate(DomainModel):
+    """Aggregate counters for one compression method."""
+
+    attempts: int = Field(default=0, ge=0)
+    applied: int = Field(default=0, ge=0)
+    failures: int = Field(default=0, ge=0)
+    fallbacks: int = Field(default=0, ge=0)
+    bytes_saved: int = Field(default=0, ge=0)
+    elapsed_ms_total: float = Field(default=0.0, ge=0)
+
+
+class CompressionAggregateMetrics(DomainModel):
+    """Aggregate metrics surface for operator diagnostics."""
+
+    processed_outputs: int = Field(default=0, ge=0)
+    compressed_outputs: int = Field(default=0, ge=0)
+    fail_open_count: int = Field(default=0, ge=0)
+    fallback_count: int = Field(default=0, ge=0)
+    total_original_bytes: int = Field(default=0, ge=0)
+    total_compressed_bytes: int = Field(default=0, ge=0)
+    total_saved_bytes: int = Field(default=0, ge=0)
+    total_saved_tokens_estimate: int = Field(default=0, ge=0)
+    by_method: dict[str, CompressionMethodAggregate] = Field(default_factory=dict)
+    by_category: dict[str, int] = Field(default_factory=dict)
+    by_level: dict[str, int] = Field(default_factory=dict)
+
+
+class CompressionAlertRecord(DomainModel):
+    """Rate-safe operator alert emitted for frequent failures/fallbacks."""
+
+    alert_type: str
+    method: str
+    threshold: int = Field(ge=1)
+    observed_count: int = Field(ge=0)
+    window_seconds: int = Field(ge=1)
+    category: str | None = None
+    level: CompressionLevel | None = None
+    warning: str
+
+
+class EffectiveCompressionConfigDiagnostics(DomainModel):
+    """Redaction-safe effective-configuration diagnostics for operators."""
+
+    active_controls: list[str] = Field(default_factory=list)
+    inactive_controls: list[str] = Field(default_factory=list)
+    ignored_controls: list[str] = Field(default_factory=list)
+    reasons: dict[str, str] = Field(default_factory=dict)
+    fingerprint: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+
 class ToolOutputCompressionRecord(DomainModel):
     """Compression diagnostics for one tool message."""
 
@@ -87,12 +138,24 @@ class ToolOutputCompressionRecord(DomainModel):
     identity: ToolIdentity
     original_bytes: int = Field(ge=0)
     compressed_bytes: int = Field(ge=0)
+    saved_bytes: int = Field(default=0, ge=0)
     methods: list[CompressionMethodRecord] = Field(default_factory=list)
+    methods_applied: list[str] = Field(default_factory=list)
+    elapsed_total_ms: float = Field(default=0.0, ge=0)
     marker_inserted: bool = False
     failed_open: bool = False
+    fallback_applied: bool = False
+    failure_reason: str | None = None
     applied: bool = False
     final_level: CompressionLevel = CompressionLevel.CONSERVATIVE
     warnings: list[str] = Field(default_factory=list)
+    explicit_format_note: str | None = None
+    original_sha256: str | None = None
+    compressed_sha256: str | None = None
+    correlation_id: str | None = None
+    recovery_handle: str | None = None
+    recovery_persisted: bool = False
+    recovery_hint_inserted: bool = False
 
 
 class ToolOutputCompressionBatchResult(DomainModel):
@@ -101,3 +164,8 @@ class ToolOutputCompressionBatchResult(DomainModel):
     messages: list[Any]
     records: list[ToolOutputCompressionRecord] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    aggregate_metrics: CompressionAggregateMetrics = Field(
+        default_factory=CompressionAggregateMetrics
+    )
+    alerts: list[CompressionAlertRecord] = Field(default_factory=list)
+    effective_config: EffectiveCompressionConfigDiagnostics | None = None

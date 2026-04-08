@@ -21,18 +21,18 @@ Expected outcome:
 
 import asyncio
 import sys
-import os
 from pathlib import Path
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.core.config.app_config import load_config
+import logging
+
 from src.connectors._openai_codex_connector import OpenAICodexConnector
 from src.connectors.openai_codex.settings import SettingsLoader
+from src.core.config.app_config import load_config
 from src.core.services.credential_manager import CredentialManager
-import logging
 
 # Setup logging
 logging.basicConfig(

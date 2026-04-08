@@ -117,7 +117,7 @@ def register_tool_call_handlers(provider: IServiceProvider) -> None:
     This function registers all handlers that should be available when
     the service provider is built, including:
     - Dangerous command handler (if enabled)
-    - Pytest compression handler (if enabled)
+    - Pytest context saving handler (if enabled)
     - Test execution reminder handler (if enabled)
     - Other handlers registered via stages
 
@@ -192,39 +192,6 @@ def register_tool_call_handlers(provider: IServiceProvider) -> None:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     f"Could not register droid path fix handler: {e}", exc_info=True
-                )
-
-        # Register pytest compression handler if enabled
-        try:
-            from src.core.interfaces.session_service_interface import ISessionService
-            from src.core.services.pytest_compression_service import (
-                PytestCompressionService,
-            )
-            from src.core.services.tool_call_handlers.pytest_compression_handler import (
-                PytestCompressionHandler,
-            )
-
-            pytest_service = provider.get_service(PytestCompressionService)
-            session_service: ISessionService | None = cast(
-                ISessionService | None,
-                provider.get_service(cast(type, ISessionService)),
-            )
-            if pytest_service is not None and session_service is not None:
-                pytest_compression_enabled = getattr(
-                    config.session, "pytest_compression_enabled", True
-                )
-                if pytest_compression_enabled:
-                    pytest_compression_handler = PytestCompressionHandler(
-                        pytest_compression_service=pytest_service,
-                        session_service=session_service,
-                        enabled=True,
-                    )
-                    reactor_service.register_handler_sync(pytest_compression_handler)
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Could not register pytest compression handler: {e}", exc_info=True
                 )
 
         # Register pytest context saving handler if enabled

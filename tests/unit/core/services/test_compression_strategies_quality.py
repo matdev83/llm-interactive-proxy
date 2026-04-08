@@ -13,10 +13,12 @@ from src.core.services.compression_strategies import (
     FailurePreservingTruncateStrategy,
     FileDetailLevelsStrategy,
     LineDedupeStrategy,
+    MutatingSuccessAckStrategy,
     OutputPatternMatchRule,
     OutputPatternMatchStrategy,
     SearchResultsGroupingStrategy,
     SimilarityGroupingStrategy,
+    StatsExtractionSummaryStrategy,
 )
 
 
@@ -310,7 +312,14 @@ def test_failure_preserving_truncate_keeps_only_actionable_failure_context(
     assert compressed == content
 
 
-def test_output_pattern_match_uses_replacement_unless_and_non_empty_fallback() -> None:
+def test_output_pattern_match_uses_replacement_unless_and_non_empty_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        OutputPatternMatchStrategy,
+        "_search_with_timeout",
+        lambda _self, pattern, text: (pattern.search(text) is not None, False),
+    )
     rule = OutputPatternMatchRule(
         pattern=r"(?is)build succeeded.*0 errors",
         message="build: ok",
@@ -603,6 +612,66 @@ def test_search_results_grouping_preserves_anchors_and_truncates_context() -> No
     assert "[file] src/b.py" in compressed
 
 
+def test_search_results_grouping_retains_bounded_leading_and_trailing_context() -> None:
+    strategy = SearchResultsGroupingStrategy(
+        max_matches_per_file=5,
+        context_lines=1,
+    )
+    content = (
+        "src/a.py-8-    preface\n"
+        "src/a.py-9-    setup\n"
+        "src/a.py:10:def target()\n"
+        "src/a.py-11-    teardown\n"
+        "src/a.py-12-    epilogue\n"
+    )
+    context = _context_for(
+        content,
+        command_signature="rg",
+        command_prefix="rg target src",
+    )
+
+    compressed = strategy.compress(
+        content,
+        context=context,
+        level=CompressionLevel.BALANCED,
+    )
+
+    assert "9: setup" in compressed
+    assert "10: def target()" in compressed
+    assert "11: teardown" in compressed
+    assert "8: preface" not in compressed
+    assert "12: epilogue" not in compressed
+    assert "2 context lines omitted" in compressed
+
+
+def test_search_results_grouping_parses_hyphenated_file_paths_for_context_lines() -> (
+    None
+):
+    strategy = SearchResultsGroupingStrategy(
+        max_matches_per_file=5,
+        context_lines=2,
+    )
+    content = (
+        "src/my-feature/a-test-file.py-20-    leading context\n"
+        "src/my-feature/a-test-file.py:21:def target()\n"
+    )
+    context = _context_for(
+        content,
+        command_signature="rg",
+        command_prefix="rg target src",
+    )
+
+    compressed = strategy.compress(
+        content,
+        context=context,
+        level=CompressionLevel.BALANCED,
+    )
+
+    assert "[file] src/my-feature/a-test-file.py" in compressed
+    assert "20: leading context" in compressed
+    assert "21: def target()" in compressed
+
+
 def test_file_detail_levels_supports_full_structure_and_signatures_modes() -> None:
     content = (
         "def alpha(x):\n"
@@ -827,3 +896,133 @@ def test_file_detail_levels_can_include_line_numbers_when_enabled() -> None:
     assert "3: def alpha(x):" in compressed
     assert "6: class Demo:" in compressed
     assert "return x" not in compressed
+
+
+def test_mutating_success_ack_git_commit_is_deterministic_and_preserves_hash() -> None:
+    strategy = MutatingSuccessAckStrategy()
+    content = (
+        "[feat/parser a1b2c3d4] Add parser support\n"
+        " 3 files changed, 10 insertions(+), 2 deletions(-)\n"
+        + "remote: counting objects\n" * 20
+    )
+    ctx = _context_for(
+        content,
+        command_signature="git",
+        command_prefix="git commit",
+    )
+    first = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+    second = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+    assert first == second
+    assert "a1b2c3d4" in first
+    assert "feat/parser" in first
+    assert "files=3" in first
+    assert len(first.encode("utf-8")) < len(content.encode("utf-8"))
+
+
+def test_mutating_success_ack_fail_open_on_fatal() -> None:
+    strategy = MutatingSuccessAckStrategy()
+    content = "fatal: not a git repository (or any of the parent directories): .git\n"
+    ctx = _context_for(
+        content,
+        command_signature="git",
+        command_prefix="git commit",
+    )
+    assert (
+        strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+        == content
+    )
+
+
+def test_mutating_success_ack_passthrough_explicit_format_flags() -> None:
+    strategy = MutatingSuccessAckStrategy()
+    content = '{"ref": "refs/heads/main"}\n' * 30
+    ctx = _context_for(
+        content,
+        command_signature="git",
+        command_prefix="git push",
+        has_explicit_format=True,
+        explicit_format_flags=["--format"],
+    )
+    assert (
+        strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+        == content
+    )
+
+
+def test_stats_extraction_summary_git_status_is_deterministic() -> None:
+    strategy = StatsExtractionSummaryStrategy()
+    lines = ["## main...origin/main [ahead 2]"]
+    lines += [f" M src/module_{i}.py" for i in range(8)]
+    content = "\n".join(lines) + "\n"
+    ctx = _context_for(
+        content,
+        command_signature="git",
+        command_prefix="git status",
+    )
+    out = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+    out2 = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+    assert out == out2
+    assert "git status: paths=8" in out
+    assert "branch=main" in out
+    assert "paths=8" in out
+    assert "src/module_0.py" in out
+    assert len(out.encode("utf-8")) < len(content.encode("utf-8"))
+
+
+def test_stats_extraction_summary_skips_unified_diff_payloads() -> None:
+    strategy = StatsExtractionSummaryStrategy()
+    content = (
+        "diff --git a/a.py b/a.py\n"
+        "--- a/a.py\n+++ b/a.py\n"
+        "@@ -1,2 +1,3 @@\n"
+        " a\n+b\n c\n" * 15
+    )
+    ctx = _context_for(
+        content,
+        command_signature="git",
+        command_prefix="git log",
+    )
+    ctx = ctx.model_copy(update={"has_diff_markers": True})
+    assert (
+        strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+        == content
+    )
+
+
+def test_stats_extraction_summary_git_log_preserves_sample_subjects() -> None:
+    strategy = StatsExtractionSummaryStrategy()
+    blocks = []
+    for i in range(6):
+        h = f"{i:040x}"
+        blocks.append(
+            f"commit {h}\n"
+            f"Author: Dev <d@example.com>\n"
+            f"Date:   Mon Jan {i+1} 00:00:00 2024 +0000\n"
+            f"\n"
+            f"    subject line {i} with detail\n"
+        )
+    content = "\n".join(blocks)
+    ctx = _context_for(
+        content,
+        command_signature="git",
+        command_prefix="git log",
+    )
+    out = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+    assert "commits=6" in out
+    assert "subject line 0" in out
+    assert len(out.encode("utf-8")) < len(content.encode("utf-8"))
+
+
+def test_stats_extraction_summary_pip_list_packages_sample() -> None:
+    strategy = StatsExtractionSummaryStrategy()
+    lines = [f"package_{i:03d}==1.0.{i}" for i in range(20)]
+    content = "\n".join(lines) + "\n"
+    ctx = _context_for(
+        content,
+        command_signature="pip",
+        command_prefix="pip list",
+    )
+    out = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+    assert "pip list: entries=" in out
+    assert "package_000==1.0.0" in out
+    assert len(out.encode("utf-8")) < len(content.encode("utf-8"))

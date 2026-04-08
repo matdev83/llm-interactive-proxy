@@ -56,7 +56,7 @@ def test_controller_websocket_handler():
 def test_route_registration():
     """Test that WebSocket route can be found in controller registration."""
     # Check the source file directly since the route is defined inside the function
-    with open("src/core/app/controllers/__init__.py", "r") as f:
+    with open("src/core/app/controllers/__init__.py") as f:
         source = f.read()
 
     # Check for WebSocket endpoint registration
@@ -71,7 +71,7 @@ def test_configuration_schema():
     import yaml
 
     schema_path = "config/schemas/app_config.schema.yaml"
-    with open(schema_path, "r") as f:
+    with open(schema_path) as f:
         schema = yaml.safe_load(f)
 
     # Check for responses_api.websocket configuration
@@ -88,7 +88,7 @@ def test_configuration_schema():
 
 def test_example_config():
     """Test that example config includes WebSocket settings."""
-    with open("config/config.example.yaml", "r") as f:
+    with open("config/config.example.yaml") as f:
         content = f.read()
 
     # Check for WebSocket configuration section

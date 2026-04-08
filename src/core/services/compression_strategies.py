@@ -4,16 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, deque
 from contextlib import suppress
 from dataclasses import dataclass, field
 from re import Pattern
 
 from src.core.domain.configuration.dynamic_compression_config import CompressionLevel
-from src.core.domain.dynamic_compression import ToolOutputContext
+from src.core.domain.dynamic_compression import ToolOutputContentType, ToolOutputContext
 from src.core.services.pytest_output_filter import (
     filter_pytest_output,
     looks_like_pytest_command,
@@ -780,7 +781,7 @@ class SearchResultsGroupingStrategy:
         r"^(?P<file>(?:[A-Za-z]:)?[^:\n]+?):(?P<line>\d+)(?::\d+)?:\s?(?P<text>.*)$"
     )
     _context_line_re = re.compile(
-        r"^(?P<file>(?:[A-Za-z]:)?[^\-\n]+)-(?P<line>\d+)-\s?(?P<text>.*)$"
+        r"^(?P<file>(?:[A-Za-z]:)?[^:\n]+?)-(?P<line>\d+)-\s?(?P<text>.*)$"
     )
 
     def __init__(
@@ -815,6 +816,7 @@ class SearchResultsGroupingStrategy:
         omitted_context_counts: dict[str, int] = {}
         omitted_match_counts: dict[str, int] = {}
         context_budget: dict[str, int] = {}
+        pending_leading_context: dict[str, deque[_SearchLine]] = {}
 
         for raw_line in content.splitlines():
             parsed = self._parse_search_line(raw_line)
@@ -839,6 +841,26 @@ class SearchResultsGroupingStrategy:
                         )
                     )
                     context_budget[file_path] -= 1
+                elif (
+                    self._context_lines > 0
+                    and match_counts[file_path] < self._max_matches_per_file
+                ):
+                    pending_context = pending_leading_context.setdefault(
+                        file_path,
+                        deque(maxlen=self._context_lines),
+                    )
+                    if (
+                        pending_context.maxlen is not None
+                        and len(pending_context) == pending_context.maxlen
+                    ):
+                        omitted_context_counts[file_path] += 1
+                    pending_context.append(
+                        _SearchLine(
+                            line_no=line_no,
+                            text=clean_text,
+                            is_context=True,
+                        )
+                    )
                 else:
                     omitted_context_counts[file_path] += 1
                 continue
@@ -853,8 +875,16 @@ class SearchResultsGroupingStrategy:
             if match_counts[file_path] >= self._max_matches_per_file:
                 omitted_match_counts[file_path] += 1
                 context_budget[file_path] = 0
+                pending_for_match = pending_leading_context.get(file_path)
+                if pending_for_match:
+                    omitted_context_counts[file_path] += len(pending_for_match)
+                    pending_for_match.clear()
                 continue
 
+            pending_for_match = pending_leading_context.get(file_path)
+            if pending_for_match:
+                lines.extend(pending_for_match)
+                pending_for_match.clear()
             lines.append(
                 _SearchLine(line_no=line_no, text=clean_text, is_context=False)
             )
@@ -863,6 +893,9 @@ class SearchResultsGroupingStrategy:
 
         if not by_file:
             return content
+        for file_path, pending in pending_leading_context.items():
+            if pending:
+                omitted_context_counts[file_path] += len(pending)
 
         rendered: list[str] = []
         for file_path in sorted(by_file.keys())[: self._max_total_groups]:
@@ -1715,6 +1748,16 @@ class DiffCompactStrategy:
 class PytestFailureFocusStrategy:
     """Pytest-focused line filter aligned with legacy ``_filter_pytest_output``."""
 
+    _error_indicators = (
+        "Traceback (most recent call last):",
+        "command not found",
+        "SyntaxError:",
+        "ERROR: file or directory not found",
+    )
+
+    def __init__(self, min_lines: int | None = None) -> None:
+        self._min_lines = min_lines
+
     def compress(
         self,
         content: str,
@@ -1732,6 +1775,11 @@ class PytestFailureFocusStrategy:
                 or looks_like_pytest_output(content)
             ):
                 return content
+            if any(indicator in content for indicator in self._error_indicators):
+                return content
+            min_lines = self._resolve_min_lines()
+            if len(content.split("\n")) < min_lines:
+                return content
             return filter_pytest_output(content)
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):
@@ -1740,6 +1788,19 @@ class PytestFailureFocusStrategy:
                     exc_info=True,
                 )
             return content
+
+    def _resolve_min_lines(self) -> int:
+        env_value = os.environ.get("PYTEST_COMPRESSION_MIN_LINES")
+        if env_value is not None:
+            with suppress(TypeError, ValueError):
+                return max(0, int(env_value))
+            return 0
+
+        if self._min_lines is None:
+            return 0
+        with suppress(TypeError, ValueError):
+            return max(0, int(self._min_lines))
+        return 0
 
 
 class FailureFocusGenericStrategy:
@@ -1962,3 +2023,439 @@ class DiagnosticsGroupingStrategy:
         if col_no is None:
             return f"L{line_no}"
         return f"L{line_no}:C{col_no}"
+
+
+_GIT_CMD_ERROR_RE = re.compile(r"^(fatal|error):\s", re.MULTILINE | re.IGNORECASE)
+_GIT_CONFLICT_RE = re.compile(r"\bCONFLICT\b", re.IGNORECASE)
+_COMMIT_HASH_IN_BRACKETS_RE = re.compile(
+    r"\[([^\]\s]+)\s+([0-9a-f]{7,40})\]", re.IGNORECASE
+)
+_FILES_CHANGED_RE = re.compile(r"(\d+)\s+files?\s+changed", re.IGNORECASE)
+_INSERTIONS_RE = re.compile(r"(\d+)\s+insertions?", re.IGNORECASE)
+_DELETIONS_RE = re.compile(r"(\d+)\s+deletions?", re.IGNORECASE)
+_REF_ARROW_RE = re.compile(
+    r"^\s*([^\s]+\.{2,3}[^\s]+|[0-9a-f]{7,40}\.{2,3}[0-9a-f]{7,40})\s+(\S+)\s+->\s+(\S+)",
+    re.MULTILINE,
+)
+_NPM_ERR_RE = re.compile(r"\bERR!\b", re.IGNORECASE)
+_PIP_INSTALL_OK_RE = re.compile(
+    r"Successfully installed\s+(.+)$", re.IGNORECASE | re.MULTILINE
+)
+
+
+def _mutating_ack_failure_heuristic(text: str) -> bool:
+    if _GIT_CMD_ERROR_RE.search(text) or _GIT_CONFLICT_RE.search(text):
+        return True
+    if _NPM_ERR_RE.search(text):
+        return True
+    return any(_line_indicates_failure(line) for line in text.splitlines())
+
+
+class MutatingSuccessAckStrategy:
+    """Compact successful side-effect command noise while keeping key outcomes."""
+
+    def compress(
+        self,
+        content: str,
+        *,
+        context: ToolOutputContext,
+        level: CompressionLevel,
+    ) -> str:
+        if not content:
+            return content
+        if context.content_type is not ToolOutputContentType.TEXT:
+            return content
+        if context.has_explicit_format:
+            return content
+        if _mutating_ack_failure_heuristic(content):
+            return content
+
+        sig = (context.identity.command_signature or "").lower()
+        prefix = (context.identity.command_prefix or "").lower()
+
+        if sig == "git":
+            summary = self._summarize_git_mutating(content, prefix, level=level)
+            if summary is None:
+                return content
+            out = _preserve_trailing_newline(original=content, transformed=summary)
+            return (
+                out
+                if len(out.encode("utf-8")) < len(content.encode("utf-8"))
+                else content
+            )
+
+        if sig in {"pip", "pip3"} and "install" in prefix:
+            summary = self._summarize_pip_install(content)
+            if summary is None:
+                return content
+            out = _preserve_trailing_newline(original=content, transformed=summary)
+            return (
+                out
+                if len(out.encode("utf-8")) < len(content.encode("utf-8"))
+                else content
+            )
+
+        if sig in {"npm", "pnpm", "yarn"} and (
+            "install" in prefix or prefix.endswith(" ci")
+        ):
+            summary = self._summarize_npm_family_install(content, tool=sig, level=level)
+            if summary is None:
+                return content
+            out = _preserve_trailing_newline(original=content, transformed=summary)
+            return (
+                out
+                if len(out.encode("utf-8")) < len(content.encode("utf-8"))
+                else content
+            )
+
+        return content
+
+    def _summarize_git_mutating(
+        self,
+        content: str,
+        prefix: str,
+        *,
+        level: CompressionLevel,
+    ) -> str | None:
+        if not prefix.startswith("git "):
+            return None
+
+        sub = prefix[4:].strip()
+        if sub in {"commit"}:
+            return self._git_commit_ack(content)
+        if sub in {"push", "pull", "fetch"}:
+            return self._git_transport_ack(content, level=level)
+        if sub in {
+            "add",
+            "stash",
+            "merge",
+            "rebase",
+            "cherry-pick",
+            "checkout",
+            "restore",
+        }:
+            return self._git_simple_ack(content, verb=sub)
+        if sub in {"rm", "mv"}:
+            return self._git_simple_ack(content, verb=sub)
+        return None
+
+    @staticmethod
+    def _git_commit_ack(content: str) -> str | None:
+        m = _COMMIT_HASH_IN_BRACKETS_RE.search(content)
+        branch = m.group(1) if m else None
+        h = m.group(2) if m else None
+        if not h:
+            m2 = re.search(r"\bcommit\s+([0-9a-f]{7,40})\b", content, re.IGNORECASE)
+            h = m2.group(1) if m2 else None
+        fc_m = _FILES_CHANGED_RE.search(content)
+        ins_m = _INSERTIONS_RE.search(content)
+        del_m = _DELETIONS_RE.search(content)
+        parts = ["git commit: ok"]
+        if branch:
+            parts.append(f"branch={branch}")
+        if h:
+            parts.append(f"hash={h}")
+        if fc_m:
+            parts.append(f"files={fc_m.group(1)}")
+        if ins_m or del_m:
+            delta = []
+            if ins_m:
+                delta.append(f"+{ins_m.group(1)}")
+            if del_m:
+                delta.append(f"-{del_m.group(1)}")
+            parts.append("delta=" + "/".join(delta))
+        if len(parts) <= 1:
+            return None
+        return " | ".join(parts) + "\n"
+
+    def _git_transport_ack(
+        self, content: str, *, level: CompressionLevel
+    ) -> str | None:
+        if re.search(r"Already up to date\.|Everything up-to-date", content, re.I):
+            return "git: ok (no remote changes)\n"
+
+        matches = list(_REF_ARROW_RE.finditer(content))
+        if matches:
+            m = matches[-1]
+            parts = ["git: ok", f"ref={m.group(2)}->{m.group(3)}"]
+            if level != CompressionLevel.AGGRESSIVE and m.group(1):
+                parts.append(f"range={m.group(1).strip()}")
+            return " | ".join(parts) + "\n"
+
+        if len(content.splitlines()) < 12:
+            return None
+        last_meaningful = ""
+        for line in reversed(content.splitlines()):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("remote:"):
+                continue
+            if "->" in stripped or "up to date" in stripped.lower():
+                last_meaningful = stripped
+                break
+        if not last_meaningful:
+            return None
+        return f"git: ok | tail={last_meaningful[:200]}\n"
+
+    @staticmethod
+    def _git_simple_ack(content: str, *, verb: str) -> str | None:
+        lines = [ln for ln in content.splitlines() if ln.strip()]
+        if len(lines) < 8:
+            return None
+        return f"git {verb}: ok | lines={len(lines)} (output condensed)\n"
+
+    @staticmethod
+    def _summarize_pip_install(content: str) -> str | None:
+        if "error" in content.lower() or "failed" in content.lower():
+            return None
+        m = _PIP_INSTALL_OK_RE.search(content)
+        if m:
+            pkgs = m.group(1).strip()
+            if len(pkgs) > 160:
+                pkgs = pkgs[:157] + "..."
+            return f"pip install: ok | packages={pkgs}\n"
+        if (
+            "Requirement already satisfied" in content
+            and len(content.splitlines()) > 12
+        ):
+            return "pip install: ok (requirements already satisfied)\n"
+        return None
+
+    @staticmethod
+    def _summarize_npm_family_install(
+        content: str, *, tool: str, level: CompressionLevel
+    ) -> str | None:
+        added = re.search(r"added\s+(\d+)\s+packages?", content, re.IGNORECASE)
+        audited = re.search(
+            r"(\d+)\s+packages?\s+are looking for funding", content, re.I
+        )
+        if not added and not audited and len(content.splitlines()) < 15:
+            return None
+        parts = [f"{tool} install: ok"]
+        if added:
+            parts.append(f"added={added.group(1)}")
+        if audited and level != CompressionLevel.AGGRESSIVE:
+            parts.append("funding_notice=1")
+        if len(parts) == 1:
+            return None
+        return " | ".join(parts) + "\n"
+
+
+def _git_porcelain_path_line(line: str) -> str | None:
+    """Return path from a git status --porcelain line (two status columns + path)."""
+    s = line.rstrip("\n")
+    if len(s) < 4 or s.startswith("##"):
+        return None
+    if s[2] not in {" ", "\t"}:
+        return None
+    path = s[3:].lstrip()
+    return path or None
+
+
+class StatsExtractionSummaryStrategy:
+    """Stats-first summaries with bounded representative lines (RTK-style)."""
+
+    def compress(
+        self,
+        content: str,
+        *,
+        context: ToolOutputContext,
+        level: CompressionLevel,
+    ) -> str:
+        if not content:
+            return content
+        if context.content_type is not ToolOutputContentType.TEXT:
+            return content
+        if context.has_explicit_format:
+            return content
+        if _mutating_ack_failure_heuristic(content):
+            return content
+        if context.has_diff_markers and DiffCompactStrategy._looks_like_unified_diff(
+            content
+        ):
+            return content
+
+        sig = (context.identity.command_signature or "").lower()
+        prefix = (context.identity.command_prefix or "").lower()
+
+        summary: str | None = None
+        if sig == "git":
+            summary = self._summarize_git(content, prefix, level=level)
+        elif sig in {"pip", "pip3"} or prefix.startswith(("pip ", "pip3 ")):
+            summary = self._summarize_dependency_list(content, kind="pip", level=level)
+        elif sig in {"npm", "pnpm", "yarn"}:
+            summary = self._summarize_dependency_list(content, kind="node", level=level)
+
+        if summary is None:
+            return content
+        out = _preserve_trailing_newline(original=content, transformed=summary)
+        if len(out.encode("utf-8")) >= len(content.encode("utf-8")):
+            return content
+        return out
+
+    @staticmethod
+    def _sample_limit(level: CompressionLevel) -> int:
+        if level == CompressionLevel.CONSERVATIVE:
+            return 8
+        if level == CompressionLevel.AGGRESSIVE:
+            return 3
+        return 5
+
+    def _summarize_git(
+        self, content: str, prefix: str, *, level: CompressionLevel
+    ) -> str | None:
+        if prefix == "git status":
+            return self._git_status_stats(content, level=level)
+        if prefix == "git log":
+            return self._git_log_stats(content, level=level)
+        if prefix == "git branch":
+            return self._git_branch_stats(content, level=level)
+        return None
+
+    def _git_status_stats(self, content: str, *, level: CompressionLevel) -> str | None:
+        lines = content.splitlines()
+        branch = None
+        tracking = None
+        for line in lines[:40]:
+            if line.startswith("## "):
+                rest = line[3:].strip()
+                if "..." in rest:
+                    branch, _, tracking = rest.partition("...")
+                    tracking = tracking.strip()
+                else:
+                    branch = rest.split()[0] if rest else rest
+                break
+            m = re.match(r"^On branch\s+(\S+)", line)
+            if m:
+                branch = m.group(1)
+                break
+
+        paths: list[str] = []
+        for line in lines:
+            porcelain_path = _git_porcelain_path_line(line)
+            if porcelain_path:
+                paths.append(porcelain_path.strip())
+                continue
+            if "\t" in line and not line.startswith("#"):
+                tail = line.split("\t")[-1].strip()
+                if tail and (
+                    "/" in tail or tail.endswith((".py", ".ts", ".js", ".go"))
+                ):
+                    paths.append(tail)
+
+        if len(paths) < 6 and len(lines) < 18:
+            return None
+
+        limit = self._sample_limit(level)
+        sample = sorted(set(paths))[:limit]
+        headline = [f"git status: paths={len(paths)}"]
+        if branch:
+            headline.append(f"branch={branch}")
+        if tracking and level != CompressionLevel.AGGRESSIVE:
+            headline.append(f"upstream={tracking[:80]}")
+        body = " | ".join(headline) + "\n"
+        body += "\n".join(f"  {p}" for p in sample)
+        if len(paths) > len(sample):
+            body += f"\n… {len(paths) - len(sample)} more paths"
+        return body + "\n"
+
+    def _git_log_stats(self, content: str, *, level: CompressionLevel) -> str | None:
+        commit_lines = [ln for ln in content.splitlines() if ln.startswith("commit ")]
+        n = len(commit_lines)
+        if n < 4 and len(content.splitlines()) < 24:
+            return None
+
+        hashes: list[str] = []
+        for ln in commit_lines[:50]:
+            tok = ln.split()
+            if len(tok) >= 2 and re.fullmatch(r"[0-9a-f]{7,40}", tok[1], re.I):
+                hashes.append(tok[1][:12])
+
+        subjects: list[str] = []
+        blocks = re.split(
+            r"(?=^commit\s+[0-9a-f]{7,40}\b)", content, flags=re.MULTILINE
+        )
+        for block in blocks[1 : 1 + self._sample_limit(level)]:
+            lines = [ln.rstrip() for ln in block.splitlines()]
+            subj = ""
+            blank_pending = False
+            for ln in lines[1:]:
+                if not ln.strip():
+                    blank_pending = True
+                    continue
+                if blank_pending and not ln.startswith(("Author:", "Date:", "Merge:")):
+                    subj = ln.strip()
+                    break
+            if subj:
+                subjects.append(subj[:120])
+
+        limit = self._sample_limit(level)
+        sample_h = hashes[:limit]
+        body = f"git log: commits={n}\n--- sample (hash + subject) ---\n"
+        for idx, h in enumerate(sample_h):
+            sub = subjects[idx] if idx < len(subjects) else ""
+            body += f"  {h}  {sub}\n"
+        if n > len(sample_h):
+            body += f"… {n - len(sample_h)} more commits\n"
+        return body
+
+    def _git_branch_stats(self, content: str, *, level: CompressionLevel) -> str | None:
+        names: list[str] = []
+        current = None
+        for line in content.splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if s.startswith("*"):
+                current = s[1:].strip().split()[0]
+                names.append(current)
+            else:
+                names.append(s.split()[0])
+        if len(names) < 10:
+            return None
+        limit = self._sample_limit(level)
+        sample = sorted(set(names))[:limit]
+        parts = [f"git branch: count={len(names)}"]
+        if current:
+            parts.append(f"current={current}")
+        body = " | ".join(parts) + "\n--- sample ---\n"
+        body += "\n".join(f"  {n}" for n in sample)
+        if len(names) > len(sample):
+            body += f"\n… {len(names) - len(sample)} more branches\n"
+        return body
+
+    def _summarize_dependency_list(
+        self,
+        content: str,
+        *,
+        kind: str,
+        level: CompressionLevel,
+    ) -> str | None:
+        lines = [ln.strip() for ln in content.splitlines() if ln.strip()]
+        if len(lines) < 12:
+            return None
+
+        entries: list[str] = []
+        for ln in lines:
+            if ln.startswith(("#", "Package")):
+                continue
+            if kind == "pip":
+                if re.match(r"^[A-Za-z0-9_.-]+", ln):
+                    pkg = ln.split()[0]
+                    entries.append(pkg)
+            else:
+                m = re.search(r"([\w@./-]+@[0-9][0-9a-z.\-]*)", ln)
+                if m:
+                    entries.append(m.group(1))
+
+        if len(entries) < 10:
+            return None
+
+        limit = self._sample_limit(level)
+        uniq = sorted(set(entries))
+        sample = uniq[:limit]
+        label = "pip list" if kind == "pip" else "node deps"
+        body = f"{label}: entries={len(entries)}\n--- sample ---\n"
+        body += "\n".join(f"  {e}" for e in sample)
+        if len(uniq) > len(sample):
+            body += f"\n… {len(uniq) - len(sample)} more entries\n"
+        return body

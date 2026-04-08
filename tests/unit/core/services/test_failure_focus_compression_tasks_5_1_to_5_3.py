@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from src.core.domain.configuration.dynamic_compression_config import CompressionLevel
 from src.core.domain.dynamic_compression import ToolOutputContext
 from src.core.services.compression_strategies import (
@@ -10,7 +11,6 @@ from src.core.services.compression_strategies import (
     PytestFailureFocusStrategy,
 )
 from src.core.services.pytest_output_filter import filter_pytest_output
-from src.core.services.response_manager_service import AgentResponseFormatter
 
 
 def _ctx(
@@ -29,8 +29,7 @@ def _ctx(
     )
 
 
-def test_filter_pytest_output_matches_legacy_formatter() -> None:
-    fmt = AgentResponseFormatter()
+def test_filter_pytest_output_contract_sample() -> None:
     sample = (
         "============================= test session starts =============================\n"
         "collected 2 items\n"
@@ -41,7 +40,15 @@ def test_filter_pytest_output_matches_legacy_formatter() -> None:
         "FAILED tests/test_x.py::test_b\n"
         "========================= 1 failed, 1 passed in 0.12s ========================="
     )
-    assert fmt._filter_pytest_output(sample) == filter_pytest_output(sample)
+    assert filter_pytest_output(sample) == (
+        "============================= test session starts =============================\n"
+        "collected 2 items\n"
+        "FAILED tests/test_x.py::test_b\n"
+        "E assert 1 == 2\n"
+        "=========================== short test summary info ===========================\n"
+        "FAILED tests/test_x.py::test_b\n"
+        "========================= 1 failed, 1 passed in 0.12s ========================="
+    )
 
 
 def test_pytest_failure_focus_preserves_sole_failure_context_and_summary() -> None:
@@ -61,6 +68,86 @@ def test_pytest_failure_focus_preserves_sole_failure_context_and_summary() -> No
     assert "PASSED" not in out
     assert "FAIL something" in out
     assert out.endswith("==== 1 failed in 1s ====")
+
+
+def test_pytest_failure_focus_contract_cases_match_legacy_filter() -> None:
+    strategy = PytestFailureFocusStrategy()
+    contract_cases = [
+        (
+            "============================= test session starts =============================\n"
+            "collected 3 items\n"
+            "tests/test_a.py::test_ok PASSED\n"
+            "tests/test_b.py::test_ok PASSED\n"
+            "tests/test_c.py::test_ok PASSED\n"
+            "========================= 3 passed in 0.12s ========================="
+        ),
+        (
+            "============================= test session starts =============================\n"
+            "collected 3 items\n"
+            "tests/test_a.py::test_ok PASSED\n"
+            "tests/test_b.py::test_fail FAILED\n"
+            "E   AssertionError: expected failure\n"
+            "=========================== short test summary info ===========================\n"
+            "FAILED tests/test_b.py::test_fail - AssertionError: expected failure\n"
+            "========================= 1 failed, 2 passed in 0.12s ========================="
+        ),
+        (
+            "============================= test session starts =============================\n"
+            "collected 2 items\n"
+            "tests/test_a.py::test_fail FAILED\n"
+            "tests/test_b.py::test_fail FAILED\n"
+            "=========================== short test summary info ===========================\n"
+            "FAILED tests/test_a.py::test_fail\n"
+            "FAILED tests/test_b.py::test_fail\n"
+            "========================= 2 failed in 0.08s ========================="
+        ),
+    ]
+    for payload in contract_cases:
+        out = strategy.compress(
+            payload,
+            context=_ctx(payload),
+            level=CompressionLevel.BALANCED,
+        )
+        assert out == filter_pytest_output(payload)
+
+
+def test_pytest_failure_focus_respects_legacy_min_lines_threshold() -> None:
+    strategy = PytestFailureFocusStrategy(min_lines=8)
+    body = (
+        "tests/test_a.py::test_ok PASSED\n"
+        "tests/test_b.py::test_fail FAILED\n"
+        "E   AssertionError: expected failure\n"
+        "========================= 1 failed, 1 passed in 0.01s ========================="
+    )
+    out = strategy.compress(
+        body,
+        context=_ctx(body),
+        level=CompressionLevel.BALANCED,
+    )
+    assert out == body
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        (
+            "tests/test_a.py::test_ok PASSED\n"
+            "Traceback (most recent call last):\n"
+            '  File "tests/test_a.py", line 1, in <module>\n'
+            "    raise RuntimeError('boom')\n"
+            "RuntimeError: boom"
+        ),
+        "bash: pytest: command not found\nPASSED placeholder line",
+    ],
+)
+def test_pytest_failure_focus_keeps_execution_errors_unmodified(payload: str) -> None:
+    strategy = PytestFailureFocusStrategy()
+    out = strategy.compress(
+        payload,
+        context=_ctx(payload),
+        level=CompressionLevel.BALANCED,
+    )
+    assert out == payload
 
 
 def test_pytest_failure_focus_noop_without_pytest_identity_or_shape() -> None:

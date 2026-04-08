@@ -20,6 +20,8 @@ def test_connector_truncation_precedence_prefers_compaction() -> None:
     assert decision.effective_max_lines is None
     assert decision.source == "history_compaction"
     assert decision.overridden is True
+    assert diagnostics.connector_truncation_configured is True
+    assert diagnostics.active_request_path_stages == ["history_compaction"]
     assert diagnostics.applied == ["compaction.enabled"]
     assert diagnostics.ignored == [
         "connector.tool_output_truncate_chars",
@@ -30,7 +32,14 @@ def test_connector_truncation_precedence_prefers_compaction() -> None:
         "connector.tool_output_truncate_lines",
     ]
     assert diagnostics.warnings == [
-        "Connector-level tool output truncation ignored because history compaction or dynamic compression is enabled."
+        "Connector-level tool output truncation is disabled because "
+        "request-path reduction is already active (history_compaction). "
+        "Rely on history compaction and/or dynamic tool-output compression "
+        "for tool payloads instead of connector truncation."
+    ]
+    assert diagnostics.overlap_notes == [
+        "Connector truncation limits are ignored while history_compaction handles "
+        "tool-output shaping on the request path."
     ]
 
 
@@ -48,9 +57,11 @@ def test_connector_truncation_precedence_uses_connector_when_not_overridden() ->
     assert decision.effective_max_chars == 120
     assert decision.effective_max_lines is None
     assert decision.source == "connector"
+    assert diagnostics.connector_truncation_configured is True
     assert diagnostics.applied == ["connector.tool_output_truncate_chars"]
     assert diagnostics.inactive == ["connector.tool_output_truncate_lines"]
     assert diagnostics.warnings == []
+    assert diagnostics.overlap_notes == []
 
 
 def test_connector_truncation_precedence_tracks_unset_controls() -> None:
@@ -65,6 +76,7 @@ def test_connector_truncation_precedence_tracks_unset_controls() -> None:
 
     assert decision.enabled is False
     assert decision.source == "connector_unset"
+    assert diagnostics.connector_truncation_configured is False
     assert diagnostics.applied == []
     assert diagnostics.ignored == []
     assert diagnostics.inactive == [
@@ -72,6 +84,7 @@ def test_connector_truncation_precedence_tracks_unset_controls() -> None:
         "connector.tool_output_truncate_lines",
     ]
     assert diagnostics.warnings == []
+    assert diagnostics.overlap_notes == []
 
 
 def test_connector_truncation_precedence_is_deterministic() -> None:
@@ -93,4 +106,10 @@ def test_connector_truncation_precedence_is_deterministic() -> None:
     assert first == second
     decision, diagnostics = first
     assert decision.source == "history_compaction+dynamic_compression"
+    assert diagnostics.connector_truncation_configured is True
+    assert diagnostics.active_request_path_stages == [
+        "history_compaction",
+        "dynamic_compression",
+    ]
     assert diagnostics.applied == ["compaction.enabled", "dynamic_compression.enabled"]
+    assert len(diagnostics.overlap_notes) == 2
