@@ -120,6 +120,7 @@ Backend provider configuration and usage:
 - **[Minimax Backend](backends/minimax.md)** - Minimax API configuration
 - **[InternLM Backend](backends/internlm.md)** - InternLM AI models with API key rotation
 - **[Zenmux Backend](backends/zenmux.md)** - Zenmux API configuration
+- **[Ollama Backend](backends/ollama.md)** - Local model serving via Ollama
 - **[OpenCode Zen Backend](backends/opencode-zen.md)** - OpenCode Zen API configuration
 - **[Custom Backends](backends/custom-backends.md)** - Creating and configuring custom backend connectors
 
