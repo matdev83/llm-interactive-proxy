@@ -1,5 +1,31 @@
 #!/usr/bin/env python3
-"""Manage OpenAI Codex connector managed OAuth accounts."""
+"""Manage OpenAI Codex connector managed OAuth accounts.
+
+This script handles OAuth 2.0 authorization for ChatGPT accounts used by the
+openai-codex connector. Authorized accounts are stored in the configured
+storage directory and can be used for managed OAuth authentication.
+
+Authentication Flow:
+    To authenticate a new account, run the 'add' subcommand:
+
+        ./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py add
+
+    This starts a local HTTP server, opens your browser to the ChatGPT OAuth
+    consent screen, and waits for authorization to complete. After successful
+    authorization, the account is automatically registered and ready for use.
+
+    You can customize the OAuth flow with optional flags:
+        --account-id NAME    Assign a custom name to the account
+        --port PORT          Set a specific callback port
+        --timeout SECONDS    Override the 180s timeout
+        --no-browser         Print the auth URL instead of opening it
+
+    For remote/headless environments, use --no-browser to manually open the URL.
+
+Account Management:
+    Accounts can be listed, inspected, updated (re-authorized), or removed
+    using the respective subcommands (list, show, update, remove).
+"""
 
 from __future__ import annotations
 
@@ -169,7 +195,19 @@ def main() -> None:
     show_parser.add_argument("account_id")
     show_parser.add_argument("--json", action="store_true", help="Output JSON")
 
-    add_parser = subparsers.add_parser("add", help="Authorize a new account")
+    ADD_EPILOG = (
+        "Authentication Flow:\n"
+        "  This command starts a local HTTP server, opens your browser to the\n"
+        "  ChatGPT OAuth consent screen, and waits for authorization to complete.\n"
+        "  After successful authorization, the account is registered and ready for use.\n\n"
+        "  For remote/headless environments, use --no-browser to print the auth URL."
+    )
+    add_parser = subparsers.add_parser(
+        "add",
+        help="Authorize a new account",
+        epilog=ADD_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     add_parser.add_argument("--account-id", help="Custom local account id")
     add_parser.add_argument("--port", type=int, help="Fixed callback port")
     add_parser.add_argument(
