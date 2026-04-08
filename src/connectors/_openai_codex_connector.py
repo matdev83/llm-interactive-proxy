@@ -1,16 +1,17 @@
 r"""
-OpenAI Codex connector that uses ChatGPT/Codex auth.json tokens instead of API keys.
+OpenAI Codex connector using managed OAuth accounts with legacy fallback.
 
-This backend reads a local `auth.json` file (created by Codex CLI via ChatGPT login)
-and uses `tokens.access_token` as the bearer for OpenAI API requests. If the file
-also contains `OPENAI_API_KEY`, that is used as a fallback.
+Primary mode uses managed OAuth account files maintained by the proxy
+(`var/openai_codex_oauth_accounts` by default), including account selection,
+refresh, and rotation. If no managed accounts are configured, the connector can
+fall back to Codex CLI `auth.json` tokens.
 
-Default credential file locations (first that exists is used):
+Default legacy credential file locations (first that exists is used):
 - Windows: %USERPROFILE%\.codex\auth.json
 - Cross-platform: ~/.codex/auth.json
 
 Configuration:
-- `openai_codex_path`: optional directory that contains `auth.json` (overrides defaults)
+- `openai_codex_path`: optional directory that contains legacy `auth.json`
 - `openai_api_base_url`: optional base URL override (default: https://api.openai.com/v1)
 """
 
@@ -19,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import inspect
 import logging
 import os
 import threading
@@ -65,6 +67,8 @@ from src.connectors.openai_codex.interfaces import (
     IKiloToolTranslator,
     ISessionDetector,
 )
+from src.connectors.openai_codex.managed_oauth_constants import DEFAULT_STORAGE_PATH
+from src.connectors.openai_codex.managed_oauth_models import ManagedOAuthConfig
 from src.connectors.openai_codex.payload import PayloadBuilder
 from src.connectors.openai_codex.prompt import PromptResolver
 from src.connectors.openai_codex.request_translator import RequestTranslator
@@ -228,6 +232,7 @@ class OpenAICodexConnector(OpenAIConnector):
             if self._dependencies and self._dependencies.credential_manager is not None
             else CredentialManager(self.client)
         )
+        self._configure_managed_oauth_credential_manager()
 
         # Compatibility and tool execution
         # Avoid bool(MagicMock)==True if tests monkeypatch settings/DI.
@@ -557,6 +562,7 @@ class OpenAICodexConnector(OpenAIConnector):
             default_capabilities=self._default_capabilities,
             agent_overrides=self._connector_settings_model.agent_overrides,
         )
+        self._configure_managed_oauth_credential_manager()
 
         compat_cfg = getattr(
             self._connector_settings_model, "compatibility_layer", None
@@ -601,6 +607,44 @@ class OpenAICodexConnector(OpenAIConnector):
             )
 
         # Executor configuration is set via constructor, no private field mutation needed
+
+    def _build_managed_oauth_config(self) -> ManagedOAuthConfig:
+        raw = self._connector_settings.get("managed_oauth", {})
+        payload = raw if isinstance(raw, dict) else {}
+        try:
+            return ManagedOAuthConfig.from_mapping(
+                payload,
+                default_storage_path=DEFAULT_STORAGE_PATH,
+            )
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Invalid OpenAI Codex managed OAuth settings; using defaults: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return ManagedOAuthConfig(
+                enabled=True,
+                storage_path=DEFAULT_STORAGE_PATH,
+                accounts="all",
+            )
+
+    def _configure_managed_oauth_credential_manager(self) -> None:
+        configure_method = getattr(
+            self._credential_manager, "configure_managed_oauth", None
+        )
+        if not callable(configure_method):
+            return
+        config = self._build_managed_oauth_config()
+        try:
+            configure_method(config)
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to apply managed OAuth settings to credential manager: %s",
+                    exc,
+                    exc_info=True,
+                )
 
     @property
     def _auth_credentials(self) -> dict[str, Any] | None:
@@ -1431,6 +1475,39 @@ class OpenAICodexConnector(OpenAIConnector):
     async def _refresh_access_token(self) -> bool:
         refreshed = await self._credential_manager.refresh_access_token()
         if refreshed:
+            token = self._credential_manager.get_access_token()
+            if token:
+                self.api_key = token
+            return True
+        return False
+
+    async def _handle_rate_limit_rotation(
+        self,
+        retry_after_seconds: float | None,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        """Rotate managed OAuth accounts on 429 responses when available."""
+        rotate_method = getattr(self._credential_manager, "handle_rate_limit", None)
+        if not callable(rotate_method):
+            return False
+
+        try:
+            result = rotate_method(
+                retry_after_seconds,
+                session_id=session_id,
+            )
+            rotated = await result if inspect.isawaitable(result) else bool(result)
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to rotate managed OAuth account after rate limit: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return False
+
+        if rotated:
             token = self._credential_manager.get_access_token()
             if token:
                 self.api_key = token

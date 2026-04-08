@@ -16,14 +16,55 @@ backends:
 ```
 
 **Environment Variables:**
-- `OPENAI_CODEX_PATH`: Path to the Codex configuration directory containing `auth.json` (optional).
 - `OPENAI_API_BASE_URL`: Override for the API base URL.
+- `OPENAI_CODEX_MANAGED_OAUTH_ENABLED`: Enable/disable managed OAuth accounts (`true`/`false`).
+- `OPENAI_CODEX_MANAGED_OAUTH_STORAGE_PATH`: Directory with managed account JSON files.
+- `OPENAI_CODEX_MANAGED_OAUTH_ACCOUNTS`: `"all"` or JSON array of allowed account ids.
+- `OPENAI_CODEX_MANAGED_OAUTH_SELECTION_STRATEGY`: `round-robin`, `random`, `first-available`, `session-affinity`.
+- `OPENAI_CODEX_MANAGED_OAUTH_ALLOW_LEGACY_FALLBACK`: Allow fallback to `auth.json` when no managed accounts are configured.
+- `OPENAI_CODEX_PATH`: Optional legacy fallback directory containing `auth.json`.
 
 ### Authentication
 
-The connector attempts to automatically locate Codex authentication tokens from standard locations:
-- Windows: `%USERPROFILE%\.codex\auth.json`
-- Cross-platform: `~/.codex/auth.json`
+The connector now uses a **managed multi-account OAuth store first**, and only falls back to legacy Codex CLI credentials when needed.
+
+1. **Managed account mode (preferred)**  
+   Accounts are stored as individual JSON files (default: `var/openai_codex_oauth_accounts`) and selected by strategy (`round-robin`, `session-affinity`, etc.).
+2. **Legacy fallback mode**  
+   If managed OAuth is enabled but there are no configured managed accounts, the connector can still read:
+   - Windows: `%USERPROFILE%\.codex\auth.json`
+   - Cross-platform: `~/.codex/auth.json`
+
+#### Managed OAuth configuration example
+
+```yaml
+backends:
+  openai_codex:
+    timeout: 120
+    extra:
+      codex:
+        managed_oauth:
+          enabled: true
+          storage_path: var/openai_codex_oauth_accounts
+          accounts: all
+          selection_strategy: round-robin
+          refresh_buffer_seconds: 300
+          session_affinity_ttl_seconds: 86400
+          session_affinity_max_entries: 10000
+          allow_legacy_fallback: true
+```
+
+#### Account management script
+
+Use the built-in script to add/list/re-authorize/remove managed OpenAI Codex accounts:
+
+```powershell
+./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py list
+./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py add
+./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py show <account_id>
+./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py update <account_id>
+./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py remove <account_id>
+```
 
 ### Enthusiast Mode Configuration (Third-Party Agents)
 
@@ -99,6 +140,7 @@ You can also override capabilities per-request via `extra_body`:
 
 ### Common Issues
 
-- **Authentication failures**: Ensure your `auth.json` file exists at `%USERPROFILE%\.codex\auth.json` (Windows) or `~/.codex/auth.json` (Linux/macOS) and contains valid OAuth tokens from your ChatGPT account.
+- **Authentication failures (managed mode)**: verify you have at least one managed account (`manage_openai_codex_accounts.py list`) and that it is not in `needs_reauth` status.
+- **Authentication failures (fallback mode)**: ensure your `auth.json` file exists at `%USERPROFILE%\.codex\auth.json` (Windows) or `~/.codex/auth.json` (Linux/macOS) and contains valid OAuth tokens.
 - **Model not found**: Make sure you're using one of the supported model slugs (see Configuration section).
-- **Rate limiting**: The Codex backend uses your ChatGPT plan quota, which may have different limits than the API key.
+- **Rate limiting**: managed mode can rotate accounts after `429` responses; fallback mode cannot rotate and must wait for quota reset.

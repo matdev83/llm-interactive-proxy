@@ -14,6 +14,14 @@ from typing import Any
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.openai_codex.contracts import CodexConnectorSettings
 from src.connectors.openai_codex.interfaces import ISettingsLoader
+from src.connectors.openai_codex.managed_oauth_constants import (
+    DEFAULT_ALLOW_LEGACY_FALLBACK,
+    DEFAULT_REFRESH_BUFFER_SECONDS,
+    DEFAULT_SELECTION_STRATEGY,
+    DEFAULT_SESSION_AFFINITY_MAX_ENTRIES,
+    DEFAULT_SESSION_AFFINITY_TTL_SECONDS,
+    DEFAULT_STORAGE_PATH,
+)
 from src.connectors.openai_codex.utils import (
     coerce_float_sequence,
     coerce_positive_int,
@@ -67,6 +75,16 @@ class SettingsLoader(ISettingsLoader):
             },
             "websocket": {
                 "enabled": False,
+            },
+            "managed_oauth": {
+                "enabled": True,
+                "storage_path": DEFAULT_STORAGE_PATH,
+                "accounts": "all",
+                "selection_strategy": DEFAULT_SELECTION_STRATEGY,
+                "refresh_buffer_seconds": DEFAULT_REFRESH_BUFFER_SECONDS,
+                "session_affinity_ttl_seconds": DEFAULT_SESSION_AFFINITY_TTL_SECONDS,
+                "session_affinity_max_entries": DEFAULT_SESSION_AFFINITY_MAX_ENTRIES,
+                "allow_legacy_fallback": DEFAULT_ALLOW_LEGACY_FALLBACK,
             },
             "compatibility_layer": {
                 "enabled": False,
@@ -369,6 +387,118 @@ class SettingsLoader(ISettingsLoader):
 
         settings["websocket"] = {
             "enabled": bool(ws_enabled),
+        }
+
+        # Managed OAuth settings
+        managed_cfg = to_mapping(codex_cfg.get("managed_oauth")) or {}
+        truthy = {"1", "true", "yes", "on"}
+        selection_strategies = {
+            "round-robin",
+            "random",
+            "first-available",
+            "session-affinity",
+        }
+
+        managed_enabled = managed_cfg.get("enabled")
+        env_managed_enabled = os.getenv("OPENAI_CODEX_MANAGED_OAUTH_ENABLED")
+        if env_managed_enabled is not None:
+            managed_enabled = env_managed_enabled.strip().lower() in truthy
+        elif managed_enabled is None:
+            managed_enabled = settings["managed_oauth"]["enabled"]
+
+        storage_path = (
+            os.getenv("OPENAI_CODEX_MANAGED_OAUTH_STORAGE_PATH")
+            or managed_cfg.get("storage_path")
+            or settings["managed_oauth"]["storage_path"]
+        )
+        storage_path = (
+            storage_path.strip()
+            if isinstance(storage_path, str) and storage_path.strip()
+            else settings["managed_oauth"]["storage_path"]
+        )
+
+        raw_accounts_source: Any = managed_cfg.get("accounts")
+        env_accounts_json = load_json_env("OPENAI_CODEX_MANAGED_OAUTH_ACCOUNTS")
+        env_accounts_raw = os.getenv("OPENAI_CODEX_MANAGED_OAUTH_ACCOUNTS")
+        if env_accounts_json is not None:
+            raw_accounts_source = env_accounts_json
+        elif env_accounts_raw is not None:
+            raw_accounts_source = env_accounts_raw
+
+        accounts: list[str] | str = "all"
+        if isinstance(raw_accounts_source, str):
+            normalized = raw_accounts_source.strip()
+            if normalized and normalized.lower() != "all":
+                if normalized.startswith("["):
+                    parsed = load_json_env("OPENAI_CODEX_MANAGED_OAUTH_ACCOUNTS")
+                    if isinstance(parsed, list):
+                        accounts = to_string_list(parsed)
+                    else:
+                        accounts = [part.strip() for part in normalized.split(",") if part.strip()]
+                else:
+                    accounts = [part.strip() for part in normalized.split(",") if part.strip()]
+        elif isinstance(raw_accounts_source, list):
+            accounts = to_string_list(raw_accounts_source)
+        elif raw_accounts_source == "all":
+            accounts = "all"
+
+        selection_strategy_raw = (
+            os.getenv("OPENAI_CODEX_MANAGED_OAUTH_SELECTION_STRATEGY")
+            or managed_cfg.get("selection_strategy")
+            or settings["managed_oauth"]["selection_strategy"]
+        )
+        selection_strategy = (
+            selection_strategy_raw.strip().lower()
+            if isinstance(selection_strategy_raw, str)
+            else settings["managed_oauth"]["selection_strategy"]
+        )
+        if selection_strategy not in selection_strategies:
+            selection_strategy = settings["managed_oauth"]["selection_strategy"]
+
+        refresh_buffer = coerce_positive_int(
+            os.getenv("OPENAI_CODEX_MANAGED_OAUTH_REFRESH_BUFFER_SECONDS")
+        )
+        if refresh_buffer is None:
+            refresh_buffer = coerce_positive_int(managed_cfg.get("refresh_buffer_seconds"))
+        if refresh_buffer is None:
+            refresh_buffer = settings["managed_oauth"]["refresh_buffer_seconds"]
+
+        affinity_ttl = coerce_positive_int(
+            os.getenv("OPENAI_CODEX_MANAGED_OAUTH_SESSION_AFFINITY_TTL_SECONDS")
+        )
+        if affinity_ttl is None:
+            affinity_ttl = coerce_positive_int(
+                managed_cfg.get("session_affinity_ttl_seconds")
+            )
+        if affinity_ttl is None:
+            affinity_ttl = settings["managed_oauth"]["session_affinity_ttl_seconds"]
+
+        affinity_max = coerce_positive_int(
+            os.getenv("OPENAI_CODEX_MANAGED_OAUTH_SESSION_AFFINITY_MAX_ENTRIES")
+        )
+        if affinity_max is None:
+            affinity_max = coerce_positive_int(
+                managed_cfg.get("session_affinity_max_entries")
+            )
+        if affinity_max is None:
+            affinity_max = settings["managed_oauth"]["session_affinity_max_entries"]
+
+        allow_legacy_fallback = managed_cfg.get("allow_legacy_fallback")
+        env_allow_fallback = os.getenv("OPENAI_CODEX_MANAGED_OAUTH_ALLOW_LEGACY_FALLBACK")
+        if env_allow_fallback is not None:
+            allow_legacy_fallback = env_allow_fallback.strip().lower() in truthy
+        elif allow_legacy_fallback is None:
+            allow_legacy_fallback = settings["managed_oauth"]["allow_legacy_fallback"]
+
+        settings["managed_oauth"] = {
+            "enabled": bool(managed_enabled),
+            "storage_path": storage_path,
+            "accounts": accounts if accounts else "all",
+            "selection_strategy": selection_strategy,
+            "refresh_buffer_seconds": refresh_buffer,
+            "session_affinity_ttl_seconds": affinity_ttl,
+            "session_affinity_max_entries": affinity_max,
+            "allow_legacy_fallback": bool(allow_legacy_fallback),
         }
 
         # Compatibility layer settings

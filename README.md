@@ -44,7 +44,7 @@ Recent resilience hardening adds safer retry and failover behavior by default:
 
 ## Dynamic Tool-Output Compression
 
-The proxy supports strategy-based compression for `role="tool"` outputs during backend request preparation. It is disabled by default (`dynamic_compression.enabled: false`) with deterministic precedence (CLI > ENV > YAML > defaults), configured via `dynamic_compression.*`, `DYNAMIC_COMPRESSION_*`, or CLI flags (for example `--dynamic-compression-enabled`), and skips Gemini connector truncation when enabled to avoid double-reduction. Built-in strategies now include ANSI normalization, dedupe/grouping, unified-diff compaction, directory/listing summaries, search-result grouping, file-read detail/line-window reductions, failure-focused test/build reduction, diagnostics grouping (file/rule), JSON/NDJSON structural summarization, XML parseability-preserving safeguards, noisy-log dedupe with volatile-field normalization, and sensitive-field projection for env/cloud-style outputs. File-detail outputs can optionally include line numbers through `dynamic_compression.file_detail_include_line_numbers` (`DYNAMIC_COMPRESSION_FILE_DETAIL_INCLUDE_LINE_NUMBERS`, `--dynamic-compression-file-detail-include-line-numbers`, `--dynamic-compression-file-detail-exclude-line-numbers`).
+The proxy supports strategy-based compression for `role="tool"` outputs during backend request preparation. It is disabled by default (`dynamic_compression.enabled: false`) with deterministic precedence (CLI > ENV > YAML > defaults), configured via `dynamic_compression.*`, `DYNAMIC_COMPRESSION_*`, or CLI flags (for example `--dynamic-compression-enabled`), and skips Gemini connector truncation when enabled to avoid double-reduction. Built-in strategies now include ANSI normalization, dedupe/grouping, unified-diff compaction, directory/listing summaries, search-result grouping, file-read detail/line-window reductions, failure-focused test/build reduction, diagnostics grouping (file/rule), JSON/NDJSON structural summarization, XML parseability-preserving safeguards, noisy-log dedupe with volatile-field normalization, and sensitive-field projection for env/cloud-style outputs. File-detail outputs can optionally include line numbers through `dynamic_compression.file_detail_include_line_numbers` (`DYNAMIC_COMPRESSION_FILE_DETAIL_INCLUDE_LINE_NUMBERS`, `--dynamic-compression-file-detail-include-line-numbers`, `--dynamic-compression-file-detail-exclude-line-numbers`). Compression observability now includes per-output telemetry records, aggregate savings counters, rate-safe failure/fallback alerts, and effective-configuration diagnostics; optional bounded truncation-recovery handles are configured under `dynamic_compression.recovery.*`.
 
 ## Quick Start
 
@@ -128,6 +128,7 @@ See [Frontend API documentation](docs/user_guide/frontends/overview.md) for prot
 The backend catalog keeps growing. Current documented backends include:
 
 - [OpenAI](docs/user_guide/backends/openai.md)
+- [OpenAI Codex](docs/user_guide/backends/openai-codex.md)
 - [Anthropic](docs/user_guide/backends/anthropic.md)
 - [Google Gemini](docs/user_guide/backends/gemini.md)
 - [OpenRouter](docs/user_guide/backends/openrouter.md)
@@ -141,7 +142,6 @@ The backend catalog keeps growing. Current documented backends include:
 - [Hybrid backend](docs/user_guide/features/hybrid-backend.md)
 - [Cline](docs/user_guide/backends/cline.md)
 - [Antigravity OAuth](docs/user_guide/backends/antigravity-oauth.md)
-
 See the full [Backends Overview](docs/user_guide/backends/overview.md) for configuration and provider-specific notes.
 
 ## Routing Selector Semantics

@@ -217,6 +217,22 @@ dynamic_compression:
   level: "conservative"         # conservative | balanced | aggressive
   max_level: "aggressive"       # escalation ceiling
   min_bytes: 1024               # skip tiny outputs
+  telemetry_include_content_hashes: true  # correlation-safe hashes only (no raw payload logging)
+  alerts:
+    enabled: true
+    failure_threshold: 5        # warn when method failures repeat within window
+    fallback_threshold: 8       # warn when fallback/skipped paths repeat within window
+    window_seconds: 300
+    cooldown_seconds: 300       # rate-safe alert cooldown
+  recovery:
+    mode: "never"               # never | failures | always
+    min_original_bytes: 4096
+    min_saved_bytes: 2048
+    max_artifact_bytes: 262144
+    max_artifacts: 128
+    retention_seconds: 86400
+    storage_dir: "var/compression_recovery"
+    hint_in_text: false         # append handle hint to plain text outputs when allowed
   disable_categories: []        # e.g. ["search"]
   disable_methods: []           # e.g. ["line_dedupe"]
   disable_tools: []             # e.g. ["shell"]
@@ -397,6 +413,17 @@ backends:
           tool_text_format: none
           bypass_tool_call_reactor: true
           include_environment_context: false
+        # Managed OAuth accounts used by openai-codex.
+        # Configure accounts via: ./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py add
+        managed_oauth:
+          enabled: true
+          storage_path: "var/openai_codex_oauth_accounts"
+          accounts: "all"  # "all" or explicit list, e.g. ["work", "personal"]
+          selection_strategy: "round-robin"  # round-robin|random|first-available|session-affinity
+          refresh_buffer_seconds: 300
+          session_affinity_ttl_seconds: 86400
+          session_affinity_max_entries: 10000
+          allow_legacy_fallback: true  # if no managed accounts exist, use ~/.codex/auth.json
     # For Responses API clients (Profile B), use:
     #   default_capabilities:
     #     protocol: openai-responses

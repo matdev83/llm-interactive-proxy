@@ -44,6 +44,7 @@ class TestResponseExecutor:
             return_value={"Authorization": "Bearer token"}
         )
         connector._handle_streaming_response = AsyncMock()
+        connector._handle_rate_limit_rotation = AsyncMock(return_value=False)
         # Mock methods that might be called during header building
         connector._codex_user_agent = MagicMock(return_value="test-user-agent")
         connector._codex_account_id = MagicMock(return_value=None)
@@ -393,6 +394,98 @@ class TestResponseExecutor:
         )
 
     @pytest.mark.asyncio
+    async def test_execute_non_streaming_retries_after_rate_limit_rotation(
+        self, executor, mock_base_connector, sample_context, non_streaming_payload
+    ):
+        """HTTP 429 should trigger managed-account rotation and retry."""
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.headers = {"Retry-After": "2"}
+        rate_limited.json.return_value = {"error": {"message": "rate limited"}}
+        rate_limited.text = '{"error": {"message": "rate limited"}}'
+
+        success = MagicMock()
+        success.status_code = 200
+        success.headers = {}
+        success.json.return_value = {
+            "id": "chatcmpl-429-retry",
+            "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+        }
+
+        call_count = [0]
+
+        async def post_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return rate_limited
+            return success
+
+        mock_base_connector.client.post = AsyncMock(side_effect=post_side_effect)
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=True)
+
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {"content": "ok"}
+        domain_response.usage = None
+        mock_base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        result = await executor.execute(non_streaming_payload, sample_context)
+
+        assert isinstance(result, ResponseEnvelope)
+        assert call_count[0] == 2
+        mock_base_connector._handle_rate_limit_rotation.assert_awaited_once_with(
+            2.0, session_id=sample_context.session_id
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_non_streaming_retries_for_forbidden_auth_error(
+        self,
+        executor,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        non_streaming_payload,
+    ):
+        """HTTP 403 should follow the same auth-refresh path as 401."""
+        forbidden = MagicMock()
+        forbidden.status_code = 403
+        forbidden.headers = {}
+        forbidden.json.return_value = {"error": {"message": "forbidden"}}
+        forbidden.text = '{"error": {"message": "forbidden"}}'
+
+        success = MagicMock()
+        success.status_code = 200
+        success.headers = {}
+        success.json.return_value = {
+            "id": "chatcmpl-403-retry",
+            "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+        }
+
+        call_count = [0]
+
+        async def post_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return forbidden
+            return success
+
+        mock_base_connector.client.post = AsyncMock(side_effect=post_side_effect)
+
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {"content": "ok"}
+        domain_response.usage = None
+        mock_base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        result = await executor.execute(non_streaming_payload, sample_context)
+
+        assert isinstance(result, ResponseEnvelope)
+        assert call_count[0] == 2
+        assert mock_credential_manager.refresh_access_token.await_count >= 1
+
+    @pytest.mark.asyncio
     async def test_execute_streaming_success(
         self, executor, mock_base_connector, sample_context, streaming_payload
     ):
@@ -521,6 +614,45 @@ class TestResponseExecutor:
             pass
         # Should have attempted refresh once (on first 401)
         assert mock_credential_manager.refresh_access_token.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_handshake_rate_limit_rotation_retry(
+        self, executor, mock_base_connector, sample_context, streaming_payload
+    ):
+        """Streaming handshake 429 should rotate managed account and retry."""
+
+        async def empty_iterator():
+            return
+            yield  # pragma: no cover
+
+        success_handle = MagicMock()
+        success_handle.headers = {}
+        success_handle.cancel_callback = AsyncMock()
+        success_handle.iterator = empty_iterator()
+
+        call_count = [0]
+
+        async def handle_streaming_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise HTTPException(status_code=429, detail="rate limited")
+            return success_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=True)
+
+        result = await executor.execute(streaming_payload, sample_context)
+
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        mock_base_connector._handle_rate_limit_rotation.assert_awaited_once_with(
+            None, session_id=sample_context.session_id
+        )
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_auth_retry_exhausted(

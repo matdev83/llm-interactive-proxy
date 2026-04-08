@@ -21,6 +21,11 @@ from src.connectors.openai_codex.credentials import (
     OpenAICredentialsFileHandler,
 )
 from src.connectors.openai_codex.interfaces import ICredentialManager
+from src.connectors.openai_codex.managed_oauth_models import (
+    ManagedOAuthAccount,
+    ManagedOAuthConfig,
+)
+from src.connectors.openai_codex.managed_oauth_storage import ManagedOAuthStorageService
 from watchdog.events import FileSystemEvent  # type: ignore[reportAttributeAccessIssue]
 
 
@@ -375,6 +380,112 @@ class TestCredentialManager:
         result = await manager._load_auth(force_reload=True)
         assert result is True
         assert manager.get_access_token() == "modified_token"
+
+    @pytest.mark.asyncio
+    async def test_initialize_prefers_managed_accounts_over_legacy_auth_file(
+        self, manager, temp_auth_file
+    ):
+        """Managed account source should take precedence over auth.json fallback."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            account = ManagedOAuthAccount(
+                account_id="managed_primary",
+                access_token="managed_access_token",
+                refresh_token="managed_refresh_token",
+                expiry_date=9_999_999_999_999,
+            )
+            await storage.save_account(account)
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="first-available",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=True,
+                )
+            )
+
+            await manager.initialize(auth_path=temp_auth_file)
+
+            assert manager.get_access_token() == "managed_access_token"
+            assert manager._active_source == "managed"
+
+    @pytest.mark.asyncio
+    async def test_initialize_falls_back_to_legacy_when_no_managed_accounts(
+        self, manager, temp_auth_file
+    ):
+        """Legacy auth.json should be used when managed OAuth store is empty."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=True,
+                )
+            )
+
+            await manager.initialize(auth_path=temp_auth_file)
+
+            assert manager.get_access_token() == "test_access_token"
+            assert manager._active_source == "legacy"
+
+    @pytest.mark.asyncio
+    async def test_handle_rate_limit_rotates_to_next_managed_account(self, manager):
+        """Rate-limit handling should rotate active managed account when possible."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            expires_at = 9_999_999_999_999
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=expires_at,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_b",
+                    access_token="token_b",
+                    refresh_token="refresh_b",
+                    expiry_date=expires_at,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+
+            await manager.initialize(auth_path=None)
+            first_token = manager.get_access_token()
+            assert first_token in {"token_a", "token_b"}
+
+            rotated = await manager.handle_rate_limit(60, session_id="session-1")
+
+            assert rotated is True
+            second_token = manager.get_access_token()
+            assert second_token in {"token_a", "token_b"}
+            assert second_token != first_token
 
 
 class TestCredentialWatcher:

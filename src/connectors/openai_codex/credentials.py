@@ -26,6 +26,31 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from src.connectors.openai_codex.interfaces import ICredentialManager
+from src.connectors.openai_codex.managed_oauth_constants import (
+    DEFAULT_ALLOW_LEGACY_FALLBACK,
+    DEFAULT_REFRESH_BUFFER_SECONDS,
+    DEFAULT_SELECTION_STRATEGY,
+    DEFAULT_SESSION_AFFINITY_MAX_ENTRIES,
+    DEFAULT_SESSION_AFFINITY_TTL_SECONDS,
+    DEFAULT_STORAGE_PATH,
+    OPENAI_OAUTH_CLIENT_ID,
+    OPENAI_OAUTH_TOKEN_URL,
+)
+from src.connectors.openai_codex.managed_oauth_models import (
+    ManagedOAuthAccount,
+    ManagedOAuthConfig,
+    SelectionStrategy,
+)
+from src.connectors.openai_codex.managed_oauth_refresh import (
+    ManagedOAuthRefreshError,
+    ManagedOAuthRefreshService,
+)
+from src.connectors.openai_codex.managed_oauth_selector import (
+    ManagedOAuthAccountSelector,
+)
+from src.connectors.openai_codex.managed_oauth_storage import (
+    ManagedOAuthStorageService,
+)
 from src.core.domain.validation import ValidationResult
 
 if TYPE_CHECKING:
@@ -341,6 +366,95 @@ class CredentialManager(ICredentialManager):
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._oauth_dir_override: Path | None = None
         self._watcher = CredentialWatcher(self)
+        self._active_source: str = "none"  # "managed" | "legacy" | "none"
+        self._managed_current_account: ManagedOAuthAccount | None = None
+        self._managed_config = ManagedOAuthConfig(
+            enabled=True,
+            storage_path=DEFAULT_STORAGE_PATH,
+            accounts="all",
+            selection_strategy=cast(
+                SelectionStrategy,
+                DEFAULT_SELECTION_STRATEGY,
+            ),
+            refresh_buffer_seconds=DEFAULT_REFRESH_BUFFER_SECONDS,
+            session_affinity_ttl_seconds=DEFAULT_SESSION_AFFINITY_TTL_SECONDS,
+            session_affinity_max_entries=DEFAULT_SESSION_AFFINITY_MAX_ENTRIES,
+            allow_legacy_fallback=DEFAULT_ALLOW_LEGACY_FALLBACK,
+        )
+        self._managed_storage = ManagedOAuthStorageService(
+            self._managed_config.storage_path
+        )
+        self._managed_refresh = ManagedOAuthRefreshService(
+            self._managed_storage,
+            http_client=self._http_client,
+        )
+        self._managed_selector = self._build_managed_selector(self._managed_config)
+
+    def configure_managed_oauth(self, config: ManagedOAuthConfig) -> None:
+        """Configure managed OAuth runtime behavior from connector settings."""
+        self._managed_config = config
+        self._managed_storage = ManagedOAuthStorageService(config.storage_path)
+        self._managed_refresh = ManagedOAuthRefreshService(
+            self._managed_storage,
+            http_client=self._http_client,
+        )
+        self._managed_selector = self._build_managed_selector(config)
+        self._managed_current_account = None
+        if self._active_source == "managed":
+            self._active_source = "none"
+            self._auth_credentials = None
+
+    def _build_managed_selector(
+        self,
+        config: ManagedOAuthConfig,
+    ) -> ManagedOAuthAccountSelector:
+        allowed_accounts: set[str] | None = None
+        if isinstance(config.accounts, list):
+            allowed_accounts = {item for item in config.accounts if item}
+        return ManagedOAuthAccountSelector(
+            self._managed_storage,
+            self._managed_refresh,
+            refresh_buffer_ms=max(0, int(config.refresh_buffer_seconds * 1000)),
+            allowed_account_ids=allowed_accounts,
+            selection_strategy=config.selection_strategy,
+            session_affinity_ttl_seconds=config.session_affinity_ttl_seconds,
+            session_affinity_max_entries=config.session_affinity_max_entries,
+        )
+
+    def _managed_enabled(self) -> bool:
+        return bool(self._managed_config.enabled)
+
+    async def _managed_has_accounts(self) -> bool:
+        if not self._managed_enabled():
+            return False
+        return await self._managed_storage.has_configured_accounts()
+
+    def _managed_account_to_credentials(
+        self,
+        account: ManagedOAuthAccount,
+    ) -> dict[str, Any]:
+        tokens: dict[str, Any] = {
+            "access_token": account.access_token,
+            "refresh_token": account.refresh_token,
+            "token_type": account.token_type,
+            "scope": account.scope,
+            "expiry_date": account.get_effective_expiry_ms(),
+        }
+        return {
+            "tokens": tokens,
+            "account_id": account.chatgpt_account_id or account.account_id,
+            "managed_account_id": account.account_id,
+            "user": {"email": account.email} if account.email else {},
+            "last_refresh": account.updated_at,
+            "managed_oauth": {
+                "enabled": True,
+                "storage_path": str(self._managed_storage.storage_path),
+                "account_id": account.account_id,
+                "chatgpt_account_id": account.chatgpt_account_id,
+                "needs_reauth": account.needs_reauth,
+                "rate_limited_until": account.rate_limited_until,
+            },
+        }
 
     def _default_auth_paths(self) -> list[Path]:
         """Return list of default auth.json paths to check."""
@@ -373,14 +487,39 @@ class CredentialManager(ICredentialManager):
         return None
 
     async def _load_auth(self, force_reload: bool = False) -> bool:
-        """Load OAuth credentials from auth.json file.
+        """Load credentials, preferring managed OAuth accounts when available."""
+        if await self._load_managed_auth(force_reload=force_reload):
+            return True
+        if await self._load_legacy_auth(force_reload=force_reload):
+            return True
+        self._active_source = "none"
+        self._managed_current_account = None
+        return False
 
-        Args:
-            force_reload: If True, bypass cache and force reload from file
+    async def _load_managed_auth(self, force_reload: bool = False) -> bool:
+        if not self._managed_enabled():
+            return False
 
-        Returns:
-            True if credentials loaded successfully, False otherwise
-        """
+        if force_reload:
+            await self._managed_selector.reload_accounts()
+
+        account = self._managed_selector.get_current_account()
+        if account is None or account.needs_reauth:
+            account = await self._managed_selector.get_next_account()
+
+        if account is None:
+            return False
+
+        self._managed_selector.update_account(account)
+        self._managed_current_account = account
+        self._auth_credentials = self._managed_account_to_credentials(account)
+        self._auth_path = None
+        self._active_source = "managed"
+        if self._watcher.is_running():
+            self._watcher.stop()
+        return True
+
+    async def _load_legacy_auth(self, force_reload: bool = False) -> bool:
         auth_path = self._discover_auth_path()
         if auth_path is None:
             logger.warning("OpenAI Codex auth.json not found in default locations")
@@ -396,7 +535,6 @@ class CredentialManager(ICredentialManager):
                 with open(auth_path, encoding="utf-8") as f:
                     return cast(dict[str, Any], json.load(f))
 
-            # Check if file has been modified since last load (unless force_reload is True)
             if not force_reload:
                 try:
                     mtime = await asyncio.to_thread(_get_mtime)
@@ -404,9 +542,9 @@ class CredentialManager(ICredentialManager):
                         logger.debug(
                             "OpenAI Codex credentials file not modified, using cached."
                         )
+                        self._active_source = "legacy"
                         return True
                 except OSError as e:
-                    # Failed to stat file - log for debugging and proceed with load
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             "Failed to stat OpenAI Codex credentials file for modification time: %s",
@@ -414,12 +552,10 @@ class CredentialManager(ICredentialManager):
                             exc_info=True,
                         )
 
-            # Update last modified time
             try:
                 mtime = await asyncio.to_thread(_get_mtime)
                 self._last_modified = mtime
             except OSError as e:
-                # Failed to stat file - log for debugging and proceed with load
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to stat OpenAI Codex credentials file for modification time: %s",
@@ -429,8 +565,9 @@ class CredentialManager(ICredentialManager):
 
             data: dict[str, Any] = await asyncio.to_thread(_load_file)
 
-            # Store credentials for validation
             self._auth_credentials = data
+            self._active_source = "legacy"
+            self._managed_current_account = None
             log_msg = "Successfully loaded OpenAI Codex credentials"
             if force_reload:
                 log_msg += " (force reload)"
@@ -447,7 +584,31 @@ class CredentialManager(ICredentialManager):
             return False
 
     def _validate_credentials_file_exists(self) -> ValidationResult:
-        """Validate that credentials file exists and is readable."""
+        """Validate availability of managed accounts or legacy auth.json."""
+        if self._managed_enabled():
+            storage_path = self._managed_storage.storage_path
+            try:
+                if storage_path.exists() and storage_path.is_dir():
+                    has_managed_accounts = any(
+                        path.is_file() and path.suffix == ".json"
+                        for path in storage_path.iterdir()
+                    )
+                    if has_managed_accounts:
+                        return ValidationResult.success()
+            except Exception as exc:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed checking managed OAuth storage path %s: %s",
+                        storage_path,
+                        exc,
+                        exc_info=True,
+                    )
+
+            if not self._managed_config.allow_legacy_fallback:
+                return ValidationResult.failure(
+                    "Managed OAuth is enabled but no managed accounts are configured."
+                )
+
         auth_path = self._discover_auth_path()
         if auth_path is None:
             return ValidationResult.failure(
@@ -651,115 +812,181 @@ class CredentialManager(ICredentialManager):
             logger.info(
                 "Attempting to refresh OpenAI Codex access token after authentication failure."
             )
-            # CRITICAL: Always reload credentials inside the lock to avoid race conditions
-            # This ensures stale tokens aren't used by parallel coroutines
-            await self._load_auth(force_reload=True)
-            if not self._auth_credentials:
-                logger.warning(
-                    "Cannot refresh OpenAI Codex token: credentials not loaded."
-                )
-                return False
+            if await self._load_managed_auth(force_reload=True):
+                if await self._refresh_managed_access_token():
+                    return True
+                return await self._rotate_managed_on_auth_failure()
+            return await self._refresh_legacy_access_token()
 
-            tokens = self._auth_credentials.get("tokens")
-            if not isinstance(tokens, dict):
-                logger.warning(
-                    "Cannot refresh OpenAI Codex token: tokens payload missing in auth.json."
-                )
-                return False
+    async def _refresh_managed_access_token(self) -> bool:
+        account = self._managed_selector.get_current_account()
+        if account is None:
+            account = await self._managed_selector.get_next_account()
+        if account is None:
+            return False
 
-            refresh_token = tokens.get("refresh_token")
-            if not isinstance(refresh_token, str) or not refresh_token:
+        try:
+            updated = await self._managed_refresh.force_refresh(account)
+        except ManagedOAuthRefreshError as exc:
+            if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Cannot refresh OpenAI Codex token: refresh_token not present in auth.json."
+                    "Managed OAuth token refresh failed for account %s: %s",
+                    exc.account_id,
+                    exc,
+                    exc_info=True,
                 )
-                return False
+            return False
 
-            payload = {
-                "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
-                "grant_type": "refresh_token",
-                "refresh_token": refresh_token,
-                "scope": "openid profile email",
-            }
+        self._managed_selector.update_account(updated)
+        self._managed_current_account = updated
+        self._auth_credentials = self._managed_account_to_credentials(updated)
+        self._active_source = "managed"
+        return True
+
+    async def _rotate_managed_on_auth_failure(self) -> bool:
+        rotated = await self._managed_selector.rotate_on_auth_failure()
+        if rotated is None:
+            return False
+        self._managed_current_account = rotated
+        self._auth_credentials = self._managed_account_to_credentials(rotated)
+        self._active_source = "managed"
+        return True
+
+    async def _refresh_legacy_access_token(self) -> bool:
+        await self._load_legacy_auth(force_reload=True)
+        if not self._auth_credentials:
+            logger.warning("Cannot refresh OpenAI Codex token: credentials not loaded.")
+            return False
+
+        tokens = self._auth_credentials.get("tokens")
+        if not isinstance(tokens, dict):
+            logger.warning(
+                "Cannot refresh OpenAI Codex token: tokens payload missing in auth.json."
+            )
+            return False
+
+        refresh_token = tokens.get("refresh_token")
+        if not isinstance(refresh_token, str) or not refresh_token:
+            logger.warning(
+                "Cannot refresh OpenAI Codex token: refresh_token not present in auth.json."
+            )
+            return False
+
+        payload = {
+            "client_id": OPENAI_OAUTH_CLIENT_ID,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "scope": "openid profile email",
+        }
+
+        try:
+            response = await self._http_client.post(
+                OPENAI_OAUTH_TOKEN_URL,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                timeout=15.0,
+            )
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "Failed to refresh OpenAI Codex token: %s", exc, exc_info=True
+            )
+            return False
+
+        if response.status_code >= 400:
+            body = response.text
+            safe_body = body[:200] + "..." if len(body) > 200 else body
+            logger.warning(
+                "OpenAI Codex token refresh failed with status %s: %s",
+                response.status_code,
+                safe_body,
+            )
+            return False
+
+        try:
+            token_response = response.json()
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse OAuth token refresh response: %s",
+                exc,
+                exc_info=True,
+            )
+            return False
+
+        access_token = token_response.get("access_token")
+        new_refresh_token = token_response.get("refresh_token") or refresh_token
+        id_token = token_response.get("id_token")
+        if not isinstance(access_token, str) or not access_token:
+            logger.warning("OAuth token refresh response missing access_token.")
+            return False
+
+        updated_credentials = deepcopy(self._auth_credentials)
+        updated_tokens = updated_credentials.setdefault("tokens", {})
+        updated_tokens["access_token"] = access_token
+        updated_tokens["refresh_token"] = new_refresh_token
+        if isinstance(id_token, str) and id_token:
+            updated_tokens["id_token"] = id_token
+        if isinstance(self._auth_path, Path):
+            updated_credentials["last_refresh"] = datetime.now(timezone.utc).isoformat()
 
             try:
-                response = await self._http_client.post(
-                    "https://auth.openai.com/oauth/token",
-                    json=payload,
-                    headers={"Content-Type": "application/json"},
-                    timeout=15.0,
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None,
+                    self._persist_credentials_sync,
+                    updated_credentials,
+                    self._auth_path,
                 )
-            except httpx.HTTPError as exc:
-                logger.warning(
-                    "Failed to refresh OpenAI Codex token: %s", exc, exc_info=True
-                )
-                return False
-
-            if response.status_code >= 400:
-                body = response.text
-                # Truncate body to avoid leaking excessive info or filling logs
-                safe_body = body[:200] + "..." if len(body) > 200 else body
-                logger.warning(
-                    "OpenAI Codex token refresh failed with status %s: %s",
-                    response.status_code,
-                    safe_body,
-                )
-                return False
-
-            try:
-                token_response = response.json()
             except Exception as exc:
                 logger.warning(
-                    "Failed to parse OAuth token refresh response: %s",
+                    "Failed to persist refreshed OAuth credentials: %s",
                     exc,
                     exc_info=True,
                 )
                 return False
+        else:
+            logger.warning(
+                "Cannot persist refreshed OAuth credentials: auth path unknown."
+            )
+            return False
 
-            access_token = token_response.get("access_token")
-            new_refresh_token = token_response.get("refresh_token") or refresh_token
-            id_token = token_response.get("id_token")
-            if not isinstance(access_token, str) or not access_token:
-                logger.warning("OAuth token refresh response missing access_token.")
+        self._auth_credentials = updated_credentials
+        self._active_source = "legacy"
+        await self._load_legacy_auth(force_reload=True)
+        logger.info("Successfully refreshed OpenAI Codex access token.")
+        return True
+
+    async def handle_rate_limit(
+        self,
+        retry_after_seconds: float | None,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        """Mark managed account as rate-limited and rotate to another account."""
+        async with self._token_refresh_lock:
+            if not await self._load_managed_auth(force_reload=True):
                 return False
-
-            updated_credentials = deepcopy(self._auth_credentials)
-            updated_tokens = updated_credentials.setdefault("tokens", {})
-            updated_tokens["access_token"] = access_token
-            updated_tokens["refresh_token"] = new_refresh_token
-            if isinstance(id_token, str) and id_token:
-                updated_tokens["id_token"] = id_token
-            if isinstance(self._auth_path, Path):
-                updated_credentials["last_refresh"] = datetime.now(
-                    timezone.utc
-                ).isoformat()
-
-                # Use atomic write pattern to prevent file corruption
-                try:
-                    # Run file operations in a thread pool to avoid blocking the event loop
-                    loop = asyncio.get_running_loop()
-                    await loop.run_in_executor(
-                        None,
-                        self._persist_credentials_sync,
-                        updated_credentials,
-                        self._auth_path,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to persist refreshed OAuth credentials: %s",
-                        exc,
-                        exc_info=True,
-                    )
-                    return False
-            else:
-                logger.warning(
-                    "Cannot persist refreshed OAuth credentials: auth path unknown."
-                )
+            rotated = await self._managed_selector.rotate_on_rate_limit(
+                retry_after_seconds=retry_after_seconds,
+                session_id=session_id,
+            )
+            if rotated is None:
                 return False
-
-            self._auth_credentials = updated_credentials
-            await self._load_auth(force_reload=True)
-            logger.info("Successfully refreshed OpenAI Codex access token.")
+            self._managed_current_account = rotated
+            self._auth_credentials = self._managed_account_to_credentials(rotated)
+            self._active_source = "managed"
             return True
+
+    async def mark_account_used(self) -> None:
+        """Mark currently selected managed account as used."""
+        if self._active_source != "managed":
+            return
+        if self._managed_selector.get_current_account() is None:
+            return
+        await self._managed_selector.mark_current_account_used()
+        updated = self._managed_selector.get_current_account()
+        if updated is not None:
+            self._managed_current_account = updated
+            self._auth_credentials = self._managed_account_to_credentials(updated)
 
     def get_access_token(self) -> str | None:
         """Return current access token if available.
@@ -767,6 +994,11 @@ class CredentialManager(ICredentialManager):
         Returns:
             Access token string or None if not available
         """
+        if self._managed_current_account is not None:
+            token = self._managed_current_account.access_token
+            if token:
+                return token
+
         if self._auth_credentials is None:
             return None
 
@@ -805,8 +1037,26 @@ class CredentialManager(ICredentialManager):
         Returns:
             Account ID string or None if not available
         """
+        if self._managed_current_account is not None:
+            if (
+                isinstance(self._managed_current_account.chatgpt_account_id, str)
+                and self._managed_current_account.chatgpt_account_id
+            ):
+                return self._managed_current_account.chatgpt_account_id
+            token_account_id = _extract_chatgpt_account_id_from_jwt(
+                self._managed_current_account.access_token
+            )
+            if isinstance(token_account_id, str) and token_account_id:
+                return token_account_id
+
         if self._auth_credentials is None:
             return None
+
+        managed_meta = self._auth_credentials.get("managed_oauth")
+        if isinstance(managed_meta, dict):
+            chatgpt_account_id = managed_meta.get("chatgpt_account_id")
+            if isinstance(chatgpt_account_id, str) and chatgpt_account_id:
+                return chatgpt_account_id
 
         # Account ID is typically stored in top-level 'account_id' field
         account_id = self._auth_credentials.get("account_id")
@@ -848,6 +1098,9 @@ def _extract_chatgpt_account_id_from_jwt(token: str) -> str | None:
         payload = json.loads(payload_bytes.decode("utf-8", errors="replace"))
         if not isinstance(payload, dict):
             return None
+        direct_account_id = payload.get("chatgpt_account_id")
+        if isinstance(direct_account_id, str) and direct_account_id:
+            return direct_account_id
         auth_claim = payload.get("https://api.openai.com/auth")
         if not isinstance(auth_claim, dict):
             return None

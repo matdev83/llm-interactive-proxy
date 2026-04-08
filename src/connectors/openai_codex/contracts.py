@@ -138,6 +138,7 @@ class CodexConnectorSettings(BaseModel):
     compatibility_layer: dict[str, Any]
     renderer: dict[str, Any]
     websocket: dict[str, Any] = {"enabled": False}
+    managed_oauth: dict[str, Any] = Field(default_factory=dict)
 
 
 class CodexInitOptions(BaseModel):

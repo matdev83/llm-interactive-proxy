@@ -11,6 +11,12 @@ from unittest.mock import patch
 import pytest
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.openai_codex.interfaces import ISettingsLoader
+from src.connectors.openai_codex.managed_oauth_constants import (
+    DEFAULT_ALLOW_LEGACY_FALLBACK,
+    DEFAULT_REFRESH_BUFFER_SECONDS,
+    DEFAULT_SELECTION_STRATEGY,
+    DEFAULT_STORAGE_PATH,
+)
 from src.connectors.openai_codex.settings import SettingsLoader
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 
@@ -55,6 +61,19 @@ class TestSettingsLoader:
         assert settings.streaming["max_retries"] == 2
         assert settings.streaming["retry_backoff_seconds"] == (0.5, 1.5, 3.0)
         assert settings.compatibility_layer["enabled"] is False
+        assert settings.managed_oauth["enabled"] is True
+        assert settings.managed_oauth["storage_path"] == DEFAULT_STORAGE_PATH
+        assert (
+            settings.managed_oauth["selection_strategy"] == DEFAULT_SELECTION_STRATEGY
+        )
+        assert (
+            settings.managed_oauth["refresh_buffer_seconds"]
+            == DEFAULT_REFRESH_BUFFER_SECONDS
+        )
+        assert (
+            settings.managed_oauth["allow_legacy_fallback"]
+            == DEFAULT_ALLOW_LEGACY_FALLBACK
+        )
 
     def test_load_from_yaml_config(self, loader, app_config):
         """Test loading settings from YAML backend config."""
@@ -275,3 +294,49 @@ class TestSettingsLoader:
         if settings.default_capabilities.tool_text_format in {None, "none"}:
             # This is handled in the loader logic
             assert settings.default_capabilities.tool_text_format == "custom_format"
+
+    def test_managed_oauth_env_overrides_yaml(self, loader, app_config):
+        """Managed OAuth settings should follow ENV > YAML precedence."""
+        backend_config = BackendConfig(
+            extra={
+                "codex": {
+                    "managed_oauth": {
+                        "enabled": False,
+                        "storage_path": "yaml/path",
+                        "accounts": ["yaml_account"],
+                        "selection_strategy": "random",
+                        "refresh_buffer_seconds": 111,
+                        "session_affinity_ttl_seconds": 222,
+                        "session_affinity_max_entries": 333,
+                        "allow_legacy_fallback": False,
+                    }
+                }
+            }
+        )
+        app_config.backends.__dict__["openai_codex"] = backend_config
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_CODEX_MANAGED_OAUTH_ENABLED": "true",
+                "OPENAI_CODEX_MANAGED_OAUTH_STORAGE_PATH": "env/path",
+                "OPENAI_CODEX_MANAGED_OAUTH_ACCOUNTS": '["env_account_a","env_account_b"]',
+                "OPENAI_CODEX_MANAGED_OAUTH_SELECTION_STRATEGY": "session-affinity",
+                "OPENAI_CODEX_MANAGED_OAUTH_REFRESH_BUFFER_SECONDS": "444",
+                "OPENAI_CODEX_MANAGED_OAUTH_SESSION_AFFINITY_TTL_SECONDS": "555",
+                "OPENAI_CODEX_MANAGED_OAUTH_SESSION_AFFINITY_MAX_ENTRIES": "666",
+                "OPENAI_CODEX_MANAGED_OAUTH_ALLOW_LEGACY_FALLBACK": "true",
+            },
+            clear=False,
+        ):
+            settings = loader.load(app_config)
+
+        managed = settings.managed_oauth
+        assert managed["enabled"] is True
+        assert managed["storage_path"] == "env/path"
+        assert managed["accounts"] == ["env_account_a", "env_account_b"]
+        assert managed["selection_strategy"] == "session-affinity"
+        assert managed["refresh_buffer_seconds"] == 444
+        assert managed["session_affinity_ttl_seconds"] == 555
+        assert managed["session_affinity_max_entries"] == 666
+        assert managed["allow_legacy_fallback"] is True

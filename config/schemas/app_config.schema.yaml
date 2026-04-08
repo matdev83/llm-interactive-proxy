@@ -352,6 +352,42 @@ properties:
       hybrid_execution_model_timeout: { type: integer, minimum: 1 }
       hybrid_reasoning_latency_threshold: { type: number, minimum: 0.0 }
       hybrid_reasoning_backoff_turns: { type: integer, minimum: 0 }
+      openai_codex:
+        type: object
+        additionalProperties: true
+        properties:
+          timeout: { type: integer, minimum: 1 }
+          extra:
+            type: object
+            additionalProperties: true
+            properties:
+              codex:
+                type: object
+                additionalProperties: true
+                properties:
+                  managed_oauth:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      enabled: { type: boolean }
+                      storage_path: { type: string, minLength: 1 }
+                      accounts:
+                        oneOf:
+                          - type: string
+                            enum: ["all"]
+                          - type: array
+                            items: { type: string, minLength: 1 }
+                      selection_strategy:
+                        type: string
+                        enum:
+                          - round-robin
+                          - random
+                          - first-available
+                          - session-affinity
+                      refresh_buffer_seconds: { type: integer, minimum: 0 }
+                      session_affinity_ttl_seconds: { type: integer, minimum: 1 }
+                      session_affinity_max_entries: { type: integer, minimum: 1 }
+                      allow_legacy_fallback: { type: boolean }
   reasoning_aliases:
     type: object
     additionalProperties: false
@@ -670,6 +706,28 @@ properties:
       explicit_format_flags:
         type: array
         items: { type: string }
+      telemetry_include_content_hashes: { type: boolean }
+      alerts:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          failure_threshold: { type: integer, minimum: 1 }
+          fallback_threshold: { type: integer, minimum: 1 }
+          window_seconds: { type: integer, minimum: 1 }
+          cooldown_seconds: { type: integer, minimum: 1 }
+      recovery:
+        type: object
+        additionalProperties: false
+        properties:
+          mode: { type: string, enum: [never, failures, always] }
+          min_original_bytes: { type: integer, minimum: 0 }
+          min_saved_bytes: { type: integer, minimum: 0 }
+          max_artifact_bytes: { type: integer, minimum: 128 }
+          max_artifacts: { type: integer, minimum: 1 }
+          retention_seconds: { type: integer, minimum: 1 }
+          storage_dir: { type: string, minLength: 1 }
+          hint_in_text: { type: boolean }
       disable_categories:
         type: array
         items: { type: string }

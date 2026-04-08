@@ -84,6 +84,7 @@ When no CLI override applies and `notifications.enabled` is omitted in YAML, the
 | `--gemini-api-key KEY` | `GEMINI_API_KEY` | Google Gemini API Key. |
 | `--gemini-api-base-url URL` | `GEMINI_API_BASE_URL` | Google Gemini API Base URL. |
 | `--zai-api-key KEY` | `ZAI_API_KEY` | ZAI API Key. |
+| `--zai-coding-plan-api-key KEY` | N/A | ZAI Coding Plan API key (`backends.zai-coding-plan.api_key`). |
 | `--zenmux-api-base-url URL` | `ZENMUX_API_BASE_URL` | ZenMux API Base URL. |
 | N/A | `ANTHROPIC_API_KEY` | Anthropic API Key. |
 | N/A | `ANTHROPIC_API_BASE_URL` | Anthropic API Base URL. |
@@ -219,6 +220,22 @@ When no CLI override applies and `notifications.enabled` is omitted in YAML, the
 | :--- | :--- | :--- |
 | `--enable-context-compaction` | `ENABLE_CONTEXT_COMPACTION=true` | Enable history compaction to reduce stale tool outputs. (Default: Disabled) |
 | `--compaction-min-tokens N` | `COMPACTION_MIN_TOKENS` | Minimum tokens required to trigger compaction. (Default: 100,000) |
+
+### Dynamic Tool Output Compression
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--dynamic-compression-enabled` | N/A | Enable dynamic tool-output compression in request preparation. |
+| `--dynamic-compression-disabled` | N/A | Disable dynamic tool-output compression in request preparation. |
+| `--dynamic-compression-level LEVEL` | N/A | Base compression level (`conservative`, `balanced`, `aggressive`). |
+| `--dynamic-compression-max-level LEVEL` | N/A | Maximum level allowed during escalation. |
+| `--dynamic-compression-min-bytes BYTES` | N/A | Minimum output size required before compression is eligible. |
+| `--dynamic-compression-file-detail-include-line-numbers` | N/A | Include line numbers in `file_detail_levels` compressed output. |
+| `--dynamic-compression-file-detail-exclude-line-numbers` | N/A | Exclude line numbers in `file_detail_levels` compressed output. |
+| `--dynamic-compression-disable-categories CSV` | N/A | Comma-separated tool categories to bypass dynamic compression. |
+| `--dynamic-compression-disable-methods CSV` | N/A | Comma-separated compression methods to disable. |
+| `--dynamic-compression-disable-tools CSV` | N/A | Comma-separated tool names to bypass. |
+| `--dynamic-compression-disable-command-prefixes CSV` | N/A | Comma-separated command prefixes to bypass. |
 
 ---
 
