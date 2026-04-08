@@ -129,7 +129,7 @@ class OllamaConnector(OpenAIConnector):
             if isinstance(data, dict):
                 local_models = [
                     model["id"]
-                    for model in data.get("data", [])
+                    for model in data.get("data") or []
                     if isinstance(model, dict) and "id" in model
                 ]
             else:
