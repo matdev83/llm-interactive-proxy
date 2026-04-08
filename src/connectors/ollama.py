@@ -152,6 +152,19 @@ class OllamaConnector(OpenAIConnector):
                 len(cloud_models),
             )
 
+    def get_headers(self, identity: Any = None) -> dict[str, str]:
+        """Return request headers; inject a dummy bearer when no API key is set.
+
+        The parent ``OpenAIConnector`` gates streaming and non-streaming paths
+        on the presence of an ``Authorization`` header.  Ollama does not
+        require authentication, so we supply a placeholder value when no
+        real key is configured.  Ollama silently ignores the header.
+        """
+        headers = super().get_headers(identity)
+        if not headers.get("Authorization"):
+            headers["Authorization"] = "Bearer ollama"
+        return headers
+
     async def _prepare_payload(
         self,
         request_data: CanonicalChatRequest,

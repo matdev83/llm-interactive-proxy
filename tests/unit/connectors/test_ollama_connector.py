@@ -276,3 +276,35 @@ async def test_force_bypasses_cache() -> None:
         await _fetch_cloud_models(force=True)
 
     assert mock_client.get.call_count == 2
+
+
+# ------------------------------------------------------------------
+# get_headers: dummy bearer when no API key
+# ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_headers_injects_dummy_bearer_when_no_api_key() -> None:
+    """Without an API key, get_headers injects ``Bearer ollama`` so the
+    parent's auth gates pass without raising AuthenticationError."""
+    client = _make_mock_client({"data": []})
+    connector = OllamaConnector(client, config=AppConfig())
+
+    with patch.object(ollama_module, "_fetch_cloud_models", AsyncMock(return_value=[])):
+        await connector.initialize()
+
+    headers = connector.get_headers()
+    assert headers["Authorization"] == "Bearer ollama"
+
+
+@pytest.mark.asyncio
+async def test_get_headers_preserves_real_api_key() -> None:
+    """When a real API key is provided, it is used instead of the dummy."""
+    client = _make_mock_client({"data": []})
+    connector = OllamaConnector(client, config=AppConfig())
+
+    with patch.object(ollama_module, "_fetch_cloud_models", AsyncMock(return_value=[])):
+        await connector.initialize(api_key="sk-real-key-123")
+
+    headers = connector.get_headers()
+    assert headers["Authorization"] == "Bearer sk-real-key-123"
