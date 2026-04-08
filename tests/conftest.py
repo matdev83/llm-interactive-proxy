@@ -314,11 +314,19 @@ def _cleanup_root_artifacts() -> None:
 
     root = os.path.dirname(os.path.abspath(__file__))
     root = os.path.dirname(root)
-    for fname in ("compressed_pytest_output.txt",):
+    for fname in ("compressed_pytest_output.txt", "cbor_dump.txt"):
         path = os.path.join(root, fname)
         with contextlib.suppress(Exception):
             if os.path.exists(path):
                 os.remove(path)
+
+
+def pytest_runtest_setup(item) -> None:  # type: ignore[no-untyped-def]
+    """Ensure root-artifact cleanliness before cleanliness gate tests run."""
+    if item.nodeid.endswith(
+        "tests/test_project_root_cleanliness.py::test_no_txt_files_in_root"
+    ):
+        _cleanup_root_artifacts()
 
 
 def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]

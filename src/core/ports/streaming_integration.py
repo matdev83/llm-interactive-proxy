@@ -41,6 +41,7 @@ from src.core.services.streaming.tool_call_repair_processor import (
 from src.core.services.streaming.vtc_postprocessor import VTCPostProcessor
 from src.core.services.streaming.vtc_preprocessor import VTCPreProcessor
 from src.core.services.tool_call_repair_service import ToolCallRepairService
+from src.core.common.exceptions import LLMProxyError
 
 logger = logging.getLogger(__name__)
 
@@ -334,9 +335,30 @@ async def integrate_streaming_pipeline(
                 yield ProcessedResponse(
                     content=normalize_to_processed_chunk_content(sse_bytes)
                 )
+        except LLMProxyError as e:
+            # If the stream already started, we can't change the HTTP status.
+            # Emit a structured terminal error chunk so clients can stop waiting.
+            # Domain errors are logged at WARNING level without stack trace.
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Domain error in streaming pipeline mid-stream",
+                    extra={
+                        "provider": provider,
+                        "stream_id": stream_id,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                        "emitted_any": emitted_any,
+                    },
+                )
+            error_chunk = await handle_streaming_error(e, stream_id, provider)
+            yield ProcessedResponse(
+                content=normalize_to_processed_chunk_content(error_chunk.to_bytes())
+            )
+            return
         except Exception as e:
             # If the stream already started, we can't change the HTTP status.
             # Emit a structured terminal error chunk so clients can stop waiting.
+            # Unexpected exceptions are logged at ERROR level with stack trace.
             logger.error(
                 "Error in streaming pipeline",
                 exc_info=True,

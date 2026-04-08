@@ -25,6 +25,7 @@ from src.core.ports.streaming_contracts import (
     StreamingContent,
 )
 from src.core.ports.streaming_metrics import get_metrics_instance
+from src.core.common.exceptions import LLMProxyError
 
 logger = logging.getLogger(__name__)
 
@@ -236,8 +237,25 @@ class StreamingPipeline:
         except GeneratorExit:
             # Re-raise GeneratorExit to allow proper cleanup without logging errors
             raise
+        except LLMProxyError as e:
+            # Domain error (e.g. RateLimitExceededError) - log at lower level without stack trace.
+            # These are expected backend errors being propagated through the pipeline.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Domain error in streaming pipeline",
+                    extra={
+                        "provider": provider,
+                        "stream_id": stream_id,
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+            if stream_id:
+                # Still increment error metrics as it's a failed stream
+                self._metrics.increment_error_terminations(stream_id)
+            raise
         except Exception as e:
-            # Log error and increment error terminations
+            # Unexpected pipeline bug or catastrophic failure - log as ERROR with stack trace.
             logger.error(
                 "Error in streaming pipeline",
                 exc_info=True,

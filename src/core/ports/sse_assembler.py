@@ -410,9 +410,19 @@ class SSEAssembler(IStreamAssembler):
             # Mark done_emitted=True to prevent finally block from trying to yield to a closed generator
             done_emitted = True
             raise
+        except Exception:
+            # An error occurred during iteration.
+            # If we haven't emitted any data yet, we must NOT yield [DONE] in the finally block,
+            # because yielding in finally suspended an active exception, which causes anext()
+            # to return the yielded value instead of raising the exception.
+            # This is critical for early error detection (prefetching) in the pipeline.
+            if not first_data_emitted:
+                done_emitted = True
+            raise
         finally:
             # Ensure [DONE] is always emitted, even if stream ends unexpectedly
             # But NOT if the client disconnected (GeneratorExit)
+            # And NOT if we're in an early error state (handled in except block above)
             if not done_emitted:
                 yield SentinelManager.format_sse_done()
                 sentinel_stream_id = last_stream_id or generated_stream_id
