@@ -7,12 +7,11 @@ with typed domain models (never dicts).
 
 from __future__ import annotations
 
-import contextlib
 import copy
 import inspect
 import logging
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast, get_args, get_origin
 
 from pydantic.types import JsonValue
 
@@ -153,6 +152,58 @@ class ConnectorInvoker:
             options=options,
         )
 
+    @staticmethod
+    def _is_canonical_request_annotation(annotation: Any) -> bool:
+        """Return True when annotation accepts ConnectorChatCompletionsRequest."""
+        if annotation == ConnectorChatCompletionsRequest:
+            return True
+
+        # Handle string annotations / forward refs.
+        if (
+            isinstance(annotation, str)
+            and "ConnectorChatCompletionsRequest" in annotation
+        ):
+            return True
+
+        forward_arg = getattr(annotation, "__forward_arg__", None)
+        if (
+            isinstance(forward_arg, str)
+            and "ConnectorChatCompletionsRequest" in forward_arg
+        ):
+            return True
+
+        # Handle unions like ConnectorChatCompletionsRequest | None.
+        origin = get_origin(annotation)
+        if origin is not None:
+            args = get_args(annotation)
+            if ConnectorChatCompletionsRequest in args:
+                return True
+
+        return False
+
+    def _has_canonical_request_normalizer(self, backend: LLMBackend) -> bool:
+        """Detect strict variadic canonical adapters (e.g., Codex compatibility layer)."""
+        normalizer = getattr(backend, "_normalize_chat_completions_request", None)
+        if not callable(normalizer):
+            return False
+
+        try:
+            normalizer_sig = inspect.signature(normalizer)
+        except (TypeError, ValueError):
+            return False
+
+        normalizer_params = list(normalizer_sig.parameters.values())
+        has_varargs = any(
+            p.kind == inspect.Parameter.VAR_POSITIONAL for p in normalizer_params
+        )
+        has_varkw = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in normalizer_params
+        )
+        if not (has_varargs and has_varkw):
+            return False
+
+        return self._is_canonical_request_annotation(normalizer_sig.return_annotation)
+
     def _is_canonical_backend(self, backend: LLMBackend) -> bool:
         """Check if backend implements ICanonicalChatCompletionsBackend.
 
@@ -188,60 +239,67 @@ class ConnectorInvoker:
 
         params = list(sig.parameters.values())
 
-        # Filter out varargs (*args) and varkwargs (**kwargs) for counting
-        # Canonical API may have: chat_completions(request, *args, **kwargs)
-        # We only care about required positional/keyword parameters
-        required_params = [
+        # Canonical path A: explicit canonical-first signature:
+        #   chat_completions(request: ConnectorChatCompletionsRequest, ...)
+        # with only optional compatibility parameters after request.
+        positional_params = [
             p
             for p in params
             if p.kind
             in (
                 inspect.Parameter.POSITIONAL_ONLY,
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                inspect.Parameter.KEYWORD_ONLY,
             )
         ]
 
-        # Canonical API should have exactly 1 required parameter (request)
-        # Legacy API has many required parameters (request_data, processed_messages, etc.)
-        if len(required_params) != 1:
-            return False
+        if not positional_params:
+            # Canonical path B: strict variadic adapter, e.g. chat_completions(*args, **kwargs)
+            # that normalizes into ConnectorChatCompletionsRequest via a typed helper.
+            has_varargs = any(
+                p.kind == inspect.Parameter.VAR_POSITIONAL for p in params
+            )
+            has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params)
+            has_required_keyword_only = any(
+                p.kind == inspect.Parameter.KEYWORD_ONLY
+                and p.default is inspect.Parameter.empty
+                for p in params
+            )
+            if has_required_keyword_only:
+                return False
+            return (
+                has_varargs
+                and has_varkw
+                and self._has_canonical_request_normalizer(backend)
+            )
 
-        # Check the first required parameter
-        request_param = required_params[0]
+        request_param = positional_params[0]
 
-        # Parameter name should be "request" for canonical API
-        # Legacy API uses "request_data" as first parameter
+        # Parameter name should be "request" for canonical API.
         if request_param.name != "request":
             return False
 
-        # Check type annotation
-        param_annotation = request_param.annotation
+        # Require explicit canonical request annotation.
+        if not self._is_canonical_request_annotation(request_param.annotation):
+            return False
 
-        # Check if annotation matches ConnectorChatCompletionsRequest
-        if param_annotation == ConnectorChatCompletionsRequest:
-            return True
+        # Additional named parameters are allowed only if optional (backward-compat shims).
+        # Required parameters after `request` indicate legacy/non-canonical shape.
+        request_param_seen = False
+        for param in params:
+            if not request_param_seen and param is request_param:
+                request_param_seen = True
+                continue
+            if not request_param_seen:
+                continue
+            if param.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
+                continue
+            if param.default is inspect.Parameter.empty:
+                return False
 
-        # Handle string annotations (forward references)
-        if (
-            isinstance(param_annotation, str)
-            and "ConnectorChatCompletionsRequest" in param_annotation
-        ):
-            return True
-
-        # Check if annotation is a type that matches (handle Union, etc.)
-        with contextlib.suppress(AttributeError, TypeError):
-            from typing import get_args, get_origin
-
-            origin = get_origin(param_annotation)
-            if origin is not None:
-                args = get_args(param_annotation)
-                if ConnectorChatCompletionsRequest in args:
-                    return True
-
-        # Require explicit type annotation - do not fall back to True without verification
-        # This prevents misclassifying legacy connectors that happen to have a parameter named "request"
-        return False
+        return True
 
     async def invoke(
         self,
@@ -338,12 +396,16 @@ class ConnectorInvoker:
             kwargs: dict[str, Any] = dict(options)
 
             # Invoke legacy API with canonical domain models
-            return await backend.chat_completions(
-                request_data=domain_request,  # Canonical domain model, never dict
-                processed_messages=list(canonical_request.messages),  # Typed values
-                effective_model=effective_model,
-                identity=identity,
-                cancellation_token=cancellation_token,
-                cancellation_coordinator=cancellation_coordinator,
-                **kwargs,  # Options expanded here only
+            legacy_backend: Any = backend
+            return cast(
+                ResponseEnvelope | StreamingResponseEnvelope,
+                await legacy_backend.chat_completions(
+                    request_data=domain_request,  # Canonical domain model, never dict
+                    processed_messages=list(canonical_request.messages),  # Typed values
+                    effective_model=effective_model,
+                    identity=identity,
+                    cancellation_token=cancellation_token,
+                    cancellation_coordinator=cancellation_coordinator,
+                    **kwargs,  # Options expanded here only
+                ),
             )

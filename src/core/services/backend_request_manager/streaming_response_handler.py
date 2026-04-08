@@ -142,9 +142,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         self._cancellation_coordinator = cancellation_coordinator
         self._backend_work_guard = backend_work_guard
 
-    def _extract_text_from_chunk(self, chunk: ProcessedResponse) -> str:
+    @staticmethod
+    def _coerce_processed_chunk(raw_chunk: Any) -> ProcessedResponse:
+        """Normalize raw stream chunks into ProcessedResponse objects."""
+        if isinstance(raw_chunk, ProcessedResponse):
+            return raw_chunk
+        return ProcessedResponse(
+            content=normalize_to_processed_chunk_content(raw_chunk),
+            metadata={},
+        )
+
+    def _extract_text_from_chunk(self, chunk: Any) -> str:
         """Extract textual content from a streaming chunk."""
-        content = chunk.content
+        content = getattr(chunk, "content", chunk)
         if isinstance(content, str):
             return content
         if isinstance(content, bytes):
@@ -170,7 +180,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         return str(content) if content is not None else ""
 
     @staticmethod
-    def _extract_terminal_error_status(chunk: ProcessedResponse) -> int | None:
+    def _extract_terminal_error_status(chunk: Any) -> int | None:
         metadata = getattr(chunk, "metadata", {}) or {}
         finish_reason = metadata.get("finish_reason")
         error_payload = metadata.get("error")
@@ -1118,7 +1128,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             swallowed_detected = False
 
             async for raw_chunk in verified_stream:
-                chunk = raw_chunk
+                chunk = self._coerce_processed_chunk(raw_chunk)
                 # Check for tool-call swallowed
                 metadata = getattr(chunk, "metadata", {}) or {}
                 if (

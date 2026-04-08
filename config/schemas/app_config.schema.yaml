@@ -658,6 +658,117 @@ properties:
         type: boolean
         default: false
         description: "Redact file paths and commands in compaction stubs (trade-off: security vs debuggability)"
+  dynamic_compression:
+    type: object
+    additionalProperties: true
+    properties:
+      enabled: { type: boolean }
+      level: { type: string, enum: [conservative, balanced, aggressive] }
+      max_level: { type: string, enum: [conservative, balanced, aggressive] }
+      min_bytes: { type: integer, minimum: 0 }
+      time_budget_ms_per_output: { type: integer, minimum: 1 }
+      explicit_format_flags:
+        type: array
+        items: { type: string }
+      disable_categories:
+        type: array
+        items: { type: string }
+      disable_methods:
+        type: array
+        items: { type: string }
+      disable_tools:
+        type: array
+        items: { type: string }
+      disable_command_prefixes:
+        type: array
+        items: { type: string }
+      categories:
+        type: object
+        additionalProperties: { type: boolean }
+      methods:
+        type: object
+        additionalProperties:
+          anyOf:
+            - { type: boolean }
+            - { type: string, enum: [inherit_legacy] }
+      noise_directories:
+        type: array
+        items: { type: string }
+      search_context_lines: { type: integer, minimum: 0 }
+      search_max_matches_per_file: { type: integer, minimum: 1 }
+      search_max_total_groups: { type: integer, minimum: 1 }
+      search_max_line_length: { type: integer, minimum: 20 }
+      file_detail_mode:
+        type: string
+        enum: [auto, full, structure, signatures]
+      file_detail_fallback_mode:
+        type: string
+        enum: [full, structure, signatures]
+      file_detail_auto_full_max_lines: { type: integer, minimum: 1 }
+      file_detail_auto_structure_max_lines: { type: integer, minimum: 1 }
+      file_detail_include_line_numbers: { type: boolean }
+      file_detail_max_lines: { type: ["integer", "null"], minimum: 0 }
+      file_detail_last_n_lines: { type: ["integer", "null"], minimum: 0 }
+      output_pattern_rules:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [pattern, message]
+          properties:
+            pattern: { type: string, minLength: 1 }
+            message: { type: string }
+            unless: { type: ["string", "null"] }
+            fallback_message: { type: string, minLength: 1 }
+      output_pattern_regex_timeout_ms: { type: integer, minimum: 1 }
+      diff_max_lines_per_hunk: { type: integer, minimum: 1 }
+      diff_max_total_lines: { type: integer, minimum: 10 }
+      json_structural_max_depth: { type: integer, minimum: 1 }
+      json_structural_max_keys_per_object: { type: integer, minimum: 1 }
+      json_structural_max_array_elements: { type: integer, minimum: 1 }
+      json_structural_string_max_len: { type: integer, minimum: 8 }
+      json_structural_min_bytes: { type: integer, minimum: 0 }
+      xml_safeguard_text_max_len: { type: integer, minimum: 16 }
+      xml_safeguard_min_bytes: { type: integer, minimum: 0 }
+      log_dedupe_min_repeat: { type: integer, minimum: 2 }
+      log_dedupe_min_bytes: { type: integer, minimum: 0 }
+      sensitive_projection_skip_prefixes:
+        type: array
+        items: { type: string }
+      marker:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          style: { type: string, enum: [prefix, suffix, none] }
+          include_sizes: { type: boolean }
+          include_methods: { type: boolean }
+          structured_payload_mode: { type: string, enum: [out_of_band_only] }
+      rules:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          properties:
+            name: { type: string }
+            priority: { type: integer, minimum: 0 }
+            when:
+              type: object
+              additionalProperties: false
+              properties:
+                tool_name: { type: ["string", "null"] }
+                tool_category: { type: ["string", "null"] }
+                command_signature: { type: ["string", "null"] }
+                command_prefix: { type: ["string", "null"] }
+                has_explicit_format: { type: ["boolean", "null"] }
+                min_bytes: { type: ["integer", "null"], minimum: 0 }
+                max_bytes: { type: ["integer", "null"], minimum: 0 }
+                content_types:
+                  type: array
+                  items: { type: string }
+            pipeline:
+              type: array
+              items: { type: string }
   non_forwardable_tagging:
     type: object
     additionalProperties: false

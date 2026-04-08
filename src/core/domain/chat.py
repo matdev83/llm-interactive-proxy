@@ -327,6 +327,10 @@ class ChatRequest(ValueObject):
     session_id: str | None = None
     agent: str | None = None  # Add agent field
     extra_body: dict[str, Any] | None = None
+    compression_diagnostics: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,
+    )
     vtc_enabled: bool | None = None  # Virtual Tool Calling mode for Cline-like clients
 
     # Reasoning parameters for o1, o3, o4-mini and other reasoning models

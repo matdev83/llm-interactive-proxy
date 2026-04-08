@@ -42,6 +42,10 @@ Recent resilience hardening adds safer retry and failover behavior by default:
 
 `resilience.circuit_breaker` is now a first-class config block in `config.yaml` for threshold/cooldown tuning.
 
+## Dynamic Tool-Output Compression
+
+The proxy supports strategy-based compression for `role="tool"` outputs during backend request preparation. It is disabled by default (`dynamic_compression.enabled: false`) with deterministic precedence (CLI > ENV > YAML > defaults), configured via `dynamic_compression.*`, `DYNAMIC_COMPRESSION_*`, or CLI flags (for example `--dynamic-compression-enabled`), and skips Gemini connector truncation when enabled to avoid double-reduction. Built-in strategies now include ANSI normalization, dedupe/grouping, unified-diff compaction, directory/listing summaries, search-result grouping, file-read detail/line-window reductions, failure-focused test/build reduction, diagnostics grouping (file/rule), JSON/NDJSON structural summarization, XML parseability-preserving safeguards, noisy-log dedupe with volatile-field normalization, and sensitive-field projection for env/cloud-style outputs. File-detail outputs can optionally include line numbers through `dynamic_compression.file_detail_include_line_numbers` (`DYNAMIC_COMPRESSION_FILE_DETAIL_INCLUDE_LINE_NUMBERS`, `--dynamic-compression-file-detail-include-line-numbers`, `--dynamic-compression-file-detail-exclude-line-numbers`).
+
 ## Quick Start
 
 ### 1. Clone and install

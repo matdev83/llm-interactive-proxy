@@ -10,13 +10,11 @@ from typing import TYPE_CHECKING, Any, cast
 from src.core.config.app_config import AppConfig
 from src.core.domain.connection_activity import ConnectionType
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.session_key import SessionKey
 from src.core.interfaces.activity_tracker_interface import IConnectionActivityTracker
-from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.health_aware_interface import IHealthAware
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 if TYPE_CHECKING:
+    from src.connectors.contracts import ConnectorChatCompletionsRequest
     from src.core.interfaces.response_processor_interface import IResponseProcessor
 
 logger = logging.getLogger(__name__)
@@ -252,15 +250,7 @@ class LLMBackend(abc.ABC, IHealthAware):
     @abc.abstractmethod
     async def chat_completions(
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
-        processed_messages: list,  # Messages after command processing
-        effective_model: str,  # Model after considering override
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """
         Forwards a chat completion request to the LLM backend.

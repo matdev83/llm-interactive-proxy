@@ -10,6 +10,7 @@ See: post-mortem for "gemini-oauth connectors cease to work" incident.
 
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -37,6 +38,13 @@ class DummyGeminiOAuthConnector(GeminiOAuthBaseConnector):
         return "dummy-project"
 
 
+def _stub_connector_methods(connector: DummyGeminiOAuthConnector) -> Any:
+    stub = cast(Any, connector)
+    stub._validate_runtime_credentials = AsyncMock(return_value=True)
+    stub._ensure_healthy = AsyncMock()
+    return stub
+
+
 class TestGeminiOAuthConnectorLegacyKwargsContract:
     """Guard tests for the legacy ``**kwargs`` calling pattern.
 
@@ -51,27 +59,25 @@ class TestGeminiOAuthConnectorLegacyKwargsContract:
 
         sig = inspect.signature(GeminiOAuthBaseConnector.chat_completions)
         params = list(sig.parameters.keys())
-        assert "**kwargs" in params or "kwargs" in params, (
-            f"chat_completions must have **kwargs.  Parameters: {params}"
-        )
+        assert (
+            "**kwargs" in params or "kwargs" in params
+        ), f"chat_completions must have **kwargs.  Parameters: {params}"
 
     def test_signature_accepts_processed_messages_kwarg(self) -> None:
         """``chat_completions`` must accept ``processed_messages`` as a keyword arg."""
         import inspect
 
         sig = inspect.signature(GeminiOAuthBaseConnector.chat_completions)
-        assert "kwargs" in list(sig.parameters.keys()), (
-            "chat_completions must have **kwargs to accept processed_messages"
-        )
+        assert "kwargs" in list(
+            sig.parameters.keys()
+        ), "chat_completions must have **kwargs to accept processed_messages"
 
     @pytest.mark.asyncio
     async def test_legacy_non_streaming_kwargs_dispatches_internally(self) -> None:
         """Legacy call with ``request_data, processed_messages, effective_model``
         must dispatch to ``_chat_completions_code_assist`` (non-streaming).
         """
-        connector = DummyGeminiOAuthConnector()
-        connector._validate_runtime_credentials = AsyncMock(return_value=True)
-        connector._ensure_healthy = AsyncMock()
+        connector = _stub_connector_methods(DummyGeminiOAuthConnector())
         mock_internal = connector._chat_completions_code_assist = AsyncMock(
             return_value=ResponseEnvelope(
                 content={"id": "test"},
@@ -99,9 +105,7 @@ class TestGeminiOAuthConnectorLegacyKwargsContract:
         """Legacy call with ``request_data`` having ``stream=True`` must
         dispatch to ``_chat_completions_code_assist_streaming``.
         """
-        connector = DummyGeminiOAuthConnector()
-        connector._validate_runtime_credentials = AsyncMock(return_value=True)
-        connector._ensure_healthy = AsyncMock()
+        connector = _stub_connector_methods(DummyGeminiOAuthConnector())
         mock_internal = connector._chat_completions_code_assist_streaming = AsyncMock(
             return_value=StreamingResponseEnvelope(
                 content=AsyncMock(),
@@ -126,11 +130,60 @@ class TestGeminiOAuthConnectorLegacyKwargsContract:
         mock_internal.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_legacy_kwargs_normalizes_vendor_prefixed_model(self) -> None:
+        """Legacy kwargs path must strip the vendor prefix before dispatch.
+
+        The sibling oauth-connectors repo passes vendor-prefixed public model names,
+        but Code Assist expects the internal model identifier.
+        """
+        connector = _stub_connector_methods(DummyGeminiOAuthConnector())
+        mock_internal = connector._chat_completions_code_assist_streaming = AsyncMock(
+            return_value=StreamingResponseEnvelope(
+                content=AsyncMock(),
+                media_type="text/event-stream",
+                headers={},
+            )
+        )
+
+        request_data = CanonicalChatRequest(
+            model="gemini-oauth-plan:google/gemini-3-flash-preview",
+            messages=[ChatMessage(role="user", content="Hi")],
+            stream=True,
+        )
+
+        await connector.chat_completions(
+            request_data=request_data,
+            processed_messages=[ChatMessage(role="user", content="Hi")],
+            effective_model="google/gemini-3-flash-preview",
+            context=None,
+        )
+
+        assert mock_internal.call_args.kwargs["effective_model"] == (
+            "gemini-3-flash-preview"
+        )
+
+    @pytest.mark.asyncio
+    async def test_legacy_kwargs_normalizes_backend_prefixed_model(self) -> None:
+        """Legacy kwargs path must strip this backend's public prefix too."""
+        connector = _stub_connector_methods(DummyGeminiOAuthConnector())
+        mock_internal = connector._chat_completions_code_assist = AsyncMock(
+            return_value=ResponseEnvelope(content={"id": "x"}, status_code=200)
+        )
+
+        await connector.chat_completions(
+            request_data=MagicMock(stream=False),
+            processed_messages=[],
+            effective_model="gemini-oauth-test:google/gemini-3-flash-preview",
+        )
+
+        assert mock_internal.call_args.kwargs["effective_model"] == (
+            "gemini-3-flash-preview"
+        )
+
+    @pytest.mark.asyncio
     async def test_legacy_kwargs_forwards_context(self) -> None:
         """``context=`` must be forwarded to the internal dispatcher."""
-        connector = DummyGeminiOAuthConnector()
-        connector._validate_runtime_credentials = AsyncMock(return_value=True)
-        connector._ensure_healthy = AsyncMock()
+        connector = _stub_connector_methods(DummyGeminiOAuthConnector())
         mock_internal = connector._chat_completions_code_assist = AsyncMock(
             return_value=ResponseEnvelope(
                 content={"id": "test"},
@@ -158,9 +211,7 @@ class TestGeminiOAuthConnectorLegacyKwargsContract:
         """Arbitrary extra kwargs must be forwarded (supports gemini_oauth_free's
         ``api_key``, ``project``, ``openrouter_api_base_url``, etc.).
         """
-        connector = DummyGeminiOAuthConnector()
-        connector._validate_runtime_credentials = AsyncMock(return_value=True)
-        connector._ensure_healthy = AsyncMock()
+        connector = _stub_connector_methods(DummyGeminiOAuthConnector())
         mock_internal = connector._chat_completions_code_assist = AsyncMock(
             return_value=ResponseEnvelope(content={"id": "x"}, status_code=200)
         )
@@ -185,9 +236,7 @@ class TestGeminiOAuthConnectorLegacyKwargsContract:
         """Calling with a ``ConnectorChatCompletionsRequest`` must use the
         canonical ``_chat_completions_canonical`` path.
         """
-        connector = DummyGeminiOAuthConnector()
-        connector._validate_runtime_credentials = AsyncMock(return_value=True)
-        connector._ensure_healthy = AsyncMock()
+        connector = _stub_connector_methods(DummyGeminiOAuthConnector())
         mock_canonical = connector._chat_completions_canonical = AsyncMock(
             return_value=ResponseEnvelope(content={"id": "test"}, status_code=200)
         )

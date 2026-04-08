@@ -1,0 +1,272 @@
+from __future__ import annotations
+
+from src.core.config.app_config import AppConfig
+from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
+from src.core.domain.configuration.dynamic_compression_config import (
+    CompressionLevel,
+    DynamicCompressionConfig,
+)
+from src.core.domain.dynamic_compression import ToolOutputContentType, ToolOutputContext
+from src.core.services.legacy_compression_compatibility_resolver import (
+    LegacyCompressionCompatibilityResolver,
+)
+from src.core.services.rule_based_strategy_selector import RuleBasedStrategySelector
+
+
+def _tool_output_context(
+    *,
+    command_signature: str,
+    content: str,
+    content_type: ToolOutputContentType = ToolOutputContentType.TEXT,
+    has_explicit_format: bool = False,
+) -> ToolOutputContext:
+    context = ToolOutputContext.for_text(
+        tool_name="shell",
+        tool_category="command_execution",
+        content=content,
+        command_signature=command_signature,
+        command_prefix=command_signature,
+    )
+    return context.model_copy(
+        update={
+            "content_type": content_type,
+            "has_explicit_format": has_explicit_format,
+            "is_machine_parseable": content_type
+            in {
+                ToolOutputContentType.JSON,
+                ToolOutputContentType.NDJSON,
+                ToolOutputContentType.XML,
+            },
+        }
+    )
+
+
+def test_dynamic_compression_defaults_are_safe() -> None:
+    cfg = DynamicCompressionConfig()
+
+    assert cfg.enabled is False
+    assert cfg.level == CompressionLevel.CONSERVATIVE
+    assert cfg.max_level == CompressionLevel.AGGRESSIVE
+    assert cfg.min_bytes == 1024
+    assert cfg.marker.enabled is True
+    assert cfg.marker.structured_payload_mode == "out_of_band_only"
+
+
+def test_dynamic_compression_defaults_include_rtk_generic_primitives() -> None:
+    cfg = DynamicCompressionConfig()
+
+    assert cfg.methods["group_paths"] is True
+    assert cfg.methods["failure_focus_generic"] is True
+    assert cfg.methods["diagnostics_grouping"] is True
+    assert cfg.methods["json_ndjson_structural"] is True
+    assert cfg.methods["xml_machine_safeguard"] is True
+    assert cfg.methods["log_line_dedupe"] is True
+    assert cfg.methods["sensitive_field_projection"] is True
+    assert cfg.methods["output_pattern_match"] is True
+    assert cfg.methods["diff_compact"] is True
+    assert cfg.methods["directory_tree_summary"] is True
+    assert cfg.methods["search_results_grouping"] is True
+    assert cfg.methods["file_detail_levels"] is True
+    assert "node_modules" in cfg.noise_directories
+    assert cfg.search_context_lines == 2
+    assert cfg.search_max_matches_per_file == 8
+    assert cfg.file_detail_mode == "auto"
+    assert cfg.file_detail_fallback_mode == "full"
+    assert cfg.file_detail_include_line_numbers is False
+    assert cfg.output_pattern_regex_timeout_ms == 25
+    assert cfg.diff_max_lines_per_hunk == 100
+    assert cfg.diff_max_total_lines == 500
+    assert len(cfg.rules) >= 1
+    rule_names = {rule.name for rule in cfg.rules}
+    assert "pytest_command" in rule_names
+    assert "cargo_outputs" in rule_names
+    assert "json_ndjson_structural" in rule_names
+    assert "xml_machine_safeguard" in rule_names
+
+
+def test_default_sensitive_rules_require_text_and_non_explicit_format() -> None:
+    cfg = DynamicCompressionConfig()
+    rules_by_name = {rule.name: rule for rule in cfg.rules}
+    sensitive_rule_names = {
+        "sensitive_printenv",
+        "sensitive_env_dump",
+        "sensitive_aws",
+        "sensitive_gcloud",
+        "sensitive_terraform",
+    }
+
+    for rule_name in sensitive_rule_names:
+        predicate = rules_by_name[rule_name].when
+        assert predicate.content_types == ["text"]
+        assert predicate.has_explicit_format is False
+
+
+def test_default_sensitive_rule_selection_keeps_expected_text_coverage() -> None:
+    cfg = DynamicCompressionConfig(enabled=True)
+    selector = RuleBasedStrategySelector()
+    content = "API_KEY=" + ("x" * 128)
+    expected = {
+        "printenv": "sensitive_printenv",
+        "env": "sensitive_env_dump",
+        "aws": "sensitive_aws",
+        "gcloud": "sensitive_gcloud",
+        "terraform": "sensitive_terraform",
+    }
+
+    for command_signature, expected_rule in expected.items():
+        context = _tool_output_context(
+            command_signature=command_signature,
+            content=content,
+        )
+        selected = selector.select_rule(context, cfg)
+        assert selected is not None
+        assert selected.name == expected_rule
+
+
+def test_default_sensitive_rules_skip_explicit_and_structured_contexts() -> None:
+    cfg = DynamicCompressionConfig(enabled=True)
+    selector = RuleBasedStrategySelector()
+    command_signatures = ("printenv", "env", "aws", "gcloud", "terraform")
+    explicit_text = "TOKEN=" + ("x" * 128)
+    structured_payload = '{"token":"' + ("x" * 96) + '"}'
+
+    for command_signature in command_signatures:
+        explicit_context = _tool_output_context(
+            command_signature=command_signature,
+            content=explicit_text,
+            has_explicit_format=True,
+        )
+        assert selector.select_rule(explicit_context, cfg) is None
+
+        structured_context = _tool_output_context(
+            command_signature=command_signature,
+            content=structured_payload,
+            content_type=ToolOutputContentType.JSON,
+        )
+        assert selector.select_rule(structured_context, cfg) is None
+
+
+def test_app_config_accepts_dynamic_compression_block() -> None:
+    app_cfg = AppConfig.model_validate(
+        {
+            "dynamic_compression": {
+                "enabled": True,
+                "level": "balanced",
+                "max_level": "aggressive",
+                "min_bytes": 256,
+                "file_detail_include_line_numbers": True,
+                "disable_categories": ["search"],
+                "disable_methods": ["line_dedupe"],
+                "disable_tools": ["shell"],
+                "disable_command_prefixes": ["git diff --stat"],
+            }
+        }
+    )
+
+    dc = app_cfg.dynamic_compression
+    assert dc.enabled is True
+    assert dc.level == CompressionLevel.BALANCED
+    assert dc.max_level == CompressionLevel.AGGRESSIVE
+    assert dc.min_bytes == 256
+    assert dc.file_detail_include_line_numbers is True
+    assert dc.disable_categories == ["search"]
+    assert dc.disable_methods == ["line_dedupe"]
+    assert dc.disable_tools == ["shell"]
+    assert dc.disable_command_prefixes == ["git diff --stat"]
+
+
+def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
+    resolution = ParameterResolution()
+    cfg = AppConfig.from_env(
+        environ={
+            "DYNAMIC_COMPRESSION_ENABLED": "true",
+            "DYNAMIC_COMPRESSION_LEVEL": "balanced",
+            "DYNAMIC_COMPRESSION_MAX_LEVEL": "aggressive",
+            "DYNAMIC_COMPRESSION_MIN_BYTES": "512",
+            "DYNAMIC_COMPRESSION_FILE_DETAIL_INCLUDE_LINE_NUMBERS": "true",
+            "DYNAMIC_COMPRESSION_DISABLE_METHODS": "ansi_normalize,line_dedupe",
+        },
+        resolution=resolution,
+    )
+
+    assert cfg.dynamic_compression.enabled is True
+    assert cfg.dynamic_compression.level == CompressionLevel.BALANCED
+    assert cfg.dynamic_compression.max_level == CompressionLevel.AGGRESSIVE
+    assert cfg.dynamic_compression.min_bytes == 512
+    assert cfg.dynamic_compression.file_detail_include_line_numbers is True
+    assert cfg.dynamic_compression.disable_methods == [
+        "ansi_normalize",
+        "line_dedupe",
+    ]
+
+    env_paths = set(resolution.latest_by_source(ParameterSource.ENVIRONMENT))
+    assert "dynamic_compression.enabled" in env_paths
+    assert "dynamic_compression.level" in env_paths
+    assert "dynamic_compression.max_level" in env_paths
+    assert "dynamic_compression.min_bytes" in env_paths
+    assert "dynamic_compression.file_detail_include_line_numbers" in env_paths
+    assert "dynamic_compression.disable_methods" in env_paths
+
+
+def test_legacy_pytest_inherit_uses_legacy_value() -> None:
+    resolver = LegacyCompressionCompatibilityResolver()
+
+    decision = resolver.resolve_pytest_mode(
+        legacy_pytest_enabled=False,
+        dynamic_pytest_mode="inherit_legacy",
+    )
+    assert decision.effective_enabled is False
+    assert decision.source == "legacy"
+
+
+def test_legacy_pytest_explicit_dynamic_override_wins() -> None:
+    resolver = LegacyCompressionCompatibilityResolver()
+
+    decision = resolver.resolve_pytest_mode(
+        legacy_pytest_enabled=False,
+        dynamic_pytest_mode=True,
+    )
+    assert decision.effective_enabled is True
+    assert decision.source == "dynamic_override"
+    assert decision.overridden is True
+
+
+def test_legacy_pytest_ambiguity_fails_open_with_structured_warning() -> None:
+    resolver = LegacyCompressionCompatibilityResolver()
+
+    decision, diagnostics = resolver.resolve_pytest_mode_with_diagnostics(
+        legacy_pytest_enabled=False,
+        dynamic_pytest_mode="legacy_preferred",
+    )
+
+    assert decision.effective_enabled is False
+    assert decision.source == "legacy"
+    assert diagnostics.applied == ["session.pytest_compression_enabled"]
+    assert diagnostics.ignored == ["dynamic_compression.methods.pytest_failure_focus"]
+    assert diagnostics.inactive == ["dynamic_compression.methods.pytest_failure_focus"]
+    assert diagnostics.overridden == []
+    assert diagnostics.warnings == [
+        "Invalid dynamic pytest mode detected; falling back to legacy pytest compression setting."
+    ]
+
+
+def test_legacy_pytest_override_diagnostics_are_deterministic() -> None:
+    resolver = LegacyCompressionCompatibilityResolver()
+
+    first = resolver.resolve_pytest_mode_with_diagnostics(
+        legacy_pytest_enabled=False,
+        dynamic_pytest_mode=True,
+    )
+    second = resolver.resolve_pytest_mode_with_diagnostics(
+        legacy_pytest_enabled=False,
+        dynamic_pytest_mode=True,
+    )
+
+    assert first == second
+    decision, diagnostics = first
+    assert decision.effective_enabled is True
+    assert diagnostics.applied == ["dynamic_compression.methods.pytest_failure_focus"]
+    assert diagnostics.overridden == ["session.pytest_compression_enabled"]
+    assert any(
+        "pytest_failure_focus overrides" in warning for warning in diagnostics.warnings
+    )

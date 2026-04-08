@@ -248,8 +248,14 @@ def _register_backend_request_preparation_service(
     from src.core.interfaces.history_compaction_interface import (
         IHistoryCompactionService,
     )
+    from src.core.interfaces.tool_output_compression_interface import (
+        IToolOutputCompressionService,
+    )
     from src.core.services.backend_request_preparation_service import (
         BackendRequestPreparationService,
+    )
+    from src.core.services.legacy_compression_compatibility_resolver import (
+        LegacyCompressionCompatibilityResolver,
     )
 
     def _backend_request_preparation_factory(
@@ -258,10 +264,18 @@ def _register_backend_request_preparation_service(
         history_compaction_service = provider.get_service(
             cast(type, IHistoryCompactionService)
         )
+        tool_output_compression_service = provider.get_service(
+            cast(type, IToolOutputCompressionService)
+        )
+        legacy_compression_compatibility_resolver = provider.get_service(
+            LegacyCompressionCompatibilityResolver
+        )
         config = provider.get_service(AppConfig)
         return BackendRequestPreparationService(
             history_compaction_service=history_compaction_service,
             config=config,
+            tool_output_compression_service=tool_output_compression_service,
+            legacy_compression_compatibility_resolver=legacy_compression_compatibility_resolver,
         )
 
     register_singleton_if_absent(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -228,10 +228,12 @@ def test_core_only_mode_keeps_openai_request_path_operational(
 
     async def _exercise_app() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
             with patch(
-                "src.connectors.openai.OpenAIConnector.chat_completions",
-                return_value=stubbed_response,
+                "src.core.services.backend_service.BackendService.call_completion",
+                new=AsyncMock(return_value=stubbed_response),
             ):
                 response = await client.post(
                     "/v1/chat/completions",

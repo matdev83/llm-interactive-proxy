@@ -16,6 +16,9 @@ from typing import Any, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.di.registration_helpers._compression_registration import (
+    register_tool_output_compression_services,
+)
 from src.core.di.registrations._shared import (
     register_singleton_if_absent,
 )
@@ -410,6 +413,9 @@ def register_application_state_services(services: ServiceCollection) -> None:
                 e,
                 exc_info=True,
             )
+
+    # Register tool output compression services and dependencies.
+    register_tool_output_compression_services(services=services, logger=logger)
 
     # Register NotificationService
     _register_notification_service(services)

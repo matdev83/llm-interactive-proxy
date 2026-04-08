@@ -39,6 +39,10 @@ from src.connectors.gemini_base.thought_signature_service import (
 )
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat_history_utils import stringify_tool_calls_and_results
+from src.core.interfaces.legacy_compression_compatibility_resolver_interface import (
+    ILegacyCompressionCompatibilityResolver,
+    create_default_legacy_compression_compatibility_resolver,
+)
 
 if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
@@ -129,6 +133,9 @@ class ChatRequestPreparer:
         # Injectable services
         translation_service: "TranslationService | None" = None,
         google_auth_provider: IGoogleAuthProvider | None = None,
+        legacy_compression_compatibility_resolver: (
+            ILegacyCompressionCompatibilityResolver | None
+        ) = None,
         # Backward compatibility: accepts a connector that provides all interfaces
         connector: Any | None = None,
     ) -> None:
@@ -143,6 +150,7 @@ class ChatRequestPreparer:
             thought_signature_service: Interface for thought signature management.
             translation_service: Service for request/response translation.
             google_auth_provider: Google auth provider for creating sessions.
+            legacy_compression_compatibility_resolver: Compatibility precedence resolver.
             connector: (Backward compat) A connector implementing all interfaces.
         """
         # If a connector is provided, extract interfaces from it
@@ -170,6 +178,10 @@ class ChatRequestPreparer:
         )
         self._thought_signature_service = (
             thought_signature_service or get_default_thought_signature_service()
+        )
+        self._legacy_compression_compatibility_resolver = (
+            legacy_compression_compatibility_resolver
+            or create_default_legacy_compression_compatibility_resolver()
         )
 
         # Reference the module-level adapter so the connection pool
@@ -555,9 +567,7 @@ class ChatRequestPreparer:
         ``contents`` array so it sits as early as possible in the context window.
         """
         # 1. Check if the connector is a gemini-oauth backend
-        backend_type: str = getattr(
-            self._connector_context, "backend_type", ""
-        ) or ""
+        backend_type: str = getattr(self._connector_context, "backend_type", "") or ""
         if not backend_type.startswith("gemini-oauth"):
             return
 
@@ -782,10 +792,46 @@ class ChatRequestPreparer:
         return True
 
     def _resolve_tool_output_truncation_limits(self) -> tuple[int | None, int | None]:
-        if self._is_compaction_enabled():
-            self._log_truncation_skip()
+        max_chars, max_lines = self._resolve_configured_tool_output_truncation_limits()
+        compaction_enabled = self._is_compaction_enabled()
+        dynamic_compression_enabled = self._is_dynamic_compression_enabled()
+        try:
+            decision, diagnostics = (
+                self._legacy_compression_compatibility_resolver.resolve_connector_truncation_with_diagnostics(
+                    connector_max_chars=max_chars,
+                    connector_max_lines=max_lines,
+                    compaction_enabled=compaction_enabled,
+                    dynamic_compression_enabled=dynamic_compression_enabled,
+                )
+            )
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Connector truncation compatibility resolution failed open; "
+                    "disabling connector-level tool output truncation: %s",
+                    exc,
+                    exc_info=True,
+                )
             return None, None
 
+        if decision.source in {
+            "history_compaction",
+            "dynamic_compression",
+            "history_compaction+dynamic_compression",
+        }:
+            self._log_truncation_skip()
+
+        if diagnostics.warnings and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Connector truncation compatibility diagnostics: %s",
+                diagnostics.model_dump(mode="json"),
+            )
+
+        return decision.effective_max_chars, decision.effective_max_lines
+
+    def _resolve_configured_tool_output_truncation_limits(
+        self,
+    ) -> tuple[int | None, int | None]:
         env_chars = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS")
         env_lines = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES")
 
@@ -830,6 +876,17 @@ class ChatRequestPreparer:
             return bool(compaction.get("enabled"))
         return bool(getattr(compaction, "enabled", False))
 
+    def _is_dynamic_compression_enabled(self) -> bool:
+        connector = self._connector_context
+        config = getattr(connector, "config", None)
+        if config is None:
+            return False
+
+        dynamic = getattr(config, "dynamic_compression", None)
+        if isinstance(dynamic, dict):
+            return bool(dynamic.get("enabled"))
+        return bool(getattr(dynamic, "enabled", False))
+
     def _log_truncation_skip(self) -> None:
         level = self._resolve_truncation_log_level()
         if level is None:
@@ -837,7 +894,7 @@ class ChatRequestPreparer:
         if logger.isEnabledFor(level):
             logger.log(
                 level,
-                "Skipping tool output truncation because history compaction is enabled",
+                "Skipping tool output truncation because history compaction or dynamic compression is enabled",
             )
 
     def _resolve_truncation_log_level(self) -> int | None:

@@ -341,6 +341,13 @@ def apply_config_part2(
             path="dynamic_compression.min_bytes",
             resolution=resolution,
         ),
+        "file_detail_include_line_numbers": _env_to_bool(
+            "DYNAMIC_COMPRESSION_FILE_DETAIL_INCLUDE_LINE_NUMBERS",
+            False,
+            env,
+            path="dynamic_compression.file_detail_include_line_numbers",
+            resolution=resolution,
+        ),
         "disable_categories": _get_env_value(
             env,
             "DYNAMIC_COMPRESSION_DISABLE_CATEGORIES",

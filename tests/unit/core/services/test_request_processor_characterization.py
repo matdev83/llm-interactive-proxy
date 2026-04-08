@@ -373,6 +373,141 @@ async def test_auxiliary_routing_rewrites_model_and_isolates_session(
 
 
 @pytest.mark.asyncio
+async def test_auxiliary_routing_overrides_explicit_client_backend_for_title_requests(
+    request_processor: RequestProcessor,
+    request_context: RequestContext,
+    mock_app_state: IApplicationState,
+    mock_session_enricher,
+    mock_backend_executor,
+) -> None:
+    """Regression: OpenCode title requests already carry qwen-oauth:model selectors."""
+
+    cast(Any, mock_app_state).get_setting.return_value = MagicMock(
+        auxiliary_routing=MagicMock(
+            enabled=True,
+            backend="openrouter",
+            model="openrouter/free",
+            detection_patterns=[r"Generate a title"],
+            max_message_count=3,
+        )
+    )
+
+    request = ChatRequest(
+        model="qwen-oauth:qwen/coder-model",
+        messages=[
+            ChatMessage(role="system", content="You are a title generator."),
+            ChatMessage(role="user", content="Generate a title for this conversation:"),
+            ChatMessage(
+                role="user",
+                content="What are the recent commits in this repo all about?",
+            ),
+        ],
+    )
+    mock_session_enricher.enrich.return_value = (MagicMock(), request)
+
+    await request_processor.process_request(request_context, request)
+
+    call_args = mock_backend_executor.execute.call_args
+    assert call_args is not None
+    called_request = call_args.args[3]
+    assert called_request.model == "openrouter:openrouter/free"
+    assert request_context.extensions.get("auxiliary_request") is True
+    assert request_context.extensions.get("auxiliary_original_backend") == "qwen-oauth"
+    assert (
+        request_context.extensions.get("auxiliary_original_model")
+        == "qwen/coder-model"
+    )
+    assert request_context.extensions.get("auxiliary_backend") == "openrouter"
+    assert request_context.extensions.get("auxiliary_model") == "openrouter/free"
+
+
+@pytest.mark.asyncio
+async def test_auxiliary_routing_handles_tool_title_requests_with_extra_messages(
+    request_processor: RequestProcessor,
+    request_context: RequestContext,
+    mock_app_state: IApplicationState,
+    mock_session_enricher,
+    mock_backend_executor,
+) -> None:
+    """Tool-generated titles should route even when assistant/tool messages are present."""
+
+    cast(Any, mock_app_state).get_setting.return_value = MagicMock(
+        auxiliary_routing=MagicMock(
+            enabled=True,
+            backend="openrouter",
+            model="openrouter/free",
+            detection_patterns=[
+                r"Generate a (?:short |brief )?(?:title|summary|heading)"
+            ],
+            max_message_count=3,
+        )
+    )
+
+    request = ChatRequest(
+        model="qwen-oauth:qwen/coder-model",
+        messages=[
+            ChatMessage(role="system", content="You are a title generator."),
+            ChatMessage(
+                role="user", content="Generate a title for this tool execution:"
+            ),
+            ChatMessage(role="assistant", content="I'll run git status."),
+            ChatMessage(role="tool", content="On branch dev\nmodified: src/app.py"),
+            ChatMessage(role="user", content="Show working tree status"),
+        ],
+    )
+    mock_session_enricher.enrich.return_value = (MagicMock(), request)
+
+    await request_processor.process_request(request_context, request)
+
+    call_args = mock_backend_executor.execute.call_args
+    assert call_args is not None
+    called_request = call_args.args[3]
+    assert called_request.model == "openrouter:openrouter/free"
+    assert request_context.extensions.get("auxiliary_request") is True
+
+
+@pytest.mark.asyncio
+async def test_auxiliary_routing_handles_title_generator_system_prompt_requests(
+    request_processor: RequestProcessor,
+    request_context: RequestContext,
+    mock_app_state: IApplicationState,
+    mock_session_enricher,
+    mock_backend_executor,
+) -> None:
+    """OpenCode may send only the topic as user content for generated titles."""
+
+    cast(Any, mock_app_state).get_setting.return_value = MagicMock(
+        auxiliary_routing=MagicMock(
+            enabled=True,
+            backend="openrouter",
+            model="openrouter/free",
+            detection_patterns=[
+                r"Generate a (?:short |brief )?(?:title|summary|heading)",
+                r"\btitle generator\b",
+            ],
+            max_message_count=3,
+        )
+    )
+
+    request = ChatRequest(
+        model="qwen-oauth:qwen/coder-model",
+        messages=[
+            ChatMessage(role="system", content="You are a title generator."),
+            ChatMessage(role="user", content="Show working tree status"),
+        ],
+    )
+    mock_session_enricher.enrich.return_value = (MagicMock(), request)
+
+    await request_processor.process_request(request_context, request)
+
+    call_args = mock_backend_executor.execute.call_args
+    assert call_args is not None
+    called_request = call_args.args[3]
+    assert called_request.model == "openrouter:openrouter/free"
+    assert request_context.extensions.get("auxiliary_request") is True
+
+
+@pytest.mark.asyncio
 async def test_streaming_tool_registry_failure_does_not_block_request(
     mock_command_processor: ICommandProcessor,
     mock_session_manager: ISessionManager,

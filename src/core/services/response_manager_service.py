@@ -32,6 +32,7 @@ from src.core.interfaces.non_forwardable_interface import (
     INonForwardableMessageRegistry,
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
+from src.core.services.pytest_output_filter import filter_pytest_output
 
 logger = logging.getLogger(__name__)
 
@@ -888,41 +889,13 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         Always preserves the last line of output regardless of filtering patterns.
         """
+        filtered_output = filter_pytest_output(output)
         if not output:
-            return output
+            return filtered_output
 
         lines = output.split("\n")
-        if not lines:
-            return output
-
-        # Always preserve the last line (summary/final output)
-        last_line = lines[-1] if lines else ""
-        lines_to_process = lines[:-1] if len(lines) > 1 else []
-
-        filtered_lines = []
-
-        for line in lines_to_process:
-            # Drop PASSED lines entirely using pre-compiled pattern
-            if self._PASSED_PATTERN.search(line):
-                continue
-
-            # Remove timing segments inline while preserving core content using pre-compiled patterns
-            trimmed = self._TIMING_SEGMENT_PATTERN.sub("", line)
-            trimmed = self._WHITESPACE_PATTERN.sub(" ", trimmed).strip()
-
-            if trimmed:
-                filtered_lines.append(trimmed)
-
-        # Always add the last line back (even if it would normally be filtered)
-        # Note: We add it even if it's empty to preserve the original structure
-        filtered_lines.append(last_line)
-
-        filtered_output = "\n".join(filtered_lines)
-
-        # Log compression statistics
-        # OPTIMIZATION: Reuse existing list lengths instead of re-splitting string
         original_lines = len(lines)
-        compressed_lines = len(filtered_lines)
+        compressed_lines = len(filtered_output.split("\n"))
         if original_lines > 0:
             compression_ratio = (1 - compressed_lines / original_lines) * 100
             if logger.isEnabledFor(logging.INFO):
@@ -955,19 +928,13 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         if not output:
             return PytestCompressionResult(output=output, token_count=0)
 
-        lines = output.strip().split("\n")
-        if not lines:
-            # If strip() results in empty list, but output was not empty (e.g. only whitespace),
-            # we should probably return empty result or original?
-            # Original logic handled this implicitly by lines being empty list.
-            # But we need token count if we return.
-            # If lines is empty here, it means output was whitespace only.
+        stripped = output.strip()
+        if not stripped:
             return PytestCompressionResult(output=output, token_count=0)
 
-        # Calculate original metrics
-        # OPTIMIZATION: Reuse split lines for line count
+        # Calculate original metrics (line count aligned with filter_pytest_output splitting)
         original_tokens = 0
-        original_lines = len(lines)
+        original_lines = len(output.split("\n"))
         should_log = logger.isEnabledFor(logging.INFO)
 
         if should_log:
@@ -981,32 +948,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 original_lines,
             )
 
-        # Always preserve the last line (summary/final output)
-        last_line = lines[-1] if lines else ""
-        lines_to_process = lines[:-1] if len(lines) > 1 else []
-
-        filtered_lines = []
-        lines_dropped = 0
-
-        for line in lines_to_process:
-            # Drop PASSED lines entirely using pre-compiled pattern
-            if self._PASSED_PATTERN.search(line):
-                lines_dropped += 1
-                continue
-
-            # Remove timing segments inline while preserving core content using pre-compiled patterns
-            trimmed = self._TIMING_SEGMENT_PATTERN.sub("", line)
-            trimmed = self._WHITESPACE_PATTERN.sub(" ", trimmed).strip()
-
-            if trimmed:
-                filtered_lines.append(trimmed)
-            else:
-                lines_dropped += 1
-
-        # Always add the last line back (even if it would normally be filtered)
-        filtered_lines.append(last_line)
-
-        filtered_output = "\n".join(filtered_lines)
+        filtered_output = filter_pytest_output(output)
+        filtered_lines = filtered_output.split("\n")
+        lines_dropped = max(0, original_lines - len(filtered_lines))
 
         # Calculate final metrics
         final_tokens = 0

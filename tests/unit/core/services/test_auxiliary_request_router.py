@@ -157,8 +157,10 @@ class TestAuxiliaryRequestDetector:
 
         assert detector.is_auxiliary_request(request) is False
 
-    def test_does_not_override_explicit_backend_selector(self) -> None:
-        """Requests with explicit backend selectors must not be rerouted."""
+    def test_detects_auxiliary_request_even_with_explicit_backend_selector(
+        self,
+    ) -> None:
+        """Auxiliary title requests should still be routed when client sets backend:model."""
 
         config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")
         detector = AuxiliaryRequestDetector(config)
@@ -174,7 +176,76 @@ class TestAuxiliaryRequestDetector:
             ],
         )
 
+        assert detector.is_auxiliary_request(request) is True
+
+    def test_ignores_tool_and_assistant_messages_for_message_count_threshold(
+        self,
+    ) -> None:
+        """Tool-title requests should be allowed when only system/user messages are few."""
+
+        config = AuxiliaryRoutingConfig(
+            enabled=True,
+            backend="aux-backend",
+            max_message_count=3,
+        )
+        detector = AuxiliaryRequestDetector(config)
+
+        request = ChatRequest(
+            model="qwen-oauth:qwen/coder-model",
+            messages=[
+                ChatMessage(role="system", content="You are a title generator."),
+                ChatMessage(
+                    role="user", content="Generate a title for this tool execution:"
+                ),
+                ChatMessage(role="assistant", content="I will inspect git status."),
+                ChatMessage(role="tool", content="On branch dev\nmodified: foo.py"),
+                ChatMessage(role="user", content="Show working tree status"),
+            ],
+        )
+
+        assert detector.is_auxiliary_request(request) is True
+
+    def test_still_rejects_when_system_and_user_messages_exceed_threshold(self) -> None:
+        """Long user/system conversations should not be treated as auxiliary."""
+
+        config = AuxiliaryRoutingConfig(
+            enabled=True,
+            backend="aux-backend",
+            max_message_count=3,
+        )
+        detector = AuxiliaryRequestDetector(config)
+
+        request = ChatRequest(
+            model="qwen-oauth:qwen/coder-model",
+            messages=[
+                ChatMessage(role="system", content="You are a title generator."),
+                ChatMessage(role="user", content="Generate a title for this conversation:"),
+                ChatMessage(role="user", content="Topic one"),
+                ChatMessage(role="assistant", content="Interim response"),
+                ChatMessage(role="user", content="Topic two"),
+                ChatMessage(role="user", content="Topic three"),
+            ],
+        )
+
         assert detector.is_auxiliary_request(request) is False
+
+    def test_detects_title_generator_system_prompt_with_topic_only_user_message(
+        self,
+    ) -> None:
+        """OpenCode may put the title intent in system prompt and only the topic in user."""
+
+        config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")
+        detector = AuxiliaryRequestDetector(config)
+
+        request = ChatRequest(
+            model="qwen-oauth:qwen/coder-model",
+            messages=[
+                ChatMessage(role="system", content="You are a title generator."),
+                ChatMessage(role="user", content="Show working tree status"),
+            ],
+        )
+
+        assert detector.is_auxiliary_request(request) is True
 
 
 class TestAuxiliaryRequestRouter:

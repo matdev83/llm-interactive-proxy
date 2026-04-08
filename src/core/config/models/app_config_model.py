@@ -34,6 +34,9 @@ from src.core.config.models.session import SessionConfig
 from src.core.database.config import DatabaseConfig
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.compaction_config import CompactionConfig
+from src.core.domain.configuration.dynamic_compression_config import (
+    DynamicCompressionConfig,
+)
 from src.core.domain.configuration.failure_handling_config import FailureHandlingConfig
 from src.core.domain.configuration.health_check_config import HealthCheckConfig
 from src.core.domain.configuration.reasoning_aliases_config import (
@@ -109,6 +112,9 @@ class AppConfigModel(DomainModel, IConfig):
         default_factory=AuxiliaryRoutingConfig
     )
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
+    dynamic_compression: DynamicCompressionConfig = Field(
+        default_factory=DynamicCompressionConfig
+    )
     memory: MemoryConfiguration = Field(default_factory=MemoryConfiguration)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     non_forwardable_tagging: NonForwardableTaggingConfig = Field(

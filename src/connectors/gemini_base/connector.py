@@ -1628,6 +1628,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             "effective_model", args[1] if len(args) > 1 else "unknown"
         )
         legacy_context = kwargs.pop("context", None)
+        normalized_effective_model = self._resolve_internal_effective_model(
+            legacy_effective_model
+        )
 
         stream = getattr(legacy_request_data, "stream", False) or kwargs.get(
             "stream", False
@@ -1640,7 +1643,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     if not isinstance(legacy_processed_messages, list)
                     else legacy_processed_messages
                 ),
-                effective_model=legacy_effective_model,
+                effective_model=normalized_effective_model,
                 context=legacy_context,
                 **kwargs,
             )
@@ -1651,10 +1654,24 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 if not isinstance(legacy_processed_messages, list)
                 else legacy_processed_messages
             ),
-            effective_model=legacy_effective_model,
+            effective_model=normalized_effective_model,
             context=legacy_context,
             **kwargs,
         )
+
+    def _resolve_internal_effective_model(self, effective_model: str) -> str:
+        model_name = effective_model
+
+        backend_prefix = f"{self.backend_type}:"
+        if model_name.startswith(backend_prefix):
+            model_name = model_name[len(backend_prefix) :]
+
+        model_name = strip_vendor_prefix(model_name, GOOGLE_VENDOR_PREFIX)
+
+        if self._model_registry:
+            return self._model_registry.to_internal_name(model_name)
+
+        return self._public_to_internal_model_map.get(model_name, model_name)
 
     async def _chat_completions_canonical(
         self,
@@ -1686,20 +1703,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         await self._ensure_healthy()
 
         try:
-            model_name = effective_model
-
-            prefix = "gemini-oauth-plan:"
-            if model_name.startswith(prefix):
-                model_name = model_name[len(prefix) :]
-
-            model_name = strip_vendor_prefix(model_name, GOOGLE_VENDOR_PREFIX)
-
-            if self._model_registry:
-                model_name = self._model_registry.to_internal_name(model_name)
-            else:
-                model_name = self._public_to_internal_model_map.get(
-                    model_name, model_name
-                )
+            model_name = self._resolve_internal_effective_model(effective_model)
 
             chat_messages: list[ChatMessage] = []
             for msg in processed_messages:
@@ -1710,7 +1714,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                             content=msg.get("content", ""),
                         )
                     )
-                elif isinstance(msg, ChatMessage):
+                else:
                     chat_messages.append(msg)
 
             response = await self._chat_completion_coordinator_instance.execute(

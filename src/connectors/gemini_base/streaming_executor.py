@@ -12,7 +12,7 @@ import logging
 import threading
 import time
 import uuid
-from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
+from collections.abc import AsyncGenerator, Callable, Iterable, Mapping, MutableMapping
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 # ---------------------------------------------------------------------------
@@ -739,6 +739,40 @@ class StreamingExecutor:
                     f"Bearer {access_token}"
                 )
 
+    @staticmethod
+    def _build_authenticated_request_headers(
+        prepared: PreparedChatRequest,
+        *,
+        method: str,
+        url: str,
+        base_headers: Mapping[str, str] | None = None,
+    ) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if base_headers is not None:
+            headers.update(base_headers)
+
+        session_headers = getattr(prepared.auth_session, "headers", None)
+        if isinstance(session_headers, Mapping):
+            headers.update(
+                {
+                    str(key): str(value)
+                    for key, value in session_headers.items()
+                    if isinstance(key, str) and isinstance(value, str)
+                }
+            )
+
+        credentials = getattr(prepared.auth_session, "credentials", None)
+        before_request = getattr(credentials, "before_request", None)
+        if callable(before_request):
+            before_request(
+                getattr(prepared.auth_session, "_auth_request", None),
+                method,
+                url,
+                headers,
+            )
+
+        return headers
+
     async def _try_rotate_oauth_auto_account(
         self,
         *,
@@ -941,12 +975,18 @@ class StreamingExecutor:
                         )
                     await asyncio.sleep(cooldown_remaining)
 
+                request_headers = self._build_authenticated_request_headers(
+                    prepared,
+                    method="POST",
+                    url=url,
+                    base_headers={"Content-Type": "application/json"},
+                )
                 raw_request = requests.Request(
                     method="POST",
                     url=url,
                     params={"alt": "sse"},
                     json=request_body,
-                    headers={"Content-Type": "application/json"},
+                    headers=request_headers,
                 )
                 prepared_request = prepared.auth_session.prepare_request(raw_request)
                 await capture_requests_outbound_request(
@@ -1893,6 +1933,10 @@ class StreamingExecutor:
         session = getattr(prepared, "auth_session", None)
         if session is None:
             return
+        session_headers = getattr(session, "headers", None)
+        if isinstance(session_headers, MutableMapping):
+            mutable_session_headers = cast(MutableMapping[str, str], session_headers)
+            mutable_session_headers["Authorization"] = f"Bearer {new_token}"
         old_creds = getattr(session, "credentials", None)
         if old_creds is not None and hasattr(old_creds, "token"):
             old_creds.token = new_token  # type: ignore[union-attr]

@@ -23,6 +23,7 @@ Domain Applicators:
 - RoutingApplicator: routing policies
 - AuxiliaryRoutingApplicator: auxiliary request routing (title/summary generation)
 - CompactionApplicator: context compaction
+- DynamicCompressionApplicator: dynamic tool-output compression
 - SandboxingApplicator: file access sandboxing
 - EndOfSessionApplicator: end-of-session detection and event emission
 
@@ -41,6 +42,9 @@ from src.core.cli_support.applicators.auxiliary_routing_applicator import (
 )
 from src.core.cli_support.applicators.backend_applicator import BackendApplicator
 from src.core.cli_support.applicators.compaction_applicator import CompactionApplicator
+from src.core.cli_support.applicators.dynamic_compression_applicator import (
+    DynamicCompressionApplicator,
+)
 from src.core.cli_support.applicators.editprecision_applicator import (
     EditPrecisionApplicator,
 )
@@ -74,6 +78,7 @@ __all__ = [
     "AuxiliaryRoutingApplicator",
     "BackendApplicator",
     "CompactionApplicator",
+    "DynamicCompressionApplicator",
     "EditPrecisionApplicator",
     "EndOfSessionApplicator",
     "FailureHandlingApplicator",

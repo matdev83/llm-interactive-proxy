@@ -8,7 +8,6 @@ import pytest
 from src.core.common.logging_utils import (
     ApiKeyRedactionFilter,
     _discover_api_keys_from_config_backends,
-    _logged_security_warnings,
     discover_api_keys_from_config_and_env,
     format_for_debug_log,
     install_api_key_redaction_filter,

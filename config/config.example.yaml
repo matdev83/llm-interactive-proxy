@@ -210,6 +210,36 @@ compaction:
   token_threshold: 100000  # Minimum tokens required to trigger compaction. Default: 100,000.
   # redact_resource_identifiers: false  # Set to true to redact file paths/commands in stubs (more secure, less debuggable)
 
+# Dynamic tool-output compression (strategy-based, request-path)
+# Runs after history compaction and before backend translation.
+dynamic_compression:
+  enabled: false
+  level: "conservative"         # conservative | balanced | aggressive
+  max_level: "aggressive"       # escalation ceiling
+  min_bytes: 1024               # skip tiny outputs
+  disable_categories: []        # e.g. ["search"]
+  disable_methods: []           # e.g. ["line_dedupe"]
+  disable_tools: []             # e.g. ["shell"]
+  disable_command_prefixes: []  # e.g. ["git diff --stat"]
+  # Listing/search/read strategy tuning
+  noise_directories: ["node_modules", ".git", "target", "__pycache__", ".venv", "vendor"]
+  search_context_lines: 2
+  search_max_matches_per_file: 8
+  search_max_total_groups: 100
+  search_max_line_length: 240
+  file_detail_mode: "auto"             # auto | full | structure | signatures
+  file_detail_fallback_mode: "full"    # full | structure | signatures
+  file_detail_auto_full_max_lines: 120
+  file_detail_auto_structure_max_lines: 280
+  file_detail_include_line_numbers: false
+  file_detail_max_lines: null          # head-like cap when set
+  file_detail_last_n_lines: null       # tail-like cap when set
+  # Generic pattern and diff controls
+  output_pattern_rules: []
+  output_pattern_regex_timeout_ms: 25
+  diff_max_lines_per_hunk: 100
+  diff_max_total_lines: 500
+
 # Logging
 logging:
   level: "INFO"  # TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL

@@ -53,6 +53,7 @@ class AuxiliaryRoutingConfig(DomainModel):
         default_factory=lambda: [
             r"The following is the text to summarize",
             r"Generate a (?:short |brief )?(?:title|summary|heading)",
+            r"\b(?:title|summary) generator\b",
             r"Summarize (?:the|this|my) (?:conversation|text|content|task)",
             r"Create a (?:title|heading) for",
             r"Generate a title for the (?:session|conversation)",

@@ -20,6 +20,9 @@ from src.core.domain.configuration.compaction_config import (
     CompactionConfig,
     TokenBudgetConfig,
 )
+from src.core.domain.configuration.dynamic_compression_config import (
+    DynamicCompressionConfig,
+)
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.backend_request_manager_components import (
     IBackendRequestPreparation,
@@ -27,6 +30,13 @@ from src.core.interfaces.backend_request_manager_components import (
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.history_compaction_interface import (
     IHistoryCompactionService,
+)
+from src.core.interfaces.tool_output_compression_interface import (
+    IToolOutputCompressionService,
+)
+from src.core.services.legacy_compression_compatibility_resolver import (
+    DynamicCompressionCompatibilityDiagnostics,
+    LegacyCompressionCompatibilityResolver,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,6 +49,10 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         self,
         history_compaction_service: IHistoryCompactionService | None = None,
         config: IConfig | None = None,
+        tool_output_compression_service: IToolOutputCompressionService | None = None,
+        legacy_compression_compatibility_resolver: (
+            LegacyCompressionCompatibilityResolver | None
+        ) = None,
     ) -> None:
         """Initialize the request preparation service.
 
@@ -48,6 +62,11 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         """
         self._history_compaction_service = history_compaction_service
         self._config = config
+        self._tool_output_compression_service = tool_output_compression_service
+        self._legacy_compression_compatibility_resolver = (
+            legacy_compression_compatibility_resolver
+            or LegacyCompressionCompatibilityResolver()
+        )
 
     async def prepare(
         self,
@@ -239,8 +258,194 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                         },
                     )
 
+        # Apply dynamic tool-output compression after compaction.
+        if self._tool_output_compression_service is not None:
+            dynamic_config = DynamicCompressionConfig()
+            compatibility_diagnostics = DynamicCompressionCompatibilityDiagnostics()
+            try:
+                if self._config is not None:
+                    dynamic_from_config = getattr(
+                        self._config, "dynamic_compression", None
+                    )
+                    if isinstance(dynamic_from_config, DynamicCompressionConfig):
+                        dynamic_config = dynamic_from_config
+                    elif isinstance(dynamic_from_config, dict):
+                        dynamic_config = DynamicCompressionConfig.model_validate(
+                            dynamic_from_config
+                        )
+
+                (
+                    dynamic_config,
+                    compatibility_diagnostics,
+                ) = self._resolve_pytest_compatibility(dynamic_config)
+
+                token_budget: int | None = None
+                if self._config is not None and hasattr(
+                    self._config, "context_window_override"
+                ):
+                    maybe_budget = getattr(
+                        self._config, "context_window_override", None
+                    )
+                    if isinstance(maybe_budget, int) and maybe_budget > 0:
+                        token_budget = maybe_budget
+
+                compression_result = (
+                    await self._tool_output_compression_service.compress_messages(
+                        messages=list(final_request.messages),
+                        config=dynamic_config,
+                        target_token_budget=token_budget,
+                    )
+                )
+
+                compatibility_diagnostics = self._merge_compatibility_warnings(
+                    diagnostics=compatibility_diagnostics,
+                    warnings=compression_result.warnings,
+                )
+                applied_count = sum(
+                    1 for record in compression_result.records if record.applied
+                )
+                self._log_dynamic_compression_diagnostics(
+                    compatibility_diagnostics=compatibility_diagnostics,
+                    records_evaluated=len(compression_result.records),
+                    records_applied=applied_count,
+                )
+
+                if compression_result.records:
+                    if applied_count > 0:
+                        final_request = final_request.model_copy(
+                            update={"messages": compression_result.messages}
+                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Dynamic compression evaluated %d tool outputs (applied=%d)",
+                            len(compression_result.records),
+                            applied_count,
+                        )
+                final_request = self._attach_compatibility_diagnostics(
+                    request=final_request,
+                    compatibility_diagnostics=compatibility_diagnostics,
+                )
+            except Exception as exc:
+                # Fail-open: continue request flow unchanged.
+                compatibility_diagnostics = self._merge_compatibility_warnings(
+                    diagnostics=compatibility_diagnostics,
+                    warnings=[
+                        "Dynamic tool-output compression failed open for this request path."
+                    ],
+                )
+                self._log_dynamic_compression_diagnostics(
+                    compatibility_diagnostics=compatibility_diagnostics,
+                    records_evaluated=0,
+                    records_applied=0,
+                    failure=exc,
+                )
+                final_request = self._attach_compatibility_diagnostics(
+                    request=final_request,
+                    compatibility_diagnostics=compatibility_diagnostics,
+                )
+
         # Return the (possibly modified) request
         return final_request
+
+    def _resolve_pytest_compatibility(
+        self,
+        dynamic_config: DynamicCompressionConfig,
+    ) -> tuple[DynamicCompressionConfig, DynamicCompressionCompatibilityDiagnostics]:
+        legacy_pytest_enabled = True
+        if self._config is not None:
+            session_config = getattr(self._config, "session", None)
+            if session_config is not None:
+                maybe_legacy_pytest = getattr(
+                    session_config,
+                    "pytest_compression_enabled",
+                    True,
+                )
+                if isinstance(maybe_legacy_pytest, bool):
+                    legacy_pytest_enabled = maybe_legacy_pytest
+
+        dynamic_pytest_mode = dynamic_config.methods.get("pytest_failure_focus")
+        decision, compatibility_diagnostics = (
+            self._legacy_compression_compatibility_resolver.resolve_pytest_mode_with_diagnostics(
+                legacy_pytest_enabled=legacy_pytest_enabled,
+                dynamic_pytest_mode=dynamic_pytest_mode,
+            )
+        )
+        resolved_methods = dict(dynamic_config.methods)
+        resolved_methods["pytest_failure_focus"] = decision.effective_enabled
+        return (
+            dynamic_config.model_copy(update={"methods": resolved_methods}),
+            compatibility_diagnostics,
+        )
+
+    @staticmethod
+    def _merge_compatibility_warnings(
+        *,
+        diagnostics: DynamicCompressionCompatibilityDiagnostics,
+        warnings: Iterable[str],
+    ) -> DynamicCompressionCompatibilityDiagnostics:
+        if not warnings:
+            return diagnostics
+
+        merged_warnings: list[str] = list(diagnostics.warnings)
+        seen = set(merged_warnings)
+        for warning in warnings:
+            normalized = warning.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            merged_warnings.append(normalized)
+        return diagnostics.model_copy(update={"warnings": merged_warnings})
+
+    def _log_dynamic_compression_diagnostics(
+        self,
+        *,
+        compatibility_diagnostics: DynamicCompressionCompatibilityDiagnostics,
+        records_evaluated: int,
+        records_applied: int,
+        failure: Exception | None = None,
+    ) -> None:
+        diagnostics_payload = {
+            "compatibility": compatibility_diagnostics.model_dump(mode="json"),
+            "records_evaluated": records_evaluated,
+            "records_applied": records_applied,
+        }
+        if failure is not None:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Dynamic tool-output compression failed - continuing with original messages: %s",
+                    failure,
+                    exc_info=True,
+                    extra={"dynamic_compression": diagnostics_payload},
+                )
+            return
+
+        if compatibility_diagnostics.warnings:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Dynamic compression compatibility diagnostics",
+                    extra={"dynamic_compression": diagnostics_payload},
+                )
+            return
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Dynamic compression compatibility diagnostics",
+                extra={"dynamic_compression": diagnostics_payload},
+            )
+
+    @staticmethod
+    def _attach_compatibility_diagnostics(
+        *,
+        request: ChatRequest,
+        compatibility_diagnostics: DynamicCompressionCompatibilityDiagnostics,
+    ) -> ChatRequest:
+        merged_diagnostics = dict(request.compression_diagnostics or {})
+        merged_diagnostics["dynamic_compression_compatibility"] = (
+            compatibility_diagnostics.model_dump(mode="json")
+        )
+        return request.model_copy(
+            update={"compression_diagnostics": merged_diagnostics}
+        )
 
     @staticmethod
     def _message_has_content(message: Any) -> bool:

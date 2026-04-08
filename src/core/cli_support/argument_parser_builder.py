@@ -748,6 +748,22 @@ class ArgumentParserBuilder:
             metavar="BYTES",
             help="Minimum output size in bytes required for compression eligibility",
         )
+        file_detail_line_numbers_toggle = dynamic_group.add_mutually_exclusive_group()
+        file_detail_line_numbers_toggle.add_argument(
+            "--dynamic-compression-file-detail-include-line-numbers",
+            dest="dynamic_compression_file_detail_include_line_numbers",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Include source line numbers in file_detail_levels compressed output",
+        )
+        file_detail_line_numbers_toggle.add_argument(
+            "--dynamic-compression-file-detail-exclude-line-numbers",
+            dest="dynamic_compression_file_detail_include_line_numbers",
+            action="store_const",
+            const=False,
+            help="Exclude source line numbers in file_detail_levels compressed output",
+        )
         dynamic_group.add_argument(
             "--dynamic-compression-disable-categories",
             dest="dynamic_compression_disable_categories",
