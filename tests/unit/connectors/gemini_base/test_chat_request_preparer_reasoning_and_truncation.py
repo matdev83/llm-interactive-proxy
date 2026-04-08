@@ -17,32 +17,6 @@ from src.core.config.models.backends import BackendConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 
-def _legacy_truncate(
-    value: str,
-    *,
-    max_chars: int | None,
-    max_lines: int | None,
-) -> str:
-    marker = "... [CONTENT TRUNCATED] ..."
-    text = value
-    if isinstance(max_lines, int) and max_lines > 0:
-        lines = text.splitlines()
-        if len(lines) > max_lines:
-            head = max(1, max_lines // 5)
-            tail = max_lines - head
-            text = "\n".join(lines[:head] + [marker] + lines[-tail:])
-
-    if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
-        head = max(1, max_chars // 5)
-        tail = max_chars - head - len(marker)
-        if tail <= 0:
-            text = text[:max_chars]
-        else:
-            text = text[:head] + marker + text[-tail:]
-
-    return text
-
-
 class MockConnectorContext(IConnectorContext):
     def __init__(
         self,
@@ -201,7 +175,8 @@ async def test_prepare_can_keep_reasoning_content_when_configured(
 
 
 @pytest.mark.asyncio
-async def test_prepare_applies_legacy_char_truncation_when_request_path_reduction_is_inactive(
+async def test_prepare_ignores_legacy_char_truncation_in_connector_stage(
+    caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
@@ -238,24 +213,23 @@ async def test_prepare_applies_legacy_char_truncation_when_request_path_reductio
         ],
     )
 
-    prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
+    with caplog.at_level("WARNING"):
+        prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
 
     content = prepared.canonical_request.messages[0].content
     assert isinstance(content, str)
-    assert content == _legacy_truncate(
-        long_output,
-        max_chars=40,
-        max_lines=None,
-    )
+    assert content == long_output
     diagnostics = prepared.canonical_request.compression_diagnostics or {}
-    compat = diagnostics.get("gemini_legacy_truncation_compatibility")
-    assert isinstance(compat, dict)
-    assert compat.get("source") == "connector"
-    assert compat.get("truncated_tool_messages") == 1
+    assert "gemini_legacy_truncation_compatibility" not in diagnostics
+    assert any(
+        "ignored in connector stage" in record.message.lower()
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio
-async def test_prepare_applies_legacy_line_truncation_when_request_path_reduction_is_inactive(
+async def test_prepare_ignores_legacy_line_truncation_in_connector_stage(
+    caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
@@ -292,24 +266,23 @@ async def test_prepare_applies_legacy_line_truncation_when_request_path_reductio
         ],
     )
 
-    prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
+    with caplog.at_level("WARNING"):
+        prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
 
     content = prepared.canonical_request.messages[0].content
     assert isinstance(content, str)
-    assert content == _legacy_truncate(
-        long_output,
-        max_chars=None,
-        max_lines=5,
-    )
+    assert content == long_output
     diagnostics = prepared.canonical_request.compression_diagnostics or {}
-    compat = diagnostics.get("gemini_legacy_truncation_compatibility")
-    assert isinstance(compat, dict)
-    assert compat.get("source") == "connector"
-    assert compat.get("truncated_tool_messages") == 1
+    assert "gemini_legacy_truncation_compatibility" not in diagnostics
+    assert any(
+        "ignored in connector stage" in record.message.lower()
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio
-async def test_prepare_skips_truncation_when_compaction_enabled(
+async def test_prepare_ignores_legacy_truncation_when_compaction_enabled(
+    caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
@@ -345,16 +318,18 @@ async def test_prepare_skips_truncation_when_compaction_enabled(
         messages=[ChatMessage(role="tool", content=long_output)],
     )
 
-    prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
+    with caplog.at_level("WARNING"):
+        prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
 
     content = prepared.canonical_request.messages[0].content
     assert isinstance(content, str)
     assert content == long_output
     diagnostics = prepared.canonical_request.compression_diagnostics or {}
-    compat = diagnostics.get("gemini_legacy_truncation_compatibility")
-    assert isinstance(compat, dict)
-    assert compat.get("source") == "history_compaction"
-    assert compat.get("truncated_tool_messages") == 0
+    assert "gemini_legacy_truncation_compatibility" not in diagnostics
+    assert any(
+        "ignored in connector stage" in record.message.lower()
+        for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio

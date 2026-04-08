@@ -34,7 +34,7 @@ _SENSITIVE_CONTENT_REDACTION_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (
         re.compile(
-            r"(?im)\b((?:api[_-]?key|token|password|secret|client[_-]?secret|access[_-]?token|refresh[_-]?token)\b\s*[:=]\s*)([^\s\"';]+)"
+            r"(?im)\b((?:(?:[a-z0-9]+[_-])*(?:api[_-]?key|token|password|secret|client[_-]?secret|access[_-]?token|refresh[_-]?token))\b\s*[:=]\s*)([^\s\"';]+)"
         ),
         r"\1[REDACTED]",
     ),

@@ -244,6 +244,204 @@ def test_declarative_pipeline_match_output_unless_and_on_empty_fallback() -> Non
     assert empty_fallback == "emptier: ok"
 
 
+def test_declarative_pipeline_keep_lines_branch_filters_and_preserves_order() -> None:
+    registry = DeclarativeRuleRegistry()
+    config = DynamicCompressionConfig(
+        declarative_rules=[
+            {
+                "name": "keep_only_failures",
+                "match_command": r"^pytest\b",
+                "keep_lines": [r"FAILED", r"ERROR"],
+            }
+        ]
+    )
+    resolved = registry.resolve(config)
+    rule = next(rule for rule in resolved.rules if rule.name == "keep_only_failures")
+
+    transformed = registry.apply_rule(
+        rule=rule,
+        content=(
+            "PASSED test_alpha.py::test_ok\n"
+            "FAILED test_beta.py::test_bad\n"
+            "ERROR collecting test_gamma.py\n"
+            "PASSED test_delta.py::test_ok\n"
+        ),
+    )
+
+    assert (
+        transformed == "FAILED test_beta.py::test_bad\nERROR collecting test_gamma.py\n"
+    )
+
+
+def test_declarative_pipeline_max_lines_stage_truncates_with_marker() -> None:
+    registry = DeclarativeRuleRegistry()
+    config = DynamicCompressionConfig(
+        declarative_rules=[
+            {
+                "name": "max_lines_cap",
+                "match_command": r"^logs\b",
+                "max_lines": 2,
+            }
+        ]
+    )
+    resolved = registry.resolve(config)
+    rule = next(rule for rule in resolved.rules if rule.name == "max_lines_cap")
+
+    transformed = registry.apply_rule(
+        rule=rule,
+        content="line-1\nline-2\nline-3\nline-4\n",
+    )
+
+    assert transformed == "line-1\nline-2\n... (2 lines truncated)\n"
+
+
+def test_declarative_pipeline_strip_ansi_stage_independent() -> None:
+    registry = DeclarativeRuleRegistry()
+    config = DynamicCompressionConfig(
+        declarative_rules=[
+            {
+                "name": "strip_ansi_only",
+                "match_command": r"^ansi\b",
+                "strip_ansi": True,
+            }
+        ]
+    )
+    resolved = registry.resolve(config)
+    rule = next(rule for rule in resolved.rules if rule.name == "strip_ansi_only")
+
+    transformed = registry.apply_rule(
+        rule=rule,
+        content="\x1b[31mFAIL\x1b[0m plain\n",
+    )
+
+    assert transformed == "FAIL plain\n"
+
+
+def test_declarative_pipeline_replace_stage_independent() -> None:
+    registry = DeclarativeRuleRegistry()
+    config = DynamicCompressionConfig(
+        declarative_rules=[
+            {
+                "name": "replace_only",
+                "match_command": r"^replace\b",
+                "replace": [
+                    {"pattern": r"\bERROR\b", "replacement": "ERR"},
+                    {"pattern": r"\bWARNING\b", "replacement": "WARN"},
+                ],
+            }
+        ]
+    )
+    resolved = registry.resolve(config)
+    rule = next(rule for rule in resolved.rules if rule.name == "replace_only")
+
+    transformed = registry.apply_rule(
+        rule=rule,
+        content="ERROR line\nWARNING line\n",
+    )
+
+    assert transformed == "ERR line\nWARN line\n"
+
+
+def test_declarative_pipeline_strip_lines_stage_independent() -> None:
+    registry = DeclarativeRuleRegistry()
+    config = DynamicCompressionConfig(
+        declarative_rules=[
+            {
+                "name": "strip_lines_only",
+                "match_command": r"^strip\b",
+                "strip_lines": [r"^DEBUG"],
+            }
+        ]
+    )
+    resolved = registry.resolve(config)
+    rule = next(rule for rule in resolved.rules if rule.name == "strip_lines_only")
+
+    transformed = registry.apply_rule(
+        rule=rule,
+        content="DEBUG one\nINFO two\nDEBUG three\n",
+    )
+
+    assert transformed == "INFO two\n"
+
+
+def test_declarative_pipeline_truncate_lines_at_stage_independent() -> None:
+    registry = DeclarativeRuleRegistry()
+    config = DynamicCompressionConfig(
+        declarative_rules=[
+            {
+                "name": "truncate_chars_only",
+                "match_command": r"^truncate\b",
+                "truncate_lines_at": 6,
+            }
+        ]
+    )
+    resolved = registry.resolve(config)
+    rule = next(rule for rule in resolved.rules if rule.name == "truncate_chars_only")
+
+    transformed = registry.apply_rule(
+        rule=rule,
+        content="abcdefghi\n123456789\n",
+    )
+
+    assert transformed == "abc...\n123...\n"
+
+
+def test_declarative_pipeline_head_and_tail_branches_independent() -> None:
+    registry = DeclarativeRuleRegistry()
+    config = DynamicCompressionConfig(
+        declarative_rules=[
+            {
+                "name": "head_only",
+                "match_command": r"^head\b",
+                "head_lines": 2,
+            },
+            {
+                "name": "tail_only",
+                "match_command": r"^tail\b",
+                "tail_lines": 2,
+            },
+        ]
+    )
+    resolved = registry.resolve(config)
+    by_name = {rule.name: rule for rule in resolved.rules}
+    payload = "line-1\nline-2\nline-3\nline-4\n"
+
+    head_out = registry.apply_rule(rule=by_name["head_only"], content=payload)
+    tail_out = registry.apply_rule(rule=by_name["tail_only"], content=payload)
+
+    assert head_out == "line-1\nline-2\n... (2 lines omitted)\n"
+    assert tail_out == "... (2 lines omitted)\nline-3\nline-4\n"
+
+
+def test_declarative_rule_matching_supports_tool_category_and_tool_name_pattern() -> (
+    None
+):
+    registry = DeclarativeRuleRegistry()
+    config = DynamicCompressionConfig(
+        declarative_rules=[
+            {
+                "name": "category_only",
+                "priority": 5,
+                "tool_category": "command_execution",
+                "match_output": [{"pattern": ".*", "message": "category"}],
+            },
+            {
+                "name": "tool_name_pattern_only",
+                "priority": 4,
+                "tool_name_pattern": r"^shell$",
+                "match_output": [{"pattern": ".*", "message": "tool-name"}],
+            },
+        ]
+    )
+    resolved = registry.resolve(config)
+    context = _context_for("git status", "On branch main\n")
+
+    matched = registry.match_rule(context=context, rules=resolved.rules)
+
+    assert matched is not None
+    assert matched.name == "tool_name_pattern_only"
+
+
 @pytest.mark.asyncio
 async def test_code_rule_precedence_over_declarative_and_explicit_override() -> None:
     strategy_registry = CompressionStrategyRegistry()

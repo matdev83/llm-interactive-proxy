@@ -44,6 +44,7 @@ from src.core.services.compression_strategy_registry import (
 )
 from src.core.services.declarative_compression_rules import (
     DeclarativeRuleRegistry,
+    ResolvedDeclarativeRules,
 )
 from src.core.services.dynamic_compression_config_resolver import (
     DynamicCompressionConfigResolver,
@@ -104,6 +105,11 @@ class ToolOutputCompressionService:
             declarative_rule_registry or DeclarativeRuleRegistry()
         )
 
+    def prevalidate_config(self, config: DynamicCompressionConfig) -> list[str]:
+        """Validate dynamic/declarative config eagerly and return warnings."""
+        _, warnings, _ = self._resolve_effective_config_and_rules(config)
+        return warnings
+
     async def compress_messages(
         self,
         *,
@@ -111,22 +117,11 @@ class ToolOutputCompressionService:
         config: DynamicCompressionConfig,
         target_token_budget: int | None = None,
     ) -> ToolOutputCompressionBatchResult:
-        snapshot = self._config_resolver.create_runtime_snapshot(config)
-        resolved = self._config_resolver.resolve(
-            snapshot,
-            available_methods=(
-                *self._strategy_registry.available_method_names(),
-                "declarative_rule_filter",
-            ),
-        )
-        effective_config = resolved.config
-        resolver_warnings = list(resolved.warnings)
-        resolved_declarative_rules = self._declarative_rule_registry.resolve(
-            effective_config
-        )
-        for warning in resolved_declarative_rules.warnings:
-            if warning not in resolver_warnings:
-                resolver_warnings.append(warning)
+        (
+            effective_config,
+            resolver_warnings,
+            resolved_declarative_rules,
+        ) = self._resolve_effective_config_and_rules(config)
         runtime_strategy_overrides = self._build_runtime_strategy_overrides(
             effective_config
         )
@@ -573,6 +568,32 @@ class ToolOutputCompressionService:
             alerts=batch_alerts,
             effective_config=effective_config_diagnostics,
         )
+
+    def _resolve_effective_config_and_rules(
+        self,
+        config: DynamicCompressionConfig,
+    ) -> tuple[
+        DynamicCompressionConfig,
+        list[str],
+        ResolvedDeclarativeRules,
+    ]:
+        snapshot = self._config_resolver.create_runtime_snapshot(config)
+        resolved = self._config_resolver.resolve(
+            snapshot,
+            available_methods=(
+                *self._strategy_registry.available_method_names(),
+                "declarative_rule_filter",
+            ),
+        )
+        effective_config = resolved.config
+        resolver_warnings = list(resolved.warnings)
+        resolved_declarative_rules = self._declarative_rule_registry.resolve(
+            effective_config
+        )
+        for warning in resolved_declarative_rules.warnings:
+            if warning not in resolver_warnings:
+                resolver_warnings.append(warning)
+        return effective_config, resolver_warnings, resolved_declarative_rules
 
     def _build_effective_config_diagnostics(
         self,

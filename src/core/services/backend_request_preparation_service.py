@@ -10,6 +10,7 @@ Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 5.4, 8.1, 9.1
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterable
 from typing import Any
 
@@ -67,6 +68,48 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
             legacy_compression_compatibility_resolver
             or LegacyCompressionCompatibilityResolver()
         )
+        self._prevalidate_dynamic_compression_at_startup()
+
+    def _prevalidate_dynamic_compression_at_startup(self) -> None:
+        """Validate dynamic/declarative compression config during service startup."""
+        if self._tool_output_compression_service is None:
+            return
+        prevalidate = getattr(
+            self._tool_output_compression_service,
+            "prevalidate_config",
+            None,
+        )
+        if not callable(prevalidate):
+            return
+
+        startup_config = DynamicCompressionConfig()
+        try:
+            if self._config is not None:
+                dynamic_from_config = getattr(self._config, "dynamic_compression", None)
+                if isinstance(dynamic_from_config, DynamicCompressionConfig):
+                    startup_config = dynamic_from_config
+                elif isinstance(dynamic_from_config, dict):
+                    startup_config = DynamicCompressionConfig.model_validate(
+                        dynamic_from_config
+                    )
+
+            raw_warnings = prevalidate(startup_config)
+            if not isinstance(raw_warnings, list | tuple | set):
+                return
+            for warning in raw_warnings:
+                normalized = str(warning).strip()
+                if normalized and logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Dynamic compression startup validation warning: %s",
+                        normalized,
+                    )
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Dynamic compression startup validation failed open: %s",
+                    exc,
+                    exc_info=True,
+                )
 
     async def prepare(
         self,
@@ -157,7 +200,7 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         # Apply history compaction to reduce stale tool outputs
         # This is done after command processing but before connector translation
         # Use history compaction if available and we have a token count
-        compaction_feature_enabled = False
+        compaction_feature_enabled = self._is_compaction_enabled()
         compaction_mutated_messages = False
         if self._history_compaction_service is not None:
             # Fast approximate token estimate using character count / 4
@@ -263,6 +306,13 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                     )
 
         # Apply dynamic tool-output compression after compaction.
+        dynamic_compression_feature_enabled = self._is_dynamic_compression_enabled()
+        final_request = self._apply_legacy_gemini_truncation_compatibility(
+            request=final_request,
+            compaction_enabled=compaction_feature_enabled,
+            dynamic_compression_enabled=dynamic_compression_feature_enabled,
+        )
+
         if self._tool_output_compression_service is not None:
             dynamic_config = DynamicCompressionConfig()
             compatibility_diagnostics = DynamicCompressionCompatibilityDiagnostics()
@@ -370,6 +420,448 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
 
         # Return the (possibly modified) request
         return final_request
+
+    def _apply_legacy_gemini_truncation_compatibility(
+        self,
+        *,
+        request: ChatRequest,
+        compaction_enabled: bool,
+        dynamic_compression_enabled: bool,
+    ) -> ChatRequest:
+        if not self._is_gemini_oauth_backend(request):
+            return request
+
+        (
+            configured_controls,
+            configured_limit_controls,
+            connector_max_chars,
+            connector_max_lines,
+            parse_warnings,
+        ) = self._resolve_legacy_connector_truncation_limits(request)
+
+        if os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL") is not None:
+            configured_controls.append("env:GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL")
+
+        if not configured_controls:
+            return request
+
+        source = "connector_unset"
+        resolver_failed_open = False
+        effective_max_chars: int | None = None
+        effective_max_lines: int | None = None
+        compatibility_warnings: list[str] = list(parse_warnings)
+        compatibility_payload: dict[str, Any] | None = None
+
+        if configured_limit_controls:
+            try:
+                decision, diagnostics = (
+                    self._legacy_compression_compatibility_resolver.resolve_connector_truncation_with_diagnostics(
+                        connector_max_chars=connector_max_chars,
+                        connector_max_lines=connector_max_lines,
+                        compaction_enabled=compaction_enabled,
+                        dynamic_compression_enabled=dynamic_compression_enabled,
+                    )
+                )
+                effective_max_chars = decision.effective_max_chars
+                effective_max_lines = decision.effective_max_lines
+                source = decision.source
+                compatibility_warnings.extend(diagnostics.warnings)
+                compatibility_payload = diagnostics.model_dump(mode="json")
+            except Exception:
+                resolver_failed_open = True
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Legacy Gemini truncation compatibility resolution failed open; "
+                        "using deterministic fallback precedence.",
+                        exc_info=True,
+                    )
+                if compaction_enabled or dynamic_compression_enabled:
+                    source = "fallback_request_path"
+                    effective_max_chars = None
+                    effective_max_lines = None
+                else:
+                    source = "fallback_legacy"
+                    effective_max_chars = connector_max_chars
+                    effective_max_lines = connector_max_lines
+                compatibility_warnings.append(
+                    "Legacy Gemini truncation compatibility resolution failed open; "
+                    "applied deterministic fallback precedence."
+                )
+
+        request, truncated_count = self._truncate_tool_outputs_if_configured(
+            request=request,
+            max_chars=effective_max_chars,
+            max_lines=effective_max_lines,
+        )
+
+        if logger.isEnabledFor(logging.WARNING):
+            serialized_controls = ",".join(sorted(set(configured_controls)))
+            has_valid_limit = (
+                connector_max_chars is not None or connector_max_lines is not None
+            )
+            if configured_limit_controls and (
+                effective_max_chars is not None or effective_max_lines is not None
+            ):
+                logger.warning(
+                    "Legacy Gemini connector truncation controls are deprecated but "
+                    "active via request-path compatibility during migration; "
+                    "connector stage ignores these controls. "
+                    "controls=%s source=%s effective_chars=%s effective_lines=%s",
+                    serialized_controls,
+                    source,
+                    effective_max_chars,
+                    effective_max_lines,
+                )
+            elif configured_limit_controls and not has_valid_limit:
+                logger.warning(
+                    "Legacy Gemini connector truncation controls are deprecated; "
+                    "configured values are invalid or non-positive, so request-path "
+                    "compatibility did not apply truncation. controls=%s source=%s",
+                    serialized_controls,
+                    source,
+                )
+            elif configured_limit_controls:
+                logger.warning(
+                    "Legacy Gemini connector truncation controls are deprecated and "
+                    "inactive for this request because request-path reduction is active. "
+                    "controls=%s source=%s",
+                    serialized_controls,
+                    source,
+                )
+            else:
+                logger.warning(
+                    "Legacy Gemini truncation logging controls are deprecated. controls=%s",
+                    serialized_controls,
+                )
+
+            for warning in sorted(
+                {item.strip() for item in compatibility_warnings if item.strip()}
+            ):
+                logger.warning("%s", warning)
+
+        diagnostics_payload: dict[str, Any] = {
+            "configured_controls": sorted(set(configured_controls)),
+            "effective_max_chars": effective_max_chars,
+            "effective_max_lines": effective_max_lines,
+            "source": source,
+            "truncated_tool_messages": truncated_count,
+            "compaction_enabled": compaction_enabled,
+            "dynamic_compression_enabled": dynamic_compression_enabled,
+            "resolver_failed_open": resolver_failed_open,
+            "warnings": sorted(
+                {item.strip() for item in compatibility_warnings if item.strip()}
+            ),
+        }
+        if compatibility_payload is not None:
+            diagnostics_payload["compatibility"] = compatibility_payload
+
+        return self._attach_legacy_truncation_diagnostics(
+            request=request,
+            payload=diagnostics_payload,
+        )
+
+    def _is_dynamic_compression_enabled(self) -> bool:
+        if self._config is None:
+            return False
+
+        dynamic = getattr(self._config, "dynamic_compression", None)
+        if isinstance(dynamic, DynamicCompressionConfig):
+            return bool(dynamic.enabled)
+        if isinstance(dynamic, dict):
+            return bool(dynamic.get("enabled", False))
+        return bool(getattr(dynamic, "enabled", False))
+
+    def _is_compaction_enabled(self) -> bool:
+        if self._config is None:
+            return False
+
+        compaction = getattr(self._config, "compaction", None)
+        if isinstance(compaction, CompactionConfig):
+            return bool(compaction.enabled)
+        if isinstance(compaction, dict):
+            return bool(compaction.get("enabled", False))
+        return bool(getattr(compaction, "enabled", False))
+
+    def _is_gemini_oauth_backend(self, request: ChatRequest) -> bool:
+        backend_type = self._resolve_backend_type_from_request(request)
+        if not backend_type:
+            return False
+        normalized = backend_type.strip().lower().replace("_", "-")
+        return normalized.startswith("gemini-oauth")
+
+    @staticmethod
+    def _resolve_backend_type_from_request(request: ChatRequest) -> str | None:
+        extra_body = getattr(request, "extra_body", None)
+        if isinstance(extra_body, dict):
+            raw_backend = extra_body.get("backend_type")
+            if isinstance(raw_backend, str) and raw_backend.strip():
+                return raw_backend.strip()
+
+        model = getattr(request, "model", None)
+        if not isinstance(model, str):
+            return None
+        candidate = model.strip()
+        if not candidate:
+            return None
+        if ":" in candidate:
+            return candidate.split(":", 1)[0].strip() or None
+        return None
+
+    def _resolve_legacy_connector_truncation_limits(
+        self, request: ChatRequest
+    ) -> tuple[list[str], list[str], int | None, int | None, list[str]]:
+        warnings: list[str] = []
+        configured_controls: list[str] = []
+        configured_limit_controls: list[str] = []
+        extras = self._resolve_legacy_backend_extras(request)
+
+        max_chars: int | None = None
+        max_lines: int | None = None
+
+        char_keys = (
+            "tool_output_truncate_chars",
+            "truncate_tool_output_threshold",
+            "truncateToolOutputThreshold",
+            "tool_output_max_chars",
+        )
+        line_keys = (
+            "tool_output_truncate_lines",
+            "truncate_tool_output_lines",
+            "truncateToolOutputLines",
+            "tool_output_max_lines",
+        )
+
+        for key in char_keys:
+            raw = extras.get(key)
+            if raw is None:
+                continue
+            label = f"backend.extra:{key}"
+            configured_controls.append(label)
+            configured_limit_controls.append(label)
+            parsed = self._parse_legacy_limit(raw, control=label, warnings=warnings)
+            if parsed is None:
+                continue
+            if max_chars is None:
+                max_chars = parsed
+            elif parsed != max_chars:
+                warnings.append(
+                    "Multiple legacy Gemini character truncation controls are configured; "
+                    f"using first configured backend value ({max_chars})."
+                )
+
+        for key in line_keys:
+            raw = extras.get(key)
+            if raw is None:
+                continue
+            label = f"backend.extra:{key}"
+            configured_controls.append(label)
+            configured_limit_controls.append(label)
+            parsed = self._parse_legacy_limit(raw, control=label, warnings=warnings)
+            if parsed is None:
+                continue
+            if max_lines is None:
+                max_lines = parsed
+            elif parsed != max_lines:
+                warnings.append(
+                    "Multiple legacy Gemini line truncation controls are configured; "
+                    f"using first configured backend value ({max_lines})."
+                )
+
+        env_chars = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS")
+        if env_chars is not None:
+            label = "env:GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS"
+            configured_controls.append(label)
+            configured_limit_controls.append(label)
+            parsed = self._parse_legacy_limit(
+                env_chars,
+                control=label,
+                warnings=warnings,
+            )
+            if parsed is not None:
+                if max_chars is not None and parsed != max_chars:
+                    warnings.append(
+                        "env:GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS overrides backend "
+                        "character truncation controls due to deterministic precedence."
+                    )
+                max_chars = parsed
+
+        env_lines = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES")
+        if env_lines is not None:
+            label = "env:GEMINI_TOOL_OUTPUT_TRUNCATE_LINES"
+            configured_controls.append(label)
+            configured_limit_controls.append(label)
+            parsed = self._parse_legacy_limit(
+                env_lines,
+                control=label,
+                warnings=warnings,
+            )
+            if parsed is not None:
+                if max_lines is not None and parsed != max_lines:
+                    warnings.append(
+                        "env:GEMINI_TOOL_OUTPUT_TRUNCATE_LINES overrides backend line "
+                        "truncation controls due to deterministic precedence."
+                    )
+                max_lines = parsed
+
+        return (
+            configured_controls,
+            configured_limit_controls,
+            max_chars,
+            max_lines,
+            warnings,
+        )
+
+    def _resolve_legacy_backend_extras(self, request: ChatRequest) -> dict[str, Any]:
+        if self._config is None:
+            return {}
+
+        backend_type = self._resolve_backend_type_from_request(request)
+        if not backend_type:
+            return {}
+
+        backends = getattr(self._config, "backends", None)
+        if backends is None:
+            return {}
+
+        extras = self._lookup_backend_extras(backends, backend_type)
+        if extras:
+            return extras
+
+        alt_key = self._alternate_backend_key(backend_type)
+        if alt_key:
+            alt_extras = self._lookup_backend_extras(backends, alt_key)
+            if alt_extras:
+                return alt_extras
+            if alt_extras is not None:
+                return alt_extras
+
+        return extras or {}
+
+    @staticmethod
+    def _lookup_backend_extras(
+        backends: Any, backend_key: str
+    ) -> dict[str, Any] | None:
+        backend_config: Any | None
+        if isinstance(backends, dict):
+            backend_config = backends.get(backend_key)
+        else:
+            try:
+                if hasattr(backends, "lookup"):
+                    backend_config = backends.lookup(backend_key)
+                else:
+                    backend_config = backends.get(backend_key)
+            except Exception:
+                backend_config = None
+
+        extras = getattr(backend_config, "extra", None) if backend_config else None
+        return extras if isinstance(extras, dict) else None
+
+    @staticmethod
+    def _alternate_backend_key(backend_key: str) -> str | None:
+        if "-" in backend_key:
+            return backend_key.replace("-", "_")
+        if "_" in backend_key:
+            return backend_key.replace("_", "-")
+        return None
+
+    @staticmethod
+    def _parse_legacy_limit(
+        value: Any,
+        *,
+        control: str,
+        warnings: list[str],
+    ) -> int | None:
+        if isinstance(value, bool):
+            warnings.append(
+                f"Ignoring {control}: expected a positive integer, received boolean."
+            )
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            warnings.append(
+                f"Ignoring {control}: expected a positive integer, received {value!r}."
+            )
+            return None
+        if parsed <= 0:
+            warnings.append(
+                f"Ignoring {control}: expected a positive integer, received {parsed}."
+            )
+            return None
+        return parsed
+
+    @classmethod
+    def _truncate_tool_outputs_if_configured(
+        cls,
+        *,
+        request: ChatRequest,
+        max_chars: int | None,
+        max_lines: int | None,
+    ) -> tuple[ChatRequest, int]:
+        if max_chars is None and max_lines is None:
+            return request, 0
+
+        updated_messages: list[ChatMessage] = []
+        truncated_count = 0
+        for msg in request.messages:
+            if msg.role != "tool" or not isinstance(msg.content, str):
+                updated_messages.append(msg)
+                continue
+
+            truncated = cls._truncate_text_content(
+                msg.content,
+                max_chars=max_chars,
+                max_lines=max_lines,
+            )
+            if truncated == msg.content:
+                updated_messages.append(msg)
+                continue
+
+            truncated_count += 1
+            updated_messages.append(msg.model_copy(update={"content": truncated}))
+
+        if truncated_count == 0:
+            return request, 0
+        return (
+            request.model_copy(update={"messages": updated_messages}),
+            truncated_count,
+        )
+
+    @staticmethod
+    def _truncate_text_content(
+        value: str,
+        *,
+        max_chars: int | None,
+        max_lines: int | None,
+    ) -> str:
+        marker = "... [CONTENT TRUNCATED] ..."
+        text = value
+        if isinstance(max_lines, int) and max_lines > 0:
+            lines = text.splitlines()
+            if len(lines) > max_lines:
+                head = max(1, max_lines // 5)
+                tail = max_lines - head
+                text = "\n".join(lines[:head] + [marker] + lines[-tail:])
+
+        if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
+            head = max(1, max_chars // 5)
+            tail = max_chars - head - len(marker)
+            if tail <= 0:
+                text = text[:max_chars]
+            else:
+                text = text[:head] + marker + text[-tail:]
+
+        return text
+
+    @staticmethod
+    def _attach_legacy_truncation_diagnostics(
+        *,
+        request: ChatRequest,
+        payload: dict[str, Any],
+    ) -> ChatRequest:
+        merged = dict(request.compression_diagnostics or {})
+        merged["gemini_legacy_truncation_compatibility"] = payload
+        return request.model_copy(update={"compression_diagnostics": merged})
 
     @staticmethod
     def _build_request_path_overlap_warnings(

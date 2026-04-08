@@ -30,6 +30,7 @@ CODE_ASSIST_PROMPT_LIMIT_MARGIN = 0.97
 # Default available models for fallback
 DEFAULT_AVAILABLE_MODELS = [
     # Current generation (3.x series)
+    "gemini-3.1-pro-preview",
     "gemini-3-pro-preview",
     "gemini-3-flash-preview",
     # 2.5 series
@@ -46,9 +47,23 @@ GEMINI_OAUTH_STANDARD_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.5-pro",
+    "gemini-3.1-pro-preview",
     "gemini-3-flash-preview",
     "gemini-3-pro-preview",
 ]
+
+
+def get_shared_gemini_fallback_models() -> list[str]:
+    """Return the shared Gemini fallback catalog used across connector families."""
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for model in [*DEFAULT_AVAILABLE_MODELS, *GEMINI_OAUTH_STANDARD_MODELS]:
+        if model in seen:
+            continue
+        seen.add(model)
+        ordered.append(model)
+    return ordered
 
 
 @dataclass
@@ -179,6 +194,7 @@ __all__ = [
     "CODE_ASSIST_PROMPT_LIMIT_MARGIN",
     "DEFAULT_AVAILABLE_MODELS",
     "GEMINI_OAUTH_STANDARD_MODELS",
+    "get_shared_gemini_fallback_models",
     "GracefulDegradationConfig",
     "GracefulDegradationMetrics",
     "ModelRetryState",

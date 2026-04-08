@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -77,6 +78,18 @@ class _InflateStrategy:
         level: object,
     ) -> str:
         return content + " -- inflated --"
+
+
+class _JsonSummaryStrategy:
+    def compress(
+        self,
+        content: str,
+        *,
+        context: ToolOutputContext,
+        level: object,
+    ) -> str:
+        del content, context, level
+        return '{"summary":"compressed","items":1}'
 
 
 class _FailingRecoveryStore(CompressionRecoveryStore):
@@ -479,3 +492,57 @@ async def test_recovery_hint_is_skipped_when_it_would_exceed_original_size(
     assert "recovery_hint_skipped_size_increase" in record.warnings
     assert "[RECOVERY_HANDLE:" not in final_content
     assert len(final_content.encode("utf-8")) <= record.original_bytes
+
+
+@pytest.mark.asyncio
+async def test_recovery_handle_stays_out_of_band_for_structured_json_output(
+    tmp_path: Path,
+) -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("json_summary", _JsonSummaryStrategy())
+    service = _service_with_registry(registry)
+    payload = json.dumps(
+        {
+            "results": [
+                {"name": "item", "value": "x" * 120, "status": "ok"} for _ in range(25)
+            ]
+        }
+    )
+    config = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"json_summary": True},
+        rules=[
+            CompressionRule(
+                name="json-summary",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["json_summary"],
+            )
+        ],
+        recovery=CompressionRecoveryConfig(
+            mode="always",
+            min_original_bytes=1,
+            min_saved_bytes=1,
+            storage_dir=str(tmp_path),
+            max_artifacts=16,
+            max_artifact_bytes=32_768,
+            retention_seconds=600,
+            hint_in_text=True,
+        ),
+    )
+
+    result = await service.compress_messages(
+        messages=_tool_messages(content=payload),
+        config=config,
+    )
+
+    record = result.records[0]
+    final_content = str(result.messages[1].content)
+
+    assert record.recovery_handle is not None
+    assert record.recovery_hint_inserted is False
+    assert "[RECOVERY_HANDLE:" not in final_content
+    parsed = json.loads(final_content)
+    assert isinstance(parsed, dict)

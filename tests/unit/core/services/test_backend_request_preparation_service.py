@@ -90,6 +90,37 @@ def preparation_service_no_deps() -> BackendRequestPreparationService:
     )
 
 
+def test_startup_prevalidates_dynamic_compression_config(
+    caplog, mock_config: IConfig
+) -> None:
+    class _PrevalidateStub:
+        def __init__(self) -> None:
+            self.calls: list[DynamicCompressionConfig] = []
+
+        def prevalidate_config(self, config: DynamicCompressionConfig) -> list[str]:
+            self.calls.append(config)
+            return ["Declarative rule file not found: missing-rules.json"]
+
+    mock_config.dynamic_compression = DynamicCompressionConfig(
+        enabled=True,
+        declarative_rule_files=["missing-rules.json"],
+    )
+    stub = _PrevalidateStub()
+
+    with caplog.at_level(logging.WARNING):
+        BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=stub,
+        )
+
+    assert len(stub.calls) == 1
+    assert any(
+        "startup validation warning" in record.message.lower()
+        for record in caplog.records
+    )
+
+
 @pytest.fixture
 def base_request() -> ChatRequest:
     """Create a base chat request for testing."""
@@ -868,8 +899,8 @@ class TestDynamicCompressionLegacyPytestWarnings:
         assert "session.pytest_compression_min_lines is deprecated" in warnings
 
 
-class TestGeminiLegacyTruncationHandoffContracts:
-    """Request-path handoff contracts for Gemini connector truncation compatibility."""
+class TestGeminiLegacyTruncationRequestPathContracts:
+    """Request-path contracts for legacy Gemini truncation compatibility."""
 
     @staticmethod
     def _tool_thread(*, tool_content: str) -> list[ChatMessage]:
@@ -893,55 +924,43 @@ class TestGeminiLegacyTruncationHandoffContracts:
             ),
         ]
 
-    @pytest.mark.asyncio
-    async def test_request_path_handoff_keeps_small_output_untouched(
-        self,
-        mock_config: IConfig,
-    ) -> None:
-        mock_config.compaction = CompactionConfig(enabled=False)
-        mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
-        mock_config.backends = {
-            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_chars": 40})
-        }
-        service = BackendRequestPreparationService(
-            history_compaction_service=None,
-            config=mock_config,
-            tool_output_compression_service=ToolOutputCompressionService(),
-        )
-        small_output = "small output"
-        request = ChatRequest(
-            model="gpt-4",
-            messages=[
-                ChatMessage(role="user", content="u"),
-                *self._tool_thread(tool_content=small_output),
-            ],
-        )
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=False,
-            command_results=[],
-        )
+    @staticmethod
+    def _legacy_truncate(
+        value: str,
+        *,
+        max_chars: int | None,
+        max_lines: int | None,
+    ) -> str:
+        marker = "... [CONTENT TRUNCATED] ..."
+        text = value
+        if isinstance(max_lines, int) and max_lines > 0:
+            lines = text.splitlines()
+            if len(lines) > max_lines:
+                head = max(1, max_lines // 5)
+                tail = max_lines - head
+                text = "\n".join(lines[:head] + [marker] + lines[-tail:])
 
-        result = await service.prepare(request, command_result)
+        if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
+            head = max(1, max_chars // 5)
+            tail = max_chars - head - len(marker)
+            if tail <= 0:
+                text = text[:max_chars]
+            else:
+                text = text[:head] + marker + text[-tail:]
 
-        assert result is not None
-        assert result.messages[2].content == small_output
-        diagnostics = result.compression_diagnostics or {}
-        assert "gemini_legacy_truncation_compatibility" not in diagnostics
+        return text
 
     @pytest.mark.asyncio
-    async def test_request_path_handoff_preserves_char_limited_output_for_connector_stage(
+    async def test_request_path_legacy_char_truncation_applies_with_diagnostics(
         self,
         mock_config: IConfig,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        max_chars = 40
         payload = "x" * 200
         mock_config.compaction = CompactionConfig(enabled=False)
         mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
         mock_config.backends = {
-            "gemini-oauth-auto": BackendConfig(
-                extra={"tool_output_truncate_chars": max_chars}
-            )
+            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_chars": 40})
         }
         service = BackendRequestPreparationService(
             history_compaction_service=None,
@@ -954,6 +973,60 @@ class TestGeminiLegacyTruncationHandoffContracts:
                 ChatMessage(role="user", content="u"),
                 *self._tool_thread(tool_content=payload),
             ],
+            extra_body={"backend_type": "gemini-oauth-auto"},
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages[2].content == self._legacy_truncate(
+            payload,
+            max_chars=40,
+            max_lines=None,
+        )
+        compat = (result.compression_diagnostics or {}).get(
+            "gemini_legacy_truncation_compatibility"
+        )
+        assert isinstance(compat, dict)
+        assert compat.get("source") == "connector"
+        assert compat.get("effective_max_chars") == 40
+        assert compat.get("truncated_tool_messages") == 1
+        assert compat.get("compaction_enabled") is False
+        assert compat.get("dynamic_compression_enabled") is False
+        assert any(
+            "active via request-path compatibility" in record.message.lower()
+            for record in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_request_path_legacy_char_limit_keeps_small_output_untouched(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        payload = "small-output"
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
+        mock_config.backends = {
+            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_chars": 40})
+        }
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content=payload),
+            ],
+            extra_body={"backend_type": "gemini-oauth-auto"},
         )
         command_result = ProcessedResult(
             modified_messages=[],
@@ -965,12 +1038,16 @@ class TestGeminiLegacyTruncationHandoffContracts:
 
         assert result is not None
         assert result.messages[2].content == payload
-        assert "... [CONTENT TRUNCATED] ..." not in str(result.messages[2].content)
-        diagnostics = result.compression_diagnostics or {}
-        assert "gemini_legacy_truncation_compatibility" not in diagnostics
+        compat = (result.compression_diagnostics or {}).get(
+            "gemini_legacy_truncation_compatibility"
+        )
+        assert isinstance(compat, dict)
+        assert compat.get("source") == "connector"
+        assert compat.get("effective_max_chars") == 40
+        assert compat.get("truncated_tool_messages") == 0
 
     @pytest.mark.asyncio
-    async def test_request_path_handoff_preserves_line_limited_output_for_connector_stage(
+    async def test_request_path_legacy_line_truncation_applies_with_diagnostics(
         self,
         mock_config: IConfig,
     ) -> None:
@@ -994,6 +1071,7 @@ class TestGeminiLegacyTruncationHandoffContracts:
                 ChatMessage(role="user", content="u"),
                 *self._tool_thread(tool_content=payload),
             ],
+            extra_body={"backend_type": "gemini-oauth-auto"},
         )
         command_result = ProcessedResult(
             modified_messages=[],
@@ -1004,18 +1082,27 @@ class TestGeminiLegacyTruncationHandoffContracts:
         result = await service.prepare(request, command_result)
 
         assert result is not None
-        assert result.messages[2].content == payload
-        assert "... [CONTENT TRUNCATED] ..." not in str(result.messages[2].content)
-        diagnostics = result.compression_diagnostics or {}
-        assert "gemini_legacy_truncation_compatibility" not in diagnostics
+        assert result.messages[2].content == self._legacy_truncate(
+            payload,
+            max_chars=None,
+            max_lines=max_lines,
+        )
+        compat = (result.compression_diagnostics or {}).get(
+            "gemini_legacy_truncation_compatibility"
+        )
+        assert isinstance(compat, dict)
+        assert compat.get("source") == "connector"
+        assert compat.get("effective_max_lines") == max_lines
+        assert compat.get("truncated_tool_messages") == 1
 
     @pytest.mark.asyncio
-    async def test_request_path_handoff_preserves_output_when_compaction_enabled(
+    async def test_request_path_legacy_controls_inactive_with_compaction(
         self,
         mock_config: IConfig,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         payload = "x" * 200
-        mock_config.compaction = CompactionConfig(enabled=True)
+        mock_config.compaction = CompactionConfig(enabled=True, token_threshold=10)
         mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
         mock_config.backends = {
             "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_chars": 40})
@@ -1031,6 +1118,57 @@ class TestGeminiLegacyTruncationHandoffContracts:
                 ChatMessage(role="user", content="u"),
                 *self._tool_thread(tool_content=payload),
             ],
+            extra_body={"backend_type": "gemini-oauth-auto"},
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages[2].content == payload
+        compat = (result.compression_diagnostics or {}).get(
+            "gemini_legacy_truncation_compatibility"
+        )
+        assert isinstance(compat, dict)
+        assert compat.get("source") == "history_compaction"
+        assert compat.get("truncated_tool_messages") == 0
+        assert any(
+            "inactive for this request because request-path reduction is active"
+            in record.message.lower()
+            for record in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_request_path_overlap_with_compaction_and_dynamic_is_deterministic(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        payload = "x" * 200
+        mock_config.compaction = CompactionConfig(enabled=True, token_threshold=10)
+        mock_config.dynamic_compression = DynamicCompressionConfig(
+            enabled=True,
+            min_bytes=50_000_000,
+        )
+        mock_config.backends = {
+            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_chars": 40})
+        }
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=ToolOutputCompressionService(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content=payload),
+            ],
+            extra_body={"backend_type": "gemini-oauth-auto"},
         )
         command_result = ProcessedResult(
             modified_messages=[],
@@ -1042,8 +1180,76 @@ class TestGeminiLegacyTruncationHandoffContracts:
 
         assert result is not None
         assert result.messages[2].content == payload
-        diagnostics = result.compression_diagnostics or {}
-        assert "gemini_legacy_truncation_compatibility" not in diagnostics
+        compat = (result.compression_diagnostics or {}).get(
+            "gemini_legacy_truncation_compatibility"
+        )
+        assert isinstance(compat, dict)
+        assert compat.get("source") == "history_compaction+dynamic_compression"
+        assert compat.get("truncated_tool_messages") == 0
+
+    @pytest.mark.asyncio
+    async def test_request_path_legacy_truncation_fails_open_when_resolver_errors(
+        self,
+        mock_config: IConfig,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        class RaisingResolver:
+            def resolve_connector_truncation_with_diagnostics(
+                self,
+                *,
+                connector_max_chars: int | None,
+                connector_max_lines: int | None,
+                compaction_enabled: bool,
+                dynamic_compression_enabled: bool,
+            ) -> object:
+                raise RuntimeError("resolver failure")
+
+        payload = "x" * 200
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
+        mock_config.backends = {
+            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_chars": 80})
+        }
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=None,
+            legacy_compression_compatibility_resolver=RaisingResolver(),
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content=payload),
+            ],
+            extra_body={"backend_type": "gemini-oauth-auto"},
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages[2].content == self._legacy_truncate(
+            payload,
+            max_chars=80,
+            max_lines=None,
+        )
+        compat = (result.compression_diagnostics or {}).get(
+            "gemini_legacy_truncation_compatibility"
+        )
+        assert isinstance(compat, dict)
+        assert compat.get("resolver_failed_open") is True
+        assert compat.get("source") == "fallback_legacy"
+        assert compat.get("truncated_tool_messages") == 1
+        assert any(
+            "compatibility resolution failed open" in record.message.lower()
+            for record in caplog.records
+        )
 
 
 class TestDynamicCompressionObservabilitySurfaces:

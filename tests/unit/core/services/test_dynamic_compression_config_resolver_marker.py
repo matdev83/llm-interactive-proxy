@@ -122,3 +122,35 @@ def test_apply_marker_replaces_existing_prefix_without_spacing_artifacts() -> No
         rendered
         == "[COMPRESSED level=conservative methods=line_dedupe saved=2B]\npayload"
     )
+
+
+def test_resolver_warns_for_unknown_options_and_invalid_overrides() -> None:
+    resolver = DynamicCompressionConfigResolver()
+    config = DynamicCompressionConfig.model_validate(
+        {
+            "enabled": True,
+            "disable_categories": ["unknown_category"],
+            "disable_methods": ["unknown_method"],
+            "unknown_option": "value",
+        }
+    )
+
+    resolved = resolver.resolve(
+        config,
+        available_methods=["line_dedupe", "declarative_rule_filter"],
+    )
+
+    assert resolved.config.disable_categories == []
+    assert resolved.config.disable_methods == []
+    assert any(
+        "Unknown dynamic compression category override ignored" in warning
+        for warning in resolved.warnings
+    )
+    assert any(
+        "Unknown dynamic compression method override ignored" in warning
+        for warning in resolved.warnings
+    )
+    assert any(
+        "Unknown dynamic_compression option ignored: 'unknown_option'" in warning
+        for warning in resolved.warnings
+    )

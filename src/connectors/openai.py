@@ -2132,7 +2132,11 @@ class OpenAIConnector(LLMBackend):
                         "Failed to read error response body, using fallback",
                         exc_info=True,
                     )
-                body = str(getattr(response, "text", ""))
+                try:
+                    # Safely access text, ignoring ResponseNotRead on streams
+                    body = str(getattr(response, "text", ""))
+                except BaseException:
+                    body = "Error response body could not be read"
             finally:
                 with contextlib.suppress(BaseException):
                     await response.aclose()

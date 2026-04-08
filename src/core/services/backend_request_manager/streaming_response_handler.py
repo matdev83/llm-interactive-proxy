@@ -545,18 +545,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
 
         status_code = getattr(stream_error, "status_code", None)
         if isinstance(status_code, int):
-            if status_code == 429:
+            # Surface all 4xx client errors immediately, retrying them is useless
+            if 400 <= status_code < 500:
                 return True
-            if status_code in {408, 425, 503, 504}:
+            if status_code in {503, 504}:
                 return True
 
         details = getattr(stream_error, "details", None)
         if isinstance(details, dict):
             details_status = details.get("status_code")
             if isinstance(details_status, int):
-                if details_status == 429:
+                if 400 <= details_status < 500:
                     return True
-                if details_status in {408, 425, 503, 504}:
+                if details_status in {503, 504}:
                     return True
 
         return False

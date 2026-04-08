@@ -360,9 +360,7 @@ class ChatRequestPreparer:
         canonical_request = self._strip_reasoning_content_if_configured(
             canonical_request
         )
-        canonical_request = self._apply_legacy_connector_truncation_compatibility(
-            canonical_request
-        )
+        self._warn_legacy_connector_truncation_controls_ignored(canonical_request)
 
         # Inject stored thought_signatures for clients that don't preserve extra_content
         # Uses IThoughtSignatureService interface
@@ -729,110 +727,36 @@ class ChatRequestPreparer:
 
         return True
 
-    def _apply_legacy_connector_truncation_compatibility(
+    def _warn_legacy_connector_truncation_controls_ignored(
         self, canonical_request: Any
-    ) -> Any:
+    ) -> None:
+        _ = canonical_request
         if not self._is_gemini_oauth_backend():
-            return canonical_request
+            return
 
         (
             configured_controls,
             configured_limit_controls,
-            connector_max_chars,
-            connector_max_lines,
+            _connector_max_chars,
+            _connector_max_lines,
             parse_warnings,
         ) = self._resolve_legacy_connector_truncation_limits()
         if os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL") is not None:
             configured_controls.append("env:GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL")
 
         if not configured_controls:
-            return canonical_request
-
-        compaction_enabled = self._is_compaction_enabled()
-        dynamic_compression_enabled = self._is_dynamic_compression_enabled()
-
-        source = "connector_unset"
-        resolver_failed_open = False
-        effective_max_chars: int | None = None
-        effective_max_lines: int | None = None
-        compatibility_warnings: list[str] = list(parse_warnings)
-        compatibility_payload: dict[str, Any] | None = None
-
-        if configured_limit_controls:
-            try:
-                decision, diagnostics = (
-                    self._legacy_compression_compatibility_resolver.resolve_connector_truncation_with_diagnostics(
-                        connector_max_chars=connector_max_chars,
-                        connector_max_lines=connector_max_lines,
-                        compaction_enabled=compaction_enabled,
-                        dynamic_compression_enabled=dynamic_compression_enabled,
-                    )
-                )
-                effective_max_chars = decision.effective_max_chars
-                effective_max_lines = decision.effective_max_lines
-                source = decision.source
-                compatibility_warnings.extend(diagnostics.warnings)
-                compatibility_payload = diagnostics.model_dump(mode="json")
-            except Exception:
-                resolver_failed_open = True
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Legacy Gemini truncation compatibility resolution failed open; "
-                        "using deterministic fallback precedence.",
-                        exc_info=True,
-                    )
-                if compaction_enabled or dynamic_compression_enabled:
-                    source = "fallback_request_path"
-                    effective_max_chars = None
-                    effective_max_lines = None
-                else:
-                    source = "fallback_legacy"
-                    effective_max_chars = connector_max_chars
-                    effective_max_lines = connector_max_lines
-                compatibility_warnings.append(
-                    "Legacy Gemini truncation compatibility resolution failed open; "
-                    "applied deterministic fallback precedence."
-                )
-
-        canonical_request, truncated_count = self._truncate_tool_outputs_if_configured(
-            canonical_request=canonical_request,
-            max_chars=effective_max_chars,
-            max_lines=effective_max_lines,
-        )
+            return
 
         if logger.isEnabledFor(logging.WARNING):
             serialized_controls = ",".join(sorted(set(configured_controls)))
-            has_valid_limit = (
-                connector_max_chars is not None or connector_max_lines is not None
-            )
-            if configured_limit_controls and (
-                effective_max_chars is not None or effective_max_lines is not None
-            ):
-                logger.warning(
-                    "Legacy Gemini connector truncation controls are deprecated but "
-                    "active via compatibility path during migration; "
-                    "migrate to request-path compaction/dynamic compression controls. "
-                    "controls=%s source=%s effective_chars=%s effective_lines=%s",
-                    serialized_controls,
-                    source,
-                    effective_max_chars,
-                    effective_max_lines,
-                )
-            elif configured_limit_controls and not has_valid_limit:
-                logger.warning(
-                    "Legacy Gemini connector truncation controls are deprecated; "
-                    "configured values are invalid or non-positive, so no truncation "
-                    "was applied. controls=%s source=%s",
-                    serialized_controls,
-                    source,
-                )
-            elif configured_limit_controls:
+            if configured_limit_controls:
                 logger.warning(
                     "Legacy Gemini connector truncation controls are deprecated and "
-                    "inactive for this request because request-path reduction is active. "
-                    "controls=%s source=%s",
+                    "ignored in connector stage; request-path compatibility handles "
+                    "legacy behavior during migration. controls=%s "
+                    "dynamic_compression_enabled=%s",
                     serialized_controls,
-                    source,
+                    self._is_dynamic_compression_enabled(),
                 )
             else:
                 logger.warning(
@@ -841,29 +765,9 @@ class ChatRequestPreparer:
                 )
 
             for warning in sorted(
-                {item.strip() for item in compatibility_warnings if item.strip()}
+                {item.strip() for item in parse_warnings if item.strip()}
             ):
                 logger.warning("%s", warning)
-
-        diagnostics_payload: dict[str, Any] = {
-            "configured_controls": sorted(set(configured_controls)),
-            "effective_max_chars": effective_max_chars,
-            "effective_max_lines": effective_max_lines,
-            "source": source,
-            "truncated_tool_messages": truncated_count,
-            "compaction_enabled": compaction_enabled,
-            "dynamic_compression_enabled": dynamic_compression_enabled,
-            "resolver_failed_open": resolver_failed_open,
-            "warnings": sorted(
-                {item.strip() for item in compatibility_warnings if item.strip()}
-            ),
-        }
-        if compatibility_payload is not None:
-            diagnostics_payload["compatibility"] = compatibility_payload
-        return self._attach_connector_truncation_diagnostics(
-            canonical_request=canonical_request,
-            payload=diagnostics_payload,
-        )
 
     def _resolve_legacy_connector_truncation_limits(
         self,
@@ -995,13 +899,6 @@ class ChatRequestPreparer:
             return None
         return parsed
 
-    def _is_compaction_enabled(self) -> bool:
-        config = getattr(self._connector_context, "config", None)
-        compaction = getattr(config, "compaction", None)
-        if isinstance(compaction, dict):
-            return bool(compaction.get("enabled"))
-        return bool(getattr(compaction, "enabled", False))
-
     def _is_dynamic_compression_enabled(self) -> bool:
         config = getattr(self._connector_context, "config", None)
         dynamic_compression = getattr(config, "dynamic_compression", None)
@@ -1013,115 +910,6 @@ class ChatRequestPreparer:
         backend_type = str(getattr(self._connector_context, "backend_type", "") or "")
         normalized = backend_type.strip().lower().replace("_", "-")
         return normalized.startswith("gemini-oauth")
-
-    def _truncate_tool_outputs_if_configured(
-        self,
-        *,
-        canonical_request: Any,
-        max_chars: int | None,
-        max_lines: int | None,
-    ) -> tuple[Any, int]:
-        if max_chars is None and max_lines is None:
-            return canonical_request, 0
-
-        messages = getattr(canonical_request, "messages", None)
-        if not isinstance(messages, list) or not messages:
-            return canonical_request, 0
-
-        updated_messages: list[Any] = []
-        truncated_count = 0
-        for msg in messages:
-            role = (
-                msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-            )
-            content = (
-                msg.get("content")
-                if isinstance(msg, dict)
-                else getattr(msg, "content", None)
-            )
-            if role != "tool" or not isinstance(content, str):
-                updated_messages.append(msg)
-                continue
-
-            truncated = self._truncate_text_content(
-                content,
-                max_chars=max_chars,
-                max_lines=max_lines,
-            )
-            if truncated == content:
-                updated_messages.append(msg)
-                continue
-
-            truncated_count += 1
-            if isinstance(msg, dict):
-                replaced = dict(msg)
-                replaced["content"] = truncated
-                updated_messages.append(replaced)
-                continue
-
-            if hasattr(msg, "model_copy"):
-                with contextlib.suppress(Exception):
-                    updated_messages.append(
-                        msg.model_copy(update={"content": truncated})
-                    )
-                    continue
-
-            with contextlib.suppress(Exception):
-                msg.content = truncated
-            updated_messages.append(msg)
-
-        if truncated_count == 0:
-            return canonical_request, 0
-        return (
-            self._replace_messages(canonical_request, updated_messages),
-            truncated_count,
-        )
-
-    @staticmethod
-    def _truncate_text_content(
-        value: str,
-        *,
-        max_chars: int | None,
-        max_lines: int | None,
-    ) -> str:
-        marker = "... [CONTENT TRUNCATED] ..."
-        text = value
-        if isinstance(max_lines, int) and max_lines > 0:
-            lines = text.splitlines()
-            if len(lines) > max_lines:
-                head = max(1, max_lines // 5)
-                tail = max_lines - head
-                text = "\n".join(lines[:head] + [marker] + lines[-tail:])
-
-        if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
-            head = max(1, max_chars // 5)
-            tail = max_chars - head - len(marker)
-            if tail <= 0:
-                text = text[:max_chars]
-            else:
-                text = text[:head] + marker + text[-tail:]
-
-        return text
-
-    @staticmethod
-    def _attach_connector_truncation_diagnostics(
-        *,
-        canonical_request: Any,
-        payload: dict[str, Any],
-    ) -> Any:
-        diagnostics = getattr(canonical_request, "compression_diagnostics", None)
-        merged = dict(diagnostics) if isinstance(diagnostics, dict) else {}
-        merged["gemini_legacy_truncation_compatibility"] = payload
-
-        if hasattr(canonical_request, "model_copy"):
-            with contextlib.suppress(Exception):
-                return canonical_request.model_copy(
-                    update={"compression_diagnostics": merged}
-                )
-
-        with contextlib.suppress(Exception):
-            canonical_request.compression_diagnostics = merged
-        return canonical_request
 
     def _get_backend_extras(self) -> dict[str, Any]:
         connector = self._connector_context

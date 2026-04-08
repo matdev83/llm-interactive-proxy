@@ -65,6 +65,10 @@ class TestKnownOAuthConnectors:
         """Test that known connectors include kiro-oauth-auto."""
         assert "kiro-oauth-auto" in KNOWN_OAUTH_CONNECTORS
 
+    def test_known_oauth_connectors_includes_gemini_cli_acp(self) -> None:
+        """Test that known connectors include gemini-cli-acp."""
+        assert "gemini-cli-acp" in KNOWN_OAUTH_CONNECTORS
+
 
 class TestIsOAuthConnectorNamingPatterns:
     """Tests for OAuth connector detection by naming patterns."""
@@ -135,6 +139,10 @@ class TestIsOAuthConnectorKnownList:
         if "opencode-zen" in KNOWN_OAUTH_CONNECTORS:
             assert is_oauth_connector("opencode_zen") is True
 
+    def test_gemini_cli_acp_detected_via_known_list(self) -> None:
+        """Test gemini-cli-acp is detected via known list."""
+        assert is_oauth_connector("gemini_cli_acp") is True
+
 
 class TestIsOAuthConnectorPropertyBased:
     """Tests for OAuth connector detection via has_static_credentials property."""
@@ -147,9 +155,7 @@ class TestIsOAuthConnectorPropertyBased:
 
     def test_does_not_detect_oauth_when_has_static_credentials_true(self) -> None:
         """Test connector with has_static_credentials=True is NOT detected as OAuth."""
-        mock_class = type(
-            "MockStaticConnector", (), {"has_static_credentials": True}
-        )
+        mock_class = type("MockStaticConnector", (), {"has_static_credentials": True})
         # Module name doesn't match patterns and property says static
         result = is_oauth_connector("test_connector", connector_class=mock_class)
         assert result is False
