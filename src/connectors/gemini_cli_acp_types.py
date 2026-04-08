@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ACPError(BaseModel):
@@ -54,9 +54,9 @@ class ACPUpdateContent(BaseModel):
 class ACPSessionUpdate(BaseModel):
     """Notification payload for session/update."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    sessionId: str
+    session_id: str = Field(alias="sessionId")
     update: dict[str, Any]
 
 
@@ -73,4 +73,3 @@ class GeminiCliRuntime:
     last_activity: float = 0.0
     process_lock: Any = field(default=None)
     request_lock: Any = field(default=None)
-

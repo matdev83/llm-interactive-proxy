@@ -16,6 +16,7 @@ The proxy supports the following backend providers out of the box:
 | `gemini` | Google Gemini | API Key | Metered API usage, production apps |
 | `gemini-oauth-plan` | Google Gemini (CLI) | OAuth | Users with Google One subscription |
 | `gemini-oauth-free` | Google Gemini (CLI) | OAuth | Free tier users |
+| `gemini-cli-acp` | Google Gemini (ACP via Gemini CLI) | Local OAuth token | Quality verifier agents, file-search sub-agents, web-search sub-agents using Google Search |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + GCP Project | Enterprise, team workflows, central billing |
 | `openrouter` | OpenRouter | API Key | Access to many hosted models |
 | `nvidia` | NVIDIA (NIM / OpenAI-compatible) | API Key (`NVIDIA_API_KEY`) | Hosted NVIDIA integrator or self-hosted NIM |
@@ -51,6 +52,7 @@ When selecting a backend, consider:
 - **Model Availability**: Each provider offers different models with varying capabilities
 - **Authentication**: Choose between API keys (simpler) or OAuth (may offer free tiers)
 - **Use Case**: Some backends are optimized for specific tasks (e.g., `zai-coding-plan` for coding)
+- **Tooling Model**: Some CLI-mediated backends are better suited for specialized sub-agents than for acting as the main general-purpose coding agent for the whole session
 
 ## Configuration
 

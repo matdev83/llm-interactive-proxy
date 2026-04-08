@@ -266,6 +266,9 @@ class GeminiCliAcpConnector(GeminiBackend):
                     stderr=subprocess.PIPE,
                     cwd=str(runtime.project_dir),
                     shell=False,
+                    creationflags=(
+                        subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+                    ),
                 )
                 runtime.process = new_process
                 await asyncio.sleep(0.1)
@@ -306,14 +309,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                 return
 
             try:
-                if process.poll() is None:
-                    process.terminate()
-                    try:
-                        await asyncio.to_thread(lambda: process.wait(timeout=5))
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        with contextlib.suppress(subprocess.TimeoutExpired):
-                            await asyncio.to_thread(lambda: process.wait(timeout=5))
+                await self._terminate_process(process)
             finally:
                 self._cleanup_runtime_state(runtime, process)
 
@@ -337,9 +333,7 @@ class GeminiCliAcpConnector(GeminiBackend):
         runtime.message_id = 0
         runtime.last_activity = 0.0
 
-    def _cleanup_process(
-        self, process: subprocess.Popen[bytes] | None = None
-    ) -> None:
+    def _cleanup_process(self, process: subprocess.Popen[bytes] | None = None) -> None:
         if process is None:
             return
 
@@ -355,6 +349,34 @@ class GeminiCliAcpConnector(GeminiBackend):
             return ""
         stderr_bytes = await asyncio.to_thread(process.stderr.read)
         return stderr_bytes.decode("utf-8", errors="replace")
+
+    async def _terminate_process(self, process: subprocess.Popen[bytes]) -> None:
+        if process.poll() is not None:
+            return
+
+        if os.name == "nt":
+            with contextlib.suppress(Exception):
+                process.terminate()
+            try:
+                await asyncio.to_thread(
+                    subprocess.run,
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                    shell=False,
+                )
+            finally:
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    await asyncio.to_thread(lambda: process.wait(timeout=5))
+            return
+
+        process.terminate()
+        try:
+            await asyncio.to_thread(lambda: process.wait(timeout=5))
+        except subprocess.TimeoutExpired:
+            process.kill()
+            with contextlib.suppress(subprocess.TimeoutExpired):
+                await asyncio.to_thread(lambda: process.wait(timeout=5))
 
     def _get_next_message_id(self, runtime: GeminiCliRuntime) -> int:
         runtime.message_id += 1
@@ -733,8 +755,8 @@ class GeminiCliAcpConnector(GeminiBackend):
             )
 
         async with runtime.request_lock:
-            prompt_request_id, requested_model = await self._prepare_prompt_request_locked(
-                runtime, request
+            prompt_request_id, requested_model = (
+                await self._prepare_prompt_request_locked(runtime, request)
             )
             fragments: list[str] = []
             async for text in self._iter_text_fragments(
@@ -785,7 +807,15 @@ class GeminiCliAcpConnector(GeminiBackend):
                 continue
             try:
                 if process.poll() is None:
-                    process.terminate()
+                    if os.name == "nt":
+                        subprocess.run(
+                            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                            capture_output=True,
+                            check=False,
+                            shell=False,
+                        )
+                    else:
+                        process.terminate()
                     with contextlib.suppress(subprocess.TimeoutExpired):
                         process.wait(timeout=5)
             except Exception:
