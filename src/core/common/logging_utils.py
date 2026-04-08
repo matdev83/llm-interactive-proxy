@@ -827,6 +827,7 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
         "ZAI_API_KEY",
         "ZAI_CODING_PLAN_API_KEY",
         "MINIMAX_API_KEY",
+        "OLLAMA_API_KEY",
         "KIMI_API_KEY",
         "INTERNAI_API_KEY",
         "LLM_INTERACTIVE_PROXY_API_KEY",

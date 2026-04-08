@@ -360,6 +360,44 @@ def apply_config_part3(
                 origin="MINIMAX_API_KEY",
             )
 
+    ollama_api_base_url = _get_env_value(
+        env,
+        "OLLAMA_API_BASE_URL",
+        None,
+        path="backends.ollama.api_url",
+        resolution=resolution,
+    )
+    if ollama_api_base_url:
+        config_backends["ollama"] = config_backends.get("ollama", {})
+        config_backends["ollama"]["api_url"] = ollama_api_base_url
+        ollama_timeout = _get_env_value(
+            env,
+            "OLLAMA_TIMEOUT",
+            None,
+            path="backends.ollama.timeout",
+            resolution=resolution,
+            transform=lambda value: _to_int(value, 0),
+        )
+        if ollama_timeout:
+            config_backends["ollama"]["timeout"] = ollama_timeout
+        if resolution is not None:
+            resolution.record(
+                "backends.ollama.api_url",
+                config_backends["ollama"]["api_url"],
+                ParameterSource.ENVIRONMENT,
+                origin="OLLAMA_API_BASE_URL",
+            )
+    if env.get("OLLAMA_API_KEY"):
+        config_backends["ollama"] = config_backends.get("ollama", {})
+        config_backends["ollama"]["api_key"] = env["OLLAMA_API_KEY"]
+        if resolution is not None:
+            resolution.record(
+                "backends.ollama.api_key",
+                config_backends["ollama"]["api_key"],
+                ParameterSource.ENVIRONMENT,
+                origin="OLLAMA_API_KEY",
+            )
+
     # Collect INTERNAI_API_KEY and all numbered variants (INTERNAI_API_KEY_1, _2, etc.)
     internai_api_keys: list[str] = []
     if env.get("INTERNAI_API_KEY"):

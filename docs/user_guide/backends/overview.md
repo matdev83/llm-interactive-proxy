@@ -27,6 +27,7 @@ The proxy supports the following backend providers out of the box:
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
 | `internlm` | InternLM AI | API Key | InternLM models with key rotation |
+| `ollama` | Ollama (Local) | None (local server) | Locally-hosted models + cloud via Ollama app |
 | `hybrid` | Virtual (orchestrates two models) | Inherits from sub-backends | Two-phase reasoning + execution |
 | `antigravity-oauth` | Google Gemini (Antigravity) | Antigravity Token | Internal debugging (Gemini models) |
 
@@ -129,6 +130,7 @@ For detailed configuration and usage information for each backend, see:
 - [MiniMax Backend](minimax.md)
 - [ZenMux Backend](zenmux.md)
 - [Kimi Code Backend](kimi-code.md)
+- [Ollama Backend (Local)](ollama.md)
 - [Custom Backends](custom-backends.md)
 
 ## Related Features
