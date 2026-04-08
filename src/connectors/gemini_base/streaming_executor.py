@@ -480,8 +480,7 @@ class StreamingExecutor:
         retry_error: Exception | None,
     ) -> BackendError:
         details: dict[str, Any] = {}
-        if isinstance(source_error.details, dict):
-            details.update(source_error.details)
+        details.update(source_error.details)
 
         retry_after = self._extract_retry_after_seconds(source_error)
         if retry_after is not None:
@@ -966,6 +965,12 @@ class StreamingExecutor:
                 )
                 send_callable = getattr(prepared.auth_session, "send", None)
                 if callable(send_callable) and not isinstance(send_callable, Mock):
+                    # Filter out keys already set explicitly to avoid duplicate kwargs
+                    send_settings = {
+                        k: v
+                        for k, v in send_settings.items()
+                        if k not in ("stream", "timeout")
+                    }
                     request_task = asyncio.create_task(
                         asyncio.to_thread(
                             send_callable,
@@ -983,7 +988,11 @@ class StreamingExecutor:
                             backend_name=self._backend_type,
                         )
                     if isinstance(send_settings, Mapping):
-                        request_kwargs = dict(send_settings)
+                        request_kwargs = {
+                            k: v
+                            for k, v in dict(send_settings).items()
+                            if k not in ("stream", "timeout")
+                        }
                     else:
                         request_kwargs = {}
                     request_kwargs["stream"] = True
@@ -1588,16 +1597,12 @@ class StreamingExecutor:
                 completion_tokens = await asyncio.to_thread(
                     self._token_estimator.estimate_tokens, generated_text
                 )
-                if not isinstance(completion_tokens, int) or (
-                    completion_tokens <= 0 and generated_text
-                ):
+                if completion_tokens <= 0 and generated_text:
                     from src.core.utils.token_count import count_tokens
 
-                    fallback_completion_tokens = count_tokens(
+                    completion_tokens = count_tokens(
                         generated_text, model=prepared.effective_model
                     )
-                    if isinstance(fallback_completion_tokens, int):
-                        completion_tokens = fallback_completion_tokens
                 usage = {
                     "prompt_tokens": prompt_tokens,
                     "completion_tokens": completion_tokens,
@@ -1868,6 +1873,35 @@ class StreamingExecutor:
                 with contextlib.suppress(Exception):
                     response.close()
 
+    def _update_auth_session_token(
+        self,
+        prepared: PreparedChatRequest,
+        token_refresher: Any,
+    ) -> None:
+        creds = getattr(token_refresher, "_oauth_credentials", None)
+        if not isinstance(creds, dict):
+            logger.warning(
+                "Cannot refresh auth_session: token_refresher has no _oauth_credentials dict"
+            )
+            return
+        new_token = creds.get("access_token")
+        if not new_token:
+            logger.warning(
+                "Cannot refresh auth_session: no access_token in _oauth_credentials"
+            )
+            return
+        session = getattr(prepared, "auth_session", None)
+        if session is None:
+            return
+        old_creds = getattr(session, "credentials", None)
+        if old_creds is not None and hasattr(old_creds, "token"):
+            old_creds.token = new_token  # type: ignore[union-attr]
+            logger.debug("Updated auth_session credentials with refreshed token")
+        else:
+            logger.warning(
+                "auth_session.credentials has no .token attribute; cannot update in-place"
+            )
+
     async def _handle_error_response(
         self,
         response: requests.Response,
@@ -2047,6 +2081,7 @@ class StreamingExecutor:
                         logger.info(
                             "Token refresh successful, retrying streaming request..."
                         )
+                        self._update_auth_session_token(prepared, token_refresher)
                         async for retry_chunk in self._stream_generator(
                             prepared=prepared,
                             url=url,

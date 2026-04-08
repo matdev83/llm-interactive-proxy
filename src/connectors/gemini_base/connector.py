@@ -9,24 +9,15 @@ import logging
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import httpx
 import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
 from pydantic.types import JsonValue
 
-from src.core.domain.chat import (
-    CanonicalChatRequest,
-    ChatMessage,
-)
-from src.core.domain.session_key import SessionKey
-
-if TYPE_CHECKING:
-
-    pass
-
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.gemini import GeminiApiConfig, GeminiBackend
 from src.connectors.gemini_base.chat_completion_coordinator import (
     GeminiChatCompletionCoordinator,
@@ -146,6 +137,10 @@ from src.core.common.exceptions import (
     InvalidRequestError,
 )
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import (
+    CanonicalChatRequest,
+    ChatMessage,
+)
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -1618,32 +1613,66 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: Any,
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: Any = None,
-        context: Any | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
-        openrouter_api_base_url: str | None = None,
-        openrouter_headers_provider: Any = None,
-        key_name: str | None = None,
-        api_key: str | None = None,
-        project: str | None = None,
-        agent: str | None = None,
-        gemini_api_base_url: str | None = None,
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        # Structural enforcement: check cancellation immediately if coordinator and token provided
-        if cancellation_coordinator is not None and cancellation_token is not None:
-            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
-        """Handle chat completions using Google Code Assist API.
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            return await self._chat_completions_canonical(request)
 
-        This method delegates to the chat completion coordinator for orchestration.
-        """
-        # Runtime validation with descriptive errors
+        legacy_request_data = kwargs.pop("request_data", request)
+        legacy_processed_messages = kwargs.pop(
+            "processed_messages", args[0] if args else []
+        )
+        legacy_effective_model = kwargs.pop(
+            "effective_model", args[1] if len(args) > 1 else "unknown"
+        )
+        legacy_context = kwargs.pop("context", None)
+
+        stream = getattr(legacy_request_data, "stream", False) or kwargs.get(
+            "stream", False
+        )
+        if stream:
+            return await self._chat_completions_code_assist_streaming(
+                request_data=legacy_request_data,
+                processed_messages=(
+                    list(legacy_processed_messages)
+                    if not isinstance(legacy_processed_messages, list)
+                    else legacy_processed_messages
+                ),
+                effective_model=legacy_effective_model,
+                context=legacy_context,
+                **kwargs,
+            )
+        return await self._chat_completions_code_assist(
+            request_data=legacy_request_data,
+            processed_messages=(
+                list(legacy_processed_messages)
+                if not isinstance(legacy_processed_messages, list)
+                else legacy_processed_messages
+            ),
+            effective_model=legacy_effective_model,
+            context=legacy_context,
+            **kwargs,
+        )
+
+    async def _chat_completions_canonical(
+        self,
+        request: ConnectorChatCompletionsRequest,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        if (
+            request.cancellation_coordinator is not None
+            and request.cancellation_token is not None
+        ):
+            request.cancellation_coordinator.ensure_not_cancelled(
+                request.cancellation_token
+            )
+
+        request_data = request.request
+        processed_messages = request.processed_messages
+        effective_model = request.effective_model
+        context = request.context
+
         if not await self._validate_runtime_credentials():
             details = (
                 "; ".join(self._credential_validation_errors)
@@ -1654,22 +1683,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 detail=f"No valid credentials found for backend {self.name}: {details}",
             )
 
-        # Perform health check on first use (includes token refresh)
         await self._ensure_healthy()
 
         try:
-            # Use the effective model (strip backend and vendor prefixes if present)
             model_name = effective_model
 
-            # Strip backend prefix (e.g., "gemini-oauth-plan:")
             prefix = "gemini-oauth-plan:"
             if model_name.startswith(prefix):
                 model_name = model_name[len(prefix) :]
 
-            # Strip vendor prefix (e.g., "google/") for unified model naming
             model_name = strip_vendor_prefix(model_name, GOOGLE_VENDOR_PREFIX)
 
-            # Map public alias to internal model name if exists
             if self._model_registry:
                 model_name = self._model_registry.to_internal_name(model_name)
             else:
@@ -1677,7 +1701,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     model_name, model_name
                 )
 
-            # Convert processed_messages to ChatMessage list for coordinator
             chat_messages: list[ChatMessage] = []
             for msg in processed_messages:
                 if isinstance(msg, dict):
@@ -1690,7 +1713,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 elif isinstance(msg, ChatMessage):
                     chat_messages.append(msg)
 
-            # Delegate to chat completion coordinator
             response = await self._chat_completion_coordinator_instance.execute(
                 request_data=request_data,
                 processed_messages=chat_messages,
@@ -1704,31 +1726,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             return response
 
         except HTTPException:
-            # Re-raise HTTP exceptions directly
             raise
         except AuthenticationError:
-            # Re-raise authentication errors
             raise
         except BackendError:
-            # Re-raise backend errors
             raise
         except InvalidRequestError:
-            # Let context window overflows bubble up for clients to handle
             raise
         except Exception as e:
-            # Normalize exceptions via error mapper if available
             if self._error_mapper:
                 try:
                     mapped_error = self._error_mapper.map_exception(
                         e, backend_name=getattr(self, "backend_type", "gemini")
                     )
-                    # map_exception returns LLMProxyError (or raises HTTPException)
                     raise mapped_error from e
                 except Exception as mapped_exc:
-                    # If map_exception raised HTTPException, re-raise it
-                    # (HTTPException must be raised, not returned, for FastAPI)
                     raise mapped_exc from e
-            # Fallback: convert to BackendError
             logger.error(
                 f"Error in Gemini OAuth Personal chat_completions: {e}",
                 exc_info=True,
