@@ -98,6 +98,7 @@ class TestBackendImportsIntegration:
         expected_backends = [
             "anthropic",
             "gemini",
+            "gemini-cli-acp",
             "gemini-cli-cloud-project",
             "openai",
             "openai-codex",
