@@ -759,6 +759,7 @@ def _discover_api_keys_from_config_backends(
                         backend_env_map = {
                             "kimi-code": "KIMI_API_KEY",
                             "internlm": "INTERNAI_API_KEY",
+                            "opencode-go": "OPENCODE_GO_API_KEY",
                             "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
                         }
                         env_var = backend_env_map.get(
@@ -829,6 +830,7 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
         "MINIMAX_API_KEY",
         "OLLAMA_API_KEY",
         "KIMI_API_KEY",
+        "OPENCODE_GO_API_KEY",
         "INTERNAI_API_KEY",
         "LLM_INTERACTIVE_PROXY_API_KEY",
         "OPENAI_API_KEY",
@@ -843,6 +845,8 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
         if key := os.getenv(f"GEMINI_API_KEY_{i}"):
             found.add(key)
         if key := os.getenv(f"INTERNAI_API_KEY_{i}"):
+            found.add(key)
+        if key := os.getenv(f"OPENCODE_GO_API_KEY_{i}"):
             found.add(key)
 
 

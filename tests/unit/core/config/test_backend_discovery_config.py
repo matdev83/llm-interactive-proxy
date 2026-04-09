@@ -20,6 +20,7 @@ class TestBackendDiscovery:
             mock.get_registered_backends.return_value = [
                 "openai",
                 "kimi-code",
+                "opencode-go",
                 "gemini-oauth-free",
             ]
             yield mock
@@ -67,11 +68,14 @@ class TestBackendDiscovery:
 
         kimi_base = "KIMI"
         kimi_key1_name = f"{kimi_base}_{middle}_{suffix}_1"
+        opencode_base = "OPENCODE_GO"
+        opencode_key1_name = f"{opencode_base}_{middle}_{suffix}_1"
 
         # Even the values shouldn't look like keys
         val1 = "val-one"
         val2 = "val-two"
         val3 = "val-three"
+        val4 = "val-four"
 
         gemini_bad = f"GEMINI_OAUTH_FREE_{middle}_{suffix}_1"
 
@@ -79,6 +83,7 @@ class TestBackendDiscovery:
             key1_name: val1,
             key2_name: val2,
             kimi_key1_name: val3,
+            opencode_key1_name: val4,
             # GEMINI_OAUTH_FREE is file-based, so it should NOT be discovered via env var
             gemini_bad: "ignored-val",
         }
@@ -99,6 +104,9 @@ class TestBackendDiscovery:
 
             assert "kimi-code.1" in backends
             assert backends["kimi-code.1"]["api_key"] == val3
+
+            assert "opencode-go.1" in backends
+            assert backends["opencode-go.1"]["api_key"] == val4
 
             assert "gemini-oauth-free.1" not in backends
 

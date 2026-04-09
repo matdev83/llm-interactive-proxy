@@ -28,6 +28,14 @@ from src.core.domain.configuration.replacement_rule import ReplacementRule
 logger = logging.getLogger(__name__)
 
 
+def _has_numbered_env_variants(env: Mapping[str, str], base_name: str) -> bool:
+    for i in range(1, 21):
+        raw = env.get(f"{base_name}_{i}")
+        if isinstance(raw, str) and raw.strip():
+            return True
+    return False
+
+
 def _load_replacement_rules_from_env(
     env: Mapping[str, str],
     resolution: ParameterResolution | None,
@@ -330,6 +338,36 @@ def apply_config_part3(
                 config_backends["kimi-code"]["api_key"],
                 ParameterSource.ENVIRONMENT,
                 origin="KIMI_API_KEY",
+            )
+
+    if env.get("OPENCODE_GO_API_KEY") and not _has_numbered_env_variants(
+        env, "OPENCODE_GO_API_KEY"
+    ):
+        config_backends["opencode-go"] = config_backends.get("opencode-go", {})
+        config_backends["opencode-go"]["api_key"] = env["OPENCODE_GO_API_KEY"]
+        config_backends["opencode-go"]["api_url"] = _get_env_value(
+            env,
+            "OPENCODE_GO_API_BASE_URL",
+            "https://opencode.ai/zen/go/v1",
+            path="backends.opencode-go.api_url",
+            resolution=resolution,
+        )
+        opencode_go_timeout = _get_env_value(
+            env,
+            "OPENCODE_GO_TIMEOUT",
+            None,
+            path="backends.opencode-go.timeout",
+            resolution=resolution,
+            transform=lambda value: _to_int(value, 0),
+        )
+        if opencode_go_timeout:
+            config_backends["opencode-go"]["timeout"] = opencode_go_timeout
+        if resolution is not None:
+            resolution.record(
+                "backends.opencode-go.api_key",
+                config_backends["opencode-go"]["api_key"],
+                ParameterSource.ENVIRONMENT,
+                origin="OPENCODE_GO_API_KEY",
             )
 
     if env.get("MINIMAX_API_KEY"):

@@ -59,6 +59,16 @@ def test_openai_responses_uses_openai_credentials() -> None:
     assert "openai-responses" not in disabled
 
 
+def test_does_not_disable_opencode_go_when_numbered_env_var_is_present() -> None:
+    config = AppConfig(backends={"default_backend": "openai"})
+    disabled = compute_backends_to_disable_at_startup(
+        config=config,
+        registered_backends=["opencode-go"],
+        env={"OPENCODE_GO_API_KEY_1": "val"},
+    )
+    assert "opencode-go" not in disabled
+
+
 @pytest.mark.asyncio
 async def test_availability_checker_raises_service_unavailable_for_disabled_backend() -> (
     None

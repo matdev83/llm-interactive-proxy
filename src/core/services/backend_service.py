@@ -317,7 +317,11 @@ class BackendService(IBackendService):
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion (delegates to BackendCompletionFlow)."""
         model_spec = getattr(request, "model", None)
-        if isinstance(model_spec, str) and has_explicit_backend_selector(model_spec):
+        if (
+            isinstance(model_spec, str)
+            and has_explicit_backend_selector(model_spec)
+            and not self._is_composite_selector(model_spec)
+        ):
             allow_failover = False
         return await self._backend_completion_flow.call_completion(
             request=request,
@@ -325,6 +329,11 @@ class BackendService(IBackendService):
             allow_failover=allow_failover,
             context=context,
         )
+
+    @staticmethod
+    def _is_composite_selector(model_spec: str) -> bool:
+        route_portion, _, _ = model_spec.partition("?")
+        return "|" in route_portion or "^" in route_portion
 
     async def validate_backend_and_model(
         self, backend: str, model: str
@@ -454,6 +463,7 @@ class BackendService(IBackendService):
                 "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
                 "zenmux": "ZENMUX_API_KEY",
                 "minimax": "MINIMAX_API_KEY",
+                "opencode-go": "OPENCODE_GO_API_KEY",
             }.get(backend_type)
             if not env_base:
                 return backend_type

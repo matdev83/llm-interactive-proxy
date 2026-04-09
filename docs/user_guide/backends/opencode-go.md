@@ -23,6 +23,15 @@ Configure the backend with your OpenCode API key:
 export OPENCODE_GO_API_KEY="..."
 ```
 
+You can also configure numbered variants to create conventional backend instances automatically:
+
+```bash
+export OPENCODE_GO_API_KEY_1="..."
+export OPENCODE_GO_API_KEY_2="..."
+```
+
+When numbered variants are present, the proxy discovers backend instances such as `opencode-go.1` and `opencode-go.2`.
+
 ### YAML Example
 
 ```yaml
@@ -69,6 +78,15 @@ The proxy currently routes these models through the Anthropic-compatible upstrea
 - `minimax-m2.7`
 
 If OpenCode changes protocol assignments later, you can override the built-in mapping with `backends.opencode-go.extra.model_protocol_overrides`.
+
+## Multiple API Keys and Instances
+
+If you provide numbered environment variables such as `OPENCODE_GO_API_KEY_1` and `OPENCODE_GO_API_KEY_2`, the proxy creates conventional backend instances:
+
+- `opencode-go.1`
+- `opencode-go.2`
+
+This matches the project's standard backend-instance discovery behavior for multi-key backends. You can then target those specific instances with selectors like `opencode-go.1:glm-5.1`.
 
 ## Usage Example
 

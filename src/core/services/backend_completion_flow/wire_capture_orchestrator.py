@@ -202,6 +202,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                 "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
                 "zenmux": "ZENMUX_API_KEY",
                 "minimax": "MINIMAX_API_KEY",
+                "opencode-go": "OPENCODE_GO_API_KEY",
             }.get(backend_type)
             if not env_base:
                 return backend_type

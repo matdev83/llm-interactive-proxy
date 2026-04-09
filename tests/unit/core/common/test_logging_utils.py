@@ -144,6 +144,8 @@ class TestDiscoverApiKeysFromConfigAndEnv:
                 "OPENAI_API_KEY": "sk-1234567890abcdefg",
                 "GEMINI_API_KEY_1": "AIzaSyD-abcdefghijklmn",
                 "GEMINI_API_KEY_14": "AIzaSyD-numbered14keyabcdef",
+                "OPENCODE_GO_API_KEY": "opencode-go-primary-key",
+                "OPENCODE_GO_API_KEY_1": "opencode-go-numbered-key",
                 "ANTHROPIC_API_KEY": "sk-ant-api03-abcdefghijklmn",
                 "AUTH_TOKEN": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
                 "NORMAL_ENV_VAR": "this is a normal value",
@@ -165,6 +167,8 @@ class TestDiscoverApiKeysFromConfigAndEnv:
         assert any("sk-1234567890abcdefg" in k for k in keys)
         assert any("AIzaSyD-abcdefghijklmn" in k for k in keys)
         assert any("AIzaSyD-numbered14keyabcdef" in k for k in keys)
+        assert any("opencode-go-primary-key" in k for k in keys)
+        assert any("opencode-go-numbered-key" in k for k in keys)
         assert any("sk-ant-api03-abcdefghijklmn" in k for k in keys)
         assert any("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" in k for k in keys)
 
@@ -305,9 +309,7 @@ class TestSecurityWarningFalsePositive:
                 "src.core.services.backend_registry.backend_registry"
             ) as mock_registry,
             patch.dict(os.environ, {"SOME_BACKEND_API_KEY": key}, clear=False),
-            patch(
-                "src.core.common.logging_utils._logged_security_warnings", new=set()
-            ),
+            patch("src.core.common.logging_utils._logged_security_warnings", new=set()),
             patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
             patch(
                 "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",
@@ -340,9 +342,7 @@ class TestSecurityWarningFalsePositive:
             patch(
                 "src.core.services.backend_registry.backend_registry"
             ) as mock_registry,
-            patch(
-                "src.core.common.logging_utils._logged_security_warnings", new=set()
-            ),
+            patch("src.core.common.logging_utils._logged_security_warnings", new=set()),
             patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
             patch(
                 "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",
@@ -371,9 +371,7 @@ class TestSecurityWarningFalsePositive:
             patch(
                 "src.core.services.backend_registry.backend_registry"
             ) as mock_registry,
-            patch(
-                "src.core.common.logging_utils._logged_security_warnings", new=set()
-            ),
+            patch("src.core.common.logging_utils._logged_security_warnings", new=set()),
             patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
             patch(
                 "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",
@@ -409,9 +407,7 @@ class TestSecurityWarningFalsePositive:
             patch(
                 "src.core.services.backend_registry.backend_registry"
             ) as mock_registry,
-            patch(
-                "src.core.common.logging_utils._logged_security_warnings", new=set()
-            ),
+            patch("src.core.common.logging_utils._logged_security_warnings", new=set()),
             patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
             patch(
                 "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",

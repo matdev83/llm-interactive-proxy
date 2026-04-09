@@ -98,6 +98,7 @@ _API_KEY_BACKENDS: dict[str, str] = {
     "zai": "ZAI_API_KEY",
     "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
     "kimi-code": "KIMI_API_KEY",
+    "opencode-go": "OPENCODE_GO_API_KEY",
 }
 
 

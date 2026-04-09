@@ -60,6 +60,57 @@ def test_resolution_tracks_numbered_backend_instance_origin() -> None:
     assert entry.origin == "OPENAI_API_KEY_1"
 
 
+def test_from_env_discovers_numbered_opencode_go_backend_instances() -> None:
+    env = {
+        "LLM_BACKEND": "opencode-go",
+        "OPENCODE_GO_API_KEY_1": "val-one",
+    }
+
+    with (
+        patch(
+            "src.core.config.sources.backend_instances.backend_registry.get_registered_backends",
+            return_value=["opencode-go"],
+        ),
+        patch(
+            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            return_value=["opencode-go"],
+        ),
+    ):
+        cfg = AppConfig.from_env(environ=env)
+
+    instance = cfg.backends.get("opencode-go.1")
+    assert instance is not None
+    assert instance.api_key == "val-one"
+
+
+def test_opencode_go_numbered_instances_take_precedence_over_base_env_key() -> None:
+    env = {
+        "LLM_BACKEND": "opencode-go",
+        "OPENCODE_GO_API_KEY": "base-key",
+        "OPENCODE_GO_API_KEY_1": "numbered-key",
+    }
+
+    with (
+        patch(
+            "src.core.config.sources.backend_instances.backend_registry.get_registered_backends",
+            return_value=["opencode-go"],
+        ),
+        patch(
+            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            return_value=["opencode-go"],
+        ),
+    ):
+        cfg = AppConfig.from_env(environ=env)
+
+    base_cfg = cfg.backends.lookup("opencode-go")
+    instance_cfg = cfg.backends.lookup("opencode-go.1")
+
+    assert base_cfg is not None
+    assert instance_cfg is not None
+    assert base_cfg.api_key is None
+    assert instance_cfg.api_key == "numbered-key"
+
+
 def test_load_config_unsupported_suffix_raises_configuration_error(
     tmp_path: Path,
 ) -> None:

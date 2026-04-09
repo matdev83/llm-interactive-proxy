@@ -378,6 +378,11 @@ class BackendFactory(IBackendFactory):
                     "api_base_url_env": "OPENAI_API_BASE_URL",
                     "default_api_base_url": "https://api.openai.com/v1",
                 },
+                "opencode-go": {
+                    "api_key_env": "OPENCODE_GO_API_KEY",
+                    "api_base_url_env": "OPENCODE_GO_API_BASE_URL",
+                    "default_api_base_url": "https://opencode.ai/zen/go/v1",
+                },
                 "minimax": {
                     "api_key_env": "MINIMAX_API_KEY",
                     "api_base_url_env": "MINIMAX_API_BASE_URL",

@@ -66,6 +66,7 @@ class BackendInstanceEnvSource:
             "minimax": "MINIMAX_API_KEY",
             "zenmux": "ZENMUX_API_KEY",
             "kimi-code": "KIMI_API_KEY",
+            "opencode-go": "OPENCODE_GO_API_KEY",
         }
 
         discovered: dict[str, dict[str, Any]] = {}
