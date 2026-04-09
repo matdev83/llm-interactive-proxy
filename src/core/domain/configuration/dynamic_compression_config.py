@@ -1140,6 +1140,16 @@ class DynamicCompressionConfig(ValueObject):
         normalized = [str(item).strip() for item in value if str(item).strip()]
         return _dedupe_preserve_order(normalized)
 
+    @field_validator("pytest_failure_focus_min_lines", mode="before")
+    @classmethod
+    def _reject_boolean_pytest_failure_focus_min_lines(
+        cls,
+        value: object,
+    ) -> object:
+        if isinstance(value, bool):
+            raise ValueError("pytest_failure_focus_min_lines must be an integer")
+        return value
+
     @field_validator("disable_command_prefixes")
     @classmethod
     def _normalize_disable_command_prefixes(cls, value: list[str]) -> list[str]:

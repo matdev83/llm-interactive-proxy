@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
 from src.core.domain.configuration.dynamic_compression_config import (
     CompressionLevel,
     CompressionMarkerConfig,
@@ -177,3 +179,16 @@ def test_resolver_accepts_pytest_failure_focus_min_lines_without_unknown_option_
         "Unknown dynamic_compression option ignored" not in warning
         for warning in resolved.warnings
     )
+
+
+@pytest.mark.parametrize("raw_value", [False, True])
+def test_resolver_rejects_boolean_pytest_failure_focus_min_lines(
+    raw_value: bool,
+) -> None:
+    with pytest.raises(ValidationError):
+        DynamicCompressionConfig.model_validate(
+            {
+                "enabled": True,
+                "pytest_failure_focus_min_lines": raw_value,
+            }
+        )
