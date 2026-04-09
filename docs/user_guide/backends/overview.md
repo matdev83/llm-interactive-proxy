@@ -24,6 +24,7 @@ The proxy supports the following backend providers out of the box:
 | `zai` | ZAI | API Key | Zhipu/Z.ai access |
 | `zai-coding-plan` | ZAI Coding Plan | API Key | Coding-specific workflows |
 | `kimi-code` | Kimi | API Key | Kimi For Coding (OpenAI-compatible) |
+| `opencode-go` | OpenCode Go | API Key | OpenCode Go models with internal OpenAI/Anthropic protocol routing |
 | `minimax` | Minimax | API Key | Minimax AI models |
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
@@ -132,6 +133,7 @@ For detailed configuration and usage information for each backend, see:
 - [MiniMax Backend](minimax.md)
 - [ZenMux Backend](zenmux.md)
 - [Kimi Code Backend](kimi-code.md)
+- [OpenCode Go Backend](opencode-go.md)
 - [Ollama Backend (Local)](ollama.md)
 - [Custom Backends](custom-backends.md)
 
