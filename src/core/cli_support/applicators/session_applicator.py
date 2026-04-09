@@ -136,6 +136,35 @@ class SessionApplicator:
                 origin="--project-dir-resolution-mode",
             )
 
+        if getattr(args, "project_dir_resolution_filesystem_mode", None) is not None:
+            session = overrides.setdefault("session", {})
+            session["project_dir_resolution_filesystem_mode"] = (
+                args.project_dir_resolution_filesystem_mode
+            )
+            resolution.record(
+                "session.project_dir_resolution_filesystem_mode",
+                args.project_dir_resolution_filesystem_mode,
+                ParameterSource.CLI,
+                origin="--project-dir-resolution-filesystem-mode",
+            )
+
+        disable_default_openrouter_fallback = getattr(
+            args,
+            "disable_default_openrouter_project_dir_resolution_fallback",
+            None,
+        )
+        if disable_default_openrouter_fallback is not None:
+            session = overrides.setdefault("session", {})
+            session["disable_default_openrouter_project_dir_resolution_fallback"] = (
+                disable_default_openrouter_fallback
+            )
+            resolution.record(
+                "session.disable_default_openrouter_project_dir_resolution_fallback",
+                disable_default_openrouter_fallback,
+                ParameterSource.CLI,
+                origin="--disable-default-openrouter-project-dir-resolution-fallback",
+            )
+
     def _apply_quality_verifier_settings(
         self,
         args: CliArgs,

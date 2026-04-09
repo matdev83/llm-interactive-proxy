@@ -39,6 +39,8 @@ class TestSessionApplicator:
             force_set_project=None,
             project_dir_resolution_model=None,
             project_dir_resolution_mode=None,
+            project_dir_resolution_filesystem_mode=None,
+            disable_default_openrouter_project_dir_resolution_fallback=None,
             disable_interactive_commands=None,
             quality_verifier_model=None,
             quality_verifier_frequency=None,
@@ -123,6 +125,58 @@ class TestSessionApplicator:
         assert "session" in overrides
         assert "planning_phase" in overrides["session"]
         assert overrides["session"]["planning_phase"].get("enabled") is True
+
+    def test_apply_project_dir_resolution_filesystem_mode(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that project_dir_resolution_filesystem_mode is applied correctly."""
+        empty_args.project_dir_resolution_filesystem_mode = "disabled"
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert "session" in overrides
+        assert (
+            overrides["session"].get("project_dir_resolution_filesystem_mode")
+            == "disabled"
+        )
+        cli_records = resolution.latest_by_source(ParameterSource.CLI)
+        assert "session.project_dir_resolution_filesystem_mode" in cli_records
+        assert (
+            cli_records["session.project_dir_resolution_filesystem_mode"].origin
+            == "--project-dir-resolution-filesystem-mode"
+        )
+
+    def test_apply_disable_default_openrouter_project_dir_resolution_fallback(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        empty_args.disable_default_openrouter_project_dir_resolution_fallback = True
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert "session" in overrides
+        assert (
+            overrides["session"].get(
+                "disable_default_openrouter_project_dir_resolution_fallback"
+            )
+            is True
+        )
+        cli_records = resolution.latest_by_source(ParameterSource.CLI)
+        assert (
+            "session.disable_default_openrouter_project_dir_resolution_fallback"
+            in cli_records
+        )
+        assert (
+            cli_records[
+                "session.disable_default_openrouter_project_dir_resolution_fallback"
+            ].origin
+            == "--disable-default-openrouter-project-dir-resolution-fallback"
+        )
 
     def test_apply_quality_verifier_ttft_timeout_seconds(
         self,

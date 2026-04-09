@@ -213,6 +213,8 @@ session:
   disable_interactive_commands: false
   project_dir_resolution_model: null
   project_dir_resolution_mode: "hybrid" # deterministic, llm, hybrid
+  project_dir_resolution_filesystem_mode: "auto" # auto, enabled, disabled
+  disable_default_openrouter_project_dir_resolution_fallback: false
   
   # File Access Sandboxing
   sandboxing:

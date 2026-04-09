@@ -204,6 +204,8 @@ properties:
       force_set_project: { type: boolean }
       project_dir_resolution_model: { type: ["string", "null"] }
       project_dir_resolution_mode: { type: string, enum: ["disabled", "deterministic", "llm", "hybrid"] }
+      project_dir_resolution_filesystem_mode: { type: string, enum: ["auto", "enabled", "disabled"] }
+      disable_default_openrouter_project_dir_resolution_fallback: { type: boolean }
       disable_interactive_commands: { type: boolean }
       tool_call_repair_enabled: { type: boolean }
       json_repair_enabled: { type: boolean }

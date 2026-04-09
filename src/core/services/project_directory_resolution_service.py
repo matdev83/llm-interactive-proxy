@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-"""Service for resolving project directories from the first user prompt."""
+"""Service for resolving project directories from the first request."""
 
 import logging
 import os
 import re
+from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -44,7 +46,7 @@ def _safe_comp(forbidden: str) -> str:
 
 _WIN_FORBIDDEN = r":*?<>|\r\n\\/,\"';!?"
 _UNC_FORBIDDEN = r"\\:\r\n,\"';!?"
-_UNIX_FORBIDDEN = r"/\\:\r\n,\"';!?"
+_UNIX_FORBIDDEN = r"/\\:\r\n,\"';!? "
 
 _WINDOWS_PATH_PATTERN = re.compile(
     rf"\b([a-zA-Z]:\\+(?:{_safe_comp(_WIN_FORBIDDEN)}+"
@@ -63,10 +65,69 @@ _UNC_NORMALIZE_PATTERN = re.compile(r"\\{3,}")
 
 _LEADING_STRIP_CHARS = "\"'`([{<"
 _TRAILING_STRIP_CHARS = ",.;:!?)]}`>\"'`"
+_RUNTIME_DIR_NAMES = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".venv",
+    "venv",
+    "node_modules",
+    ".tox",
+    "__pycache__",
+    "dist",
+    "build",
+}
+_PROJECT_ROOT_MARKER_FILES = {
+    ".git",
+    ".hg",
+    ".svn",
+    "pyproject.toml",
+    "setup.py",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "Cargo.toml",
+    "go.mod",
+}
+_PROJECT_ROOT_GLOB_MARKERS = ("*.sln",)
+_MAX_MARKER_ASCENT_STEPS = 6
+_DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_MODEL = "openrouter:openrouter/free"
+_TRUSTED_STARTUP_MESSAGE_ROLES = {"system", "developer"}
+_TRUSTED_STARTUP_METADATA_KEYS = {
+    "cwd",
+    "workdir",
+    "workspace",
+    "workspace_root",
+    "workspace_path",
+    "project_root",
+    "project_dir",
+    "project_directory",
+    "project_path",
+    "root_dir",
+    "root_directory",
+    "current_working_directory",
+}
+_TRUSTED_STARTUP_HINT_PATTERNS = (
+    re.compile(
+        r"(?i)\b(?:cwd|workdir|workspace(?:\s+path)?|current\s+working\s+directory)\b"
+        r"\s*(?:[:=]|is|at|->)\s*"
+    ),
+    re.compile(
+        r"(?i)\b(?:project(?:'s)?\s+root(?:\s+dir(?:ectory)?|\s+path)?"
+        r"|project\s+directory(?:\s+path)?|project\s+dir(?:ectory)?"
+        r"|root(?:\s+dir(?:ectory)?|\s+path)?)\b\s*(?:[:=]|is|at|->)\s*"
+    ),
+)
+
+
+@dataclass(frozen=True)
+class _PathCandidate:
+    directory: str
+    path_type: _PathType
+    is_file: bool
 
 
 class ProjectDirectoryResolutionService:
-    """Resolve absolute project directories using a dedicated backend model."""
+    """Resolve absolute project directories using trusted startup metadata and user text."""
 
     def __init__(
         self,
@@ -77,6 +138,23 @@ class ProjectDirectoryResolutionService:
         self._backend_service = backend_service
         self._session_service = session_service
         self._resolution_mode = app_config.session.project_dir_resolution_mode
+        self._filesystem_mode = (
+            app_config.session.project_dir_resolution_filesystem_mode
+            if hasattr(app_config, "session")
+            else "auto"
+        )
+        self._disable_default_openrouter_fallback = bool(
+            getattr(
+                getattr(app_config, "session", None),
+                "disable_default_openrouter_project_dir_resolution_fallback",
+                False,
+            )
+        )
+        access_mode_raw = getattr(
+            getattr(app_config, "access_mode", None), "mode", "single_user"
+        )
+        access_mode_value = getattr(access_mode_raw, "value", access_mode_raw)
+        self._access_mode = str(access_mode_value).strip().lower()
         self._model_spec = (
             app_config.session.project_dir_resolution_model
             if hasattr(app_config, "session")
@@ -104,6 +182,7 @@ class ProjectDirectoryResolutionService:
             if self._backend_type and self._model_name
             else None
         )
+        self._openrouter_api_key_available = self._has_openrouter_api_key(app_config)
 
         self._system_prompt = (
             "You examine the user's initial instructions to determine the absolute "
@@ -174,53 +253,50 @@ class ProjectDirectoryResolutionService:
             return "unix"
         return None
 
-    def _normalize_directory_candidate(
+    def _filesystem_probe_enabled(self) -> bool:
+        mode = str(self._filesystem_mode or "auto").strip().lower()
+        if mode == "enabled":
+            return True
+        if mode == "disabled":
+            return False
+        return self._access_mode == "single_user"
+
+    def _normalize_candidate_with_type(
         self, path: str, path_type: _PathType
-    ) -> str | None:
+    ) -> tuple[str | None, bool]:
         try:
             pure_path = (
                 PureWindowsPath(path)
                 if path_type in ("windows", "unc")
                 else PurePosixPath(path)
             )
-        except ValueError as e:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Failed to normalize directory candidate path '%s' (type=%s): %s",
-                    path,
-                    path_type,
-                    str(e),
-                    exc_info=True,
-                )
-            return None
-        except Exception as e:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Unexpected error normalizing directory candidate path '%s' (type=%s): %s",
-                    path,
-                    path_type,
-                    str(e),
-                    exc_info=True,
-                )
-            return None
+        except (ValueError, TypeError):
+            return None, False
+        except Exception:
+            return None, False
 
-        # If the path points inside a dot-folder (e.g. `.git/...`, `.vscode/...`),
-        # treat the parent directory as the project root candidate.
-        parts = pure_path.parts
+        parts = list(pure_path.parts)
         start_index = 1 if path_type in ("windows", "unc") else 0
         for index in range(start_index, len(parts)):
             part = parts[index]
             if part.startswith(".") and part not in {".", ".."}:
                 if index > start_index:
-                    pure_path = pure_path.__class__(*parts[:index])
+                    parts = parts[:index]
                 break
 
-        # Drop filename component if present
-        if pure_path.suffix:
+        if not parts:
+            return None, False
+
+        pure_path = pure_path.__class__(*parts)
+        is_file = bool(pure_path.suffix)
+        if is_file:
             pure_path = pure_path.parent
 
-        # Heuristic: If the path ends in a common source/test directory (e.g. src, lib, tests),
-        # assume the user meant the parent project root.
+        while pure_path.name.lower() in _RUNTIME_DIR_NAMES and len(pure_path.parts) > (
+            1 if path_type in ("windows", "unc") else 1
+        ):
+            pure_path = pure_path.parent
+
         if pure_path.name.lower() in (
             "src",
             "source",
@@ -229,12 +305,17 @@ class ProjectDirectoryResolutionService:
             "test",
             "bin",
         ) and len(pure_path.parts) > (1 if path_type in ("windows", "unc") else 1):
-            # Ensure we don't strip the root (though unlikely with these names)
             pure_path = pure_path.parent
 
         normalized = str(pure_path)
         if path_type == "unc":
             normalized = self._normalize_unc_path(normalized)
+        return normalized, is_file
+
+    def _normalize_directory_candidate(
+        self, path: str, path_type: _PathType
+    ) -> str | None:
+        normalized, _ = self._normalize_candidate_with_type(path, path_type)
         return normalized
 
     def _is_valid_project_directory_candidate(
@@ -417,13 +498,17 @@ class ProjectDirectoryResolutionService:
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
         """
         Find the best project directory from all absolute paths in the prompt.
-        When multiple paths are found, prefers the deepest, most specific valid path.
+
+        Deterministic strategy:
+        1) Extract absolute path candidates from user prompt text.
+        2) In filesystem-probe mode (single-user by default), prefer nearest
+           marker-backed roots from local filesystem.
+        3) Otherwise use a conservative text-only consensus.
         """
-        candidates: list[tuple[str, _PathType]] = []
+        candidates: list[_PathCandidate] = []
         patterns = (_WINDOWS_PATH_PATTERN, _UNC_PATH_PATTERN, _UNIX_PATH_PATTERN)
 
-        # Step 1: Extract and validate all path candidates (line-by-line).
-        # This makes it easy to skip PATH-like lines without directory blacklists.
+        # Step 1: Extract and validate all path candidates.
         for line in prompt_text.splitlines():
             if self._looks_like_path_list_line(line):
                 continue
@@ -445,7 +530,9 @@ class ProjectDirectoryResolutionService:
                     if not self._looks_like_absolute_path(cleaned):
                         continue
 
-                    directory = self._normalize_directory_candidate(cleaned, path_type)
+                    directory, is_file = self._normalize_candidate_with_type(
+                        cleaned, path_type
+                    )
                     if not directory:
                         continue
 
@@ -458,87 +545,174 @@ class ProjectDirectoryResolutionService:
                     ):
                         continue
 
-                    candidates.append((directory, final_path_type))
+                    candidates.append(
+                        _PathCandidate(
+                            directory=directory,
+                            path_type=final_path_type,
+                            is_file=is_file,
+                        )
+                    )
 
         if not candidates:
             return None
 
-        # Step 2: Group candidates by path type
-        candidates_by_type: dict[_PathType, list[str]] = {}
-        for directory, path_type in candidates:
-            if path_type not in candidates_by_type:
-                candidates_by_type[path_type] = []
-            candidates_by_type[path_type].append(directory)
+        # Step 2: prefer marker-backed local roots when probing is enabled.
+        if self._filesystem_probe_enabled():
+            marker_roots: list[tuple[str, _PathType]] = []
+            for candidate in candidates:
+                marker_root = self._find_marker_root_for_candidate(
+                    candidate.directory, candidate.path_type
+                )
+                if marker_root:
+                    marker_roots.append((marker_root, candidate.path_type))
 
-        # Step 3: For each type, evaluate paths and find the best one
-        best_result: tuple[int, str] | None = None  # (score, path)
+            consensus = self._select_consensus_root(marker_roots)
+            if consensus:
+                return consensus
 
-        for path_type, paths in candidates_by_type.items():
-            # First, score all individual paths to find the best candidate
-            best_individual: tuple[int, str] | None = None
-            for path in paths:
-                score = self._score_path_candidate(path, path_type)
-                if best_individual is None or score > best_individual[0]:
-                    best_individual = (score, path)
+        # Step 3: conservative text-only fallback.
+        # If all mentions look like file paths, we cannot safely infer a root.
+        if all(candidate.is_file for candidate in candidates):
+            return None
 
-            # If only one path, use it directly
-            if len(paths) == 1:
-                if best_result is None or (
-                    best_individual and best_individual[0] > best_result[0]
-                ):
-                    best_result = best_individual
+        grouped: dict[_PathType, list[str]] = {}
+        for candidate in candidates:
+            grouped.setdefault(candidate.path_type, []).append(candidate.directory)
+
+        best_candidate: str | None = None
+        for path_type, paths in grouped.items():
+            pruned = self._prune_ancestor_candidates(paths, path_type)
+            if len(pruned) == 1:
+                current = pruned[0]
+            else:
+                common = self._longest_common_directory(pruned, path_type)
+                if not common:
+                    continue
+                current = common[0]
+
+            if not self._is_valid_project_directory_candidate(current, path_type):
                 continue
 
-            # For multiple paths, find their common directory
-            common_result = self._longest_common_directory(paths, path_type)
-            if common_result:
-                common_path, common_depth = common_result
-                # Validate the common path is a valid project directory
-                if self._is_valid_project_directory_candidate(common_path, path_type):
-                    common_score = self._score_path_candidate(common_path, path_type)
+            if best_candidate is None:
+                best_candidate = current
+                continue
 
-                    # Only use the common path if it's deeper/better than the best individual
-                    # This ensures we prefer C:\Users\Test\ProjectA over C:\Users\Test
-                    if best_individual:
-                        # Logic: If all paths are subpaths (prefixes) of the best individual,
-                        # then the best individual is the deepest specific project directory
-                        # that encompasses the user's intent (e.g. they mentioned root and src).
-                        # But if paths diverge (e.g. ProjectA and ProjectB), we must use the common root.
+            current_parts = self._get_path_parts(current, path_type)
+            best_type = self._detect_path_type(best_candidate)
+            if best_type is None:
+                continue
+            best_parts = self._get_path_parts(best_candidate, best_type)
+            if len(current_parts) > len(best_parts):
+                best_candidate = current
 
-                        all_are_prefixes = True
-                        best_parts = self._get_path_parts(best_individual[1], path_type)
+        return best_candidate
 
-                        for path in paths:
-                            path_parts = self._get_path_parts(path, path_type)
-                            if len(path_parts) > len(best_parts):
-                                all_are_prefixes = False
-                                break
-                            # Check if path_parts is a prefix of best_parts
-                            if best_parts[: len(path_parts)] != path_parts:
-                                all_are_prefixes = False
-                                break
+    def _select_consensus_root(self, roots: list[tuple[str, _PathType]]) -> str | None:
+        if not roots:
+            return None
 
-                        if all_are_prefixes:
-                            # Individual path is deeper and contains all others, use it
-                            candidate = best_individual
-                        else:
-                            # Paths diverge, use common path
-                            candidate = (common_score, common_path)
-                    else:
-                        candidate = (common_score, common_path)
+        normalized: list[tuple[str, _PathType]] = []
+        for root, path_type in roots:
+            key = root.lower() if path_type in ("windows", "unc") else root
+            normalized.append((key, path_type))
 
-                    if best_result is None or candidate[0] > best_result[0]:
-                        best_result = candidate
-                elif best_individual:
-                    # Common path is invalid, use best individual
-                    if best_result is None or best_individual[0] > best_result[0]:
-                        best_result = best_individual
-            elif best_individual:
-                # No common path found, use best individual
-                if best_result is None or best_individual[0] > best_result[0]:
-                    best_result = best_individual
+        counts = Counter(key for key, _ in normalized)
+        if not counts:
+            return None
 
-        return best_result[1] if best_result else None
+        max_count = max(counts.values())
+        winners = [key for key, count in counts.items() if count == max_count]
+        if len(winners) != 1:
+            return None
+
+        winner = winners[0]
+        for root, path_type in roots:
+            key = root.lower() if path_type in ("windows", "unc") else root
+            if key == winner:
+                return root
+        return None
+
+    def _prune_ancestor_candidates(
+        self, paths: list[str], path_type: _PathType
+    ) -> list[str]:
+        unique_paths = list(dict.fromkeys(paths))
+        if len(unique_paths) <= 1:
+            return unique_paths
+
+        parts_map = {
+            path: self._get_path_parts(path, path_type) for path in unique_paths
+        }
+        pruned: list[str] = []
+        for path in unique_paths:
+            path_parts = parts_map.get(path, [])
+            is_ancestor = False
+            for other in unique_paths:
+                if other == path:
+                    continue
+                other_parts = parts_map.get(other, [])
+                if (
+                    len(path_parts) < len(other_parts)
+                    and other_parts[: len(path_parts)] == path_parts
+                ):
+                    is_ancestor = True
+                    break
+            if not is_ancestor:
+                pruned.append(path)
+        return pruned or unique_paths
+
+    def _find_marker_root_for_candidate(
+        self, directory: str, path_type: _PathType
+    ) -> str | None:
+        candidate_path = directory
+        if os.name != "nt" and path_type in ("windows", "unc"):
+            match = re.match(r"^([A-Za-z]):\\(.*)$", directory)
+            if match:
+                drive = match.group(1).lower()
+                rest = match.group(2).replace("\\", "/")
+                candidate_path = f"/mnt/{drive}/{rest}"
+            else:
+                return None
+        elif os.name == "nt" and path_type == "unix":
+            return None
+
+        if path_type == "unc":
+            return None
+
+        try:
+            path_obj = Path(candidate_path)
+            if not path_obj.exists():
+                return None
+            if path_obj.is_file():
+                path_obj = path_obj.parent
+
+            current = path_obj.resolve()
+            ascent_steps = 0
+            while True:
+                if self._has_project_markers(current):
+                    resolved = str(current)
+                    if path_type == "windows":
+                        resolved = str(PureWindowsPath(resolved))
+                    return resolved
+                parent = current.parent
+                if parent == current:
+                    return None
+                ascent_steps += 1
+                if ascent_steps > _MAX_MARKER_ASCENT_STEPS:
+                    return None
+                current = parent
+        except (OSError, ValueError):
+            return None
+        except Exception:
+            return None
+
+    def _has_project_markers(self, directory: Path) -> bool:
+        for marker in _PROJECT_ROOT_MARKER_FILES:
+            if (directory / marker).exists():
+                return True
+        for pattern in _PROJECT_ROOT_GLOB_MARKERS:
+            if any(directory.glob(pattern)):
+                return True
+        return False
 
     def _get_path_parts(self, path: str, path_type: _PathType) -> list[str]:
         """Get the parts of a path for depth comparison."""
@@ -610,10 +784,17 @@ class ProjectDirectoryResolutionService:
             )
             return
 
-        prompt_text = self._extract_user_prompt(request)
+        startup_prompt_text = self._extract_trusted_startup_prompt(request)
+        user_prompt_text = self._extract_user_prompt(request)
+        prompt_text = "\n".join(
+            part for part in (startup_prompt_text, user_prompt_text) if part
+        )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Extracted prompt text length: {len(prompt_text) if prompt_text else 0}"
+                "Extracted prompt text length: startup=%s, user=%s, combined=%s",
+                len(startup_prompt_text) if startup_prompt_text else 0,
+                len(user_prompt_text) if user_prompt_text else 0,
+                len(prompt_text),
             )
 
         if not prompt_text:
@@ -631,52 +812,48 @@ class ProjectDirectoryResolutionService:
         if self._resolution_mode in ("deterministic", "hybrid"):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Attempting deterministic resolution (mode: {self._resolution_mode})"
+                    "Attempting deterministic resolution (mode: %s)",
+                    self._resolution_mode,
                 )
-            found_path = self._find_absolute_path_in_prompt(prompt_text)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Deterministic resolution result: {found_path}")
-            dot_status: bool | None = None  # Initialize to avoid unbound variable
-            if found_path:
-                dot_status = self._dot_entries_status(found_path)
-                if dot_status is False:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Deterministic project directory candidate rejected (no dot entries): %s",
-                            found_path,
-                        )
-                else:
+            for source_name, source_prompt in (
+                ("startup", startup_prompt_text),
+                ("user", user_prompt_text),
+            ):
+                if not source_prompt:
+                    continue
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Attempting deterministic resolution from %s prompt",
+                        source_name,
+                    )
+                found_path = self._find_absolute_path_in_prompt(source_prompt)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Deterministic resolution result (%s): %s",
+                        source_name,
+                        found_path,
+                    )
+                if found_path:
                     await self._persist_state(
                         session,
                         directory=found_path,
-                        message=f"Project directory auto-detected (deterministic): {found_path}",
-                    )
-                    return
-
-            # If deterministic produced a candidate but it was rejected due to lacking dot
-            # entries, fall back to the server CWD if it looks like a project.
-            #
-            # Only applies to `deterministic` mode; `hybrid` should continue to LLM.
-            if (
-                self._resolution_mode == "deterministic"
-                and found_path
-                and dot_status is False
-            ):
-                cwd_candidate = str(Path.cwd().resolve())
-                if self._dot_entries_status(cwd_candidate) is True:
-                    await self._persist_state(
-                        session,
-                        directory=cwd_candidate,
                         message=(
-                            "Project directory auto-detected (deterministic fallback): "
-                            f"{cwd_candidate}"
+                            "Project directory auto-detected "
+                            f"(deterministic/{source_name}): {found_path}"
                         ),
                     )
                     return
 
         # LLM resolution (if applicable)
-        if self._resolution_mode in ("llm", "hybrid"):
-            if not self._model_identifier:
+        llm_model_identifier, llm_backend_type = self._resolve_llm_fallback_target(
+            deterministic_failed=True
+        )
+        should_attempt_llm_resolution = (
+            self._resolution_mode in ("llm", "hybrid")
+            or llm_model_identifier is not None
+        )
+        if should_attempt_llm_resolution:
+            if not llm_model_identifier:
                 if self._resolution_mode == "llm":
                     logger.warning(
                         "LLM project directory resolution is enabled but no model is configured."
@@ -692,7 +869,11 @@ class ProjectDirectoryResolutionService:
                 return
 
             try:
-                response = await self._call_resolution_model(prompt_text)
+                response = await self._call_resolution_model(
+                    prompt_text,
+                    model_identifier=llm_model_identifier,
+                    backend_type=llm_backend_type,
+                )
             except Exception as exc:  # pragma: no cover - defensive logging
                 logger.warning(
                     "Project directory auto-detection call failed: %s",
@@ -772,16 +953,20 @@ class ProjectDirectoryResolutionService:
         if logger.isEnabledFor(logging.INFO):
             logger.info(message)
 
-    async def _call_resolution_model(self, prompt_text: str) -> ResponseEnvelope:
+    async def _call_resolution_model(
+        self,
+        prompt_text: str,
+        *,
+        model_identifier: str,
+        backend_type: str | None,
+    ) -> ResponseEnvelope:
         request = ChatRequest(
-            model=self._model_identifier or "gpt-4",
+            model=model_identifier,
             messages=[
                 ChatMessage(role="system", content=self._system_prompt),
                 ChatMessage(role="user", content=prompt_text),
             ],
-            extra_body=(
-                {"backend_type": self._backend_type} if self._backend_type else None
-            ),
+            extra_body=({"backend_type": backend_type} if backend_type else None),
         )
         context = RequestContext(
             headers={},
@@ -803,10 +988,172 @@ class ProjectDirectoryResolutionService:
             )
         return response
 
+    def _resolve_llm_fallback_target(
+        self, *, deterministic_failed: bool
+    ) -> tuple[str | None, str | None]:
+        if self._resolution_mode == "llm":
+            return self._model_identifier, self._backend_type
+
+        if self._resolution_mode == "hybrid":
+            if self._model_identifier:
+                return self._model_identifier, self._backend_type
+            if self._should_auto_enable_openrouter_llm_fallback(
+                deterministic_failed=deterministic_failed
+            ):
+                return _DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_MODEL, "openrouter"
+            return None, None
+
+        if (
+            self._resolution_mode == "deterministic"
+            and self._should_auto_enable_openrouter_llm_fallback(
+                deterministic_failed=deterministic_failed
+            )
+        ):
+            if self._model_identifier:
+                return self._model_identifier, self._backend_type
+            return _DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_MODEL, "openrouter"
+
+        return None, None
+
+    def _should_auto_enable_openrouter_llm_fallback(
+        self, *, deterministic_failed: bool
+    ) -> bool:
+        return (
+            deterministic_failed
+            and self._access_mode == "single_user"
+            and not self._disable_default_openrouter_fallback
+            and self._openrouter_api_key_available
+        )
+
+    @staticmethod
+    def _has_openrouter_api_key(app_config: AppConfig) -> bool:
+        backends = getattr(app_config, "backends", None)
+        if backends is not None:
+            openrouter = getattr(backends, "openrouter", None)
+            api_key = getattr(openrouter, "api_key", None)
+            if isinstance(api_key, str) and api_key.strip():
+                return True
+
+        env_api_key = os.getenv("OPENROUTER_API_KEY")
+        if env_api_key and env_api_key.strip():
+            return True
+
+        numbered_pattern = re.compile(r"^OPENROUTER_API_KEY_\d+$")
+        return any(
+            numbered_pattern.match(key) and isinstance(value, str) and value.strip()
+            for key, value in os.environ.items()
+        )
+
+    def _extract_trusted_startup_prompt(self, request: ChatRequest) -> str | None:
+        """Extract startup metadata from trusted roles like system/developer."""
+        trusted_parts: list[str] = []
+        for message in request.messages:
+            role = str(getattr(message, "role", "") or "").strip().lower()
+            if role not in _TRUSTED_STARTUP_MESSAGE_ROLES:
+                continue
+            trusted_parts.extend(self._extract_trusted_startup_paths(message))
+
+        if not trusted_parts:
+            return None
+
+        return "\n".join(trusted_parts)
+
+    def _extract_trusted_startup_paths(self, message: Any) -> list[str]:
+        trusted_parts: list[str] = []
+
+        metadata = getattr(message, "metadata", None)
+        if metadata is not None:
+            trusted_parts.extend(self._extract_trusted_paths_from_metadata(metadata))
+
+        content = self._normalize_content(getattr(message, "content", None))
+        if content.strip():
+            trusted_parts.extend(self._extract_trusted_paths_from_text(content))
+
+        return self._dedupe_strings(trusted_parts)
+
+    def _extract_trusted_paths_from_metadata(self, metadata: Any) -> list[str]:
+        paths: list[str] = []
+        if isinstance(metadata, dict):
+            for key, value in metadata.items():
+                normalized_key = self._normalize_metadata_key(key)
+                if normalized_key in _TRUSTED_STARTUP_METADATA_KEYS:
+                    paths.extend(self._extract_paths_from_value(value))
+                else:
+                    paths.extend(self._extract_trusted_paths_from_metadata(value))
+        elif isinstance(metadata, list):
+            for item in metadata:
+                paths.extend(self._extract_trusted_paths_from_metadata(item))
+        return self._dedupe_strings(paths)
+
+    def _extract_paths_from_value(self, value: Any) -> list[str]:
+        paths: list[str] = []
+        if isinstance(value, str):
+            paths.extend(self._extract_absolute_paths_from_text(value))
+        elif isinstance(value, dict):
+            for item in value.values():
+                paths.extend(self._extract_paths_from_value(item))
+        elif isinstance(value, list):
+            for item in value:
+                paths.extend(self._extract_paths_from_value(item))
+        return self._dedupe_strings(paths)
+
+    def _extract_trusted_paths_from_text(self, text: str) -> list[str]:
+        paths: list[str] = []
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if not any(
+                pattern.search(stripped) for pattern in _TRUSTED_STARTUP_HINT_PATTERNS
+            ):
+                continue
+            paths.extend(self._extract_absolute_paths_from_text(stripped))
+        return self._dedupe_strings(paths)
+
+    def _extract_absolute_paths_from_text(self, text: str) -> list[str]:
+        extracted: list[str] = []
+        seen: set[str] = set()
+        for path_type, pattern in (
+            ("windows", _WINDOWS_PATH_PATTERN),
+            ("unc", _UNC_PATH_PATTERN),
+            ("unix", _UNIX_PATH_PATTERN),
+        ):
+            path_type = cast(_PathType, path_type)
+            for match in pattern.finditer(text):
+                raw_path = self._strip_outer_tokens(match.group(1))
+                if not raw_path:
+                    continue
+                normalized_path = self._normalize_directory_candidate(
+                    raw_path, path_type
+                )
+                if not normalized_path:
+                    continue
+                key = (
+                    normalized_path.lower()
+                    if path_type in ("windows", "unc")
+                    else normalized_path
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                extracted.append(normalized_path)
+        return extracted
+
+    @staticmethod
+    def _normalize_metadata_key(key: Any) -> str:
+        return str(key).strip().lower().replace("-", "_").replace(" ", "_")
+
+    @staticmethod
+    def _dedupe_strings(values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values))
+
     def _extract_user_prompt(self, request: ChatRequest) -> str | None:
-        """Extract and concatenate content from all messages in the request."""
+        """Extract and concatenate user-authored content from the request."""
         full_prompt_parts: list[str] = []
         for message in request.messages:
+            role = getattr(message, "role", None)
+            if role != "user":
+                continue
             content = self._normalize_content(message.content)
             if content.strip():
                 full_prompt_parts.append(content)

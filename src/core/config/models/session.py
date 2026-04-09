@@ -250,6 +250,10 @@ class SessionConfig(DomainModel):
     disable_interactive_commands: bool = False
     project_dir_resolution_model: str | None = None
     project_dir_resolution_mode: str = "hybrid"
+    project_dir_resolution_filesystem_mode: Literal["auto", "enabled", "disabled"] = (
+        "auto"
+    )
+    disable_default_openrouter_project_dir_resolution_fallback: bool = False
     tool_call_repair_enabled: bool = True
     tool_call_repair_buffer_cap_bytes: int = 64 * 1024
     json_repair_enabled: bool = True

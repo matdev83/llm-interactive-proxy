@@ -255,6 +255,7 @@ class TestFeatureFlags:
             "--force-set-project",
             "--project-dir-resolution-model",
             "--project-dir-resolution-mode",
+            "--disable-default-openrouter-project-dir-resolution-fallback",
             "--disable-interactive-commands",
             "--disable-accounting",
             "--strict-command-detection",
@@ -913,6 +914,40 @@ class TestBackwardCompatibility:
             f"Flags differ. Missing: {original_flags - new_flags}, "
             f"Extra: {new_flags - original_flags}"
         )
+
+
+class TestProjectDirResolutionFilesystemModeFlag:
+    """Tests for --project-dir-resolution-filesystem-mode CLI argument."""
+
+    def test_flag_present(self, parser: argparse.ArgumentParser) -> None:
+        flags = _collect_cli_flags(parser)
+        assert "--project-dir-resolution-filesystem-mode" in flags
+
+    def test_flag_parses_values(self, parser: argparse.ArgumentParser) -> None:
+        args = parser.parse_args(
+            ["--project-dir-resolution-filesystem-mode", "disabled"]
+        )
+        assert args.project_dir_resolution_filesystem_mode == "disabled"
+
+    def test_flag_rejects_invalid_values(self, parser: argparse.ArgumentParser) -> None:
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                ["--project-dir-resolution-filesystem-mode", "unsupported"]
+            )
+
+
+class TestProjectDirResolutionOpenRouterFallbackFlag:
+    """Tests for the auto OpenRouter fallback disable flag."""
+
+    def test_flag_present(self, parser: argparse.ArgumentParser) -> None:
+        flags = _collect_cli_flags(parser)
+        assert "--disable-default-openrouter-project-dir-resolution-fallback" in flags
+
+    def test_flag_sets_true(self, parser: argparse.ArgumentParser) -> None:
+        args = parser.parse_args(
+            ["--disable-default-openrouter-project-dir-resolution-fallback"]
+        )
+        assert args.disable_default_openrouter_project_dir_resolution_fallback is True
 
     def test_default_backend_has_dynamic_choices(
         self, parser: argparse.ArgumentParser

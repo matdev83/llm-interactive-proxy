@@ -640,6 +640,26 @@ class ArgumentParserBuilder:
             help="Strategy for resolving project directory: 'deterministic', 'llm', or 'hybrid' (default).",
         )
         parser.add_argument(
+            "--project-dir-resolution-filesystem-mode",
+            dest="project_dir_resolution_filesystem_mode",
+            choices=["auto", "enabled", "disabled"],
+            default=None,
+            help=(
+                "Filesystem probing policy for deterministic project-dir detection: "
+                "'auto' (uses access mode), 'enabled', or 'disabled'."
+            ),
+        )
+        parser.add_argument(
+            "--disable-default-openrouter-project-dir-resolution-fallback",
+            dest="disable_default_openrouter_project_dir_resolution_fallback",
+            action="store_true",
+            default=None,
+            help=(
+                "Disable automatic LLM fallback for project-dir detection in single-user "
+                "mode when OPENROUTER_API_KEY is available and deterministic detection fails."
+            ),
+        )
+        parser.add_argument(
             "--disable-interactive-commands",
             action="store_true",
             default=None,

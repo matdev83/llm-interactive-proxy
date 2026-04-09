@@ -164,6 +164,8 @@ When no CLI override applies and `notifications.enabled` is omitted in YAML, the
 | `--force-set-project` | `FORCE_SET_PROJECT=true` | Require project name to be set before sending prompts. |
 | `--project-dir-resolution-model BACKEND:MODEL` | `PROJECT_DIR_RESOLUTION_MODEL` | Model used to detect absolute project directory. |
 | `--project-dir-resolution-mode MODE` | `PROJECT_DIR_RESOLUTION_MODE` | Strategy: 'deterministic', 'llm', or 'hybrid'. |
+| `--project-dir-resolution-filesystem-mode MODE` | `PROJECT_DIR_RESOLUTION_FILESYSTEM_MODE` | Filesystem probing policy for deterministic mode: 'auto', 'enabled', or 'disabled'. |
+| `--disable-default-openrouter-project-dir-resolution-fallback` | `DISABLE_DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_FALLBACK=true` | Disable automatic single-user LLM fallback via `openrouter:openrouter/free` when deterministic project-dir detection fails and OpenRouter credentials are available. |
 | `--disable-interactive-commands` | N/A | Disable all in-chat command processing. |
 | `--disable-accounting` | `DISABLE_ACCOUNTING=true` | Disable LLM usage tracking. |
 | `--no-accounting` | `DISABLE_ACCOUNTING=true` | Disable LLM usage tracking (alias for --disable-accounting). |

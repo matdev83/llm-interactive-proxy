@@ -87,6 +87,20 @@ def apply_config_part1b(
             path="session.project_dir_resolution_mode",
             resolution=resolution,
         ),
+        "project_dir_resolution_filesystem_mode": _get_env_value(
+            env,
+            "PROJECT_DIR_RESOLUTION_FILESYSTEM_MODE",
+            "auto",
+            path="session.project_dir_resolution_filesystem_mode",
+            resolution=resolution,
+        ),
+        "disable_default_openrouter_project_dir_resolution_fallback": _env_to_bool(
+            "DISABLE_DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_FALLBACK",
+            False,
+            env,
+            path="session.disable_default_openrouter_project_dir_resolution_fallback",
+            resolution=resolution,
+        ),
         "tool_call_repair_enabled": _env_to_bool(
             "TOOL_CALL_REPAIR_ENABLED",
             True,
