@@ -109,11 +109,12 @@ class DomainExceptionMiddleware:
 
         async def send_wrapper(message: Any) -> None:
             nonlocal response_started, response_completed
-            await send(message)
-
             if message["type"] == "http.response.start":
                 response_started = True
-            elif message["type"] == "http.response.body" and not message.get(
+
+            await send(message)
+
+            if message["type"] == "http.response.body" and not message.get(
                 "more_body", False
             ):
                 response_completed = True

@@ -107,3 +107,45 @@ async def test_domain_exception_middleware_reraises_transport_error_on_final_bod
 
     with pytest.raises(RuntimeError, match="client disconnected during final write"):
         await middleware(scope, receive, send)
+
+
+async def test_domain_exception_middleware_reraises_transport_error_on_header_send():
+    """Header write failures must not trigger a second fallback response write."""
+
+    async def app(scope, receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [],
+            }
+        )
+
+    middleware = DomainExceptionMiddleware(app)
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/",
+        "raw_path": b"/",
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+    }
+    send_calls: list[str] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        send_calls.append(message["type"])
+        if message["type"] == "http.response.start":
+            raise RuntimeError("client disconnected during header write")
+
+    with pytest.raises(RuntimeError, match="client disconnected during header write"):
+        await middleware(scope, receive, send)
+
+    assert send_calls == ["http.response.start"]
