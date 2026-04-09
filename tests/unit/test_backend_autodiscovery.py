@@ -6,6 +6,7 @@ without requiring hardcoded imports.
 """
 
 import sys
+from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
@@ -60,6 +61,8 @@ class TestBackendAutoDiscovery:
                 "zai-coding-plan",
                 "zenmux",
             ]
+            if find_spec("src.connectors.opencode_go") is not None:
+                expected_backends.append("opencode-go")
 
             # Check that all expected backends are registered
             for backend_name in expected_backends:
@@ -248,7 +251,7 @@ class TestBackendRegistryInterface:
             def get_available_models(self) -> list[str]:
                 return ["mock-model"]
 
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: DomainModel | InternalDTO | dict[str, Any],
                 processed_messages: list[dict[str, Any]],
@@ -302,7 +305,7 @@ class TestBackendRegistryInterface:
             def get_available_models(self) -> list[str]:
                 return ["mock-model"]
 
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: DomainModel | InternalDTO | dict[str, Any],
                 processed_messages: list[dict[str, Any]],
@@ -358,7 +361,7 @@ class TestBackendRegistryInterface:
             def get_available_models(self) -> list[str]:
                 return ["mock-model"]
 
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: DomainModel | InternalDTO | dict[str, Any],
                 processed_messages: list[dict[str, Any]],
@@ -426,7 +429,7 @@ class TestBackendRegistryInterface:
             def get_available_models(self) -> list[str]:
                 return ["mock-model"]
 
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: DomainModel | InternalDTO | dict[str, Any],
                 processed_messages: list[dict[str, Any]],

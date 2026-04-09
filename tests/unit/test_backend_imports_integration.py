@@ -12,6 +12,7 @@ mechanism in src/connectors/__init__.py existed.
 
 import sys
 from collections.abc import Generator
+from importlib.util import find_spec
 
 import pytest
 
@@ -107,6 +108,8 @@ class TestBackendImportsIntegration:
             "zai-coding-plan",
             "zenmux",
         ]
+        if find_spec("src.connectors.opencode_go") is not None:
+            expected_backends.append("opencode-go")
 
         # Check that all expected backends are registered
         missing_backends = [

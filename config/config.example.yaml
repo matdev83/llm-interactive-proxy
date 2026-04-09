@@ -305,6 +305,15 @@ backends:
     api_url: "https://openrouter.ai/api/v1"
     timeout: 180
 
+  opencode-go:
+    # API key set via an environment variable
+    api_url: "https://opencode.ai/zen/go/v1"
+    timeout: 120
+    extra:
+      model_protocol_overrides:
+        # Example override for future upstream protocol changes.
+        # custom-model: anthropic
+
   # nvidia:
   #   # NVIDIA NIM / hosted integrator OpenAI-compatible chat API.
   #   # Default base URL when api_url is omitted: https://integrate.api.nvidia.com/v1
