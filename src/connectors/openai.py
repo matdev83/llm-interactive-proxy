@@ -24,6 +24,7 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.capture_aware_httpx import (
     CaptureAwareAsyncClient,
     HttpxBoundaryCaptureContext,
@@ -548,7 +549,10 @@ class OpenAIConnector(LLMBackend):
         This method performs health checks on first use, similar to how
         models are loaded lazily in the parent class.
         """
-        if not self._health_check_enabled:
+        # Some wrapper connectors call OpenAIConnector canonical methods without
+        # inheriting (or initializing) the health-check feature flags. Treat
+        # missing flags as "disabled" to preserve backward compatibility.
+        if not getattr(self, "_health_check_enabled", False):
             # Health check is disabled, skip
             return
 
@@ -711,14 +715,27 @@ class OpenAIConnector(LLMBackend):
         Uses request.context for logging correlation identifiers (request_id,
         session_id, client_host) when available.
         """
-        # Extract fields from canonical request
-        domain_request = request.request
-        processed_messages = list(request.processed_messages)
-        effective_model = request.effective_model
-        identity = request.identity
-        cancellation_coordinator = request.cancellation_coordinator
-        cancellation_token = request.cancellation_token
-        context = request.context
+        # Extract fields from canonical request.
+        # Some OAuth wrapper connectors still pass SimpleNamespace-like request
+        # objects that omit optional canonical fields (identity/context/options).
+        # Use defensive getattr defaults to preserve backward compatibility.
+        domain_request = getattr(request, "request", None)
+        if domain_request is None:
+            raise TypeError(
+                "Connector chat completions request missing required 'request' field."
+            )
+
+        processed_messages_source = getattr(request, "processed_messages", None)
+        processed_messages = (
+            list(processed_messages_source)
+            if processed_messages_source is not None
+            else []
+        )
+        effective_model = str(getattr(request, "effective_model", "") or "")
+        identity = getattr(request, "identity", None)
+        cancellation_coordinator = getattr(request, "cancellation_coordinator", None)
+        cancellation_token = getattr(request, "cancellation_token", None)
+        context = getattr(request, "context", None)
 
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if cancellation_coordinator is not None and cancellation_token is not None:
@@ -728,7 +745,8 @@ class OpenAIConnector(LLMBackend):
         log_extra = self._get_log_extra(context)
 
         # Extract provider-specific options from request.options (JSON-safe)
-        options = request.options
+        options_obj = getattr(request, "options", None)
+        options = options_obj if isinstance(options_obj, dict) else {}
         openai_url = options.get("openai_url")
         if not isinstance(openai_url, str):
             openai_url = None
@@ -2308,10 +2326,11 @@ class OpenAIConnector(LLMBackend):
             _sc_first_byte_logged = False
 
             async for chunk_bytes in response.aiter_bytes():
-                if not _sc_first_byte_logged and logger.isEnabledFor(logging.DEBUG):
+                if not _sc_first_byte_logged and logger.isEnabledFor(TRACE_LEVEL):
                     _sc_first_byte_logged = True
                     preview = chunk_bytes[:300].decode("utf-8", errors="replace")
-                    logger.debug(
+                    logger.log(
+                        TRACE_LEVEL,
                         "[stream_completion] First chunk (%d bytes): %s",
                         len(chunk_bytes),
                         preview,
