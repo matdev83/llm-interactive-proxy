@@ -3,3 +3,7 @@
 connector: qwen-oauth
 extra:
   enable_qwen_oauth_backend_debugging_override: true
+  enable_qwen_oauth_initial_rate_limit_retry: true
+  qwen_oauth_initial_rate_limit_retry_max_wait_seconds: 10.0
+  qwen_oauth_initial_rate_limit_retry_random_min_seconds: 3.0
+  qwen_oauth_initial_rate_limit_retry_random_max_seconds: 10.0
