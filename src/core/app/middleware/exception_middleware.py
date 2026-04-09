@@ -104,11 +104,18 @@ class DomainExceptionMiddleware:
             await self.app(scope, receive, send)
             return
 
+        response_started = False
+
+        async def send_wrapper(message: Any) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
         try:
-            await self.app(scope, receive, send)
+            await self.app(scope, receive, send_wrapper)
         except asyncio.CancelledError:
             # Requirement 1.2, 3.8: Report client cancellation as termination
-            # Create Request object temporarily for termination reporting
             request = Request(scope, receive)
             await self._report_client_termination_if_applicable(
                 request, ClientTerminationReason.CLIENT_CANCELLED
@@ -120,12 +127,26 @@ class DomainExceptionMiddleware:
                 self._logger.warning("Domain error: %s", e, exc_info=True)
             else:
                 self._logger.error("Domain error: %s", e, exc_info=True)
+
+            if response_started:
+                self._logger.error(
+                    "Cannot send domain error response: response already started"
+                )
+                return
+
             content = e.to_dict()
             status_code = int(getattr(e, "status_code", 500))
             headers = _resolve_retry_after_header(e)
             await self._send_error_response(send, status_code, content, headers)
         except Exception as e:  # Fallback for unexpected errors
             self._logger.error("Unhandled exception: %s", e, exc_info=True)
+
+            if response_started:
+                self._logger.error(
+                    "Cannot send internal error response: response already started"
+                )
+                return
+
             await self._send_error_response(
                 send,
                 500,

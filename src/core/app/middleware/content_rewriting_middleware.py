@@ -511,10 +511,13 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             background = response.background
             response.background = None
 
+            response_headers = dict(response.headers)
+            response_headers.pop("content-length", None)
+
             return StreamingResponse(
                 new_iterator(),
                 status_code=response.status_code,
-                headers=dict(response.headers),
+                headers=response_headers,
                 media_type=response.media_type,
                 background=background,
             )
