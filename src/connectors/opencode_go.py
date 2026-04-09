@@ -67,6 +67,22 @@ class _OpencodeGoAnthropicDelegate(AnthropicBackend):
         kwargs.setdefault("anthropic_api_base_url", _OPENCODE_GO_DEFAULT_BASE_URL)
         await super().initialize(**kwargs)
 
+    def _prepare_anthropic_payload(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+        project: str | None,
+        context: Any | None = None,
+    ) -> dict[str, Any]:
+        # The opencode-go backend requires the "opencode-go/" vendor prefix
+        # on every outbound model name, including Anthropic-protocol requests.
+        # Re-add the prefix if the base class stripped it away.
+        prefixed = add_vendor_prefix(effective_model, _OPENCODE_GO_VENDOR_PREFIX)
+        return super()._prepare_anthropic_payload(
+            request_data, processed_messages, prefixed, project, context
+        )
+
 
 class OpencodeGoBackend(OpenAIConnector):
     """Hybrid OpenCode Go backend with OpenAI and Anthropic protocol routing."""
@@ -165,11 +181,25 @@ class OpencodeGoBackend(OpenAIConnector):
             return "anthropic"
         return None
 
+    @staticmethod
+    def _enforce_backend_vendor_prefix(raw_model: str) -> str:
+        """Ensure the model name carries the opencode-go vendor prefix.
+
+        The opencode-go backend requires every outbound model identifier to
+        include ``opencode-go/`` as the vendor prefix so that the remote
+        service can correctly distinguish its models.  This helper adds the
+        prefix when the caller omitted it.
+        """
+        if raw_model.startswith(f"{_OPENCODE_GO_VENDOR_PREFIX}/"):
+            return raw_model
+        return f"{_OPENCODE_GO_VENDOR_PREFIX}/{raw_model}"
+
     def _normalize_request(
         self, request: ConnectorChatCompletionsRequest, raw_model: str
     ) -> ConnectorChatCompletionsRequest:
-        normalized_request = request.request.model_copy(update={"model": raw_model})
-        return replace(request, request=normalized_request, effective_model=raw_model)
+        prefixed = self._enforce_backend_vendor_prefix(raw_model)
+        normalized_request = request.request.model_copy(update={"model": prefixed})
+        return replace(request, request=normalized_request, effective_model=prefixed)
 
     def _build_unknown_model_error(self, model_name: str) -> RoutingError:
         supported_models = [

@@ -168,7 +168,7 @@ async def test_openai_path_routes_curated_openai_models_to_chat_completions() ->
     )
 
     payload = _posted_json(recorder.requests, "/chat/completions")
-    assert payload["model"] == "glm-5.1"
+    assert payload["model"] == "opencode-go/glm-5.1"
 
 
 @pytest.mark.asyncio
@@ -191,7 +191,7 @@ async def test_anthropic_path_routes_curated_anthropic_models_to_messages() -> N
     )
 
     payload = _posted_json(recorder.requests, "/messages")
-    assert payload["model"] == "minimax-m2.7"
+    assert payload["model"] == "opencode-go/minimax-m2.7"
 
 
 @pytest.mark.asyncio
@@ -208,7 +208,7 @@ async def test_model_protocol_overrides_can_redirect_unknown_models() -> None:
         await backend.chat_completions(_make_request("opencode-go:custom-openai-model"))
 
     payload = _posted_json(recorder.requests, "/chat/completions")
-    assert payload["model"] == "custom-openai-model"
+    assert payload["model"] == "opencode-go/custom-openai-model"
 
 
 @pytest.mark.asyncio
@@ -227,7 +227,7 @@ async def test_model_protocol_overrides_can_redirect_to_anthropic() -> None:
         )
 
     payload = _posted_json(recorder.requests, "/messages")
-    assert payload["model"] == "custom-anthropic-model"
+    assert payload["model"] == "opencode-go/custom-anthropic-model"
 
 
 @pytest.mark.asyncio
@@ -268,3 +268,116 @@ async def test_available_models_are_canonically_prefixed() -> None:
     assert async_models[: len(expected)] == expected
     assert "opencode-go/custom-openai-model" in models
     assert "opencode-go/custom-openai-model" in async_models
+
+
+# --- Regression tests for backend-specific vendor prefix enforcement ---
+
+
+class TestEnforceBackendVendorPrefix:
+    """Unit tests for _enforce_backend_vendor_prefix static method."""
+
+    def test_prepends_prefix_when_missing(self) -> None:
+        assert (
+            opencode_go_module.OpencodeGoBackend._enforce_backend_vendor_prefix(
+                "mimo-v2-pro"
+            )
+            == "opencode-go/mimo-v2-pro"
+        )
+
+    def test_does_not_duplicate_prefix(self) -> None:
+        assert (
+            opencode_go_module.OpencodeGoBackend._enforce_backend_vendor_prefix(
+                "opencode-go/mimo-v2-pro"
+            )
+            == "opencode-go/mimo-v2-pro"
+        )
+
+    def test_preserves_model_with_other_slash(self) -> None:
+        # Model names that contain slashes but are not prefixed with vendor
+        assert (
+            opencode_go_module.OpencodeGoBackend._enforce_backend_vendor_prefix(
+                "some-org/some-model"
+            )
+            == "opencode-go/some-org/some-model"
+        )
+
+
+@pytest.mark.asyncio
+async def test_openai_payload_has_vendor_prefix_when_user_omits_it() -> None:
+    """When user sends opencode-go:mimo-v2-pro (no vendor part), backend
+    receives opencode-go/mimo-v2-pro."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(_make_request("opencode-go:mimo-v2-pro"))
+
+    payload = _posted_json(recorder.requests, "/chat/completions")
+    assert payload["model"] == "opencode-go/mimo-v2-pro"
+
+
+@pytest.mark.asyncio
+async def test_openai_payload_does_not_duplicate_vendor_prefix() -> None:
+    """When user sends opencode-go:opencode-go/mimo-v2-pro (full canonical form),
+    backend still receives opencode-go/mimo-v2-pro - no duplication."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(
+            _make_request("opencode-go:opencode-go/mimo-v2-pro")
+        )
+
+    payload = _posted_json(recorder.requests, "/chat/completions")
+    assert payload["model"] == "opencode-go/mimo-v2-pro"
+    # Strict guarantee: no double prefix
+    assert "opencode-go/opencode-go/" not in payload["model"]
+
+
+@pytest.mark.asyncio
+async def test_anthropic_payload_has_vendor_prefix_when_user_omits_it() -> None:
+    """When user sends opencode-go:minimax-m2.7 (no vendor part), Anthropic
+    backend receives opencode-go/minimax-m2.7."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(_make_request("opencode-go:minimax-m2.7"))
+
+    payload = _posted_json(recorder.requests, "/messages")
+    assert payload["model"] == "opencode-go/minimax-m2.7"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_payload_does_not_duplicate_vendor_prefix() -> None:
+    """When user sends opencode-go:opencode-go/minimax-m2.7, Anthropic
+    backend still receives opencode-go/minimax-m2.7 - no duplication."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(
+            _make_request("opencode-go:opencode-go/minimax-m2.7")
+        )
+
+    payload = _posted_json(recorder.requests, "/messages")
+    assert payload["model"] == "opencode-go/minimax-m2.7"
+    assert "opencode-go/opencode-go/" not in payload["model"]
+
+
+@pytest.mark.asyncio
+async def test_normalize_model_name_strips_both_prefix_forms() -> None:
+    """_normalize_model_name should strip opencode-go/ and opencode-go: forms
+    back to the raw model id."""
+    strip = opencode_go_module._normalize_model_name
+
+    assert strip("mimo-v2-pro") == "mimo-v2-pro"
+    assert strip("opencode-go/mimo-v2-pro") == "mimo-v2-pro"
+    assert strip("opencode-go:mimo-v2-pro") == "mimo-v2-pro"
+    assert strip("opencode-go:opencode-go/mimo-v2-pro") == "opencode-go/mimo-v2-pro"
+    assert strip("") == ""
+    assert strip("  glm-5.1  ") == "glm-5.1"
