@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from typing import Literal
 from unittest.mock import AsyncMock
@@ -215,12 +216,89 @@ class TestProjectDirectoryResolutionService:
                     content="Generic startup instructions only.",
                 ),
                 ChatMessage(
-                    role="assistant",
+                    role="developer",
                     tool_calls=[
                         ToolCall(
                             function=FunctionCall(
                                 name="bash",
                                 arguments=f"cwd: {project_root}",
+                            )
+                        )
+                    ],
+                ),
+                ChatMessage(
+                    role="user",
+                    content="Please inspect the project root.",
+                ),
+            ],
+        )
+        config = create_app_config("deterministic")
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == str(project_root)
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
+    async def test_deterministic_ignores_untrusted_tool_call_arguments(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        project_root = tmp_path / "project-root"
+        project_root.mkdir(parents=True)
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content="Please inspect the project root.",
+                    tool_calls=[
+                        ToolCall(
+                            function=FunctionCall(
+                                name="bash",
+                                arguments=f"cwd: {project_root}",
+                            )
+                        )
+                    ],
+                ),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir is None
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
+    async def test_deterministic_uses_json_tool_call_arguments_cwd_hint(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        project_root = tmp_path / "project-root"
+        project_root.mkdir(parents=True)
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="developer",
+                    content="Startup tool call metadata.",
+                    tool_calls=[
+                        ToolCall(
+                            function=FunctionCall(
+                                name="exec_command",
+                                arguments=json.dumps({"cwd": str(project_root)}),
                             )
                         )
                     ],
@@ -274,7 +352,7 @@ class TestProjectDirectoryResolutionService:
         mock_backend_service.call_completion.assert_not_called()
         assert "did not identify a directory (deterministic mode)" in caplog.text
 
-    async def test_deterministic_does_not_auto_fallback_to_llm(
+    async def test_deterministic_auto_fallbacks_to_openrouter_in_single_user_mode(
         self, mock_backend_service, mock_session_service, session
     ) -> None:
         request = ChatRequest(
@@ -286,12 +364,21 @@ class TestProjectDirectoryResolutionService:
             config, mock_backend_service, mock_session_service
         )
         service._openrouter_api_key_available = True
+        mock_backend_service.call_completion.return_value = ResponseEnvelope(
+            content=(
+                "<directory-resolution-response>"
+                "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+                "</directory-resolution-response>"
+            )
+        )
 
         await service.maybe_resolve_project_directory(session, request)
 
-        assert session.state.project_dir is None
+        assert session.state.project_dir == "/home/user/project"
         assert session.state.project_dir_resolution_attempted is True
-        mock_backend_service.call_completion.assert_not_called()
+        mock_backend_service.call_completion.assert_called_once()
+        llm_request = mock_backend_service.call_completion.await_args.args[0]
+        assert llm_request.model == "openrouter:openrouter/free"
 
     async def test_deterministic_does_not_fallback_to_cwd_when_candidate_is_ambiguous(
         self, mock_backend_service, mock_session_service, session, tmp_path, monkeypatch
@@ -467,7 +554,7 @@ class TestProjectDirectoryResolutionService:
             "Project directory auto-detected (LLM): /home/user/Desktop" in caplog.text
         )
 
-    async def test_deterministic_mode_does_not_auto_fallback_to_openrouter_in_single_user_mode(
+    async def test_deterministic_mode_auto_fallbacks_to_openrouter_in_single_user_mode(
         self,
         mock_backend_service,
         mock_session_service,
@@ -481,16 +568,27 @@ class TestProjectDirectoryResolutionService:
             messages=[ChatMessage(role="user", content="my project is on the desktop")],
         )
         config = create_app_config("deterministic", model_spec=None)
+        mock_backend_service.call_completion.return_value = ResponseEnvelope(
+            content=(
+                "<directory-resolution-response>"
+                "<project-absolute-directory>/home/user/Desktop</project-absolute-directory>"
+                "</directory-resolution-response>"
+            )
+        )
 
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
         )
         await service.maybe_resolve_project_directory(session, request)
 
-        assert session.state.project_dir is None
+        assert session.state.project_dir == "/home/user/Desktop"
         assert session.state.project_dir_resolution_attempted is True
-        mock_backend_service.call_completion.assert_not_called()
-        assert "did not identify a directory (deterministic mode)" in caplog.text
+        mock_backend_service.call_completion.assert_called_once()
+        llm_request = mock_backend_service.call_completion.await_args.args[0]
+        assert llm_request.model == "openrouter:openrouter/free"
+        assert (
+            "Project directory auto-detected (LLM): /home/user/Desktop" in caplog.text
+        )
 
     async def test_deterministic_mode_ignores_user_override_model_in_deterministic_mode(
         self,
@@ -508,15 +606,24 @@ class TestProjectDirectoryResolutionService:
             "deterministic",
             model_spec="openai:gpt-4.1-mini",
         )
+        mock_backend_service.call_completion.return_value = ResponseEnvelope(
+            content=(
+                "<directory-resolution-response>"
+                "<project-absolute-directory>/home/user/Desktop</project-absolute-directory>"
+                "</directory-resolution-response>"
+            )
+        )
 
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
         )
         await service.maybe_resolve_project_directory(session, request)
 
-        assert session.state.project_dir is None
+        assert session.state.project_dir == "/home/user/Desktop"
         assert session.state.project_dir_resolution_attempted is True
-        mock_backend_service.call_completion.assert_not_called()
+        mock_backend_service.call_completion.assert_called_once()
+        llm_request = mock_backend_service.call_completion.await_args.args[0]
+        assert llm_request.model == "openrouter:openrouter/free"
 
     async def test_deterministic_mode_does_not_fallback_when_disable_flag_is_set(
         self,

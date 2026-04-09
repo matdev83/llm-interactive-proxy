@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Service for resolving project directories from the first request."""
 
+import json
 import logging
 import os
 import re
@@ -1007,6 +1008,13 @@ class ProjectDirectoryResolutionService:
                 return _DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_MODEL, "openrouter"
             return None, None
 
+        if self._resolution_mode == "deterministic":
+            if self._should_auto_enable_openrouter_llm_fallback(
+                deterministic_failed=deterministic_failed
+            ):
+                return _DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_MODEL, "openrouter"
+            return None, None
+
         return None, None
 
     def _should_auto_enable_openrouter_llm_fallback(
@@ -1043,13 +1051,12 @@ class ProjectDirectoryResolutionService:
         trusted_parts: list[str] = []
         trusted_parts.extend(self._extract_trusted_request_paths(request))
         for message in request.messages:
-            tool_calls = getattr(message, "tool_calls", None)
-            if tool_calls:
-                trusted_parts.extend(self._extract_paths_from_tool_calls(tool_calls))
-
             role = str(getattr(message, "role", "") or "").strip().lower()
             if role not in _TRUSTED_STARTUP_MESSAGE_ROLES:
                 continue
+            tool_calls = getattr(message, "tool_calls", None)
+            if tool_calls:
+                trusted_parts.extend(self._extract_paths_from_tool_calls(tool_calls))
             trusted_parts.extend(self._extract_trusted_startup_paths(message))
 
         if not trusted_parts:
@@ -1110,6 +1117,9 @@ class ProjectDirectoryResolutionService:
                 arguments = getattr(function, "arguments", None)
 
             if isinstance(arguments, str):
+                parsed_arguments = self._parse_json_like_value(arguments)
+                if parsed_arguments is not None:
+                    paths.extend(self._extract_paths_from_value(parsed_arguments))
                 paths.extend(self._extract_trusted_paths_from_text(arguments))
             elif arguments is not None:
                 paths.extend(self._extract_paths_from_value(arguments))
@@ -1118,6 +1128,16 @@ class ProjectDirectoryResolutionService:
                 paths.extend(self._extract_paths_from_value(extra_content))
 
         return self._dedupe_strings(paths)
+
+    @staticmethod
+    def _parse_json_like_value(value: str) -> Any | None:
+        stripped = value.strip()
+        if not stripped or stripped[0] not in {"{", "["}:
+            return None
+        try:
+            return json.loads(stripped)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
 
     def _extract_trusted_paths_from_metadata(self, metadata: Any) -> list[str]:
         paths: list[str] = []
