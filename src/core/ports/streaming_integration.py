@@ -12,6 +12,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import cast
 
+from src.core.common.exceptions import LLMProxyError
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -41,7 +42,6 @@ from src.core.services.streaming.tool_call_repair_processor import (
 from src.core.services.streaming.vtc_postprocessor import VTCPostProcessor
 from src.core.services.streaming.vtc_preprocessor import VTCPreProcessor
 from src.core.services.tool_call_repair_service import ToolCallRepairService
-from src.core.common.exceptions import LLMProxyError
 
 logger = logging.getLogger(__name__)
 
@@ -319,7 +319,13 @@ async def integrate_streaming_pipeline(
     except Exception as e:
         # Error before any output: raise a normalized backend exception so
         # higher-level failure handling can apply retry/failover policies.
-        raise StreamingErrorMapper.map_backend_error(e, provider, stream_id) from e
+        mapped_error = StreamingErrorMapper.map_backend_error(e, provider, stream_id)
+        # Suppress exception chain for expected domain errors (e.g., RateLimitExceededError)
+        # to prevent upstream callers from logging verbose stack traces for anticipated failures.
+        if isinstance(mapped_error, LLMProxyError):
+            raise mapped_error from None
+        else:
+            raise mapped_error from e
 
     async def processed_stream() -> AsyncIterator[ProcessedResponse]:
         """Wrap pipeline output in ProcessedResponse for backward compatibility."""
