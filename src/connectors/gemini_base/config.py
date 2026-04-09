@@ -30,6 +30,7 @@ CODE_ASSIST_PROMPT_LIMIT_MARGIN = 0.97
 # Default available models for fallback
 DEFAULT_AVAILABLE_MODELS = [
     # Current generation (3.x series)
+    "gemini-3.1-flash-lite-preview",
     "gemini-3.1-pro-preview",
     "gemini-3-pro-preview",
     "gemini-3-flash-preview",
@@ -47,6 +48,7 @@ GEMINI_OAUTH_STANDARD_MODELS = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.5-pro",
+    "gemini-3.1-flash-lite-preview",
     "gemini-3.1-pro-preview",
     "gemini-3-flash-preview",
     "gemini-3-pro-preview",
