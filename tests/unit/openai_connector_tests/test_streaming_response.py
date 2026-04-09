@@ -711,6 +711,56 @@ async def test_stream_completion_429_preserves_retry_after_header(
 
 
 @pytest.mark.asyncio
+async def test_streaming_response_insufficient_quota_yields_terminal_error(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Quota exhaustion should surface as a structured terminal stream error."""
+    mock_response = MockResponse(
+        status_code=429,
+        content=(
+            b'{"error":{"code":"insufficient_quota","message":"You exceeded your current '
+            b'quota, please check your plan and billing details.","type":"insufficient_quota",'
+            b'"request_id":"req-quota-123"}}'
+        ),
+        is_error=True,
+    )
+    mock_response._headers = {"content-type": "application/json"}
+    mock_response.aiter_bytes = lambda: AsyncIterBytes([mock_response._content])
+
+    mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+    from src.core.domain.responses import StreamingResponseEnvelope
+
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
+    )
+
+    processed = [ChatMessage(role="user", content="test")]
+    result = await connector.chat_completions(
+        _connector_chat_request(request_data, processed, "test-model")
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+
+    chunks = []
+    async for chunk in result.content:
+        chunks.append(chunk)
+
+    assert chunks
+    rendered = "\n".join(
+        chunk.content.decode("utf-8")
+        for chunk in chunks
+        if isinstance(chunk.content, bytes)
+    )
+    assert "quota_exceeded" in rendered
+    assert '"status_code": 503' in rendered
+    assert mock_response.closed
+
+
+@pytest.mark.asyncio
 async def test_streaming_response_request_error(
     connector: OpenAIConnector, mocker: MockerFixture
 ) -> None:

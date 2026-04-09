@@ -10,10 +10,12 @@ logger = logging.getLogger(__name__)
 
 from collections.abc import (
     AsyncGenerator,
+    Awaitable,
+    Callable,
     Mapping,
 )
 from json import JSONDecodeError
-from typing import Any, NoReturn
+from typing import Any, NoReturn, cast
 
 import httpx
 from fastapi import HTTPException
@@ -108,6 +110,104 @@ def _error_details_from_http_response(response: httpx.Response) -> dict[str, Any
     if retry_after:
         details["headers"] = {"retry-after": retry_after}
     return details
+
+
+def _extract_insufficient_quota_message(body: str) -> str | None:
+    """Detect provider quota exhaustion responses."""
+
+    if not body:
+        return None
+
+    normalized_body = body.strip()
+    if not normalized_body:
+        return None
+
+    parsed_error: Any = None
+    with contextlib.suppress(json.JSONDecodeError, ValueError, TypeError):
+        parsed_error = json.loads(normalized_body)
+
+    candidates: list[Any] = [parsed_error] if parsed_error is not None else []
+    if isinstance(parsed_error, dict):
+        nested_error = parsed_error.get("error")
+        if nested_error is not None:
+            candidates.append(nested_error)
+
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+
+        code = candidate.get("code")
+        error_type = candidate.get("type")
+        message = candidate.get("message")
+        normalized_code = str(code).strip().lower() if code is not None else ""
+        normalized_type = (
+            str(error_type).strip().lower() if error_type is not None else ""
+        )
+        normalized_message = (
+            str(message).strip().lower() if isinstance(message, str) else ""
+        )
+
+        if (
+            normalized_code == "insufficient_quota"
+            or normalized_type == "insufficient_quota"
+        ):
+            return (
+                str(message).strip()
+                if isinstance(message, str) and message.strip()
+                else normalized_body
+            )
+
+        if (
+            "exceeded your current quota" in normalized_message
+            or "token-limit" in normalized_message
+            or "quota" in normalized_message
+            and "exceeded" in normalized_message
+        ):
+            return (
+                str(message).strip()
+                if isinstance(message, str) and message.strip()
+                else normalized_body
+            )
+
+    if (
+        "insufficient_quota" in normalized_body.lower()
+        or "exceeded your current quota" in normalized_body.lower()
+    ):
+        return normalized_body
+
+    return None
+
+
+def _build_quota_exhaustion_stream_chunk(
+    *,
+    body: str,
+    error_details: dict[str, Any],
+    model: str,
+) -> bytes:
+    """Build a terminal OpenAI-compatible stream chunk for quota exhaustion."""
+
+    import time
+
+    message = _extract_insufficient_quota_message(body) or (
+        "Upstream quota was exhausted."
+    )
+    error_payload = {
+        "id": f"chatcmpl-error-{int(time.time())}",
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+        "error": {
+            "message": message,
+            "type": "quota_exceeded",
+            "code": 503,
+            "status_code": 503,
+        },
+    }
+    error_body = error_payload["error"]
+    if error_details and isinstance(error_body, dict):
+        error_body["details"] = error_details
+    return f"data: {json.dumps(error_payload, ensure_ascii=True)}\n\n".encode()
 
 
 def _attach_http_error_details(
@@ -1258,6 +1358,29 @@ class OpenAIConnector(LLMBackend):
                     # Use parsed JSON if it's a dict
                     error_detail = parsed_error
 
+            if status_code == 429:
+                quota_message = _extract_insufficient_quota_message(body)
+                if quota_message is not None:
+                    status_code = 503
+                    if isinstance(error_detail, dict):
+                        error_detail = dict(error_detail)
+                        error_detail["type"] = "quota_exceeded"
+                        error_detail["code"] = 503
+                        error_detail["message"] = quota_message
+                        if "error" not in error_detail:
+                            error_detail["error"] = {}
+                        if isinstance(error_detail["error"], dict):
+                            error_detail["error"] = dict(error_detail["error"])
+                            error_detail["error"].setdefault("type", "quota_exceeded")
+                            error_detail["error"].setdefault("code", 503)
+                            error_detail["error"].setdefault("message", quota_message)
+                    else:
+                        error_detail = {
+                            "message": quota_message,
+                            "type": "quota_exceeded",
+                            "code": 503,
+                        }
+
             raise HTTPException(
                 status_code=status_code,
                 detail=_attach_http_error_details(
@@ -2108,19 +2231,26 @@ class OpenAIConnector(LLMBackend):
             body = ""
             try:
                 # Read only first 1MB of error body to prevent DoS
-                if hasattr(response, "aiter_bytes"):
+                aiter_bytes = getattr(response, "aiter_bytes", None)
+                if callable(aiter_bytes):
+                    aiter_bytes_fn = cast(
+                        Callable[[], AsyncGenerator[bytes, None]], aiter_bytes
+                    )
                     chunks: list[bytes] = []
                     total_size = 0
-                    async for chunk in response.aiter_bytes():
+                    async for chunk in aiter_bytes_fn():
                         chunks.append(chunk)
                         total_size += len(chunk)
                         if total_size > 10 * 1024 * 1024:
                             break
                     body_bytes = b"".join(chunks)
-                elif hasattr(response, "aread"):
-                    body_bytes = await response.aread()
                 else:
-                    body_bytes = b""
+                    aread = getattr(response, "aread", None)
+                    if callable(aread):
+                        aread_fn = cast(Callable[[], Awaitable[bytes]], aread)
+                        body_bytes = await aread_fn()
+                    else:
+                        body_bytes = b""
                 body = body_bytes.decode("utf-8")
             except (OSError, UnicodeDecodeError, httpx.RequestError, httpx.HTTPError):
                 # Catch specific exceptions from reading/decoding error response body
@@ -2142,6 +2272,19 @@ class OpenAIConnector(LLMBackend):
                     await response.aclose()
 
             error_details = _error_details_from_http_response(response)
+            quota_message = _extract_insufficient_quota_message(body)
+            if status_code == 429 and quota_message is not None:
+                with contextlib.suppress(Exception):
+                    await response.aclose()
+
+                yield _build_quota_exhaustion_stream_chunk(
+                    body=body,
+                    error_details=error_details,
+                    model=str(effective_model),
+                )
+                yield b"data: [DONE]\n\n"
+                return
+
             if status_code == 429:
                 reset_at = _parse_retry_after_header(response.headers)
                 raise RateLimitExceededError(
