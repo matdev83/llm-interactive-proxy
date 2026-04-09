@@ -440,6 +440,52 @@ async def test_service_skips_artifact_preview_system_reminder_outputs() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pytest_failure_focus_runtime_override_uses_explicit_min_lines_field() -> (
+    None
+):
+    service = _build_service_with_default_registry()
+    payload = "\n".join(
+        [
+            "============================= test session starts =============================",
+            "collected 2 items",
+            "tests/test_demo.py::test_one PASSED 0.01s call",
+            "tests/test_demo.py::test_two PASSED 0.02s call",
+            "============================== 2 passed in 0.03s ==============================",
+            "",
+        ]
+    )
+    messages = _build_tool_messages("pytest -q", payload)
+    base_config = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"pytest_failure_focus": True},
+        rules=[
+            CompressionRule(
+                name="pytest-focus",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="pytest"),
+                pipeline=["pytest_failure_focus"],
+            )
+        ],
+    )
+
+    compressed = await service.compress_messages(
+        messages=messages,
+        config=base_config.model_copy(update={"pytest_failure_focus_min_lines": 0}),
+    )
+    bypassed = await service.compress_messages(
+        messages=messages,
+        config=base_config.model_copy(update={"pytest_failure_focus_min_lines": 10}),
+    )
+
+    assert compressed.messages[1].content != payload
+    assert compressed.records[0].applied is True
+    assert bypassed.messages[1].content == payload
+    assert bypassed.records[0].applied is False
+
+
+@pytest.mark.asyncio
 async def test_marker_policy_inserts_for_text_and_suppresses_for_json() -> None:
     registry = CompressionStrategyRegistry()
     registry.register("half_trim", _HalfTrimStrategy())

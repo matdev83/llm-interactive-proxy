@@ -1280,11 +1280,7 @@ class ToolOutputCompressionService:
         strategy = self._strategy_registry.get("pytest_failure_focus")
         if type(strategy) is not PytestFailureFocusStrategy:
             return {}
-        min_lines_value: object | None = None
-        if effective_config.model_extra is not None:
-            min_lines_value = effective_config.model_extra.get(
-                "pytest_failure_focus_min_lines"
-            )
+        min_lines_value: object | None = effective_config.pytest_failure_focus_min_lines
         if min_lines_value is None:
             return {}
         if isinstance(min_lines_value, bool):

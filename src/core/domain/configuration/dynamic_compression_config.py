@@ -1065,6 +1065,7 @@ class DynamicCompressionConfig(ValueObject):
     methods: dict[str, bool | Literal["inherit_legacy"]] = Field(
         default_factory=_default_method_states
     )
+    pytest_failure_focus_min_lines: int | None = Field(default=None, ge=0)
     noise_directories: list[str] = Field(
         default_factory=lambda: [
             "node_modules",

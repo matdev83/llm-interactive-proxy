@@ -44,6 +44,9 @@ from src.core.interfaces.history_compaction_interface import (
     CompactionResult,
     IHistoryCompactionService,
 )
+from src.core.interfaces.tool_output_compression_interface import (
+    IToolOutputCompressionService,
+)
 from src.core.services.backend_request_preparation_service import (
     BackendRequestPreparationService,
 )
@@ -119,6 +122,29 @@ def test_startup_prevalidates_dynamic_compression_config(
         "startup validation warning" in record.message.lower()
         for record in caplog.records
     )
+
+
+def test_startup_skips_dynamic_compression_prevalidation_when_disabled(
+    mock_config: IConfig,
+) -> None:
+    class _PrevalidateStub:
+        def __init__(self) -> None:
+            self.calls: list[DynamicCompressionConfig] = []
+
+        def prevalidate_config(self, config: DynamicCompressionConfig) -> list[str]:
+            self.calls.append(config)
+            return []
+
+    mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
+    stub = _PrevalidateStub()
+
+    BackendRequestPreparationService(
+        history_compaction_service=None,
+        config=mock_config,
+        tool_output_compression_service=stub,
+    )
+
+    assert stub.calls == []
 
 
 @pytest.fixture
@@ -782,6 +808,41 @@ class TestDynamicCompressionRequestPathToolOnly:
         warn_text = " ".join(dx.get("warnings", []))
         assert "history compaction" in warn_text.lower()
         assert "dynamic tool-output compression" in warn_text.lower()
+
+    @pytest.mark.asyncio
+    async def test_skips_compression_service_when_dynamic_compression_disabled(
+        self,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(enabled=False)
+        compression_service = AsyncMock(spec=IToolOutputCompressionService)
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=compression_service,
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content="tool-payload"),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        result = await service.prepare(request, command_result)
+
+        assert result is not None
+        assert result.messages == request.messages
+        compression_service.compress_messages.assert_not_awaited()
+        diagnostics = result.compression_diagnostics or {}
+        assert "dynamic_compression_compatibility" not in diagnostics
+        assert "dynamic_compression_records" not in diagnostics
 
 
 class TestDynamicCompressionLegacyPytestWarnings:

@@ -74,6 +74,8 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         """Validate dynamic/declarative compression config during service startup."""
         if self._tool_output_compression_service is None:
             return
+        if not self._is_dynamic_compression_enabled():
+            return
         prevalidate = getattr(
             self._tool_output_compression_service,
             "prevalidate_config",
@@ -82,17 +84,8 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         if not callable(prevalidate):
             return
 
-        startup_config = DynamicCompressionConfig()
         try:
-            if self._config is not None:
-                dynamic_from_config = getattr(self._config, "dynamic_compression", None)
-                if isinstance(dynamic_from_config, DynamicCompressionConfig):
-                    startup_config = dynamic_from_config
-                elif isinstance(dynamic_from_config, dict):
-                    startup_config = DynamicCompressionConfig.model_validate(
-                        dynamic_from_config
-                    )
-
+            startup_config, _ = self._resolve_dynamic_compression_config()
             raw_warnings = prevalidate(startup_config)
             if not isinstance(raw_warnings, list | tuple | set):
                 return
@@ -313,30 +306,22 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
             dynamic_compression_enabled=dynamic_compression_feature_enabled,
         )
 
-        if self._tool_output_compression_service is not None:
+        if (
+            self._tool_output_compression_service is not None
+            and dynamic_compression_feature_enabled
+        ):
             dynamic_config = DynamicCompressionConfig()
             compatibility_diagnostics = DynamicCompressionCompatibilityDiagnostics()
+            compression_result: Any | None = None
             try:
-                if self._config is not None:
-                    dynamic_from_config = getattr(
-                        self._config, "dynamic_compression", None
-                    )
-                    if isinstance(dynamic_from_config, DynamicCompressionConfig):
-                        dynamic_config = dynamic_from_config
-                    elif isinstance(dynamic_from_config, dict):
-                        dynamic_config = DynamicCompressionConfig.model_validate(
-                            dynamic_from_config
-                        )
-
                 (
                     dynamic_config,
                     compatibility_diagnostics,
-                ) = self._resolve_pytest_compatibility(dynamic_config)
-
+                ) = self._resolve_dynamic_compression_config()
                 path_overlap_warnings = self._build_request_path_overlap_warnings(
                     compaction_enabled=compaction_feature_enabled,
                     compaction_mutated_messages=compaction_mutated_messages,
-                    dynamic_enabled=bool(dynamic_config.enabled),
+                    dynamic_enabled=True,
                 )
                 compatibility_diagnostics = self._merge_compatibility_warnings(
                     diagnostics=compatibility_diagnostics,
@@ -420,6 +405,17 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
 
         # Return the (possibly modified) request
         return final_request
+
+    def _is_dynamic_compression_enabled(self) -> bool:
+        if self._config is None:
+            return False
+
+        dynamic = getattr(self._config, "dynamic_compression", None)
+        if isinstance(dynamic, DynamicCompressionConfig):
+            return bool(dynamic.enabled)
+        if isinstance(dynamic, dict):
+            return bool(dynamic.get("enabled", False))
+        return bool(getattr(dynamic, "enabled", False))
 
     def _apply_legacy_gemini_truncation_compatibility(
         self,
@@ -560,16 +556,19 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
             payload=diagnostics_payload,
         )
 
-    def _is_dynamic_compression_enabled(self) -> bool:
-        if self._config is None:
-            return False
-
-        dynamic = getattr(self._config, "dynamic_compression", None)
-        if isinstance(dynamic, DynamicCompressionConfig):
-            return bool(dynamic.enabled)
-        if isinstance(dynamic, dict):
-            return bool(dynamic.get("enabled", False))
-        return bool(getattr(dynamic, "enabled", False))
+    def _resolve_dynamic_compression_config(
+        self,
+    ) -> tuple[DynamicCompressionConfig, DynamicCompressionCompatibilityDiagnostics]:
+        dynamic_config = DynamicCompressionConfig()
+        if self._config is not None:
+            dynamic_from_config = getattr(self._config, "dynamic_compression", None)
+            if isinstance(dynamic_from_config, DynamicCompressionConfig):
+                dynamic_config = dynamic_from_config
+            elif isinstance(dynamic_from_config, dict):
+                dynamic_config = DynamicCompressionConfig.model_validate(
+                    dynamic_from_config
+                )
+        return self._resolve_pytest_compatibility(dynamic_config)
 
     def _is_compaction_enabled(self) -> bool:
         if self._config is None:
@@ -955,11 +954,7 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
     ) -> int:
         legacy_control = "session.pytest_compression_min_lines"
         dynamic_control = "dynamic_compression.pytest_failure_focus_min_lines"
-        dynamic_value = None
-        if dynamic_config.model_extra is not None:
-            dynamic_value = dynamic_config.model_extra.get(
-                "pytest_failure_focus_min_lines"
-            )
+        dynamic_value = dynamic_config.pytest_failure_focus_min_lines
 
         if dynamic_value is not None:
             try:

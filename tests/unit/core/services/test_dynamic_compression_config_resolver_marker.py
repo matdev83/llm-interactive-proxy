@@ -154,3 +154,26 @@ def test_resolver_warns_for_unknown_options_and_invalid_overrides() -> None:
         "Unknown dynamic_compression option ignored: 'unknown_option'" in warning
         for warning in resolved.warnings
     )
+
+
+def test_resolver_accepts_pytest_failure_focus_min_lines_without_unknown_option_warning() -> (
+    None
+):
+    resolver = DynamicCompressionConfigResolver()
+    config = DynamicCompressionConfig.model_validate(
+        {
+            "enabled": True,
+            "pytest_failure_focus_min_lines": 42,
+        }
+    )
+
+    resolved = resolver.resolve(
+        config,
+        available_methods=["pytest_failure_focus", "declarative_rule_filter"],
+    )
+
+    assert resolved.config.pytest_failure_focus_min_lines == 42
+    assert all(
+        "Unknown dynamic_compression option ignored" not in warning
+        for warning in resolved.warnings
+    )
