@@ -117,6 +117,10 @@ _TRUSTED_STARTUP_HINT_PATTERNS = (
         r"|root(?:\s+dir(?:ectory)?|\s+path)?)\b\s*(?:[:=]|is|at|->)\s*"
     ),
 )
+_DIRECTORY_RESPONSE_BLOCK_PATTERN = re.compile(
+    r"<directory-resolution-response\b[^>]*>.*?</directory-resolution-response>",
+    flags=re.DOTALL | re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -1003,16 +1007,6 @@ class ProjectDirectoryResolutionService:
                 return _DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_MODEL, "openrouter"
             return None, None
 
-        if (
-            self._resolution_mode == "deterministic"
-            and self._should_auto_enable_openrouter_llm_fallback(
-                deterministic_failed=deterministic_failed
-            )
-        ):
-            if self._model_identifier:
-                return self._model_identifier, self._backend_type
-            return _DEFAULT_OPENROUTER_PROJECT_DIR_RESOLUTION_MODEL, "openrouter"
-
         return None, None
 
     def _should_auto_enable_openrouter_llm_fallback(
@@ -1040,14 +1034,19 @@ class ProjectDirectoryResolutionService:
 
         numbered_pattern = re.compile(r"^OPENROUTER_API_KEY_\d+$")
         return any(
-            numbered_pattern.match(key) and isinstance(value, str) and value.strip()
+            numbered_pattern.match(key) and value.strip()
             for key, value in os.environ.items()
         )
 
     def _extract_trusted_startup_prompt(self, request: ChatRequest) -> str | None:
-        """Extract startup metadata from trusted roles like system/developer."""
+        """Extract trusted startup hints from structured request data and messages."""
         trusted_parts: list[str] = []
+        trusted_parts.extend(self._extract_trusted_request_paths(request))
         for message in request.messages:
+            tool_calls = getattr(message, "tool_calls", None)
+            if tool_calls:
+                trusted_parts.extend(self._extract_paths_from_tool_calls(tool_calls))
+
             role = str(getattr(message, "role", "") or "").strip().lower()
             if role not in _TRUSTED_STARTUP_MESSAGE_ROLES:
                 continue
@@ -1057,6 +1056,22 @@ class ProjectDirectoryResolutionService:
             return None
 
         return "\n".join(trusted_parts)
+
+    def _extract_trusted_request_paths(self, request: ChatRequest) -> list[str]:
+        """Extract trusted path hints from request-level structured fields."""
+        trusted_parts: list[str] = []
+
+        request_metadata = getattr(request, "request_metadata", None)
+        if request_metadata is not None:
+            trusted_parts.extend(
+                self._extract_trusted_paths_from_metadata(request_metadata)
+            )
+
+        tools = getattr(request, "tools", None)
+        if tools:
+            trusted_parts.extend(self._extract_paths_from_value(tools))
+
+        return self._dedupe_strings(trusted_parts)
 
     def _extract_trusted_startup_paths(self, message: Any) -> list[str]:
         trusted_parts: list[str] = []
@@ -1070,6 +1085,39 @@ class ProjectDirectoryResolutionService:
             trusted_parts.extend(self._extract_trusted_paths_from_text(content))
 
         return self._dedupe_strings(trusted_parts)
+
+    def _extract_paths_from_tool_calls(self, tool_calls: Any) -> list[str]:
+        """Extract absolute paths from tool call arguments and extra content."""
+        paths: list[str] = []
+        if not tool_calls:
+            return paths
+
+        if not isinstance(tool_calls, list):
+            tool_calls = [tool_calls]
+
+        for tool_call in tool_calls:
+            if isinstance(tool_call, dict):
+                function = tool_call.get("function")
+                extra_content = tool_call.get("extra_content")
+            else:
+                function = getattr(tool_call, "function", None)
+                extra_content = getattr(tool_call, "extra_content", None)
+
+            arguments: Any = None
+            if isinstance(function, dict):
+                arguments = function.get("arguments")
+            else:
+                arguments = getattr(function, "arguments", None)
+
+            if isinstance(arguments, str):
+                paths.extend(self._extract_trusted_paths_from_text(arguments))
+            elif arguments is not None:
+                paths.extend(self._extract_paths_from_value(arguments))
+
+            if extra_content is not None:
+                paths.extend(self._extract_paths_from_value(extra_content))
+
+        return self._dedupe_strings(paths)
 
     def _extract_trusted_paths_from_metadata(self, metadata: Any) -> list[str]:
         paths: list[str] = []
@@ -1264,11 +1312,41 @@ class ProjectDirectoryResolutionService:
             return text_value
         return None
 
+    def _extract_xml_from_response(self, response_text: str) -> str:
+        text = response_text.strip()
+
+        # Strip reasoning/thinking blocks that can pollute XML
+        cleaned = re.sub(
+            r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE
+        )
+        cleaned = re.sub(
+            r"<thinking>.*?</thinking>", "", cleaned, flags=re.DOTALL | re.IGNORECASE
+        )
+        cleaned = re.sub(
+            r"<reasoning>.*?</reasoning>", "", cleaned, flags=re.DOTALL | re.IGNORECASE
+        )
+        cleaned = cleaned.strip()
+
+        # Extract the first complete response block even if the model adds prose.
+        match = _DIRECTORY_RESPONSE_BLOCK_PATTERN.search(cleaned)
+        if match:
+            return match.group(0)
+
+        if cleaned.startswith("<directory-resolution-response"):
+            closing_tag = "</directory-resolution-response>"
+            closing_index = cleaned.lower().find(closing_tag)
+            if closing_index != -1:
+                return cleaned[: closing_index + len(closing_tag)]
+            return cleaned
+
+        return text
+
     def _parse_directory_response(
         self, response_text: str
     ) -> tuple[str | None, str | None]:
         try:
-            root = safe_xml_parse(response_text.strip())
+            xml_content = self._extract_xml_from_response(response_text)
+            root = safe_xml_parse(xml_content.strip())
         except XMLSafetyError as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.config.models.access_mode import AccessMode, AccessModeConfig
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session, SessionState
 from src.core.services.project_directory_resolution_service import (
@@ -169,6 +169,80 @@ class TestProjectDirectoryResolutionService:
         mock_backend_service.call_completion.assert_not_called()
         mock_session_service.update_session.assert_called_once_with(session)
 
+    async def test_deterministic_uses_request_metadata_cwd_hint(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        project_root = tmp_path / "project-root"
+        project_root.mkdir(parents=True)
+
+        request = ChatRequest(
+            model="test-model",
+            request_metadata={"cwd": str(project_root)},
+            messages=[
+                ChatMessage(
+                    role="system",
+                    content="Generic startup instructions only.",
+                ),
+                ChatMessage(
+                    role="user",
+                    content="Please inspect the project root.",
+                ),
+            ],
+        )
+        config = create_app_config("deterministic")
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == str(project_root)
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
+    async def test_deterministic_uses_tool_call_arguments_cwd_hint(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        project_root = tmp_path / "project-root"
+        project_root.mkdir(parents=True)
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="system",
+                    content="Generic startup instructions only.",
+                ),
+                ChatMessage(
+                    role="assistant",
+                    tool_calls=[
+                        ToolCall(
+                            function=FunctionCall(
+                                name="bash",
+                                arguments=f"cwd: {project_root}",
+                            )
+                        )
+                    ],
+                ),
+                ChatMessage(
+                    role="user",
+                    content="Please inspect the project root.",
+                ),
+            ],
+        )
+        config = create_app_config("deterministic")
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == str(project_root)
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
     async def test_deterministic_no_path(
         self,
         mock_backend_service,
@@ -199,6 +273,25 @@ class TestProjectDirectoryResolutionService:
         assert session.state.project_dir_resolution_attempted is True
         mock_backend_service.call_completion.assert_not_called()
         assert "did not identify a directory (deterministic mode)" in caplog.text
+
+    async def test_deterministic_does_not_auto_fallback_to_llm(
+        self, mock_backend_service, mock_session_service, session
+    ) -> None:
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="Hello world")],
+        )
+        config = create_app_config("deterministic", model_spec=None)
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+        service._openrouter_api_key_available = True
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir is None
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
 
     async def test_deterministic_does_not_fallback_to_cwd_when_candidate_is_ambiguous(
         self, mock_backend_service, mock_session_service, session, tmp_path, monkeypatch
@@ -374,7 +467,7 @@ class TestProjectDirectoryResolutionService:
             "Project directory auto-detected (LLM): /home/user/Desktop" in caplog.text
         )
 
-    async def test_deterministic_mode_auto_falls_back_to_openrouter_in_single_user_mode(
+    async def test_deterministic_mode_does_not_auto_fallback_to_openrouter_in_single_user_mode(
         self,
         mock_backend_service,
         mock_session_service,
@@ -389,26 +482,17 @@ class TestProjectDirectoryResolutionService:
         )
         config = create_app_config("deterministic", model_spec=None)
 
-        llm_response = ResponseEnvelope(
-            content="<directory-resolution-response><project-absolute-directory>/home/user/Desktop</project-absolute-directory></directory-resolution-response>"
-        )
-        mock_backend_service.call_completion.return_value = llm_response
-
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
         )
         await service.maybe_resolve_project_directory(session, request)
 
-        assert session.state.project_dir == "/home/user/Desktop"
-        mock_backend_service.call_completion.assert_called_once()
-        called_request = mock_backend_service.call_completion.call_args.args[0]
-        assert called_request.model == "openrouter:openrouter/free"
-        assert called_request.extra_body == {"backend_type": "openrouter"}
-        assert (
-            "Project directory auto-detected (LLM): /home/user/Desktop" in caplog.text
-        )
+        assert session.state.project_dir is None
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        assert "did not identify a directory (deterministic mode)" in caplog.text
 
-    async def test_deterministic_mode_auto_fallback_uses_user_override_model(
+    async def test_deterministic_mode_ignores_user_override_model_in_deterministic_mode(
         self,
         mock_backend_service,
         mock_session_service,
@@ -425,21 +509,16 @@ class TestProjectDirectoryResolutionService:
             model_spec="openai:gpt-4.1-mini",
         )
 
-        llm_response = ResponseEnvelope(
-            content="<directory-resolution-response><project-absolute-directory>/home/user/Desktop</project-absolute-directory></directory-resolution-response>"
-        )
-        mock_backend_service.call_completion.return_value = llm_response
-
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
         )
         await service.maybe_resolve_project_directory(session, request)
 
-        called_request = mock_backend_service.call_completion.call_args.args[0]
-        assert called_request.model == "openai:gpt-4.1-mini"
-        assert called_request.extra_body == {"backend_type": "openai"}
+        assert session.state.project_dir is None
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
 
-    async def test_deterministic_mode_auto_fallback_can_be_disabled(
+    async def test_deterministic_mode_does_not_fallback_when_disable_flag_is_set(
         self,
         mock_backend_service,
         mock_session_service,
@@ -464,6 +543,7 @@ class TestProjectDirectoryResolutionService:
         await service.maybe_resolve_project_directory(session, request)
 
         assert session.state.project_dir is None
+        assert session.state.project_dir_resolution_attempted is True
         mock_backend_service.call_completion.assert_not_called()
         assert "did not identify a directory (deterministic mode)" in caplog.text
 
@@ -659,3 +739,178 @@ async def test_deterministic_ignores_system_and_root_paths(
     await service.maybe_resolve_project_directory(session, request)
 
     assert session.state.project_dir == "C:\\Users\\Test\\Project"
+
+
+class TestExtractXmlFromResponse:
+    def _build_service(self) -> ProjectDirectoryResolutionService:
+        config = create_app_config("deterministic")
+        mock = AsyncMock()
+        mock.update_session = AsyncMock()
+        return ProjectDirectoryResolutionService(config, AsyncMock(), mock)
+
+    def test_strips_thinking_tags(self) -> None:
+        service = self._build_service()
+        response = (
+            "I need to think about this.\n"
+            "</think>\n"
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>"
+        )
+        result = service._extract_xml_from_response(response)
+        assert result.startswith("<directory-resolution-response>")
+        assert "/home/user/project" in result
+
+    def test_strips_thinking_tags_before_xml(self) -> None:
+        service = self._build_service()
+        response = (
+            "Let me reason.\n"
+            "The path is probably /somewhere.\n"
+            "</think>\n"
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>"
+        )
+        result = service._extract_xml_from_response(response)
+        assert result.startswith("<directory-resolution-response>")
+
+    def test_strips_reasoning_tags(self) -> None:
+        service = self._build_service()
+        response = (
+            "<reasoning>The user wants a path.</reasoning>\n"
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>"
+        )
+        result = service._extract_xml_from_response(response)
+        assert result.startswith("<directory-resolution-response>")
+
+    def test_extracts_from_xml_code_block(self) -> None:
+        service = self._build_service()
+        response = (
+            "Here is the response:\n\n"
+            "```xml\n"
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>\n"
+            "```\n\n"
+            "Let me know if this helps."
+        )
+        result = service._extract_xml_from_response(response)
+        assert result == (
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>"
+        )
+
+    def test_extracts_from_plain_code_block(self) -> None:
+        service = self._build_service()
+        response = (
+            "```\n"
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>\n"
+            "```"
+        )
+        result = service._extract_xml_from_response(response)
+        assert result == (
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>"
+        )
+
+    def test_extracts_xml_from_surrounding_prose(self) -> None:
+        service = self._build_service()
+        response = (
+            "Based on your instructions, the project directory is:\n"
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>\n"
+            "Hope that helps!"
+        )
+        result = service._extract_xml_from_response(response)
+        assert result.startswith("<directory-resolution-response>")
+        assert "/home/user/project" in result
+
+    def test_returns_original_when_no_xml_found(self) -> None:
+        service = self._build_service()
+        response = "I don't know what directory you mean."
+        result = service._extract_xml_from_response(response)
+        assert result == response
+
+    def test_returns_clean_xml_when_already_correct(self) -> None:
+        service = self._build_service()
+        response = (
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>"
+        )
+        result = service._extract_xml_from_response(response)
+        assert result == response
+
+
+class TestParseDirectoryResponseWithNoisyInput:
+    def _build_service(self) -> ProjectDirectoryResolutionService:
+        config = create_app_config("deterministic")
+        mock = AsyncMock()
+        mock.update_session = AsyncMock()
+        return ProjectDirectoryResolutionService(config, AsyncMock(), mock)
+
+    def test_parses_xml_with_thinking_block(self) -> None:
+        service = self._build_service()
+        response = (
+            "</think>\n"
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>"
+        )
+        directory, error = service._parse_directory_response(response)
+        assert directory == "/home/user/project"
+        assert error is None
+
+    def test_parses_xml_from_markdown_code_block(self) -> None:
+        service = self._build_service()
+        response = (
+            "```xml\n"
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>\n"
+            "```"
+        )
+        directory, error = service._parse_directory_response(response)
+        assert directory == "/home/user/project"
+        assert error is None
+
+    def test_parses_error_response_with_thinking_block(self) -> None:
+        service = self._build_service()
+        response = (
+            "I'm not sure about this.\n"
+            "</think>\n"
+            "<directory-resolution-response>"
+            "<error>Cannot determine the project directory from the prompt.</error>"
+            "</directory-resolution-response>"
+        )
+        directory, error = service._parse_directory_response(response)
+        assert directory is None
+        assert error is not None
+        assert "Cannot determine" in error
+
+    def test_parses_xml_with_trailing_prose_after_block(self) -> None:
+        service = self._build_service()
+        response = (
+            "<directory-resolution-response>"
+            "<project-absolute-directory>/home/user/project</project-absolute-directory>"
+            "</directory-resolution-response>\n"
+            "Extra prose that should be ignored."
+        )
+        directory, error = service._parse_directory_response(response)
+        assert directory == "/home/user/project"
+        assert error is None
+
+    def test_rejects_non_xml_response(self) -> None:
+        service = self._build_service()
+        response = "Sorry, I cannot help with that."
+        directory, error = service._parse_directory_response(response)
+        assert directory is None
+        assert error is not None
+        assert "invalid XML" in error
