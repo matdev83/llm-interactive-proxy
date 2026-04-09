@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -10,6 +9,10 @@ import httpx
 import pytest
 import pytest_asyncio
 from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.gemini_base.command_resolution import (
+    build_gemini_cli_command,
+    resolve_gemini_cli_executable,
+)
 from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
@@ -39,12 +42,7 @@ def _ensure_opted_in() -> None:
 
 
 def _resolve_gemini_cli_executable() -> str | None:
-    candidates = ("gemini.cmd", "gemini.exe", "gemini")
-    for candidate in candidates:
-        resolved = shutil.which(candidate)
-        if resolved:
-            return resolved
-    return None
+    return resolve_gemini_cli_executable()
 
 
 def _ensure_gemini_cli_available() -> str:
@@ -54,7 +52,7 @@ def _ensure_gemini_cli_available() -> str:
 
     try:
         result = subprocess.run(
-            [executable, "--version"],
+            build_gemini_cli_command([executable, "--version"]),
             capture_output=True,
             text=True,
             timeout=10,

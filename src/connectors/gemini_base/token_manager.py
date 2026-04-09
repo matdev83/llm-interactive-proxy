@@ -9,11 +9,11 @@ This module handles OAuth token lifecycle management including:
 
 import asyncio
 import logging
-import shutil
 import subprocess
 import time
 from typing import Any, Protocol, runtime_checkable
 
+from src.connectors.gemini_base.command_resolution import build_gemini_cli_command
 from src.connectors.gemini_base.credentials import (
     CLI_REFRESH_COMMAND,
     CLI_REFRESH_COOLDOWN_SECONDS,
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 @runtime_checkable
 class CredentialProvider(Protocol):
-
     """Protocol for credential access required by TokenManager."""
 
     @property
@@ -146,12 +145,7 @@ class TokenManager:
             return
 
         try:
-            command = list(CLI_REFRESH_COMMAND)
-            executable = shutil.which(command[0])
-            if executable:
-                command[0] = executable
-            else:
-                raise FileNotFoundError(command[0])
+            command = build_gemini_cli_command(CLI_REFRESH_COMMAND)
 
             self._cli_refresh_process = subprocess.Popen(
                 command,

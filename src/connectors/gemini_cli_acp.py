@@ -39,6 +39,7 @@ from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
 from .gemini import GeminiBackend
+from .gemini_base.command_resolution import build_gemini_cli_command
 from .gemini_base.config import get_shared_gemini_fallback_models
 from .gemini_cli_acp_types import (
     ACPNotification,
@@ -144,9 +145,12 @@ class GeminiCliAcpConnector(GeminiBackend):
 
     async def _check_gemini_cli_available(self) -> bool:
         try:
+            command = build_gemini_cli_command(
+                [self._gemini_cli_executable, "--version"]
+            )
             result = await asyncio.to_thread(
                 subprocess.run,
-                [self._gemini_cli_executable, "--version"],
+                command,
                 capture_output=True,
                 timeout=5,
                 check=False,
@@ -248,12 +252,14 @@ class GeminiCliAcpConnector(GeminiBackend):
             if process is not None and process.poll() is None:
                 return
 
-            cmd = [
-                self._gemini_cli_executable,
-                "--experimental-acp",
-                "--model",
-                runtime.model,
-            ]
+            cmd = build_gemini_cli_command(
+                [
+                    self._gemini_cli_executable,
+                    "--experimental-acp",
+                    "--model",
+                    runtime.model,
+                ]
+            )
             if self._auto_accept:
                 cmd.append("-y")
 

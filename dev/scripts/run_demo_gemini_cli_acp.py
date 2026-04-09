@@ -7,7 +7,6 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-import shutil
 import sys
 from pathlib import Path
 
@@ -18,6 +17,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.gemini_base.command_resolution import (
+    resolve_gemini_cli_executable,
+)
 from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
@@ -36,10 +38,9 @@ PROMPT = (
 
 
 def _resolve_gemini_cli_executable() -> str:
-    for candidate in ("gemini.cmd", "gemini.exe", "gemini"):
-        resolved = shutil.which(candidate)
-        if resolved:
-            return resolved
+    resolved = resolve_gemini_cli_executable()
+    if resolved:
+        return resolved
     raise FileNotFoundError("gemini CLI executable not found on PATH")
 
 

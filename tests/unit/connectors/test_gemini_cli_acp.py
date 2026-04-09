@@ -475,9 +475,29 @@ class TestGeminiCliAcpProcessManagement:
         mock_process.stdout = MagicMock()
         mock_process.stderr = MagicMock()
 
-        with patch("subprocess.Popen", return_value=mock_process):
+        with (
+            patch(
+                "src.connectors.gemini_cli_acp.build_gemini_cli_command",
+                return_value=[
+                    "gemini",
+                    "--experimental-acp",
+                    "--model",
+                    "gemini-2.5-flash",
+                    "-y",
+                ],
+            ) as build_command,
+            patch("subprocess.Popen", return_value=mock_process),
+        ):
             await connector._spawn_gemini_cli_process(runtime)
 
+        build_command.assert_called_once_with(
+            [
+                "gemini",
+                "--experimental-acp",
+                "--model",
+                "gemini-2.5-flash",
+            ]
+        )
         assert runtime.process is mock_process
 
     async def test_spawn_process_failure_raises_without_leaking_process(
@@ -492,6 +512,16 @@ class TestGeminiCliAcpProcessManagement:
         mock_process.stderr.read.return_value = b"boom"
 
         with (
+            patch(
+                "src.connectors.gemini_cli_acp.build_gemini_cli_command",
+                return_value=[
+                    "gemini",
+                    "--experimental-acp",
+                    "--model",
+                    "gemini-2.5-flash",
+                    "-y",
+                ],
+            ),
             patch("subprocess.Popen", return_value=mock_process),
             pytest.raises(APIConnectionError),
         ):
