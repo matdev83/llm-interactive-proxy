@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -11,10 +12,11 @@ import httpx
 import pytest
 from pydantic.types import JsonValue
 from src.connectors.contracts import ConnectorChatCompletionsRequest
-from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
+from src.connectors.gemini_cli_acp import ACP_CANCEL_METHODS, GeminiCliAcpConnector
 from src.connectors.gemini_cli_acp_types import ACPNotification, GeminiCliRuntime
 from src.core.common.exceptions import (
     APIConnectionError,
+    APITimeoutError,
     BackendError,
     ConfigurationError,
 )
@@ -51,6 +53,8 @@ def _make_request(
     options: dict[str, JsonValue] | None = None,
     processed_messages: list[ChatMessage] | None = None,
     model: str = "google/gemini-2.5-flash",
+    cancellation_coordinator: Any = None,
+    cancellation_token: Any = None,
 ) -> ConnectorChatCompletionsRequest:
     request = CanonicalChatRequest(
         model=model,
@@ -64,8 +68,8 @@ def _make_request(
         or [ChatMessage(role="user", content="hello")],
         effective_model=model,
         identity=None,
-        cancellation_token=None,
-        cancellation_coordinator=None,
+        cancellation_token=cancellation_token,
+        cancellation_coordinator=cancellation_coordinator,
         context=None,
         options=options or {},
     )
@@ -554,3 +558,339 @@ class TestGeminiCliAcpProcessManagement:
         mock_process.stdout.close.assert_called_once()
         mock_process.stderr.close.assert_called_once()
         assert runtime.process is None
+
+
+class TestGeminiCliAcpCancellation:
+    async def test_cancel_callback_triggers_graceful_then_kill(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+        runtime.session_id = "session-abc"
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
+        mock_process.pid = 12345
+        runtime.process = mock_process
+        await runtime.request_lock.acquire()
+
+        send_calls: list[str] = []
+
+        async def _mock_send(
+            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+        ) -> int:
+            send_calls.append(method)
+            return rt.message_id
+
+        async def _mock_wait(process: Any, timeout_s: float) -> bool:
+            return False
+
+        with (
+            patch.object(connector, "_send_jsonrpc_message", side_effect=_mock_send),
+            patch.object(connector, "_wait_for_process_exit", side_effect=_mock_wait),
+            patch.object(connector, "_kill_runtime", AsyncMock()) as kill_mock,
+        ):
+            await connector._cancel_active_request(runtime, prompt_request_id=5)
+
+        assert send_calls == list(ACP_CANCEL_METHODS)
+        kill_mock.assert_called_once_with(runtime)
+        assert runtime.request_lock.locked() is False
+
+    async def test_cancel_callback_skips_kill_if_process_exits_gracefully(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+        runtime.session_id = "session-abc"
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
+        mock_process.pid = 12345
+        runtime.process = mock_process
+        await runtime.request_lock.acquire()
+
+        async def _mock_send(
+            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+        ) -> int:
+            return rt.message_id
+
+        async def _mock_wait(process: Any, timeout_s: float) -> bool:
+            return True
+
+        with (
+            patch.object(connector, "_send_jsonrpc_message", side_effect=_mock_send),
+            patch.object(connector, "_wait_for_process_exit", side_effect=_mock_wait),
+            patch.object(connector, "_kill_runtime", AsyncMock()) as kill_mock,
+            patch.object(connector, "_cleanup_runtime_state") as cleanup_mock,
+        ):
+            await connector._cancel_active_request(runtime, prompt_request_id=5)
+
+        kill_mock.assert_not_called()
+        cleanup_mock.assert_called_once()
+        assert runtime.request_lock.locked() is False
+
+    async def test_cancel_callback_is_idempotent(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+        runtime.session_id = "session-abc"
+        mock_process = MagicMock()
+        mock_process.poll.side_effect = [None, None, 0]
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
+        mock_process.pid = 12345
+        runtime.process = mock_process
+        await runtime.request_lock.acquire()
+
+        async def _mock_send(
+            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+        ) -> int:
+            return rt.message_id
+
+        async def _mock_wait(process: Any, timeout_s: float) -> bool:
+            return False
+
+        with (
+            patch.object(connector, "_send_jsonrpc_message", side_effect=_mock_send),
+            patch.object(connector, "_wait_for_process_exit", side_effect=_mock_wait),
+            patch.object(connector, "_kill_runtime", AsyncMock()),
+        ):
+            await connector._cancel_active_request(runtime, prompt_request_id=5)
+            await connector._cancel_active_request(runtime, prompt_request_id=5)
+
+        assert runtime.request_lock.locked() is False
+
+    async def test_cancel_callback_noop_if_process_already_dead(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+        runtime.process = None
+        await runtime.request_lock.acquire()
+
+        with (patch.object(connector, "_kill_runtime", AsyncMock()) as kill_mock,):
+            await connector._cancel_active_request(runtime, prompt_request_id=5)
+
+        kill_mock.assert_not_called()
+        assert runtime.request_lock.locked() is False
+
+    async def test_streaming_cancel_callback_uses_cancel_active_request(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector.is_functional = True
+        connector._default_project_dir = temp_workspace
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+
+        async def _mock_iter(
+            _: GeminiCliRuntime, __: int, ___: str
+        ) -> AsyncGenerator[str, None]:
+            yield "chunk-1"
+
+        with (
+            patch.object(
+                connector, "_acquire_runtime", AsyncMock(return_value=runtime)
+            ),
+            patch.object(
+                connector,
+                "_prepare_prompt_request_locked",
+                AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
+            ),
+            patch.object(connector, "_iter_text_fragments", side_effect=_mock_iter),
+            patch.object(
+                connector, "_cancel_active_request", AsyncMock()
+            ) as cancel_mock,
+        ):
+            response = await connector.chat_completions(_make_request(stream=True))
+            assert isinstance(response, StreamingResponseEnvelope)
+            assert response.cancel_callback is not None
+            assert asyncio.iscoroutinefunction(response.cancel_callback)
+            result = response.cancel_callback()
+            assert asyncio.iscoroutine(result)
+            await result
+
+        cancel_mock.assert_called_once_with(runtime, 5)
+
+    async def test_non_streaming_registers_cancellable(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector.is_functional = True
+        connector._default_project_dir = temp_workspace
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+
+        async def _mock_iter(
+            _: GeminiCliRuntime, __: int, ___: str
+        ) -> AsyncGenerator[str, None]:
+            yield "Hello"
+
+        mock_coordinator = MagicMock()
+        mock_coordinator.register_cancellable = MagicMock()
+        mock_coordinator.cleanup = MagicMock()
+
+        with (
+            patch.object(
+                connector, "_acquire_runtime", AsyncMock(return_value=runtime)
+            ),
+            patch.object(
+                connector,
+                "_prepare_prompt_request_locked",
+                AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
+            ),
+            patch.object(connector, "_iter_text_fragments", side_effect=_mock_iter),
+        ):
+            response = await connector.chat_completions(
+                _make_request(
+                    cancellation_coordinator=mock_coordinator,
+                    cancellation_token="session-key-1",
+                )
+            )
+
+        assert isinstance(response, ResponseEnvelope)
+        mock_coordinator.register_cancellable.assert_called_once()
+        mock_coordinator.cleanup.assert_called_once_with("session-key-1")
+
+    async def test_attempt_graceful_cancel_closes_stdin_as_fallback(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+        runtime.session_id = "session-abc"
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_stdin = MagicMock()
+        mock_process.stdin = mock_stdin
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
+        runtime.process = mock_process
+
+        async def _mock_send_raises(
+            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+        ) -> int:
+            raise BrokenPipeError("stdin closed")
+
+        async def _mock_wait(process: Any, timeout_s: float) -> bool:
+            return False
+
+        with (
+            patch.object(
+                connector,
+                "_send_jsonrpc_message",
+                side_effect=_mock_send_raises,
+            ),
+            patch.object(connector, "_wait_for_process_exit", side_effect=_mock_wait),
+        ):
+            result = await connector._attempt_graceful_acp_cancel(
+                runtime, request_id=5, total_timeout_s=2.0
+            )
+
+        assert result is False
+        mock_stdin.close.assert_called()
+
+    async def test_cancellation_event_stops_iter_text_fragments(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+        runtime.session_id = "session-123"
+        assert runtime.cancellation_event is not None
+
+        read_count = 0
+
+        async def _mock_read(
+            rt: GeminiCliRuntime,
+        ) -> ACPNotification:
+            nonlocal read_count
+            read_count += 1
+            await asyncio.sleep(0.05)
+            return ACPNotification(
+                method="session/update",
+                params={
+                    "sessionId": "session-123",
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "chunk"},
+                    },
+                },
+            )
+
+        async def _set_event_after_delay() -> None:
+            await asyncio.sleep(0.15)
+            runtime.cancellation_event.set()
+
+        cancel_task = asyncio.create_task(_set_event_after_delay())
+        try:
+            with (
+                patch.object(
+                    connector, "_read_jsonrpc_message", side_effect=_mock_read
+                ),
+            ):
+                fragments = [
+                    chunk
+                    async for chunk in connector._iter_text_fragments(
+                        runtime, 99, "google/gemini-2.5-flash"
+                    )
+                ]
+        finally:
+            cancel_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cancel_task
+
+        assert read_count >= 1
+        assert len(fragments) >= 1
+        assert all(f == "chunk" for f in fragments)
+
+    async def test_cancellation_branch_honors_process_timeout(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+        assert runtime.cancellation_event is not None
+        connector._process_timeout = 0.05
+
+        async def _mock_read(_: GeminiCliRuntime) -> ACPNotification:
+            await asyncio.Event().wait()
+            raise AssertionError("unreachable")
+
+        with (
+            patch.object(connector, "_read_jsonrpc_message", side_effect=_mock_read),
+            pytest.raises(APITimeoutError),
+        ):
+            await asyncio.wait_for(
+                connector._iter_text_fragments(
+                    runtime, 99, "google/gemini-2.5-flash"
+                ).__anext__(),
+                timeout=1.0,
+            )
+
+    async def test_runtime_respawns_after_cancellation(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+        runtime.session_id = "session-abc"
+        mock_process = MagicMock()
+        mock_process.poll.return_value = None
+        mock_process.stdin = MagicMock()
+        mock_process.stdout = MagicMock()
+        mock_process.stderr = MagicMock()
+        mock_process.pid = 99999
+        runtime.process = mock_process
+        await runtime.request_lock.acquire()
+
+        async def _mock_send(
+            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+        ) -> int:
+            return rt.message_id
+
+        async def _mock_wait(process: Any, timeout_s: float) -> bool:
+            return False
+
+        with (
+            patch.object(connector, "_send_jsonrpc_message", side_effect=_mock_send),
+            patch.object(connector, "_wait_for_process_exit", side_effect=_mock_wait),
+            patch.object(connector, "_terminate_process", AsyncMock()),
+        ):
+            await connector._cancel_active_request(runtime, prompt_request_id=5)
+
+        assert runtime.process is None
+        assert runtime.initialized is False
+        assert runtime.session_id is None
+        assert runtime.cancellation_event is not None
+        assert runtime.cancellation_event.is_set() is False

@@ -56,6 +56,39 @@ MAX_RESPONSE_LINE_SIZE = 10 * 1024 * 1024
 ACP_PROTOCOL_VERSION = 1
 ACP_UPDATE_METHOD = "session/update"
 ACP_AGENT_MESSAGE_CHUNK = "agent_message_chunk"
+ACP_CANCEL_METHODS = ("session/cancel", "session/stop", "session/end")
+ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS = 12.0
+
+
+class _RuntimeCancellable:
+    __slots__ = ("_connector", "_runtime", "_prompt_request_id")
+
+    def __init__(
+        self,
+        connector: GeminiCliAcpConnector,
+        runtime: GeminiCliRuntime,
+        prompt_request_id: int,
+    ) -> None:
+        self._connector = connector
+        self._runtime = runtime
+        self._prompt_request_id = prompt_request_id
+
+    def cancel(self) -> None:
+        if self._runtime.cancellation_event is not None:
+            self._runtime.cancellation_event.set()
+        if self._runtime.cancellation_lock is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        task = loop.create_task(
+            self._connector._cancel_active_request(
+                self._runtime,
+                self._prompt_request_id,
+            )
+        )
+        task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
 
 class GeminiCliAcpConnector(GeminiBackend):
@@ -173,6 +206,8 @@ class GeminiCliAcpConnector(GeminiBackend):
             model=model,
             process_lock=asyncio.Lock(),
             request_lock=asyncio.Lock(),
+            cancellation_lock=asyncio.Lock(),
+            cancellation_event=asyncio.Event(),
         )
 
     async def _acquire_runtime(
@@ -615,10 +650,43 @@ class GeminiCliAcpConnector(GeminiBackend):
     ) -> AsyncGenerator[str, None]:
         try:
             while True:
-                response = await asyncio.wait_for(
-                    self._read_jsonrpc_message(runtime),
-                    timeout=self._process_timeout,
-                )
+                if runtime.cancellation_event is not None:
+                    read_task = asyncio.create_task(self._read_jsonrpc_message(runtime))
+                    cancel_task = asyncio.create_task(runtime.cancellation_event.wait())
+                    try:
+                        done, pending = await asyncio.wait(
+                            {read_task, cancel_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                            timeout=self._process_timeout,
+                        )
+                    except asyncio.CancelledError:
+                        read_task.cancel()
+                        cancel_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await read_task
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await cancel_task
+                        raise
+                    if not done:
+                        for t in pending:
+                            t.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await t
+                        raise asyncio.TimeoutError()
+                    for t in pending:
+                        t.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await t
+
+                    if cancel_task in done:
+                        return
+                    response = read_task.result()
+                else:
+                    response = await asyncio.wait_for(
+                        self._read_jsonrpc_message(runtime),
+                        timeout=self._process_timeout,
+                    )
+
                 if response is None:
                     continue
 
@@ -715,11 +783,134 @@ class GeminiCliAcpConnector(GeminiBackend):
             ):
                 yield chunk
         finally:
+            if runtime.cancellation_event is not None:
+                runtime.cancellation_event.clear()
             await self._release_runtime_request_lock(runtime)
 
     async def _release_runtime_request_lock(self, runtime: GeminiCliRuntime) -> None:
         if runtime.request_lock is not None and runtime.request_lock.locked():
             runtime.request_lock.release()
+
+    async def _wait_for_process_exit(
+        self,
+        process: subprocess.Popen[bytes],
+        timeout_s: float,
+    ) -> bool:
+        if process.poll() is not None:
+            return True
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(process.wait),
+                timeout=timeout_s,
+            )
+            return True
+        except asyncio.TimeoutError:
+            return False
+        except Exception:
+            return process.poll() is not None
+
+    async def _attempt_graceful_acp_cancel(
+        self,
+        runtime: GeminiCliRuntime,
+        request_id: int,
+        total_timeout_s: float,
+    ) -> bool:
+        process = runtime.process
+        if process is None or process.poll() is not None:
+            return True
+
+        deadline = time.monotonic() + total_timeout_s
+        for method in ACP_CANCEL_METHODS:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            try:
+                await self._send_jsonrpc_message(
+                    runtime,
+                    method,
+                    {
+                        "sessionId": runtime.session_id,
+                        "requestId": request_id,
+                        "messageId": str(request_id),
+                    },
+                )
+            except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("ACP cancel method %s failed or not supported", method)
+                continue
+
+            exited = await self._wait_for_process_exit(
+                process,
+                timeout_s=min(remaining, 1.5),
+            )
+            if exited:
+                return True
+
+        if process.stdin is not None:
+            with contextlib.suppress(OSError, ValueError):
+                process.stdin.close()
+            remaining = deadline - time.monotonic()
+            if remaining > 0 and await self._wait_for_process_exit(
+                process,
+                timeout_s=min(remaining, 3.0),
+            ):
+                return True
+
+        return process.poll() is not None
+
+    async def _cancel_active_request(
+        self,
+        runtime: GeminiCliRuntime,
+        prompt_request_id: int,
+    ) -> None:
+        if runtime.cancellation_event is not None:
+            runtime.cancellation_event.set()
+
+        try:
+            if runtime.cancellation_lock is None:
+                await self._kill_runtime(runtime)
+                await self._release_runtime_request_lock(runtime)
+                return
+
+            async with runtime.cancellation_lock:
+                process = runtime.process
+                if process is None or process.poll() is not None:
+                    await self._release_runtime_request_lock(runtime)
+                    return
+
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Cancelling active gemini-cli request (pid=%s), "
+                        "attempting graceful ACP cancellation then process kill",
+                        process.pid,
+                    )
+
+                graceful_cancelled = await self._attempt_graceful_acp_cancel(
+                    runtime,
+                    request_id=prompt_request_id,
+                    total_timeout_s=ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS,
+                )
+
+                if graceful_cancelled:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "gemini-cli process (pid=%s) exited gracefully after cancellation",
+                            process.pid,
+                        )
+                    self._cleanup_runtime_state(runtime, process)
+                else:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "gemini-cli process (pid=%s) did not exit gracefully, "
+                            "force-killing",
+                            process.pid,
+                        )
+                    await self._kill_runtime(runtime)
+
+                await self._release_runtime_request_lock(runtime)
+        finally:
+            if runtime.cancellation_event is not None:
+                runtime.cancellation_event.clear()
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -751,50 +942,72 @@ class GeminiCliAcpConnector(GeminiBackend):
             except Exception:
                 runtime.request_lock.release()
                 raise
+
+            async def _cancel_streaming_request() -> None:
+                await self._cancel_active_request(runtime, prompt_request_id)
+
             return StreamingResponseEnvelope(
                 content=self._stream_response_with_lock(
                     runtime, requested_model, prompt_request_id
                 ),
                 media_type="text/event-stream",
                 headers={},
-                cancel_callback=lambda: self._release_runtime_request_lock(runtime),
+                cancel_callback=_cancel_streaming_request,
             )
 
         async with runtime.request_lock:
             prompt_request_id, requested_model = (
                 await self._prepare_prompt_request_locked(runtime, request)
             )
-            fragments: list[str] = []
-            async for text in self._iter_text_fragments(
-                runtime, prompt_request_id, requested_model
+            cancellable_registered = False
+            if (
+                request.cancellation_coordinator is not None
+                and request.cancellation_token is not None
             ):
-                fragments.append(text)
-            full_response = "".join(fragments)
+                cancellable = _RuntimeCancellable(self, runtime, prompt_request_id)
+                request.cancellation_coordinator.register_cancellable(
+                    request.cancellation_token, cancellable
+                )
+                cancellable_registered = True
+            try:
+                fragments: list[str] = []
+                async for text in self._iter_text_fragments(
+                    runtime, prompt_request_id, requested_model
+                ):
+                    fragments.append(text)
+                full_response = "".join(fragments)
 
-            response = CanonicalChatResponse(
-                id=str(uuid.uuid4()),
-                object="chat.completion",
-                created=int(time.time()),
-                model=requested_model,
-                choices=[
-                    ChatCompletionChoice(
-                        index=0,
-                        message=ChatCompletionChoiceMessage(
-                            role="assistant",
-                            content=full_response,
-                        ),
-                        finish_reason="stop",
-                    )
-                ],
-            )
-            envelope = ResponseEnvelope(
-                content=response.model_dump(exclude_none=True),
-                headers={},
-                status_code=200,
-            )
-            return self.ensure_usage_in_response(
-                envelope, list(request.processed_messages), requested_model
-            )
+                response = CanonicalChatResponse(
+                    id=str(uuid.uuid4()),
+                    object="chat.completion",
+                    created=int(time.time()),
+                    model=requested_model,
+                    choices=[
+                        ChatCompletionChoice(
+                            index=0,
+                            message=ChatCompletionChoiceMessage(
+                                role="assistant",
+                                content=full_response,
+                            ),
+                            finish_reason="stop",
+                        )
+                    ],
+                )
+                envelope = ResponseEnvelope(
+                    content=response.model_dump(exclude_none=True),
+                    headers={},
+                    status_code=200,
+                )
+                return self.ensure_usage_in_response(
+                    envelope, list(request.processed_messages), requested_model
+                )
+            finally:
+                if (
+                    cancellable_registered
+                    and request.cancellation_coordinator is not None
+                    and request.cancellation_token is not None
+                ):
+                    request.cancellation_coordinator.cleanup(request.cancellation_token)
 
     def get_available_models(self) -> list[str]:
         raw_models = get_shared_gemini_fallback_models()
