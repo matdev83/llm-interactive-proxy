@@ -582,6 +582,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 request=request,
                 context=context,
                 content_started=content_started,
+                error=error,
             )
         )
         if composite_retry_request is not None:

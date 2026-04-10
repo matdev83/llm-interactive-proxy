@@ -239,8 +239,6 @@ session:
   json_repair_schema: null     # Optional JSON schema
   
   # Pytest Integration
-  pytest_compression_enabled: true
-  pytest_compression_min_lines: 30
   pytest_full_suite_steering_enabled: false
   pytest_full_suite_steering_message: null
   pytest_context_saving_enabled: false

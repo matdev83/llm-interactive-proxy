@@ -268,8 +268,6 @@ class SessionConfig(DomainModel):
     )
     dangerous_command_prevention_enabled: bool = True
     dangerous_command_steering_message: str | None = None
-    pytest_compression_enabled: bool = True
-    pytest_compression_min_lines: int = 30
     pytest_full_suite_steering_enabled: bool | None = None
     pytest_full_suite_steering_message: str | None = None
     test_execution_reminder_enabled: bool | None = None

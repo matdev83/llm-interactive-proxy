@@ -8,6 +8,8 @@ Feature: streaming-pipeline-refactor
 Requirements: 8.2, 8.3
 """
 
+import json
+
 import pytest
 from src.core.ports.anthropic_normalizer import AnthropicStreamNormalizer
 from src.core.ports.streaming_contracts import SentinelManager, StreamingContent
@@ -52,6 +54,87 @@ class TestAnthropicStreamNormalizerContract:
         assert chunk.metadata["id"] == "msg_123"
         assert chunk.stream_id == "msg_123"
         assert chunk.is_empty is True
+
+    @pytest.mark.asyncio
+    async def test_input_json_delta_emits_tool_calls_not_assistant_text(
+        self, normalizer: AnthropicStreamNormalizer
+    ) -> None:
+        """Tool argument streaming must map to OpenAI-style tool_calls metadata."""
+
+        d1 = json.dumps(
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": '{"command":'},
+            }
+        )
+        d2 = json.dumps(
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": '"git status"}',
+                },
+            }
+        )
+
+        async def mock_stream():
+            yield (
+                b"event: message_start\n"
+                b'data: {"type":"message_start","message":'
+                b'{"id":"msg_tool","role":"assistant","model":"minimax-m2.7"}}\n\n'
+            )
+            yield (
+                b"event: content_block_start\n"
+                b'data: {"type":"content_block_start","index":0,'
+                b'"content_block":{"type":"tool_use","id":"toolu_1","name":"bash"}}\n\n'
+            )
+            yield f"event: content_block_delta\ndata: {d1}\n\n".encode()
+            yield f"event: content_block_delta\ndata: {d2}\n\n".encode()
+
+        chunks = [
+            c async for c in normalizer.normalize_stream(mock_stream(), "anthropic")
+        ]
+        tool_chunks = [c for c in chunks if c.metadata.get("tool_calls")]
+        assert len(tool_chunks) >= 3
+        assert (
+            tool_chunks[0].metadata["tool_calls"][0]["function"].get("name") == "bash"
+        )
+        assert tool_chunks[0].metadata["tool_calls"][0]["function"]["arguments"] == ""
+        assert tool_chunks[1].metadata["tool_calls"][0]["function"]["arguments"] == (
+            '{"command":'
+        )
+        assert tool_chunks[2].metadata["tool_calls"][0]["function"]["arguments"] == (
+            '"git status"}'
+        )
+        assert all(
+            not (isinstance(c.content, str) and c.content.strip()) for c in tool_chunks
+        )
+
+    async def test_normalizes_message_start_without_event_line_opencode_go_style(
+        self, normalizer: AnthropicStreamNormalizer
+    ) -> None:
+        """Some gateways (e.g. OpenCode Go /messages) emit data-only SSE blocks."""
+
+        raw_chunk = (
+            b'data: {"type":"message_start","message":'
+            b'{"id":"msg_ocg","type":"message","role":"assistant",'
+            b'"model":"minimax-m2.7","content":[]}}\n\n'
+        )
+
+        async def mock_stream():
+            yield raw_chunk
+
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "anthropic")
+        ]
+
+        assert len(chunks) == 1
+        assert chunks[0].metadata["role"] == "assistant"
+        assert chunks[0].metadata["id"] == "msg_ocg"
+        assert chunks[0].metadata["model"] == "minimax-m2.7"
 
     @pytest.mark.asyncio
     async def test_normalizes_text_delta_event(
@@ -248,6 +331,11 @@ class TestAnthropicStreamNormalizerContract:
                 b'data: {"type":"message_start","message":{"id":"msg_123","role":"assistant"}}\n\n'
             )
             yield (
+                b"event: content_block_start\n"
+                b'data: {"type":"content_block_start","index":0,'
+                b'"content_block":{"type":"tool_use","id":"t1","name":"bash"}}\n\n'
+            )
+            yield (
                 b"event: content_block_delta\n"
                 b'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"location\\""}}\n\n'
             )
@@ -259,10 +347,17 @@ class TestAnthropicStreamNormalizerContract:
         ]
 
         # Assert
-        assert len(chunks) == 2
-        assert chunks[1].content == '{"location"'
-        assert chunks[1].metadata["delta_type"] == "input_json_delta"
-        assert chunks[1].metadata["provider"] == "anthropic"
+        assert len(chunks) == 3
+        assert chunks[0].metadata.get("role") == "assistant"
+        assert chunks[1].content == ""
+        assert chunks[1].metadata["tool_calls"][0]["function"]["arguments"] == ""
+        assert chunks[2].content == ""
+        assert chunks[2].metadata.get("tool_calls")
+        assert (
+            chunks[2].metadata["tool_calls"][0]["function"]["arguments"]
+            == '{"location"'
+        )
+        assert chunks[2].metadata["provider"] == "anthropic"
 
     @pytest.mark.asyncio
     async def test_handles_content_block_start_and_stop(

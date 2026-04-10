@@ -188,6 +188,12 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
 
             self._backend_registry = backend_registry
 
+        # The orchestrator/phase executor are constructed in __init__, so if the
+        # registry was resolved lazily here we must propagate it into the executor.
+        phase_executor = getattr(self._orchestrator, "phase_executor", None)
+        if phase_executor is not None and hasattr(phase_executor, "backend_registry"):
+            phase_executor.backend_registry = self._backend_registry
+
         if logger.isEnabledFor(logging.INFO):
             logger.info("Hybrid backend initialized successfully")
 

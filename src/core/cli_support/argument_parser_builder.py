@@ -1132,23 +1132,6 @@ class ArgumentParserBuilder:
 
     def _add_pytest_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add pytest-related arguments."""
-        pytest_compression_group = parser.add_mutually_exclusive_group()
-        pytest_compression_group.add_argument(
-            "--enable-pytest-compression",
-            action="store_const",
-            const=True,
-            dest="pytest_compression_enabled",
-            default=None,
-            help="Enable pytest output compression (overrides config)",
-        )
-        pytest_compression_group.add_argument(
-            "--disable-pytest-compression",
-            action="store_const",
-            const=False,
-            dest="pytest_compression_enabled",
-            help="Disable pytest output compression (overrides config)",
-        )
-
         # Pytest full-suite steering
         pytest_full_suite_group = parser.add_mutually_exclusive_group()
         pytest_full_suite_group.add_argument(

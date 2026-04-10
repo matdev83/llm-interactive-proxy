@@ -580,6 +580,63 @@ async def test_weighted_route_strings_choose_exactly_one_branch_per_surface(
 
 
 @pytest.mark.asyncio
+async def test_runtime_bridge_rerolls_weighted_route_pre_output_and_bypasses_rng_when_single_candidate_remains(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    random_values = iter([0.0])
+    monkeypatch.setattr(
+        "src.core.services.weighted_branch_selector.random.random",
+        lambda: next(random_values),
+    )
+
+    failover_executor = FailureRecoveryExecutor(
+        failover_planner=MagicMock(),
+        failure_handling_strategy=None,
+        routing_service=MagicMock(),
+        config=MagicMock(),
+        failover_routes={},
+    )
+    resolver = _build_model_resolver()
+    flow, invoke_mock = _build_flow_with_resolver(
+        resolver=resolver,
+        failover_executor=failover_executor,
+        connector_side_effect=[
+            BackendError("primary failed", "openai"),
+            ResponseEnvelope(content={"ok": True}),
+        ],
+    )
+    context = _new_request_context()
+
+    response = await flow.call_completion(
+        request=ChatRequest(
+            model="openai:gpt-4^anthropic:claude-3-5-sonnet",
+            messages=[ChatMessage(role="user", content="Hello")],
+            extra_body={},
+        ),
+        context=context,
+        allow_failover=True,
+    )
+
+    assert response.content == {"ok": True}
+    assert invoke_mock.call_count == 2
+    first_request = invoke_mock.call_args_list[0].kwargs["canonical_request"]
+    second_request = invoke_mock.call_args_list[1].kwargs["canonical_request"]
+    assert first_request.extra_body is not None
+    assert second_request.extra_body is not None
+    assert first_request.extra_body.get("backend_type") == "openai"
+    assert second_request.extra_body.get("backend_type") == "anthropic"
+    assert second_request.model == "anthropic:claude-3-5-sonnet"
+    assert context.extensions["last_retry_reason"] == "composite_failover"
+    assert context.extensions["retry_attempt"] == 1
+
+    state = cast(dict[str, Any], context.extensions["composite_routing_state"])
+    assert state["mode"] == "weighted_retry"
+    assert state["selected_selector"] == "anthropic:claude-3-5-sonnet"
+    assert state["excluded_selectors"] == ["openai:gpt-4"]
+    assert state["hop_count"] == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("surface", ["main", "auxiliary", "quality_verifier"])
 async def test_shared_hop_bound_applies_across_retries_and_failover_for_route_strings(
     surface: str,

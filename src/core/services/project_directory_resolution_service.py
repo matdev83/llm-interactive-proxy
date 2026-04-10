@@ -1016,7 +1016,7 @@ class ProjectDirectoryResolutionService:
         response = await self._backend_service.call_completion(
             request,
             stream=False,
-            allow_failover=False,
+            allow_failover=True,
             context=context,
         )
         if isinstance(response, StreamingResponseEnvelope):

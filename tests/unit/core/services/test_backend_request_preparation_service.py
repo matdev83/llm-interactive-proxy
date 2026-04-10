@@ -24,7 +24,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.config.models.backends import BackendConfig
-from src.core.config.models.session import SessionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
 from src.core.domain.configuration.compaction_config import CompactionConfig
 from src.core.domain.configuration.dynamic_compression_config import (
@@ -843,121 +842,6 @@ class TestDynamicCompressionRequestPathToolOnly:
         diagnostics = result.compression_diagnostics or {}
         assert "dynamic_compression_compatibility" not in diagnostics
         assert "dynamic_compression_records" not in diagnostics
-
-
-class TestDynamicCompressionLegacyPytestWarnings:
-    """Warnings for legacy pytest controls should be signal-only, not default noise."""
-
-    @staticmethod
-    def _tool_thread(*, tool_content: str) -> list[ChatMessage]:
-        return [
-            ChatMessage(
-                role="assistant",
-                tool_calls=[
-                    ToolCall(
-                        id="tc-legacy-pytest-1",
-                        function=FunctionCall(
-                            name="shell",
-                            arguments='{"command":"pytest -q"}',
-                        ),
-                    )
-                ],
-            ),
-            ChatMessage(
-                role="tool",
-                tool_call_id="tc-legacy-pytest-1",
-                content=tool_content,
-            ),
-        ]
-
-    @pytest.mark.asyncio
-    async def test_default_inherit_path_omits_legacy_pytest_deprecation_warnings(
-        self,
-        mock_config: IConfig,
-    ) -> None:
-        mock_config.compaction = CompactionConfig(enabled=False)
-        mock_config.dynamic_compression = DynamicCompressionConfig(
-            enabled=True,
-            min_bytes=50_000_000,
-        )
-        mock_config.session = SessionConfig()
-        service = BackendRequestPreparationService(
-            history_compaction_service=None,
-            config=mock_config,
-            tool_output_compression_service=ToolOutputCompressionService(),
-        )
-        request = ChatRequest(
-            model="gpt-4",
-            messages=[
-                ChatMessage(role="user", content="u"),
-                *self._tool_thread(tool_content="tool-payload"),
-            ],
-        )
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=False,
-            command_results=[],
-        )
-
-        result = await service.prepare(request, command_result)
-
-        assert result is not None
-        diagnostics = (result.compression_diagnostics or {}).get(
-            "dynamic_compression_compatibility"
-        )
-        assert diagnostics is not None
-        warnings = diagnostics.get("warnings", [])
-        assert all(
-            "session.pytest_compression_enabled is deprecated" not in warning
-            for warning in warnings
-        )
-        assert all(
-            "session.pytest_compression_min_lines is deprecated" not in warning
-            for warning in warnings
-        )
-
-    @pytest.mark.asyncio
-    async def test_non_default_legacy_pytest_controls_emit_deprecation_warnings(
-        self,
-        mock_config: IConfig,
-    ) -> None:
-        mock_config.compaction = CompactionConfig(enabled=False)
-        mock_config.dynamic_compression = DynamicCompressionConfig(
-            enabled=True,
-            min_bytes=50_000_000,
-        )
-        mock_config.session = SessionConfig(
-            pytest_compression_enabled=False,
-            pytest_compression_min_lines=99,
-        )
-        service = BackendRequestPreparationService(
-            history_compaction_service=None,
-            config=mock_config,
-            tool_output_compression_service=ToolOutputCompressionService(),
-        )
-        request = ChatRequest(
-            model="gpt-4",
-            messages=[
-                ChatMessage(role="user", content="u"),
-                *self._tool_thread(tool_content="tool-payload"),
-            ],
-        )
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=False,
-            command_results=[],
-        )
-
-        result = await service.prepare(request, command_result)
-
-        assert result is not None
-        diagnostics = (result.compression_diagnostics or {}).get(
-            "dynamic_compression_compatibility"
-        )
-        assert diagnostics is not None
-        warnings = " ".join(diagnostics.get("warnings", []))
-        assert "session.pytest_compression_enabled is deprecated" in warnings
-        assert "session.pytest_compression_min_lines is deprecated" in warnings
 
 
 class TestGeminiLegacyTruncationRequestPathContracts:

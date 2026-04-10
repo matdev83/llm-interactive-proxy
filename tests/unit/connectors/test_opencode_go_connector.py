@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any, cast
 from unittest.mock import MagicMock
 
@@ -117,12 +118,14 @@ def _make_request(
     model: str,
     *,
     stream: bool = False,
+    extra_body: dict[str, Any] | None = None,
 ) -> ConnectorChatCompletionsRequest:
     canonical_request = CanonicalChatRequest(
         model=model,
         messages=[ChatMessage(role="user", content="hello")],
         max_tokens=16,
         stream=stream,
+        extra_body=extra_body,
     )
     return ConnectorChatCompletionsRequest(
         request=canonical_request,
@@ -148,6 +151,13 @@ def _posted_json(requests: list[httpx.Request], path_suffix: str) -> dict[str, A
     raise AssertionError(f"No POST request found for suffix {path_suffix!r}")
 
 
+def _matching_request(requests: list[httpx.Request], path_suffix: str) -> httpx.Request:
+    for request in requests:
+        if request.method == "POST" and request.url.path.endswith(path_suffix):
+            return request
+    raise AssertionError(f"No POST request found for suffix {path_suffix!r}")
+
+
 @pytest.mark.asyncio
 async def test_openai_path_routes_curated_openai_models_to_chat_completions() -> None:
     recorder = RequestRecorder()
@@ -168,7 +178,7 @@ async def test_openai_path_routes_curated_openai_models_to_chat_completions() ->
     )
 
     payload = _posted_json(recorder.requests, "/chat/completions")
-    assert payload["model"] == "opencode-go/glm-5.1"
+    assert payload["model"] == "glm-5.1"
 
 
 @pytest.mark.asyncio
@@ -191,7 +201,7 @@ async def test_anthropic_path_routes_curated_anthropic_models_to_messages() -> N
     )
 
     payload = _posted_json(recorder.requests, "/messages")
-    assert payload["model"] == "opencode-go/minimax-m2.7"
+    assert payload["model"] == "minimax-m2.7"
 
 
 @pytest.mark.asyncio
@@ -208,7 +218,7 @@ async def test_model_protocol_overrides_can_redirect_unknown_models() -> None:
         await backend.chat_completions(_make_request("opencode-go:custom-openai-model"))
 
     payload = _posted_json(recorder.requests, "/chat/completions")
-    assert payload["model"] == "opencode-go/custom-openai-model"
+    assert payload["model"] == "custom-openai-model"
 
 
 @pytest.mark.asyncio
@@ -227,7 +237,141 @@ async def test_model_protocol_overrides_can_redirect_to_anthropic() -> None:
         )
 
     payload = _posted_json(recorder.requests, "/messages")
-    assert payload["model"] == "opencode-go/custom-anthropic-model"
+    assert payload["model"] == "custom-anthropic-model"
+
+
+@pytest.mark.asyncio
+async def test_api_key_strips_leading_bearer_prefix() -> None:
+    """Env/config sometimes includes ``Bearer ``; OpenAI stack re-adds it for /chat/completions."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+    config = MagicMock(spec=AppConfig)
+    config.streaming_yield_interval = 0.0
+    config.backends = MagicMock()
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = opencode_go_module.OpencodeGoBackend(
+            client=client,
+            config=config,
+            translation_service=TranslationService(),
+        )
+        await backend.initialize(
+            api_key="Bearer  secret-token",
+            api_base_url=OPENCODE_GO_BASE_URL,
+            openai_api_base_url=OPENCODE_GO_BASE_URL,
+            anthropic_api_base_url=OPENCODE_GO_BASE_URL,
+            key_name="opencode-go",
+            model_protocol_overrides={},
+        )
+        disable_health_check = getattr(backend, "disable_health_check", None)
+        if callable(disable_health_check):
+            disable_health_check()
+        elif hasattr(backend, "_health_check_enabled"):
+            backend._health_check_enabled = False
+
+        await backend.chat_completions(_make_request("opencode-go:kimi-k2.5"))
+        await backend.chat_completions(_make_request("opencode-go:minimax-m2.7"))
+
+    openai_req = _matching_request(recorder.requests, "/chat/completions")
+    anthropic_req = _matching_request(recorder.requests, "/messages")
+    assert openai_req.headers["authorization"] == "Bearer secret-token"
+    assert anthropic_req.headers["x-api-key"] == "secret-token"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_path_uses_x_api_key_header() -> None:
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+
+        await backend.chat_completions(_make_request("opencode-go:minimax-m2.7"))
+
+    request = _matching_request(recorder.requests, "/messages")
+    assert request.headers["x-api-key"] == "test-api-key"
+    assert "authorization" not in request.headers
+
+
+@pytest.mark.asyncio
+async def test_openai_streaming_path_uses_raw_model_and_bearer_auth() -> None:
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(
+            _make_request("opencode-go:opencode-go/kimi-k2.5", stream=True)
+        )
+
+    request = _matching_request(recorder.requests, "/chat/completions")
+    payload = cast(dict[str, Any], json.loads(request.content.decode("utf-8")))
+    assert payload["model"] == "kimi-k2.5"
+    assert request.headers["authorization"] == "Bearer test-api-key"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_streaming_path_uses_raw_model_and_x_api_key() -> None:
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(
+            _make_request("opencode-go:minimax-m2.7", stream=True)
+        )
+
+    request = _matching_request(recorder.requests, "/messages")
+    payload = cast(dict[str, Any], json.loads(request.content.decode("utf-8")))
+    assert payload["model"] == "minimax-m2.7"
+    assert request.headers["x-api-key"] == "test-api-key"
+    assert "authorization" not in request.headers
+
+
+@pytest.mark.asyncio
+async def test_openai_endpoint_style_base_url_is_normalized() -> None:
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+    config = MagicMock(spec=AppConfig)
+    config.streaming_yield_interval = 0.0
+    config.backends = MagicMock()
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = opencode_go_module.OpencodeGoBackend(
+            client=client,
+            config=config,
+            translation_service=TranslationService(),
+        )
+        await backend.initialize(
+            api_key="test-api-key",
+            openai_api_base_url="https://opencode.ai/zen/go/v1/chat/completions",
+            anthropic_api_base_url="https://opencode.ai/zen/go/v1/messages",
+            key_name="opencode-go",
+            model_protocol_overrides={},
+        )
+        backend.disable_health_check()
+
+        await backend.chat_completions(_make_request("opencode-go:glm-5.1"))
+        await backend.chat_completions(_make_request("opencode-go:minimax-m2.7"))
+
+    openai_request = _matching_request(recorder.requests, "/chat/completions")
+    anthropic_request = _matching_request(recorder.requests, "/messages")
+    assert str(openai_request.url) == "https://opencode.ai/zen/go/v1/chat/completions"
+    assert str(anthropic_request.url) == "https://opencode.ai/zen/go/v1/messages"
+
+
+def test_provider_name_reports_openai_for_outer_connector() -> None:
+    config = MagicMock(spec=AppConfig)
+    config.streaming_yield_interval = 0.0
+    config.backends = MagicMock()
+    client = MagicMock(spec=httpx.AsyncClient)
+    backend = opencode_go_module.OpencodeGoBackend(
+        client=client,
+        config=config,
+        translation_service=TranslationService(),
+    )
+
+    assert backend.get_provider_name() == "openai"
 
 
 @pytest.mark.asyncio
@@ -270,42 +414,9 @@ async def test_available_models_are_canonically_prefixed() -> None:
     assert "opencode-go/custom-openai-model" in async_models
 
 
-# --- Regression tests for backend-specific vendor prefix enforcement ---
-
-
-class TestEnforceBackendVendorPrefix:
-    """Unit tests for _enforce_backend_vendor_prefix static method."""
-
-    def test_prepends_prefix_when_missing(self) -> None:
-        assert (
-            opencode_go_module.OpencodeGoBackend._enforce_backend_vendor_prefix(
-                "mimo-v2-pro"
-            )
-            == "opencode-go/mimo-v2-pro"
-        )
-
-    def test_does_not_duplicate_prefix(self) -> None:
-        assert (
-            opencode_go_module.OpencodeGoBackend._enforce_backend_vendor_prefix(
-                "opencode-go/mimo-v2-pro"
-            )
-            == "opencode-go/mimo-v2-pro"
-        )
-
-    def test_preserves_model_with_other_slash(self) -> None:
-        # Model names that contain slashes but are not prefixed with vendor
-        assert (
-            opencode_go_module.OpencodeGoBackend._enforce_backend_vendor_prefix(
-                "some-org/some-model"
-            )
-            == "opencode-go/some-org/some-model"
-        )
-
-
 @pytest.mark.asyncio
 async def test_openai_payload_has_vendor_prefix_when_user_omits_it() -> None:
-    """When user sends opencode-go:mimo-v2-pro (no vendor part), backend
-    receives opencode-go/mimo-v2-pro."""
+    """When user sends opencode-go:mimo-v2-pro, backend receives raw mimo-v2-pro."""
     recorder = RequestRecorder()
     transport = httpx.MockTransport(recorder)
 
@@ -314,13 +425,122 @@ async def test_openai_payload_has_vendor_prefix_when_user_omits_it() -> None:
         await backend.chat_completions(_make_request("opencode-go:mimo-v2-pro"))
 
     payload = _posted_json(recorder.requests, "/chat/completions")
-    assert payload["model"] == "opencode-go/mimo-v2-pro"
+    assert payload["model"] == "mimo-v2-pro"
+
+
+@pytest.mark.asyncio
+async def test_openai_payload_strips_extra_body_vendor_prefixed_model() -> None:
+    """extra_body can repeat OpenCode config-style model ids; wire must stay raw."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(
+            _make_request(
+                "opencode-go:kimi-k2.5",
+                extra_body={"model": "opencode-go/kimi-k2.5"},
+            )
+        )
+
+    payload = _posted_json(recorder.requests, "/chat/completions")
+    assert payload["model"] == "kimi-k2.5"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_payload_strips_extra_body_vendor_prefixed_model() -> None:
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(
+            _make_request(
+                "opencode-go:minimax-m2.7",
+                extra_body={"model": "opencode-go/minimax-m2.7"},
+            )
+        )
+
+    payload = _posted_json(recorder.requests, "/messages")
+    assert payload["model"] == "minimax-m2.7"
+
+
+@pytest.mark.asyncio
+async def test_anthropic_path_strips_thinking_and_beta_extra_body() -> None:
+    """OpenCode Go /messages rejects interleaved-thinking / beta header shapes (HTTP 400)."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    base = _make_request(
+        "opencode-go:minimax-m2.7",
+        extra_body={
+            "thinking": {"type": "enabled", "budget_tokens": 1024},
+            "anthropic_beta": ["some-beta-flag"],
+        },
+    )
+    connector_req = replace(
+        base, request=base.request.model_copy(update={"reasoning_effort": "high"})
+    )
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(connector_req)
+
+    anthropic_req = _matching_request(recorder.requests, "/messages")
+    assert anthropic_req.headers.get("anthropic-beta") is None
+
+    payload = cast(dict[str, Any], json.loads(anthropic_req.content.decode("utf-8")))
+    assert "thinking" not in payload
+    assert "reasoning_effort" not in payload
+
+
+@pytest.mark.asyncio
+async def test_anthropic_path_converts_openai_tools_to_flat_messages_api_shape() -> (
+    None
+):
+    """OpenCode Go rejects OpenAI-style tool wrappers (HTTP 400); use Anthropic flat tools."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "do_thing",
+                "description": "desc",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                    "required": ["x"],
+                },
+            },
+        }
+    ]
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(
+            _make_request("opencode-go:minimax-m2.7", extra_body={"tools": tools})
+        )
+
+    payload = _posted_json(recorder.requests, "/messages")
+    assert "tools" in payload
+    wire_tools = payload["tools"]
+    assert len(wire_tools) == 1
+    assert wire_tools[0] == {
+        "name": "do_thing",
+        "description": "desc",
+        "input_schema": {
+            "type": "object",
+            "properties": {"x": {"type": "string"}},
+            "required": ["x"],
+        },
+    }
 
 
 @pytest.mark.asyncio
 async def test_openai_payload_does_not_duplicate_vendor_prefix() -> None:
-    """When user sends opencode-go:opencode-go/mimo-v2-pro (full canonical form),
-    backend still receives opencode-go/mimo-v2-pro - no duplication."""
+    """When user sends canonical opencode-go path, backend strips the vendor prefix."""
     recorder = RequestRecorder()
     transport = httpx.MockTransport(recorder)
 
@@ -331,15 +551,13 @@ async def test_openai_payload_does_not_duplicate_vendor_prefix() -> None:
         )
 
     payload = _posted_json(recorder.requests, "/chat/completions")
-    assert payload["model"] == "opencode-go/mimo-v2-pro"
-    # Strict guarantee: no double prefix
-    assert "opencode-go/opencode-go/" not in payload["model"]
+    assert payload["model"] == "mimo-v2-pro"
+    assert "opencode-go/" not in payload["model"]
 
 
 @pytest.mark.asyncio
 async def test_anthropic_payload_has_vendor_prefix_when_user_omits_it() -> None:
-    """When user sends opencode-go:minimax-m2.7 (no vendor part), Anthropic
-    backend receives opencode-go/minimax-m2.7."""
+    """When user sends opencode-go:minimax-m2.7, Anthropic backend receives raw minimax-m2.7."""
     recorder = RequestRecorder()
     transport = httpx.MockTransport(recorder)
 
@@ -348,13 +566,12 @@ async def test_anthropic_payload_has_vendor_prefix_when_user_omits_it() -> None:
         await backend.chat_completions(_make_request("opencode-go:minimax-m2.7"))
 
     payload = _posted_json(recorder.requests, "/messages")
-    assert payload["model"] == "opencode-go/minimax-m2.7"
+    assert payload["model"] == "minimax-m2.7"
 
 
 @pytest.mark.asyncio
 async def test_anthropic_payload_does_not_duplicate_vendor_prefix() -> None:
-    """When user sends opencode-go:opencode-go/minimax-m2.7, Anthropic
-    backend still receives opencode-go/minimax-m2.7 - no duplication."""
+    """When user sends canonical opencode-go Anthropic model, backend strips the vendor prefix."""
     recorder = RequestRecorder()
     transport = httpx.MockTransport(recorder)
 
@@ -365,12 +582,19 @@ async def test_anthropic_payload_does_not_duplicate_vendor_prefix() -> None:
         )
 
     payload = _posted_json(recorder.requests, "/messages")
-    assert payload["model"] == "opencode-go/minimax-m2.7"
-    assert "opencode-go/opencode-go/" not in payload["model"]
+    assert payload["model"] == "minimax-m2.7"
+    assert "opencode-go/" not in payload["model"]
 
 
 @pytest.mark.asyncio
-async def test_normalize_model_name_strips_both_prefix_forms() -> None:
+async def test_normalize_opencode_go_api_key_strips_bearer_prefix() -> None:
+    norm = opencode_go_module._normalize_opencode_go_api_key
+    assert norm("Bearer secret") == "secret"
+    assert norm("  bearer  token  ") == "token"
+    assert norm("plain-key") == "plain-key"
+
+
+def test_normalize_model_name_strips_both_prefix_forms() -> None:
     """_normalize_model_name should strip opencode-go/ and opencode-go: forms
     back to the raw model id."""
     strip = opencode_go_module._normalize_model_name
@@ -378,6 +602,6 @@ async def test_normalize_model_name_strips_both_prefix_forms() -> None:
     assert strip("mimo-v2-pro") == "mimo-v2-pro"
     assert strip("opencode-go/mimo-v2-pro") == "mimo-v2-pro"
     assert strip("opencode-go:mimo-v2-pro") == "mimo-v2-pro"
-    assert strip("opencode-go:opencode-go/mimo-v2-pro") == "opencode-go/mimo-v2-pro"
+    assert strip("opencode-go:opencode-go/mimo-v2-pro") == "mimo-v2-pro"
     assert strip("") == ""
     assert strip("  glm-5.1  ") == "glm-5.1"

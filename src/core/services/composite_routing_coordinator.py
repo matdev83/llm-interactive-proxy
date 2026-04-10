@@ -27,7 +27,10 @@ from src.core.services.composite_diagnostics_publisher import (
 from src.core.services.composite_routing_state import (
     COMPOSITE_ROUTING_STATE_KEY,
     FAILOVER_MODE,
+    WEIGHTED_RETRY_MODE,
     FailoverRuntimeState,
+    WeightedRetryBranch,
+    WeightedRetryRuntimeState,
     build_budget_exhausted_error,
     build_failover_exhausted_error,
 )
@@ -114,6 +117,12 @@ class CompositeRoutingCoordinator:
                     resolved.backend,
                     resolved.model,
                 )
+            self._persist_weighted_retry_state(
+                context=context,
+                node=root,
+                selected_leaf=selected_leaf,
+                configured_max_hops=routing_input.configured_max_hops,
+            )
             if should_publish:
                 branch_history = [
                     self._branch_history_entry(
@@ -497,6 +506,37 @@ class CompositeRoutingCoordinator:
         }
         context.extensions[COMPOSITE_ROUTING_STATE_KEY] = cast(JsonValue, initialized)
         return initialized
+
+    @staticmethod
+    def _persist_weighted_retry_state(
+        *,
+        context: RequestContext | None,
+        node: CompositeWeightedGroupNode,
+        selected_leaf: CompositeLeafNode,
+        configured_max_hops: int | None,
+    ) -> None:
+        if context is None:
+            return
+        branches: list[WeightedRetryBranch] = []
+        for child in node.children:
+            raw = child.leaf_selector.weight_annotation
+            resolved_weight = 1 if raw is None else raw
+            branches.append(
+                {
+                    "selector": child.leaf_selector.normalized_selector,
+                    "weight": resolved_weight,
+                }
+            )
+        max_hops = CompositeRoutingAttemptContext.resolve_max_hops(configured_max_hops)
+        persisted: WeightedRetryRuntimeState = {
+            "mode": WEIGHTED_RETRY_MODE,
+            "branches": branches,
+            "excluded_selectors": [],
+            "selected_selector": selected_leaf.leaf_selector.normalized_selector,
+            "hop_count": 0,
+            "max_hops": max_hops,
+        }
+        context.extensions[COMPOSITE_ROUTING_STATE_KEY] = cast(JsonValue, persisted)
 
     @staticmethod
     def _persist_state(

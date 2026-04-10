@@ -422,8 +422,6 @@ class TestPytestFlags:
     @pytest.mark.parametrize(
         "flag",
         [
-            "--enable-pytest-compression",
-            "--disable-pytest-compression",
             "--enable-pytest-full-suite-steering",
             "--disable-pytest-full-suite-steering",
             "--enable-pytest-context-saving",

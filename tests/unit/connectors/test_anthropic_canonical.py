@@ -77,6 +77,58 @@ def canonical_request():
     )
 
 
+class TestAnthropicPayloadOpenAIToolMapping:
+    """OpenAI-style tool messages must map to Anthropic Messages API blocks."""
+
+    def test_tool_role_maps_to_user_tool_result(self, anthropic_backend):
+        request_data = CanonicalChatRequest(
+            model="claude-3-haiku-20240307",
+            messages=[ChatMessage(role="user", content="placeholder")],
+            max_tokens=256,
+        )
+        processed = [
+            ChatMessage(role="user", content="Run git status"),
+            ChatMessage(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    {
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": {
+                            "name": "bash",
+                            "arguments": '{"command":"git status"}',
+                        },
+                    }
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                content="On branch dev",
+                tool_call_id="call_abc",
+            ),
+        ]
+        payload = anthropic_backend._prepare_anthropic_payload(
+            request_data, processed, "claude-3-haiku-20240307", None, None
+        )
+        msgs = payload["messages"]
+        assert len(msgs) == 3
+        assert msgs[0] == {"role": "user", "content": "Run git status"}
+        assert msgs[1]["role"] == "assistant"
+        assert isinstance(msgs[1]["content"], list)
+        kinds = [b.get("type") for b in msgs[1]["content"]]
+        assert "tool_use" in kinds
+        tu = next(b for b in msgs[1]["content"] if b.get("type") == "tool_use")
+        assert tu["id"] == "call_abc"
+        assert tu["name"] == "bash"
+        assert tu["input"] == {"command": "git status"}
+        assert msgs[2]["role"] == "user"
+        tr = msgs[2]["content"][0]
+        assert tr["type"] == "tool_result"
+        assert tr["tool_use_id"] == "call_abc"
+        assert tr["content"] == "On branch dev"
+
+
 class TestAnthropicCanonicalAPI:
     """Tests for AnthropicBackend canonical API implementation."""
 

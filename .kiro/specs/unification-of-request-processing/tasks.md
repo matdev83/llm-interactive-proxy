@@ -1,0 +1,153 @@
+# Implementation Plan
+
+- [ ] 1. Audit split-path responsibilities and rollout prerequisites before convergence work begins
+- [ ] 1.1 Characterize the current manager and handler responsibilities at the migration cut line
+  - Inventory the existing post-backend-response responsibilities for streaming and non-streaming handling, including retries, loop detection, quality verification, status extraction, and completion tracking.
+  - Define the exact Phase 1 boundary so canonicalization starts at the current manager layer without prematurely bypassing the existing backend processor path.
+  - Capture which responsibilities remain shared, which remain mode-sensitive, and which must become explicit exceptions during migration.
+  - _Requirements: 5.1, 5.2, 6.1_
+- [ ] 1.2 Audit response-processing features and classify their canonical migration strategy
+  - Inventory every response-processing feature and classify it as chunk-safe, terminal-sensitive, full-response-sensitive, or requiring an explicit mode exception.
+  - Confirm which features can safely use a legacy compatibility bridge and which require dedicated canonical adapters or rewrites.
+  - Use the audit result as a hard prerequisite for feature-contract migration to avoid silently breaking mode-sensitive behavior.
+  - _Requirements: 4.3, 4.5, 6.3_
+- [ ] 1.3 Add migration gate configuration, safe defaults, and path-selection diagnostics
+  - Introduce configuration-controlled gates for each migration stage with backward-compatible default values.
+  - Provide diagnostics and request-level observability that identify which path handled the request and which migration stage was active.
+  - Define the promotion guardrail settings that later validation tasks will enforce.
+  - _Requirements: 6.1, 6.2, 6.5, 6.6, 7.4, 7.5_
+
+- [ ] 2. Establish the canonical manager-level response-handling contract
+- [ ] 2.1 Introduce a canonical internal response handle that preserves both the chunk stream and envelope metadata
+  - Define one internal contract that carries the canonical `ProcessedResponse` stream together with status, headers, media type, cancellation behavior, usage, and migration metadata.
+  - Reuse the existing canonical chunk type instead of inventing a second chunk abstraction.
+  - Ensure the new contract is sufficient for both requested modes and for downstream transport adaptation.
+  - _Requirements: 1.1, 1.5, 1.6, 2.4_
+- [ ] 2.2 Implement a canonical coordinator that converges post-backend-response business logic at the current manager boundary
+  - Introduce one stream-first coordinator that consumes the existing backend response envelope and produces the canonical internal handle.
+  - Preserve normalization, validation, propagated metadata, and safeguard-critical lifecycle information for both requested modes.
+  - Keep requested-mode selection outside the coordinator so the coordinator does not reintroduce mode-specific business branches.
+  - _Requirements: 1.1, 1.3, 1.4, 1.6, 5.1, 5.2_
+- [ ] 2.3 Implement compatibility adaptation so requested-mode selection happens only at the boundary behind migration gates
+  - Convert the canonical internal handle back into the existing streaming and non-streaming envelope contracts without changing client-visible behavior.
+  - Keep the Phase 1 gate at the current post-backend-response branch point so the backend processor call remains unchanged during the first convergence step.
+  - Preserve dedup short-circuit behavior above the gate and preserve streaming completion tracking around the returned stream while migration is in progress.
+  - _Requirements: 1.2, 2.1, 2.2, 5.1, 6.1, 6.5_
+
+- [ ] 3. Preserve external contract compatibility at API boundaries
+- [ ] 3.1 Keep streaming transport behavior contract-compatible during canonical-path adoption
+  - Preserve SSE framing, terminal completion signaling, and client-disconnect behavior expected by current streaming clients.
+  - Ensure streaming status, header, and cancellation behavior remain compatible when the canonical path is enabled.
+  - Preserve the current terminal completion marker semantics used by existing streaming clients.
+  - Validate compatibility for normal, abnormal, and early-termination flows.
+  - _Requirements: 2.1, 2.4, 5.6_
+- [ ] 3.2 Keep non-streaming response schema and usage behavior contract-compatible
+  - Preserve non-streaming payload structure, usage-field behavior, and deterministic response assembly under canonical internal processing.
+  - Keep response headers, status semantics, and media-type behavior unchanged for compatible scenarios.
+  - Validate parity for representative requests that produce equivalent logical output in both modes.
+  - _Requirements: 2.2, 2.4, 5.5_
+- [ ] 3.3 Preserve mode-appropriate error contracts and status extraction behavior
+  - Keep error rendering, status mapping, and terminal error signaling consistent for both requested modes.
+  - Preserve the current streaming status extraction and non-streaming error semantics needed by transport adapters.
+  - Validate representative failure scenarios, including backend errors and abnormal stream termination.
+  - _Requirements: 2.3, 2.4, 5.3_
+
+- [ ] 4. Converge feature-processing contracts to parity-by-construction
+- [ ] 4.1 Introduce a typed canonical feature context and compatibility bridge for audit-approved features
+  - Define one canonical feature-processing contract with typed lifecycle context instead of loosely typed migration-only dictionaries.
+  - Implement a compatibility bridge only for features whose audit confirms chunk-level delegation preserves behavior.
+  - Ensure the canonical feature context carries terminal-chunk state, finish reason, and propagated request/session metadata required by existing features.
+  - _Requirements: 1.6, 4.1, 4.3, 4.5_
+- [ ] 4.2 Migrate priority response-processing features and explicitly handle terminal-sensitive or full-response-sensitive cases
+  - Move priority features to canonical behavior first, starting with the features that offer the highest duplication reduction with the lowest migration risk.
+  - Provide dedicated canonical adapters or explicit bounded exceptions for features that depend on terminal-only or full-response semantics.
+  - Remove duplicated feature logic only where canonical behavior is proven equivalent.
+  - _Requirements: 4.1, 4.2, 4.3, 4.5, 5.2_
+- [ ] 4.3 Replace split-path parity scaffolding with canonical equivalence verification only after feature coverage is complete
+  - Shift parity assurance from duplicated implementation checks to canonical behavior and explicit exception coverage.
+  - Retire registry and wiring that only exist to police dual-path feature parity once canonical coverage is complete.
+  - Keep parity regression visibility enforceable in CI and local validation workflows throughout the transition.
+  - _Requirements: 4.4, 6.4, 6.6_
+
+- [ ] 5. Preserve reliability and safety guarantees on the canonical path
+- [ ] 5.1 Preserve deduplication, cancellation, completion-state tracking, and stream cleanup invariants
+  - Keep duplicate-request short-circuit behavior, request lifecycle safety, and completion-state recording equivalent under the canonical path.
+  - Preserve streaming cleanup and disconnect-driven cancellation behavior so long-running streams do not leak resources or misclassify completion state.
+  - Preserve the current completion-state classification cases for disconnect before terminal completion, disconnect after terminal completion, `finish_reason=stop`, and explicit error finish reasons.
+  - Validate these invariants for both successful and abnormal completion paths.
+  - _Requirements: 5.1, 5.3, 5.6, 7.3_
+- [ ] 5.2 Preserve empty-response recovery, loop detection, and tool-call retry coordination
+  - Converge these safeguards deliberately instead of assuming they are generic chunk-processing concerns.
+  - Keep any remaining mode-sensitive safeguard behavior explicit, bounded, and testable during migration.
+  - Validate representative retry, swallowed-tool-call, empty-response, and loop-trigger scenarios.
+  - _Requirements: 5.1, 5.2, 4.3_
+- [ ] 5.3 Preserve quality-verifier, policy, usage, and metadata accounting behavior across requested modes
+  - Ensure quality-verifier decisions and policy middleware ordering remain equivalent when the canonical path is enabled.
+  - Preserve skip-verification signaling and equivalent recall behavior when quality-verifier auxiliary flows are triggered.
+  - Preserve usage accounting, propagated metadata, and observability fields expected by downstream diagnostics and reporting.
+  - Validate parity for representative mode pairs using the same logical input.
+  - _Requirements: 1.3, 5.4, 5.5, 6.6_
+
+- [ ] 6. Migrate connector behavior to stream-first canonical integration
+- [ ] 6.1 Define a provider capability matrix and connector entry contract around the canonical handle
+  - Establish which providers can already support stream-first execution and which require explicit adaptation.
+  - Define a connector migration contract that returns the canonical internal handle without dropping provider-specific metadata needed at boundaries.
+  - Ensure provider migration can be enabled independently per cohort.
+  - _Requirements: 3.1, 3.2, 6.1, 6.5_
+- [ ] 6.2 Migrate a first low-risk provider cohort to stream-first connector processing
+  - Start with providers closest to the existing stream-first pattern so the connector bridge proves out with minimal regression risk.
+  - Preserve external behavior parity while reducing duplicated connector-side business logic for the cohort.
+  - Capture migration evidence for the cohort before broadening connector rollout.
+  - _Requirements: 3.2, 3.3, 3.4, 6.3_
+- [ ] 6.3 Migrate the remaining providers with explicit adaptation where native streaming is unavailable
+  - Apply stream-first integration to additional providers without pushing transport-specific exceptions back into core response-processing logic.
+  - Preserve normalized downstream behavior regardless of provider transport differences.
+  - Keep provider-specific exceptions isolated and test-pinned.
+  - _Requirements: 3.1, 3.2, 3.3, 3.5, 6.3_
+- [ ] 6.4 Remove duplicated connector-side business logic only after provider cohorts meet promotion criteria
+  - Remove legacy dual-path connector logic only after equivalence and guardrail checks pass for the affected cohort.
+  - Preserve maintainability by keeping unavoidable provider-specific adaptations bounded to connector layers.
+  - Validate that extension to new providers no longer requires duplicate mode implementations in core logic.
+  - _Requirements: 3.4, 3.5, 6.4_
+
+- [ ] 7. Build migration validation evidence and guardrail test suites
+- [ ] 7.1 Add unit-level coverage for the canonical handle, coordinator, compatibility adapter, and typed feature context
+  - Validate that the canonical contract preserves the metadata needed by downstream adaptation.
+  - Verify canonical processing invariants for both requested modes using deterministic fixtures.
+  - Cover the typed lifecycle context expected by canonical features.
+  - _Requirements: 1.1, 1.5, 1.6, 6.3_
+- [ ] 7.2 Add integration-level success-path and error-path equivalence tests
+  - Validate mode-equivalence of externally observable contracts in end-to-end request flows.
+  - Cover unchanged streaming terminal marker behavior and unchanged non-streaming JSON/usage behavior under canonical adaptation.
+  - Cover error-path behavior including headers, status semantics, and mode-appropriate output forms.
+  - Include connector-aware and safeguard-aware scenarios in compatibility-focused integration tests.
+  - _Requirements: 2.1, 2.2, 2.3, 2.4, 6.3_
+- [ ] 7.3 Add safeguard regression coverage for retries, disconnect cleanup, loop detection, and resource release
+  - Validate cancellation cleanup behavior for long-running and interrupted streams.
+  - Ensure canonical-path adoption does not regress empty-response recovery, loop handling, tool-call retry coordination, or completion tracking.
+  - Include regressions for streaming dedup completion classification and cancel-callback behavior.
+  - Verify cleanup and safeguard behavior under retry, failure, and early termination conditions.
+  - _Requirements: 5.1, 5.2, 5.3, 5.6, 7.3_
+- [ ] 7.4 Add performance and promotion-blocking guardrail checks for latency, time-to-first-meaningful-output, memory, and cleanup correctness
+  - Define and codify the guardrail metrics used to compare baseline and migrated stages.
+  - Block promotion when latency, TTFT, memory, or cleanup correctness checks regress beyond configured limits.
+  - Ensure guardrail outputs are reportable for rollout decisions and release sign-off.
+  - _Requirements: 7.1, 7.2, 7.4, 7.5_
+
+- [ ] 8. Complete staged retirement and final verification
+- [ ] 8.1 Keep gates default-off, expose stage diagnostics, and codify promotion and rollback criteria
+  - Ensure migration stages remain disabled by default until validation evidence is complete.
+  - Expose the diagnostics needed to determine which path handled a request and why a stage is or is not promotable.
+  - Require explicit evidence for boundary compatibility and safeguard invariants before any stage expands beyond its current rollout scope.
+  - Encode promotion and rollback criteria so stage advancement is evidence-driven rather than manual guesswork.
+  - _Requirements: 6.2, 6.4, 6.5, 6.6, 7.4_
+- [ ] 8.2 Retire legacy handler contracts and parity scaffolding only after all migrated stages pass
+  - Remove legacy dual-path contracts only when canonical processing is proven to be the sole required business path for migrated scopes.
+  - Reconcile DI registrations, feature-parity wiring, and compatibility shims so the retired state is structurally clean.
+  - Preserve any boundary adapters still required for stable external compatibility.
+  - _Requirements: 1.4, 4.1, 6.4_
+- [ ] 8.3 Run final regression validation and end-to-end operational verification
+  - Execute the full regression coverage needed to prove protocol compatibility and safeguard preservation.
+  - Exercise the real migrated request-processing flow in both requested modes and across migrated provider cohorts.
+  - Confirm completion evidence is sufficient for implementation sign-off and safe legacy retirement.
+  - _Requirements: 2.1, 2.2, 5.5, 6.4, 7.4_

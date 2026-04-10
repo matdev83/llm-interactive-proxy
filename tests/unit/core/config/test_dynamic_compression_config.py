@@ -7,9 +7,6 @@ from src.core.domain.configuration.dynamic_compression_config import (
     DynamicCompressionConfig,
 )
 from src.core.domain.dynamic_compression import ToolOutputContentType, ToolOutputContext
-from src.core.services.legacy_compression_compatibility_resolver import (
-    LegacyCompressionCompatibilityResolver,
-)
 from src.core.services.rule_based_strategy_selector import RuleBasedStrategySelector
 
 
@@ -315,67 +312,3 @@ def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
     assert "dynamic_compression.min_bytes" in env_paths
     assert "dynamic_compression.file_detail_include_line_numbers" in env_paths
     assert "dynamic_compression.disable_methods" in env_paths
-
-
-def test_legacy_pytest_inherit_uses_legacy_value() -> None:
-    resolver = LegacyCompressionCompatibilityResolver()
-
-    decision = resolver.resolve_pytest_mode(
-        legacy_pytest_enabled=False,
-        dynamic_pytest_mode="inherit_legacy",
-    )
-    assert decision.effective_enabled is False
-    assert decision.source == "legacy"
-
-
-def test_legacy_pytest_explicit_dynamic_override_wins() -> None:
-    resolver = LegacyCompressionCompatibilityResolver()
-
-    decision = resolver.resolve_pytest_mode(
-        legacy_pytest_enabled=False,
-        dynamic_pytest_mode=True,
-    )
-    assert decision.effective_enabled is True
-    assert decision.source == "dynamic_override"
-    assert decision.overridden is True
-
-
-def test_legacy_pytest_ambiguity_fails_open_with_structured_warning() -> None:
-    resolver = LegacyCompressionCompatibilityResolver()
-
-    decision, diagnostics = resolver.resolve_pytest_mode_with_diagnostics(
-        legacy_pytest_enabled=False,
-        dynamic_pytest_mode="legacy_preferred",
-    )
-
-    assert decision.effective_enabled is False
-    assert decision.source == "legacy"
-    assert diagnostics.applied == ["session.pytest_compression_enabled"]
-    assert diagnostics.ignored == ["dynamic_compression.methods.pytest_failure_focus"]
-    assert diagnostics.inactive == ["dynamic_compression.methods.pytest_failure_focus"]
-    assert diagnostics.overridden == []
-    assert diagnostics.warnings == [
-        "Invalid dynamic pytest mode detected; falling back to legacy pytest compression setting."
-    ]
-
-
-def test_legacy_pytest_override_diagnostics_are_deterministic() -> None:
-    resolver = LegacyCompressionCompatibilityResolver()
-
-    first = resolver.resolve_pytest_mode_with_diagnostics(
-        legacy_pytest_enabled=False,
-        dynamic_pytest_mode=True,
-    )
-    second = resolver.resolve_pytest_mode_with_diagnostics(
-        legacy_pytest_enabled=False,
-        dynamic_pytest_mode=True,
-    )
-
-    assert first == second
-    decision, diagnostics = first
-    assert decision.effective_enabled is True
-    assert diagnostics.applied == ["dynamic_compression.methods.pytest_failure_focus"]
-    assert diagnostics.overridden == ["session.pytest_compression_enabled"]
-    assert any(
-        "pytest_failure_focus overrides" in warning for warning in diagnostics.warnings
-    )

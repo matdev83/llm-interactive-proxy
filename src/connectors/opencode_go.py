@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator
 from dataclasses import replace
 from typing import Any
 
 import httpx
 
 from src.connectors.anthropic import AnthropicBackend
-from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
-from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.base import strip_vendor_prefix
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+)
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
@@ -17,6 +20,108 @@ from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_opencode_go_anthropic_extra_body(
+    connector_req: ConnectorChatCompletionsRequest,
+) -> ConnectorChatCompletionsRequest:
+    """Drop Anthropic-beta knobs OpenCode Go /messages does not accept (HTTP 400)."""
+    inner = connector_req.request
+    eb = getattr(inner, "extra_body", None)
+    if not isinstance(eb, dict):
+        return connector_req
+    drop_keys = frozenset({"thinking", "anthropic_beta"})
+    if not drop_keys.intersection(eb.keys()):
+        return connector_req
+    cleaned = {k: v for k, v in eb.items() if k not in drop_keys}
+    new_inner = inner.model_copy(update={"extra_body": cleaned})
+    return replace(connector_req, request=new_inner)
+
+
+def _opencode_go_params_to_input_schema(parameters: Any) -> dict[str, Any]:
+    """Build Anthropic ``input_schema`` from OpenAI JSON-schema ``parameters``."""
+
+    if not isinstance(parameters, dict) or not parameters:
+        return {"type": "object", "properties": {}}
+    schema: dict[str, Any] = {
+        "type": parameters.get("type") or "object",
+        "properties": (
+            parameters.get("properties")
+            if isinstance(parameters.get("properties"), dict)
+            else {}
+        ),
+    }
+    req = parameters.get("required")
+    if isinstance(req, list) and req:
+        schema["required"] = req
+    return schema
+
+
+def _opencode_go_coerce_input_schema(schema: Any) -> dict[str, Any]:
+    if not isinstance(schema, dict) or not schema:
+        return {"type": "object", "properties": {}}
+    out = dict(schema)
+    out.setdefault("type", "object")
+    props = out.get("properties")
+    out["properties"] = props if isinstance(props, dict) else {}
+    return out
+
+
+def _opencode_go_normalize_tool_for_messages_api(
+    tool: dict[str, Any],
+) -> dict[str, Any] | None:
+    """OpenCode Go MiniMax ``/messages`` expects Anthropic flat tools, not OpenAI wrappers."""
+
+    fn = tool.get("function")
+    if isinstance(fn, dict):
+        name = str(fn.get("name") or "").strip()
+        if not name:
+            return None
+        if "input_schema" in fn:
+            isc = _opencode_go_coerce_input_schema(fn.get("input_schema"))
+        else:
+            isc = _opencode_go_params_to_input_schema(fn.get("parameters"))
+        out: dict[str, Any] = {"name": name, "input_schema": isc}
+        desc = fn.get("description")
+        if isinstance(desc, str) and desc.strip():
+            out["description"] = desc.strip()
+        return out
+
+    root_name = tool.get("name")
+    if isinstance(root_name, str) and root_name.strip():
+        isc = _opencode_go_coerce_input_schema(tool.get("input_schema"))
+        out_flat: dict[str, Any] = {
+            "name": root_name.strip(),
+            "input_schema": isc,
+        }
+        desc2 = tool.get("description")
+        if isinstance(desc2, str) and desc2.strip():
+            out_flat["description"] = desc2.strip()
+        return out_flat
+
+    return None
+
+
+def _opencode_go_normalize_payload_tools(payload: dict[str, Any]) -> None:
+    raw = payload.get("tools")
+    if raw is None:
+        return
+    if not isinstance(raw, list):
+        payload.pop("tools", None)
+        payload.pop("tool_choice", None)
+        return
+    normalized: list[dict[str, Any]] = []
+    for item in raw:
+        if isinstance(item, dict):
+            conv = _opencode_go_normalize_tool_for_messages_api(item)
+            if conv is not None:
+                normalized.append(conv)
+    if normalized:
+        payload["tools"] = normalized
+    else:
+        payload.pop("tools", None)
+        payload.pop("tool_choice", None)
+
 
 _OPENCODE_GO_DEFAULT_BASE_URL = "https://opencode.ai/zen/go/v1"
 _OPENCODE_GO_VENDOR_PREFIX = "opencode-go"
@@ -34,6 +139,16 @@ _OPENCODE_GO_ANTHROPIC_MODELS: tuple[str, ...] = (
 _OPENCODE_GO_SUPPORTED_PROTOCOLS = {"openai", "anthropic"}
 
 
+def _normalize_opencode_go_api_key(api_key: str) -> str:
+    """Strip accidental ``Bearer `` prefix from config or env (OpenAI adds it again)."""
+
+    trimmed = api_key.strip()
+    lower = trimmed.lower()
+    if lower.startswith("bearer "):
+        return trimmed[7:].strip()
+    return trimmed
+
+
 def _normalize_model_name(model: str) -> str:
     """Normalize a public or backend-prefixed model identifier to its raw model id."""
 
@@ -43,7 +158,7 @@ def _normalize_model_name(model: str) -> str:
     if candidate.startswith(f"{_OPENCODE_GO_VENDOR_PREFIX}/"):
         return strip_vendor_prefix(candidate, _OPENCODE_GO_VENDOR_PREFIX)
     if candidate.startswith(f"{_OPENCODE_GO_VENDOR_PREFIX}:"):
-        return candidate.split(":", 1)[1]
+        return _normalize_model_name(candidate.split(":", 1)[1])
     return candidate
 
 
@@ -56,8 +171,28 @@ def _validate_protocol_name(protocol: Any) -> str | None:
     return None
 
 
+def _normalize_openai_base_url(api_base_url: str) -> str:
+    """Accept either a base URL or a full chat completions endpoint."""
+
+    normalized = api_base_url.rstrip("/")
+    suffix = "/chat/completions"
+    if normalized.endswith(suffix):
+        return normalized[: -len(suffix)]
+    return normalized
+
+
+def _normalize_anthropic_base_url(api_base_url: str) -> str:
+    """Accept either a base URL or a full messages endpoint."""
+
+    normalized = api_base_url.rstrip("/")
+    suffix = "/messages"
+    if normalized.endswith(suffix):
+        return normalized[: -len(suffix)]
+    return normalized
+
+
 class _OpencodeGoAnthropicDelegate(AnthropicBackend):
-    """Private Anthropic-compatible delegate for opencode-go."""
+    """Anthropic Messages delegate: OpenCode Go expects ``x-api-key`` on ``/messages`` (not Bearer)."""
 
     backend_type: str = _OPENCODE_GO_VENDOR_PREFIX
 
@@ -65,6 +200,7 @@ class _OpencodeGoAnthropicDelegate(AnthropicBackend):
         kwargs = dict(kwargs)
         kwargs.setdefault("key_name", _OPENCODE_GO_VENDOR_PREFIX)
         kwargs.setdefault("anthropic_api_base_url", _OPENCODE_GO_DEFAULT_BASE_URL)
+        kwargs.setdefault("auth_header_name", "x-api-key")
         await super().initialize(**kwargs)
 
     def _prepare_anthropic_payload(
@@ -75,13 +211,32 @@ class _OpencodeGoAnthropicDelegate(AnthropicBackend):
         project: str | None,
         context: Any | None = None,
     ) -> dict[str, Any]:
-        # The opencode-go backend requires the "opencode-go/" vendor prefix
-        # on every outbound model name, including Anthropic-protocol requests.
-        # Re-add the prefix if the base class stripped it away.
-        prefixed = add_vendor_prefix(effective_model, _OPENCODE_GO_VENDOR_PREFIX)
-        return super()._prepare_anthropic_payload(
-            request_data, processed_messages, prefixed, project, context
+        normalized_model = _normalize_model_name(effective_model)
+        payload = super()._prepare_anthropic_payload(
+            request_data,
+            processed_messages,
+            normalized_model,
+            project,
+            context,
         )
+        # extra_body may reintroduce config-style ids (opencode-go/...); upstream rejects
+        # those on the wire with 401 (see dev/scripts/opencode_go_probe.py).
+        wire_model = _normalize_model_name(
+            str(payload.get("model") or normalized_model)
+        )
+        if wire_model:
+            payload["model"] = wire_model
+        for k in ("thinking", "reasoning_effort"):
+            payload.pop(k, None)
+        _opencode_go_normalize_payload_tools(payload)
+        return payload
+
+    async def stream_completion(self, request: Any) -> AsyncGenerator[object, None]:
+        normalized_request = request.model_copy(
+            update={"model": _normalize_model_name(getattr(request, "model", ""))}
+        )
+        async for chunk in super().stream_completion(normalized_request):
+            yield chunk
 
 
 class OpencodeGoBackend(OpenAIConnector):
@@ -181,29 +336,43 @@ class OpencodeGoBackend(OpenAIConnector):
             return "anthropic"
         return None
 
-    @staticmethod
-    def _enforce_backend_vendor_prefix(raw_model: str) -> str:
-        """Ensure the model name carries the opencode-go vendor prefix.
-
-        The opencode-go backend requires every outbound model identifier to
-        include ``opencode-go/`` as the vendor prefix so that the remote
-        service can correctly distinguish its models.  This helper adds the
-        prefix when the caller omitted it.
-        """
-        if raw_model.startswith(f"{_OPENCODE_GO_VENDOR_PREFIX}/"):
-            return raw_model
-        return f"{_OPENCODE_GO_VENDOR_PREFIX}/{raw_model}"
-
     def _normalize_request(
         self, request: ConnectorChatCompletionsRequest, raw_model: str
     ) -> ConnectorChatCompletionsRequest:
-        prefixed = self._enforce_backend_vendor_prefix(raw_model)
-        normalized_request = request.request.model_copy(update={"model": prefixed})
-        return replace(request, request=normalized_request, effective_model=prefixed)
+        normalized_raw_model = _normalize_model_name(raw_model)
+        normalized_request = request.request.model_copy(
+            update={"model": normalized_raw_model}
+        )
+        return replace(
+            request,
+            request=normalized_request,
+            effective_model=normalized_raw_model,
+        )
+
+    async def _prepare_payload(
+        self,
+        request_data: Any,
+        processed_messages: list[Any],
+        effective_model: str,
+        context: Any | None = None,
+    ) -> dict[str, Any]:
+        normalized_model = _normalize_model_name(effective_model)
+        payload = await super()._prepare_payload(
+            request_data,
+            processed_messages,
+            normalized_model,
+            context,
+        )
+        wire_model = _normalize_model_name(
+            str(payload.get("model") or normalized_model)
+        )
+        if wire_model:
+            payload["model"] = wire_model
+        return payload
 
     def _build_unknown_model_error(self, model_name: str) -> RoutingError:
         supported_models = [
-            add_vendor_prefix(model, self.backend_type)
+            f"{self.backend_type}/{model}"
             for model in self._build_advertised_raw_models(
                 self._model_protocol_overrides
             )
@@ -221,22 +390,25 @@ class OpencodeGoBackend(OpenAIConnector):
         )
 
     async def initialize(self, **kwargs: Any) -> None:
-        self.api_key = kwargs.get("api_key")
-        if not self.api_key:
+        raw_key = kwargs.get("api_key")
+        if not raw_key or not isinstance(raw_key, str):
             raise ConfigurationError(
                 message="api_key is required for OpencodeGoBackend",
                 code="missing_api_key",
             )
+        self.api_key = _normalize_opencode_go_api_key(raw_key)
 
         shared_api_base_url = (
             kwargs.get("api_base_url") or _OPENCODE_GO_DEFAULT_BASE_URL
         )
-        openai_api_base_url = kwargs.get("openai_api_base_url") or shared_api_base_url
-        anthropic_api_base_url = (
-            kwargs.get("anthropic_api_base_url") or shared_api_base_url
+        openai_api_base_url = _normalize_openai_base_url(
+            str(kwargs.get("openai_api_base_url") or shared_api_base_url)
+        )
+        anthropic_api_base_url = _normalize_anthropic_base_url(
+            str(kwargs.get("anthropic_api_base_url") or shared_api_base_url)
         )
 
-        self.api_base_url = str(openai_api_base_url)
+        self.api_base_url = openai_api_base_url
         self._model_protocol_overrides = self._build_protocol_override_map(
             kwargs.get("model_protocol_overrides")
         )
@@ -249,7 +421,7 @@ class OpencodeGoBackend(OpenAIConnector):
             api_key=self.api_key,
             key_name=kwargs.get("key_name", self.backend_type),
             anthropic_api_base_url=anthropic_api_base_url,
-            auth_header_name=kwargs.get("auth_header_name", "x-api-key"),
+            auth_header_name="x-api-key",
         )
 
         if logger.isEnabledFor(logging.INFO):
@@ -260,16 +432,15 @@ class OpencodeGoBackend(OpenAIConnector):
             )
 
     def get_available_models(self) -> list[str]:
-        return [
-            add_vendor_prefix(model, self.backend_type)
-            for model in self.available_models
-        ]
+        return [f"{self.backend_type}/{model}" for model in self.available_models]
 
     async def get_available_models_async(self) -> list[str]:
         return self.get_available_models()
 
     def get_provider_name(self) -> str:
-        return self.backend_type
+        # The outer connector routes OpenAI-compatible requests through the
+        # OpenAI streaming stack; Anthropic requests use the private delegate.
+        return "openai"
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -294,7 +465,8 @@ class OpencodeGoBackend(OpenAIConnector):
         if protocol == "openai":
             return await super().chat_completions(normalized_request)
 
-        return await self._anthropic_delegate.chat_completions(normalized_request)
+        anthropic_req = _strip_opencode_go_anthropic_extra_body(normalized_request)
+        return await self._anthropic_delegate.chat_completions(anthropic_req)
 
 
 backend_registry.register_backend("opencode-go", OpencodeGoBackend)

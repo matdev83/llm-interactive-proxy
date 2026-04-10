@@ -20,7 +20,7 @@ def test_formatter_cline_path_keeps_pytest_output_unmodified() -> None:
     session = Session(
         session_id="sess-formatter-cline",
         agent="cline",
-        state=SessionState(pytest_compression_enabled=True),
+        state=SessionState(),
     )
     payload = _pytest_like_output()
     result = formatter.format_command_result_for_agent(
@@ -39,7 +39,7 @@ def test_formatter_non_cline_path_keeps_pytest_output_unmodified() -> None:
     session = Session(
         session_id="sess-formatter-chat",
         agent="openai",
-        state=SessionState(pytest_compression_enabled=True),
+        state=SessionState(),
     )
     payload = _pytest_like_output()
     result = formatter.format_command_result_for_agent(

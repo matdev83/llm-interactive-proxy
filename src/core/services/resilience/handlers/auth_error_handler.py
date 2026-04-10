@@ -105,6 +105,18 @@ class AuthErrorHandler(BaseErrorHandler):
         # NOTE: Some failure recorders don't attach __resilience_context__ to the
         # error (e.g., failures observed after returning an error envelope).
         # In that case, infer OAuth-ness from the instance id.
+        # OpenCode Go uses one API key for both OpenAI- and Anthropic-shaped routes.
+        # Upstream may return HTTP 401 for ambiguous reasons (subscription, routing,
+        # or header quirks). Permanently disabling the shared instance blocks every
+        # model on that backend and surfaces as "no available backend instance".
+        if instance_id_lower.startswith("opencode-go"):
+            return ResilienceAction(
+                type=ActionType.PROCEED,
+                reason=(
+                    "Auth errors for opencode-go do not permanently disable the instance"
+                ),
+            )
+
         if (
             context.extra.get("is_personal_backend") is True
             or "oauth" in backend_type

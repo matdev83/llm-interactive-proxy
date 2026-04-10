@@ -14,6 +14,8 @@ If your current setup feels fragile, expensive, opaque, or locked to one vendor,
 
 It is a compatibility layer, a security layer, a traffic control plane, a debugging surface, and a workflow improver for serious agentic use.
 
+> **Active Development**: This project is continuously evolving with new backends, routing features, and reliability improvements. See the [CHANGELOG](CHANGELOG.md) for the latest additions.
+
 - **Keep your existing clients** - Change the endpoint, not the app.
 - **Mix providers freely** - Route across APIs, plans, OAuth accounts, model families, and protocol styles.
 - **Control agents in production** - Add guardrails, rewrites, diagnostics, and policy at the proxy layer.
@@ -30,7 +32,23 @@ It is a compatibility layer, a security layer, a traffic control plane, a debugg
 
 ## At a glance
 
-Beyond basic forwarding, the proxy adds cross-protocol translation, tool safety, routing and failover, session-oriented features (including B2BUA-style handling), boundary-level CBOR captures, and usage tracking. Longer narratives, use-case lists, and feature tours live in the [User Guide](docs/user_guide/index.md).
+Beyond basic forwarding, the proxy adds cross-protocol translation, tool safety, routing and failover, session-oriented features (including B2BUA-style handling), boundary-level CBOR captures, usage tracking, and built-in token-saving controls. Longer narratives, use-case lists, and feature tours live in the [User Guide](docs/user_guide/index.md).
+
+- **One endpoint, many clients** - Keep existing OpenAI-, Anthropic-, and Gemini-style clients while changing routing behind the proxy.
+- **Token-saving that actually matters** - Shrink bloated sessions with stale-history compaction and content-aware tool-output compression.
+- **Production-minded resilience** - Use retries, failover, health tracking, and safeguards that respect streaming semantics.
+- **Operational visibility** - Inspect wire captures, diagnostics, and usage data instead of debugging blind.
+
+## Token Savings
+
+Long coding sessions tend to waste tokens in two different ways: old tool results remain in history, and fresh tool outputs are often much more verbose than the model needs. The proxy addresses both problems separately.
+
+- **Context Compaction** - Replaces stale historical tool results with explicit stubs once newer results for the same resource exist later in the conversation.
+- **Dynamic Tool Output Compression** - Reduces the size of the remaining tool outputs during request preparation using content-aware strategies.
+- **Designed to work together** - Compaction removes outdated history first; dynamic compression then reduces the cost of the tool outputs that still matter.
+- **Useful for real agent workloads** - Especially helpful for repeated file reads, large grep/search results, verbose test output, logs, diffs, and long debugging sessions.
+
+Start with the [Token Saving Guide](docs/user_guide/features/token-saving.md) for the overall picture, then go deeper into [Context Compaction](docs/user_guide/features/context-compaction.md) and [Dynamic Tool Output Compression](docs/user_guide/features/dynamic-tool-output-compression.md).
 
 ## Resilience & Reliability
 
@@ -42,23 +60,6 @@ The proxy includes built-in resilience features for production use:
 - **Health monitoring** - Tracks backend availability and performance
 
 Configure via the `resilience` section in `config.yaml` or see the [Failure Handling Guide](docs/user_guide/features/failure-handling.md).
-
-## Dynamic Tool-Output Compression
-
-**Documentation:** [Dynamic Tool Output Compression Guide](docs/user_guide/features/dynamic-tool-output-compression.md)
-
-Intelligently compress verbose tool outputs to conserve context window space while preserving essential information for LLM reasoning.
-
-**Enable:** `--dynamic-compression-enabled` or set `dynamic_compression.enabled: true` in your config file.
-
-The proxy analyzes tool outputs and applies content-aware compression strategies:
-- **Test output reduction** - Keeps only failures from pytest/build output
-- **File summarization** - Reduces large file reads to structure or signatures  
-- **Log deduplication** - Removes repetitive log lines while preserving unique events
-- **Search result grouping** - Organizes and limits search matches
-- **JSON/XML summarization** - Compresses structured data intelligently
-
-Use this when working with large codebases, extensive test suites, or long-running sessions where token conservation matters.
 
 ## Quick Start
 
@@ -188,6 +189,8 @@ The proxy uses a flexible selector syntax for routing requests to backends:
 ```bash
 --default-backend "[weight=3]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet"
 ```
+When a weighted branch fails before meaningful output starts, runtime recovery can
+re-roll within the same request by excluding the failed branch and choosing from the remaining weighted leaves.
 
 **With parameters:** Pass model parameters in the selector
 ```bash
@@ -219,6 +222,7 @@ See [Access Modes](docs/user_guide/access-modes.md) for the security model and d
 - **[Quick Start](docs/user_guide/quick-start.md)** - Get running fast
 - **[User Guide](docs/user_guide/index.md)** - End-user documentation and feature catalog
 - **[Configuration Guide](docs/user_guide/configuration.md)** - Flags, config, and operational settings
+- **[Token Saving Guide](docs/user_guide/features/token-saving.md)** - Understand context compaction and dynamic tool-output compression
 - **[Frontend Overview](docs/user_guide/frontends/overview.md)** - Choose the right API surface
 - **[Backends Overview](docs/user_guide/backends/overview.md)** - Provider setup and switching
 - **[Security Docs](docs/user_guide/security/authentication.md)** - Authentication and key-handling guidance

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from src.core.domain.chat import StreamingToolCall, ToolCall
 
@@ -35,6 +35,24 @@ class StreamingUsage(BaseModel):
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+    cache_read_input_tokens: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _map_anthropic_style_usage_keys(cls, data: Any) -> Any:
+        """Anthropic/Messages API streams use input_tokens/output_tokens naming."""
+
+        if not isinstance(data, dict):
+            return data
+        mapped = dict(data)
+        if "prompt_tokens" not in mapped and "input_tokens" in mapped:
+            mapped["prompt_tokens"] = mapped.get("input_tokens")
+        if "completion_tokens" not in mapped and "output_tokens" in mapped:
+            mapped["completion_tokens"] = mapped.get("output_tokens")
+        mapped.pop("input_tokens", None)
+        mapped.pop("output_tokens", None)
+        return mapped
 
 
 class StreamingMetadata(BaseModel):

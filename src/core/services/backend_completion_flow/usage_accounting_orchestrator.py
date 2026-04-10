@@ -11,6 +11,7 @@ from typing import Any
 from pydantic.types import JsonValue
 
 from src.connectors.base import LLMBackend
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -201,14 +202,18 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                     message_count = 0
                     if hasattr(request, "messages"):
                         message_count = len(request.messages) if request.messages else 0
-                    logger.debug(
-                        f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens} (verbatim: {verbatim_tokens}, "
-                        f"verbatim_message_count: {message_count}, usage_tracking_enabled: {self._usage_tracking_service is not None})"
-                    )
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens} (verbatim: {verbatim_tokens}, "
+                            f"verbatim_message_count: {message_count}, usage_tracking_enabled: {self._usage_tracking_service is not None})",
+                        )
                 else:
-                    logger.debug(
-                        f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens} (verbatim: {verbatim_tokens})"
-                    )
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens} (verbatim: {verbatim_tokens})",
+                        )
 
             # Record request usage
             if self._usage_tracking_service:
@@ -805,6 +810,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             is_auth_error
             and hasattr(backend, "has_static_credentials")
             and backend.has_static_credentials
+            and not str(backend_type).lower().startswith("opencode-go")
         ):
             # Permanent auth failure for static backends (env vars)
             if logger.isEnabledFor(logging.ERROR):

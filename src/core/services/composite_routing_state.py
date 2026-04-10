@@ -15,6 +15,9 @@ __all__ = [
     "COMPOSITE_ROUTING_SURFACE_KEY",
     "FAILOVER_MODE",
     "FailoverRuntimeState",
+    "WeightedRetryBranch",
+    "WEIGHTED_RETRY_MODE",
+    "WeightedRetryRuntimeState",
     "build_budget_exhausted_error",
     "build_failover_exhausted_error",
     "contains_top_level_operator",
@@ -27,6 +30,7 @@ COMPOSITE_ROUTING_SURFACE_KEY = "composite_routing_surface"
 COMPOSITE_LEAF_RESOLUTION_FLAG = "composite_leaf_resolution"
 COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY = "_composite_leaf_resolution"
 FAILOVER_MODE = "failover"
+WEIGHTED_RETRY_MODE = "weighted_retry"
 
 
 class FailoverRuntimeState(TypedDict):
@@ -35,6 +39,28 @@ class FailoverRuntimeState(TypedDict):
     mode: str
     branches: list[str]
     next_index: int
+    hop_count: int
+    max_hops: int
+
+
+class WeightedRetryBranch(TypedDict):
+    """One weighted leaf stored in request-scoped runtime retry state."""
+
+    selector: str
+    weight: int
+
+
+class WeightedRetryRuntimeState(TypedDict):
+    """Runtime snapshot for request-scoped weighted reroll failover.
+
+    Stored under :data:`COMPOSITE_ROUTING_STATE_KEY` with ``mode`` =
+    :data:`WEIGHTED_RETRY_MODE`.
+    """
+
+    mode: str
+    branches: list[WeightedRetryBranch]
+    excluded_selectors: list[str]
+    selected_selector: str
     hop_count: int
     max_hops: int
 
@@ -48,18 +74,17 @@ def resolve_composite_routing_surface(context: RequestContext | None) -> Routing
     if not isinstance(extensions, dict):
         return RoutingSurface.MAIN
 
+    raw_purpose = extensions.get("call_purpose")
+    if isinstance(raw_purpose, str) and raw_purpose.startswith("quality_verifier"):
+        return RoutingSurface.QUALITY_VERIFIER
     raw_surface = extensions.get(COMPOSITE_ROUTING_SURFACE_KEY)
     if isinstance(raw_surface, str):
         try:
             return RoutingSurface(raw_surface)
         except ValueError:
             pass
-
-    raw_purpose = extensions.get("call_purpose")
     if raw_purpose == "auxiliary":
         return RoutingSurface.AUXILIARY
-    if isinstance(raw_purpose, str) and raw_purpose.startswith("quality_verifier"):
-        return RoutingSurface.QUALITY_VERIFIER
     if raw_purpose in {"replacement", "model_replacement"}:
         return RoutingSurface.REPLACEMENT_BRIDGE
     return RoutingSurface.MAIN

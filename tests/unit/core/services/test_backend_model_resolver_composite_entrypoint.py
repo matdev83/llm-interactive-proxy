@@ -266,7 +266,10 @@ async def test_replacement_surface_translates_selector_and_publishes_deprecation
     routing_input = composite_routing_service.resolve_target.await_args.kwargs[
         "routing_input"
     ]
-    assert routing_input.selector == "openai:gpt-4o-mini"
+    assert (
+        routing_input.selector
+        == "[weight=1]openai:gpt-4o-mini^[weight=1]openai:gpt-4o-mini"
+    )
     assert routing_input.require_explicit_backend is True
     deprecation = context.extensions.get("replacement_deprecation")
     assert isinstance(deprecation, dict)
@@ -514,3 +517,112 @@ async def test_composite_weighted_numbered_instances_respects_deterministic_rand
     assert result.backend == "openai.2"
     assert result.model == "gpt-branch-b"
     assert result.uri_params == {"b": "2"}
+
+
+@pytest.mark.asyncio
+async def test_model_alias_resolving_to_composite_selector_is_parsed_and_routed() -> (
+    None
+):
+    """Verify that model aliases can resolve to composite selectors.
+
+    When a model alias maps to a failover or weighted composite string,
+    the resolved string should be parsed and routed through the composite
+    routing system just like a directly-provided composite selector.
+    """
+    alias_pattern = "alias:minimax-m2"
+    composite_replacement = "ollama:minimax-m2.7-cloud|opencode-zen:minimax-m2.5-free"
+
+    session_service = MagicMock()
+    session_service.get_session = AsyncMock(return_value=None)
+
+    model_alias_resolver = MagicMock()
+    model_alias_resolver.resolve.side_effect = lambda model: (
+        composite_replacement if model == alias_pattern else model
+    )
+
+    planning_phase_manager = MagicMock()
+    planning_phase_manager.apply_if_needed = AsyncMock()
+
+    backend_lifecycle_manager = MagicMock()
+    backend_lifecycle_manager.get_disabled_backends.return_value = {}
+
+    routing_service = MagicMock()
+    routing_service.resolve_backend_instance.side_effect = (
+        lambda backend, model, excluded: backend
+    )
+    routing_service.resolve_model_only_backend.side_effect = lambda model, excluded: (
+        "ollama" if "ollama" in model else "opencode-zen"
+    )
+
+    resolver = BackendModelResolver(
+        session_service=session_service,
+        model_alias_resolver=model_alias_resolver,
+        planning_phase_manager=planning_phase_manager,
+        backend_lifecycle_manager=backend_lifecycle_manager,
+        config=AppConfig(),
+        routing_service=routing_service,
+    )
+
+    result = await resolver.resolve_target(
+        _request(alias_pattern),
+        context=_context("main"),
+    )
+
+    calls = model_alias_resolver.resolve.call_args_list
+    assert calls[0].args[0] == alias_pattern
+    assert result.backend == "ollama"
+    assert result.model == "minimax-m2.7-cloud"
+
+
+@pytest.mark.asyncio
+async def test_model_alias_composite_failover_advances_when_first_backend_unavailable() -> (
+    None
+):
+    """Verify alias-resolved composite failover advances on first-branch failure."""
+    alias_pattern = "alias:minimax-m2"
+    composite_replacement = "ollama:minimax-m2.7-cloud|opencode-zen:minimax-m2.5-free"
+
+    session_service = MagicMock()
+    session_service.get_session = AsyncMock(return_value=None)
+
+    model_alias_resolver = MagicMock()
+    model_alias_resolver.resolve.side_effect = lambda model: (
+        composite_replacement if model == alias_pattern else model
+    )
+
+    planning_phase_manager = MagicMock()
+    planning_phase_manager.apply_if_needed = AsyncMock()
+
+    backend_lifecycle_manager = MagicMock()
+    backend_lifecycle_manager.get_disabled_backends.return_value = {}
+
+    routing_service = MagicMock()
+
+    def _resolve_backend_instance(
+        backend_type: str,
+        _model_name: str,
+        excluded_backends: set[str],
+    ) -> str | None:
+        if backend_type == "ollama":
+            return None
+        return backend_type
+
+    routing_service.resolve_backend_instance.side_effect = _resolve_backend_instance
+    routing_service.resolve_model_only_backend.return_value = "opencode-zen"
+
+    resolver = BackendModelResolver(
+        session_service=session_service,
+        model_alias_resolver=model_alias_resolver,
+        planning_phase_manager=planning_phase_manager,
+        backend_lifecycle_manager=backend_lifecycle_manager,
+        config=AppConfig(),
+        routing_service=routing_service,
+    )
+
+    result = await resolver.resolve_target(
+        _request(alias_pattern),
+        context=_context("main"),
+    )
+
+    assert result.backend == "opencode-zen"
+    assert result.model == "minimax-m2.5-free"

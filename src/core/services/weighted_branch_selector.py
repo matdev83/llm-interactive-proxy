@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from src.core.domain.composite_routing import (
     CompositeLeafNode,
@@ -22,6 +22,44 @@ class WeightedBranchSelector:
     ) -> None:
         self._random_value_provider = random_value_provider or random.random
 
+    def select_index_from_weights(self, weights: Sequence[int]) -> int:
+        """Return a branch index using the same RNG and cumulative rule as :meth:`select`.
+
+        For callers that only have a plain positive integer weight vector (e.g. bridge
+        layers) without a :class:`CompositeWeightedGroupNode`. Does not alter
+        :meth:`select` behavior.
+        """
+        if not weights:
+            raise ValueError("Weighted selection requires at least one weight.")
+
+        normalized_weights: list[int] = []
+        for resolved_weight in weights:
+            if resolved_weight <= 0:
+                raise ValueError(
+                    f"Invalid branch weight {resolved_weight}; weights must be positive."
+                )
+            normalized_weights.append(resolved_weight)
+
+        total_weight = sum(normalized_weights)
+        if total_weight <= 0:
+            raise ValueError("Weighted selection must have a positive total weight.")
+
+        random_value = float(self._random_value_provider())
+        if random_value < 0.0:
+            random_value = 0.0
+        elif random_value >= 1.0:
+            random_value = 0.9999999999999999
+
+        threshold = random_value * total_weight
+        cumulative_weight = 0.0
+
+        for index, weight in enumerate(normalized_weights):
+            cumulative_weight += weight
+            if threshold < cumulative_weight:
+                return index
+
+        return len(normalized_weights) - 1
+
     def select(self, weighted_node: CompositeWeightedGroupNode) -> CompositeLeafNode:
         if not weighted_node.children:
             raise ValueError("Weighted node must contain at least one branch.")
@@ -36,27 +74,5 @@ class WeightedBranchSelector:
                 )
             normalized_weights.append(resolved_weight)
 
-        total_weight = sum(normalized_weights)
-        if total_weight <= 0:
-            raise ValueError("Weighted node must have a positive total weight.")
-
-        random_value = float(self._random_value_provider())
-        if random_value < 0.0:
-            random_value = 0.0
-        elif random_value >= 1.0:
-            # Clamp to keep deterministic selection in [0, 1) when test doubles
-            # return boundary or out-of-range values.
-            random_value = 0.9999999999999999
-
-        threshold = random_value * total_weight
-        cumulative_weight = 0.0
-
-        for branch, weight in zip(
-            weighted_node.children, normalized_weights, strict=True
-        ):
-            cumulative_weight += weight
-            if threshold < cumulative_weight:
-                return branch
-
-        # Floating-point edge case fallback: return the final branch deterministically.
-        return weighted_node.children[-1]
+        index = self.select_index_from_weights(normalized_weights)
+        return weighted_node.children[index]

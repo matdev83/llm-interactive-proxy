@@ -212,6 +212,11 @@ class HybridOrchestrator:
             execution_backend=spec.execution_backend,
         )
 
+        # The orchestrator owns session_id propagation; drop caller-provided duplicate
+        # kwargs to avoid Python argument collisions in the execution fallback call.
+        execution_kwargs = dict(kwargs)
+        execution_kwargs.pop("session_id", None)
+
         response = await self._execute_execution_phase_with_fallback(
             request_data,
             augmented_messages,
@@ -222,7 +227,7 @@ class HybridOrchestrator:
             session_id,
             reasoning_output,
             original_message_count=len(processed_messages),
-            **kwargs,
+            **execution_kwargs,
         )
 
         # Filter and build final response

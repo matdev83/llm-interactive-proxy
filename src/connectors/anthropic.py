@@ -18,6 +18,7 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.capture_aware_httpx import (
     CaptureAwareAsyncClient,
     HttpxBoundaryCaptureContext,
@@ -69,6 +70,143 @@ _NON_FORWARDABLE_EXTRA_BODY_KEYS = frozenset(
 _LLM_PROXY_REQUEST_ID_KEY = "_llm_proxy_request_id"
 _LLM_PROXY_SESSION_ID_KEY = "_llm_proxy_session_id"
 _LLM_PROXY_CLIENT_HOST_KEY = "_llm_proxy_client_host"
+
+
+def _message_tool_calls(msg: Any) -> list[Any] | None:
+    raw = (
+        msg.get("tool_calls")
+        if isinstance(msg, dict)
+        else getattr(msg, "tool_calls", None)
+    )
+    if isinstance(raw, list) and raw:
+        return raw
+    return None
+
+
+def _message_tool_call_id(msg: Any) -> str | None:
+    raw = (
+        msg.get("tool_call_id")
+        if isinstance(msg, dict)
+        else getattr(msg, "tool_call_id", None)
+    )
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s or None
+
+
+def _tool_result_content_as_string(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if content is None:
+        return ""
+    if isinstance(content, list | dict):
+        return json.dumps(content, ensure_ascii=False)
+    return str(content)
+
+
+def _openai_tool_call_to_anthropic_tool_use(tc: Any) -> dict[str, Any]:
+    if hasattr(tc, "model_dump"):
+        tc = tc.model_dump()
+    if not isinstance(tc, dict):
+        return {
+            "type": "tool_use",
+            "id": "",
+            "name": "",
+            "input": {},
+        }
+    fn = tc.get("function")
+    if not isinstance(fn, dict):
+        fn = {}
+    name = fn.get("name") or ""
+    args_raw = fn.get("arguments")
+    input_obj: Any
+    if isinstance(args_raw, str):
+        s = args_raw.strip()
+        if not s:
+            input_obj = {}
+        else:
+            try:
+                input_obj = json.loads(s)
+            except json.JSONDecodeError:
+                input_obj = {"_raw_arguments": args_raw}
+    elif isinstance(args_raw, dict):
+        input_obj = args_raw
+    else:
+        input_obj = {}
+    if not isinstance(input_obj, dict):
+        input_obj = {"value": input_obj}
+    tid = tc.get("id")
+    return {
+        "type": "tool_use",
+        "id": str(tid) if tid is not None else "",
+        "name": str(name) if name is not None else "",
+        "input": input_obj,
+    }
+
+
+def _openai_list_content_to_anthropic_parts(
+    content: list[Any],
+    *,
+    log_extra: dict[str, Any] | None = None,
+) -> list[Any]:
+    """Convert OpenAI-style list content (parts) to Anthropic message content blocks."""
+
+    parts: list[Any] = []
+    for part in content:
+        if isinstance(part, dict):
+            part_obj = part.copy()
+            part_type = part_obj.get("type")
+
+            if part_type == "text" and "text" in part_obj:
+                parts.append(part_obj)
+            elif part_type == "image":
+                source = part_obj.get("source", {})
+                if source:
+                    parts.append(part_obj)
+            elif part_type == "image_url":
+                image_url_data = part_obj.get("image_url", {})
+                url = (
+                    image_url_data.get("url", "")
+                    if isinstance(image_url_data, dict)
+                    else str(image_url_data)
+                )
+                if url.startswith("data:"):
+                    try:
+                        header, data = url.split(",", 1)
+                        media_type = header.split(";")[0].replace("data:", "")
+                        parts.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": data,
+                                },
+                            }
+                        )
+                    except ValueError:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Invalid data URI format: %s",
+                                url[:50],
+                                exc_info=True,
+                                extra=log_extra if log_extra else None,
+                            )
+                elif url.startswith(("http://", "https://")):
+                    parts.append(
+                        {
+                            "type": "image",
+                            "source": {"type": "url", "url": url},
+                        }
+                    )
+            elif part_type == "document" or part_type in ("tool_use", "tool_result"):
+                parts.append(part_obj)
+            else:
+                parts.append(part_obj)
+        else:
+            parts.append({"type": "text", "text": str(part)})
+    return parts
 
 
 class AnthropicBackend(LLMBackend):
@@ -318,8 +456,9 @@ class AnthropicBackend(LLMBackend):
             f" {log_extra}" if log_extra else "",
             extra=log_extra if log_extra else None,
         )
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
+        if logger.isEnabledFor(TRACE_LEVEL):
+            logger.log(
+                TRACE_LEVEL,
                 "Anthropic payload: %s",
                 json.dumps(anthropic_payload, indent=2),
                 extra=log_extra if log_extra else None,
@@ -474,83 +613,50 @@ class AnthropicBackend(LLMBackend):
                     system_prompt = json.dumps(content)
                 continue
 
+            log_extra_payload = self._get_log_extra(context) if context else None
+
+            if role == "tool":
+                tcid = _message_tool_call_id(msg)
+                anth_messages.append(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tcid or "",
+                                "content": _tool_result_content_as_string(content),
+                            }
+                        ],
+                    }
+                )
+                continue
+
+            if role == "assistant":
+                tc_list = _message_tool_calls(msg)
+                if tc_list:
+                    asst_parts: list[Any] = []
+                    if isinstance(content, list):
+                        asst_parts.extend(
+                            _openai_list_content_to_anthropic_parts(
+                                content, log_extra=log_extra_payload
+                            )
+                        )
+                    elif isinstance(content, str) and content.strip():
+                        asst_parts.append({"type": "text", "text": content})
+                    elif content is not None:
+                        asst_parts.append({"type": "text", "text": str(content)})
+                    for tc in tc_list:
+                        asst_parts.append(_openai_tool_call_to_anthropic_tool_use(tc))
+                    anth_messages.append({"role": "assistant", "content": asst_parts})
+                    continue
+
             # Map content - content is already processed by middleware
             if isinstance(content, str):
                 anth_messages.append({"role": role, "content": content})
             elif isinstance(content, list):
-                # For list-of-parts, Anthropic supports various content block types
-                parts: list[Any] = []
-                for part in content:
-                    if isinstance(part, dict):
-                        part_obj = part.copy()
-                        part_type = part_obj.get("type")
-
-                        if part_type == "text" and "text" in part_obj:
-                            # Text content is already processed by middleware
-                            parts.append(part_obj)
-                        elif part_type == "image":
-                            # Anthropic image block - ensure proper source format
-                            source = part_obj.get("source", {})
-                            if source:
-                                parts.append(part_obj)
-                        elif part_type == "image_url":
-                            # Convert OpenAI image_url format to Anthropic image format
-                            image_url_data = part_obj.get("image_url", {})
-                            url = (
-                                image_url_data.get("url", "")
-                                if isinstance(image_url_data, dict)
-                                else str(image_url_data)
-                            )
-                            if url.startswith("data:"):
-                                # Data URI - extract base64 and media type
-                                try:
-                                    header, data = url.split(",", 1)
-                                    media_type = header.split(";")[0].replace(
-                                        "data:", ""
-                                    )
-                                    parts.append(
-                                        {
-                                            "type": "image",
-                                            "source": {
-                                                "type": "base64",
-                                                "media_type": media_type,
-                                                "data": data,
-                                            },
-                                        }
-                                    )
-                                except ValueError:
-                                    if logger.isEnabledFor(logging.WARNING):
-                                        log_extra_payload = self._get_log_extra(context)
-                                        logger.warning(
-                                            "Invalid data URI format: %s",
-                                            url[:50],
-                                            exc_info=True,
-                                            extra=(
-                                                log_extra_payload
-                                                if log_extra_payload
-                                                else None
-                                            ),
-                                        )
-                            elif url.startswith(("http://", "https://")):
-                                # URL source
-                                parts.append(
-                                    {
-                                        "type": "image",
-                                        "source": {"type": "url", "url": url},
-                                    }
-                                )
-                        elif part_type == "document":
-                            # Document block (PDF) - pass through
-                            parts.append(part_obj)
-                        elif part_type in ("tool_use", "tool_result"):
-                            # Tool-related blocks - pass through
-                            parts.append(part_obj)
-                        else:
-                            # Unknown type - pass through
-                            parts.append(part_obj)
-                    else:
-                        # unknown part type -> stringify
-                        parts.append({"type": "text", "text": str(part)})
+                parts = _openai_list_content_to_anthropic_parts(
+                    content, log_extra=log_extra_payload
+                )
                 anth_messages.append({"role": role, "content": parts})
             elif content is None:
                 anth_messages.append({"role": role, "content": ""})

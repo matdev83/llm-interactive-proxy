@@ -222,8 +222,6 @@ properties:
           max_samples: { type: integer, minimum: 1 }
       dangerous_command_prevention_enabled: { type: boolean }
       dangerous_command_steering_message: { type: ["string", "null"] }
-      pytest_compression_enabled: { type: boolean }
-      pytest_compression_min_lines: { type: integer, minimum: 1 }
       pytest_full_suite_steering_enabled: { type: boolean }
       pytest_full_suite_steering_message: { type: ["string", "null"] }
       test_execution_reminder_enabled: { type: boolean }

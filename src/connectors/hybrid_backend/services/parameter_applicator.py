@@ -37,12 +37,16 @@ class ParameterApplicator:
         params: dict[str, Any],
     ) -> DomainModel | InternalDTO | dict[str, Any]:
         """Apply a parameter dictionary to the request data."""
-        # If no parameters to override, return original
-        if not params:
+        # Coerce to a plain dict so callers may pass BackendParameters (or other
+        # dict()-compatible objects). Empty BackendParameters must map to {} — the
+        # model instance is always truthy and would otherwise skip this early return
+        # and still mutate dict payloads (e.g. inject extra_body=None).
+        plain_params: dict[str, Any] = dict(params)
+        if not plain_params:
             return request_data
 
         # Log the overrides
-        for key, value in params.items():
+        for key, value in plain_params.items():
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Applying override %s=%s to request", key, value)
 
@@ -53,7 +57,7 @@ class ParameterApplicator:
             new_extra_body = dict(current_extra_body) if current_extra_body else {}
 
             # Apply overrides
-            new_extra_body.update(params)
+            new_extra_body.update(plain_params)
 
             # Strip hybrid routing hints that would confuse downstream connectors
             for drop_key in ("backend_type", "model"):
@@ -62,7 +66,7 @@ class ParameterApplicator:
             return request_data.model_copy(
                 update={
                     "extra_body": new_extra_body if new_extra_body else None,
-                    **params,
+                    **plain_params,
                 }
             )
 
@@ -76,13 +80,13 @@ class ParameterApplicator:
             )
 
             # Apply overrides
-            new_extra_body.update(params)
+            new_extra_body.update(plain_params)
             for drop_key in ("backend_type", "model"):
                 new_extra_body.pop(drop_key, None)
             request_copy["extra_body"] = new_extra_body if new_extra_body else None
 
             # Expose overrides at the top level for compatibility
-            request_copy.update(params)
+            request_copy.update(plain_params)
 
             return request_copy
 
@@ -96,13 +100,13 @@ class ParameterApplicator:
             )
 
             # Apply overrides
-            new_extra_body.update(params)
+            new_extra_body.update(plain_params)
             for drop_key in ("backend_type", "model"):
                 new_extra_body.pop(drop_key, None)
             request_dict["extra_body"] = new_extra_body if new_extra_body else None
 
             # Merge overrides into the dataclass representation
-            request_dict.update(params)
+            request_dict.update(plain_params)
 
             # Return as dict since we can't easily reconstruct the dataclass
             return request_dict

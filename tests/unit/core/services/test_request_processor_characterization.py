@@ -25,10 +25,6 @@ from src.core.interfaces.backend_request_manager_interface import IBackendReques
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
-from src.core.services.auxiliary_identity import (
-    build_auxiliary_effective_session_id,
-    derive_auxiliary_operation_key,
-)
 from src.core.services.request_processor_service import RequestProcessor
 
 
@@ -311,14 +307,14 @@ async def test_model_only_colon_suffix_does_not_override_context_backend(
 
 
 @pytest.mark.asyncio
-async def test_auxiliary_routing_rewrites_model_and_isolates_session(
+async def test_request_processor_delegates_auxiliary_routing_to_preparer(
     request_processor: RequestProcessor,
     request_context: RequestContext,
     mock_app_state: IApplicationState,
     mock_session_enricher,
     mock_backend_executor,
 ) -> None:
-    """Regression: auxiliary routing should not impact the primary session."""
+    """RequestProcessor delegates auxiliary routing to BackendRequestPreparer."""
 
     # Enable auxiliary routing (route to a lightweight backend:model).
     cast(Any, mock_app_state).get_setting.return_value = MagicMock(
@@ -346,34 +342,12 @@ async def test_auxiliary_routing_rewrites_model_and_isolates_session(
     call_args = mock_backend_executor.execute.call_args
     assert call_args is not None
     called_request = call_args.args[3]
-    assert called_request.model == "openai:gpt-4o-mini"
-
-    # And the context should be marked as auxiliary (so BackendExecutor isolates it).
-    assert request_context.extensions.get("auxiliary_request") is True
-    assert (
-        request_context.extensions.get("auxiliary_root_session_id")
-        == request_context.session_id
-    )
-    assert request_context.extensions.get("auxiliary_purpose") == "openai:gpt-4o-mini"
-    operation_key = request_context.extensions.get("auxiliary_operation_key")
-    assert isinstance(operation_key, str) and operation_key
-    expected_auxiliary_session_id = build_auxiliary_effective_session_id(
-        root_session_id=cast(str, request_context.session_id),
-        purpose="openai:gpt-4o-mini",
-        operation_key=derive_auxiliary_operation_key(
-            context=request_context,
-            request_data=request,
-            purpose="openai:gpt-4o-mini",
-        ),
-        attempt_ordinal=1,
-    )
-    assert request_context.extensions.get("auxiliary_effective_session_id") == (
-        expected_auxiliary_session_id
-    )
+    assert called_request.model == "google/gemini-3-flash-preview"
+    assert request_context.extensions.get("auxiliary_request") is None
 
 
 @pytest.mark.asyncio
-async def test_auxiliary_routing_overrides_explicit_client_backend_for_title_requests(
+async def test_request_processor_does_not_override_explicit_backend_before_preparer(
     request_processor: RequestProcessor,
     request_context: RequestContext,
     mock_app_state: IApplicationState,
@@ -410,19 +384,12 @@ async def test_auxiliary_routing_overrides_explicit_client_backend_for_title_req
     call_args = mock_backend_executor.execute.call_args
     assert call_args is not None
     called_request = call_args.args[3]
-    assert called_request.model == "openrouter:openrouter/free"
-    assert request_context.extensions.get("auxiliary_request") is True
-    assert request_context.extensions.get("auxiliary_original_backend") == "qwen-oauth"
-    assert (
-        request_context.extensions.get("auxiliary_original_model")
-        == "qwen/coder-model"
-    )
-    assert request_context.extensions.get("auxiliary_backend") == "openrouter"
-    assert request_context.extensions.get("auxiliary_model") == "openrouter/free"
+    assert called_request.model == "qwen-oauth:qwen/coder-model"
+    assert request_context.extensions.get("auxiliary_request") is None
 
 
 @pytest.mark.asyncio
-async def test_auxiliary_routing_handles_tool_title_requests_with_extra_messages(
+async def test_tool_title_requests_are_not_rewritten_before_preparer(
     request_processor: RequestProcessor,
     request_context: RequestContext,
     mock_app_state: IApplicationState,
@@ -462,12 +429,12 @@ async def test_auxiliary_routing_handles_tool_title_requests_with_extra_messages
     call_args = mock_backend_executor.execute.call_args
     assert call_args is not None
     called_request = call_args.args[3]
-    assert called_request.model == "openrouter:openrouter/free"
-    assert request_context.extensions.get("auxiliary_request") is True
+    assert called_request.model == "qwen-oauth:qwen/coder-model"
+    assert request_context.extensions.get("auxiliary_request") is None
 
 
 @pytest.mark.asyncio
-async def test_auxiliary_routing_handles_title_generator_system_prompt_requests(
+async def test_system_prompt_title_requests_are_not_rewritten_before_preparer(
     request_processor: RequestProcessor,
     request_context: RequestContext,
     mock_app_state: IApplicationState,
@@ -503,8 +470,8 @@ async def test_auxiliary_routing_handles_title_generator_system_prompt_requests(
     call_args = mock_backend_executor.execute.call_args
     assert call_args is not None
     called_request = call_args.args[3]
-    assert called_request.model == "openrouter:openrouter/free"
-    assert request_context.extensions.get("auxiliary_request") is True
+    assert called_request.model == "qwen-oauth:qwen/coder-model"
+    assert request_context.extensions.get("auxiliary_request") is None
 
 
 @pytest.mark.asyncio

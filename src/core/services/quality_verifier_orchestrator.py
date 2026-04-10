@@ -15,6 +15,7 @@ from src.core.common.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
 from src.core.domain.chat import ChatRequest
+from src.core.domain.composite_routing import RoutingSurface
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
@@ -23,6 +24,7 @@ from src.core.interfaces.notification_service_interface import INotificationServ
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
+from src.core.services.composite_routing_state import COMPOSITE_ROUTING_SURFACE_KEY
 from src.core.services.quality_verifier_service import QualityVerifierService
 
 logger = logging.getLogger(__name__)
@@ -278,6 +280,9 @@ async def run_quality_verifier_decision(
             ctx = request_context
             if ctx is not None:
                 ctx.extensions["call_purpose"] = "quality_verifier"
+                ctx.extensions[COMPOSITE_ROUTING_SURFACE_KEY] = (
+                    RoutingSurface.QUALITY_VERIFIER.value
+                )
             qv_response = await backend_service.chat_completions(
                 qv_request,
                 stream=True,

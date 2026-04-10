@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import subprocess
 import sys
@@ -1790,12 +1789,6 @@ class PytestFailureFocusStrategy:
             return content
 
     def _resolve_min_lines(self) -> int:
-        env_value = os.environ.get("PYTEST_COMPRESSION_MIN_LINES")
-        if env_value is not None:
-            with suppress(TypeError, ValueError):
-                return max(0, int(env_value))
-            return 0
-
         if self._min_lines is None:
             return 0
         with suppress(TypeError, ValueError):

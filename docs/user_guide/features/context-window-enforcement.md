@@ -272,6 +272,5 @@ python -m src.core.cli \
 ## Related Features
 
 - [Session Management](session-management.md) - Intelligent session continuity
-- [Pytest Compression](pytest-compression.md) - Compress output to save tokens
 - [Pytest Context Saving](pytest-context-saving.md) - Add context-saving flags
 - [Edit Precision Tuning](edit-precision.md) - Automatic parameter adjustment

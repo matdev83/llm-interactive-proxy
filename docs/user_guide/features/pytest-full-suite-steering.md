@@ -264,7 +264,6 @@ session:
 
 ## Related Features
 
-- [Pytest Output Compression](pytest-compression.md) - Compress verbose pytest output to save context tokens
 - [Pytest Context Saving](pytest-context-saving.md) - Automatically add helpful pytest flags
 - [Test Execution Reminder](../test-execution-reminder.md) - Remind agents to run tests before completing tasks
 - [Dangerous Command Protection](dangerous-command-protection.md) - Block destructive commands

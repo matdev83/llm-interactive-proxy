@@ -56,7 +56,6 @@ async def test_app_builds_successfully_with_minimal_core_config():
                     pytest_full_suite_steering_enabled=True,
                     pytest_context_saving_enabled=True,
                 ),
-                pytest_compression_enabled=True,
             ),
         )
 

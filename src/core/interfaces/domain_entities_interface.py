@@ -237,24 +237,6 @@ class ISessionState(IValueObject, ISessionStateMutator):
 
     @property
     @abstractmethod
-    def pytest_compression_enabled(self) -> bool:
-        """Get whether pytest output compression is enabled for this session."""
-
-    @property
-    @abstractmethod
-    def pytest_compression_min_lines(self) -> int:
-        """Get minimum line threshold for pytest compression."""
-
-    @abstractmethod
-    def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
-        """Create a new state with updated pytest_compression_enabled flag."""
-
-    @abstractmethod
-    def with_pytest_compression_min_lines(self, min_lines: int) -> ISessionState:
-        """Create a new state with updated pytest_compression_min_lines value."""
-
-    @property
-    @abstractmethod
     def api_key_redaction_enabled(self) -> bool | None:
         """Get the session-specific API key redaction override."""
 

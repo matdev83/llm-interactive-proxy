@@ -98,6 +98,18 @@ async def test_weighted_coordinator_selects_exactly_one_branch() -> None:
     assert result.backend == "openai"
     assert result.model == "gpt-4"
     assert leaf_resolver.calls == ["openai:gpt-4"]
+    state = cast(dict[str, Any], context.extensions["composite_routing_state"])
+    assert state["mode"] == "weighted_retry"
+    assert state["selected_selector"] == "openai:gpt-4"
+    assert state["excluded_selectors"] == []
+    assert state["hop_count"] == 0
+    assert state["max_hops"] > 0
+    branches = state["branches"]
+    assert isinstance(branches, list)
+    assert branches == [
+        {"selector": "openai:gpt-4", "weight": 3},
+        {"selector": "anthropic:claude-3-5-sonnet", "weight": 1},
+    ]
     diagnostics = context.extensions.get("composite_routing_diagnostics")
     assert isinstance(diagnostics, dict)
     branch_history = diagnostics.get("branch_history")

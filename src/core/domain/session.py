@@ -73,8 +73,6 @@ class SessionState(ValueObject):
     hello_requested: bool = False
     is_cline_agent: bool = False
     vtc_enabled: bool = False  # Virtual Tool Calling mode for Cline-like clients
-    pytest_compression_enabled: bool = True
-    pytest_compression_min_lines: int = 0
     planning_phase_turn_count: int = 0
     planning_phase_file_write_count: int = 0
     api_key_redaction_enabled: bool | None = None
@@ -132,14 +130,6 @@ class SessionState(ValueObject):
     def with_vtc_enabled(self, enabled: bool) -> SessionState:
         """Create a new session state with updated vtc_enabled flag."""
         return self.model_copy(update={"vtc_enabled": enabled})
-
-    def with_pytest_compression_enabled(self, enabled: bool) -> SessionState:
-        """Create a new session state with updated pytest_compression_enabled flag."""
-        return self.model_copy(update={"pytest_compression_enabled": enabled})
-
-    def with_pytest_compression_min_lines(self, min_lines: int) -> SessionState:
-        """Create a new session state with updated pytest_compression_min_lines value."""
-        return self.model_copy(update={"pytest_compression_min_lines": min_lines})
 
     def with_planning_phase_config(
         self, planning_phase_config: PlanningPhaseConfiguration
@@ -347,16 +337,6 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         return self._state.vtc_enabled
 
     @property
-    def pytest_compression_enabled(self) -> bool:
-        """Whether pytest output compression is enabled for this session."""
-        return self._state.pytest_compression_enabled
-
-    @property
-    def pytest_compression_min_lines(self) -> int:
-        """Minimum line threshold for pytest compression."""
-        return self._state.pytest_compression_min_lines
-
-    @property
     def auto_append_first_prompt_applied(self) -> bool:
         """Whether the per-session first user-message append has already run."""
         return bool(getattr(self._state, "auto_append_first_prompt_applied", False))
@@ -450,20 +430,6 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def with_vtc_enabled(self, enabled: bool) -> ISessionState:
         """Create a new session state with updated vtc_enabled flag."""
         new_state = cast(SessionState, self._state).with_vtc_enabled(enabled)
-        return SessionStateAdapter(new_state)
-
-    def with_pytest_compression_enabled(self, enabled: bool) -> ISessionState:
-        """Create a new session state with updated pytest_compression_enabled flag."""
-        new_state = cast(SessionState, self._state).with_pytest_compression_enabled(
-            enabled
-        )
-        return SessionStateAdapter(new_state)
-
-    def with_pytest_compression_min_lines(self, min_lines: int) -> ISessionState:
-        """Create a new session state with updated pytest_compression_min_lines value."""
-        new_state = cast(SessionState, self._state).with_pytest_compression_min_lines(
-            min_lines
-        )
         return SessionStateAdapter(new_state)
 
     def with_planning_phase_config(self, config: IPlanningPhaseConfig) -> ISessionState:

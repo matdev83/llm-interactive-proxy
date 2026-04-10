@@ -26,12 +26,10 @@ class TestBackendAutoDiscovery:
 
         original_registry = registry_module.backend_registry
 
-        # Save and remove connector modules from cache to force re-import
-        saved_modules = {
-            key: sys.modules.pop(key)
-            for key in list(sys.modules)
-            if key.startswith("src.connectors")
-        }
+        # Remove connector modules from cache to force re-import.
+        for key in list(sys.modules):
+            if key.startswith("src.connectors"):
+                sys.modules.pop(key, None)
 
         try:
             # Replace with test registry
@@ -93,8 +91,11 @@ class TestBackendAutoDiscovery:
         finally:
             # Restore original registry
             registry_module.backend_registry = original_registry
-            # Restore saved modules to avoid polluting sys.modules for other tests
-            sys.modules.update(saved_modules)
+            for key in list(sys.modules):
+                if key.startswith("src.connectors"):
+                    sys.modules.pop(key, None)
+            # Do not restore prior connector module instances; allowing clean
+            # re-imports avoids stale module object interactions in later tests.
             from src.core.services.backend_discovery import (
                 reset_backend_discovery_state,
             )
@@ -190,12 +191,10 @@ class TestBackendAutoDiscovery:
         test_registry = BackendRegistry()
         original_registry = registry_module.backend_registry
 
-        # Save and remove connector modules from cache to force re-import
-        saved_modules = {
-            key: sys.modules.pop(key)
-            for key in list(sys.modules)
-            if key.startswith("src.connectors")
-        }
+        # Remove connector modules from cache to force re-import.
+        for key in list(sys.modules):
+            if key.startswith("src.connectors"):
+                sys.modules.pop(key, None)
 
         try:
             registry_module.backend_registry = test_registry
@@ -209,8 +208,9 @@ class TestBackendAutoDiscovery:
 
         finally:
             registry_module.backend_registry = original_registry
-            # Restore saved modules to avoid polluting sys.modules for other tests
-            sys.modules.update(saved_modules)
+            for key in list(sys.modules):
+                if key.startswith("src.connectors"):
+                    sys.modules.pop(key, None)
             from src.core.services.backend_discovery import (
                 reset_backend_discovery_state,
             )

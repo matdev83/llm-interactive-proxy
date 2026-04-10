@@ -23,13 +23,13 @@ class TestBackendImportsIntegration:
     @pytest.fixture
     def clean_import_state(self) -> Generator[None, None, None]:
         """Clean module cache before and after test to ensure fresh imports."""
-        # Save modules to clean up and remove from cache
-        saved_modules = {
-            key: sys.modules.pop(key)
-            for key in list(sys.modules)
-            if key.startswith("src.connectors")
-            or key == "src.core.services.backend_imports"
-        }
+        # Remove connector modules from cache to force a clean import.
+        for key in list(sys.modules):
+            if (
+                key.startswith("src.connectors")
+                or key == "src.core.services.backend_imports"
+            ):
+                sys.modules.pop(key, None)
 
         # Also need to reset the backend registry and discovery idempotency
         from src.core.services.backend_discovery import reset_backend_discovery_state
@@ -46,8 +46,18 @@ class TestBackendImportsIntegration:
         backend_registry._factories.update(original_factories)
         reset_backend_discovery_state()
 
-        # Restore saved modules to avoid polluting sys.modules for other tests
-        sys.modules.update(saved_modules)
+        # Remove connector modules imported during the test run first to avoid
+        # mixing stale/new module objects in sys.modules.
+        for key in list(sys.modules):
+            if (
+                key.startswith("src.connectors")
+                or key == "src.core.services.backend_imports"
+            ):
+                sys.modules.pop(key, None)
+
+        # Do not restore previous connector module objects. Re-importing connectors
+        # in later tests is safer than reintroducing potentially stale module
+        # instances captured before this fixture's isolation run.
 
     def test_backend_imports_triggers_connector_discovery(
         self, clean_import_state: None

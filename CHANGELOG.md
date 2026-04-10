@@ -10,6 +10,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Composite Model Routing**: Added ordered failover (`|`) and weighted random (`^`) selector syntax for intelligent backend failover and traffic distribution
+- **OpenCode Go Connector**: New hybrid connector for OpenCode Go with dedicated user guide and environment key support
+- **Ollama Local Connector**: Connect to locally running Ollama instances with support for both local and cloud model discovery (30-min TTL cache)
+- **Managed OAuth for OpenAI Codex**: Multi-account OAuth management with round-robin selection, JWT token handling, and persistent storage
+- **Dynamic Compression Layer**: Rule-based tool output compression system with structural compression strategies to conserve context window space
+- **NVIDIA NIM Backend**: New connector for NVIDIA NIM inference endpoints
+- **Reasoning Prompt Injection**: Support for reasoning model prompt injection in gemini-oauth backends
+- **B2BUA Session Handling**: Comprehensive B2BUA-like session management with state preservation across backend interactions
+- **Auto-Enable Auxiliary Routing**: Auxiliary routing now automatically enabled in single-user mode with opt-out capability
 - **InternLM Backend**: Added `internlm` backend connector for InternLM AI models with support for multiple API key rotation via `INTERNAI_API_KEY`, `INTERNAI_API_KEY_1`, etc. Supports vendor prefix routing (`internlm/`). Note: InternLM API uses non-streaming requests internally with SSE synthesis for client compatibility.
 - **Model Registry**: Implemented automated LLM model catalog registry and limit enforcement. This includes `ModelCatalogService` for metadata discovery, `ModelCatalogUpdater` for periodic background updates from models.dev, and automated enforcement of context window/token limits in `BackendPreparer` when local configuration is missing.
 - **Model Registry**: Added input modality validation (image/audio) when registry data provides `modalities` for a model; skipped when registry or model metadata is missing.

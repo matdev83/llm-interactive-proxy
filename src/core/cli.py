@@ -137,7 +137,7 @@ def apply_cli_args(
 
     applicator = ConfigurationApplicator()
     final_cfg = applicator.apply_overrides(args, base_cfg, resolution=res)
-    _emit_legacy_compression_deprecation_warnings(config=final_cfg, resolution=res)
+    _emit_legacy_compression_deprecation_warnings(config=final_cfg)
 
     if return_resolution:
         return final_cfg, res
@@ -145,35 +145,9 @@ def apply_cli_args(
 
 
 def _emit_legacy_compression_deprecation_warnings(
-    *, config: AppConfig, resolution: ParameterResolution
+    *, config: AppConfig
 ) -> None:
-    report_by_name = {entry.name: entry for entry in resolution.build_report(config)}
-    deprecated_controls = {
-        "session.pytest_compression_enabled": (
-            "dynamic_compression.methods.pytest_failure_focus"
-        ),
-        "session.pytest_compression_min_lines": (
-            "dynamic_compression.pytest_failure_focus_min_lines"
-        ),
-    }
-    for legacy_control, replacement in deprecated_controls.items():
-        entry = report_by_name.get(legacy_control)
-        if entry is None or entry.source.value == "default":
-            continue
-        origin = entry.origin or entry.source.value
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "Deprecated legacy compression control configured: %s. "
-                "Use %s instead. origin=%s",
-                legacy_control,
-                replacement,
-                origin,
-            )
-
     deprecated_env_controls = {
-        "PYTEST_COMPRESSION_MIN_LINES": (
-            "dynamic_compression.pytest_failure_focus_min_lines"
-        ),
         "GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS": (
             "dynamic_compression.methods.compact_acknowledgement + "
             "dynamic_compression.methods.failure_focus"

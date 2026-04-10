@@ -160,7 +160,7 @@ def _dedupe_lower_preserve_order(values: list[str]) -> list[str]:
     return result
 
 
-def _default_method_states() -> dict[str, bool | Literal["inherit_legacy"]]:
+def _default_method_states() -> dict[str, bool]:
     return {
         "ansi_normalize": True,
         "line_dedupe": True,
@@ -173,7 +173,7 @@ def _default_method_states() -> dict[str, bool | Literal["inherit_legacy"]]:
         "diff_compact": True,
         "mutating_success_ack": True,
         "stats_extraction_summary": True,
-        "pytest_failure_focus": "inherit_legacy",
+        "pytest_failure_focus": True,
         "failure_focus_generic": True,
         "diagnostics_grouping": True,
         "json_ndjson_structural": True,
@@ -1062,7 +1062,7 @@ class DynamicCompressionConfig(ValueObject):
             "other": True,
         }
     )
-    methods: dict[str, bool | Literal["inherit_legacy"]] = Field(
+    methods: dict[str, bool] = Field(
         default_factory=_default_method_states
     )
     pytest_failure_focus_min_lines: int | None = Field(default=None, ge=0)
@@ -1185,4 +1185,4 @@ class DynamicCompressionConfig(ValueObject):
         if normalized in self.disable_methods:
             return False
         state = self.methods.get(normalized, True)
-        return bool(state is True or state == "inherit_legacy")
+        return bool(state is True)

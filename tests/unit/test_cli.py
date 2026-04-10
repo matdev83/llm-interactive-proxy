@@ -316,104 +316,6 @@ def test_apply_cli_args_preserves_explicit_anthropic_port() -> None:
         assert config.anthropic_port == 1234
 
 
-def test_cli_pytest_compression_flags() -> None:
-    """Test that --enable-pytest-compression and --disable-pytest-compression flags work."""
-    # Patch load_config where it is looked up (in the 'cli' module)
-    with patch("src.core.cli.load_config") as mock_load_config:
-        # Create base config
-        base_config = AppConfig()
-        mock_load_config.return_value = base_config
-
-        args_enable = parse_cli_args(["--enable-pytest-compression"])
-        config_enable = _unwrap_config(apply_cli_args(args_enable))
-        assert config_enable.session.pytest_compression_enabled is True
-        assert (
-            config_enable.session.pytest_compression_min_lines
-            == base_config.session.pytest_compression_min_lines
-        )
-
-        args_disable = parse_cli_args(["--disable-pytest-compression"])
-        config_disable = _unwrap_config(apply_cli_args(args_disable))
-        assert config_disable.session.pytest_compression_enabled is False
-
-        args_none = parse_cli_args([])
-        config_none = _unwrap_config(apply_cli_args(args_none))
-        assert (
-            config_none.session.pytest_compression_enabled
-            == base_config.session.pytest_compression_enabled
-        )
-
-        custom_config = base_config.model_copy(
-            update={
-                "session": base_config.session.model_copy(
-                    update={"pytest_compression_enabled": True}
-                )
-            }
-        )
-        mock_load_config.return_value = custom_config
-        config_none_true = _unwrap_config(apply_cli_args(args_none))
-        assert config_none_true.session.pytest_compression_enabled is True
-
-        initial_config_override = base_config.model_copy(
-            update={
-                "session": base_config.session.model_copy(
-                    update={"pytest_compression_enabled": False}
-                )
-            }
-        )
-        mock_load_config.return_value = initial_config_override
-        config_override = _unwrap_config(apply_cli_args(args_enable))
-        assert config_override.session.pytest_compression_enabled is True
-
-
-def test_apply_cli_args_warns_for_deprecated_pytest_compression_controls(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    def fake_load_config(
-        _config_path: Any | None = None,
-        *,
-        resolution: ParameterResolution | None = None,
-        environ: Any | None = None,
-    ) -> AppConfig:
-        assert resolution is not None
-        resolution.record(
-            "session.pytest_compression_min_lines",
-            42,
-            ParameterSource.CONFIG_FILE,
-            origin="test-config",
-        )
-        return AppConfig()
-
-    with (
-        patch("src.core.cli.load_config", side_effect=fake_load_config),
-        caplog.at_level(logging.WARNING),
-    ):
-        _unwrap_config(apply_cli_args(parse_cli_args(["--enable-pytest-compression"])))
-
-    messages = [record.message for record in caplog.records]
-    assert any("session.pytest_compression_enabled" in message for message in messages)
-    assert any(
-        "session.pytest_compression_min_lines" in message for message in messages
-    )
-
-
-def test_apply_cli_args_records_disable_pytest_compression_origin_in_warning(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    with (
-        patch("src.core.cli.load_config", return_value=AppConfig()),
-        caplog.at_level(logging.WARNING),
-    ):
-        _unwrap_config(apply_cli_args(parse_cli_args(["--disable-pytest-compression"])))
-
-    messages = [record.message for record in caplog.records]
-    assert any(
-        "session.pytest_compression_enabled" in message
-        and "origin=--disable-pytest-compression" in message
-        for message in messages
-    )
-
-
 def test_apply_cli_args_warns_for_deprecated_gemini_truncation_controls(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -629,7 +531,6 @@ def test_steering_handler_is_enabled_via_cli_flag():
         auth_initial_block_seconds=None,
         auth_block_multiplier=None,
         auth_max_block_seconds=None,
-        pytest_compression_enabled=None,
         llm_loop_assessment_enabled=None,
         llm_assessment_turn_threshold=None,
         llm_assessment_confidence_threshold=None,

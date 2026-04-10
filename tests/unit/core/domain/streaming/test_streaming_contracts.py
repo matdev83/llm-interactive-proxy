@@ -281,6 +281,23 @@ class TestStreamingContentToTypedChunk:
         assert chunk.metadata.usage.completion_tokens == 5
         assert chunk.metadata.usage.total_tokens == 15
 
+    def test_usage_dict_accepts_anthropic_input_output_token_keys(self) -> None:
+        """Messages API streams often emit input_tokens/output_tokens (+ cache fields)."""
+        usage_dict = {
+            "input_tokens": 35,
+            "output_tokens": 69,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 15675,
+        }
+        sc = StreamingContent(
+            content="test", metadata={}, is_done=False, usage=usage_dict
+        )
+        chunk = sc.to_typed_chunk()
+        assert chunk.metadata.usage is not None
+        assert chunk.metadata.usage.prompt_tokens == 35
+        assert chunk.metadata.usage.completion_tokens == 69
+        assert chunk.metadata.usage.cache_read_input_tokens == 15675
+
     def test_flags_preserved(self):
         """is_done, is_empty, is_cancellation flags should be preserved."""
         sc = StreamingContent(

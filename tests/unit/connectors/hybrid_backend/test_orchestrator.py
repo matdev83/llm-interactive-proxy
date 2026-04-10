@@ -752,3 +752,47 @@ class TestHybridOrchestrator:
 
         # Warning should be logged (we can't easily test logging, but execution should proceed)
         phase_executor.execute_execution_phase.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_ignores_duplicate_session_id_in_kwargs(
+        self,
+        orchestrator,
+        model_spec_parser,
+        injection_policy,
+        phase_executor,
+        message_augmentor,
+        mock_spec,
+    ):
+        """Caller-provided session_id must not collide with orchestrator-owned session_id."""
+        model_spec_parser.parse = MagicMock(return_value=mock_spec)
+        injection_policy.should_inject = MagicMock(
+            return_value=InjectionDecision(
+                should_inject=False,
+                reason="SKIP",
+                is_first_turn=False,
+            )
+        )
+        message_augmentor.augment = MagicMock(
+            return_value=[{"role": "user", "content": "test"}]
+        )
+        phase_executor.execute_execution_phase = AsyncMock(
+            return_value=ResponseEnvelope(content={})
+        )
+
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+        identity = AppIdentityConfig(session_id="identity-session")
+
+        await orchestrator.execute(
+            request_data=request_data,
+            processed_messages=[ChatMessage(role="assistant", content="hi")],
+            effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            identity=identity,
+            session_id="caller-session",  # Would collide without dedupe
+        )
+
+        phase_executor.execute_execution_phase.assert_called_once()
+        call_kwargs = phase_executor.execute_execution_phase.await_args.kwargs
+        assert call_kwargs["session_id"] == "identity-session"

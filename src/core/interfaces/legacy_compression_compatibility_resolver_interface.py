@@ -8,34 +8,11 @@ if TYPE_CHECKING:
     from src.core.services.legacy_compression_compatibility_resolver import (
         ConnectorTruncationCompatibilityDecision,
         ConnectorTruncationCompatibilityDiagnostics,
-        DynamicCompressionCompatibilityDiagnostics,
-        PytestCompatibilityDecision,
     )
 
 
 class ILegacyCompressionCompatibilityResolver(Protocol):
     """Resolve precedence between legacy and dynamic compression controls."""
-
-    def resolve_pytest_mode(
-        self,
-        *,
-        legacy_pytest_enabled: bool,
-        dynamic_pytest_mode: bool | str | None,
-    ) -> PytestCompatibilityDecision:
-        """Return effective pytest compression mode decision."""
-        ...
-
-    def resolve_pytest_mode_with_diagnostics(
-        self,
-        *,
-        legacy_pytest_enabled: bool,
-        dynamic_pytest_mode: bool | str | None,
-    ) -> tuple[
-        PytestCompatibilityDecision,
-        DynamicCompressionCompatibilityDiagnostics,
-    ]:
-        """Return precedence decision plus migration diagnostics."""
-        ...
 
     def resolve_connector_truncation(
         self,

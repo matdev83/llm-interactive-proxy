@@ -7,15 +7,6 @@ from pydantic import Field
 from src.core.interfaces.model_bases import DomainModel
 
 
-class PytestCompatibilityDecision(DomainModel):
-    """Deterministic precedence decision for pytest compression migration."""
-
-    effective_enabled: bool
-    source: str
-    overridden: bool = False
-    warning: str | None = None
-
-
 class ConnectorTruncationCompatibilityDecision(DomainModel):
     """Deterministic precedence decision for connector-level truncation."""
 
@@ -36,80 +27,10 @@ class ConnectorTruncationCompatibilityDecision(DomainModel):
 class LegacyCompressionCompatibilityResolver:
     """Resolve deterministic precedence between legacy and dynamic controls."""
 
-    _LEGACY_PYTEST_CONTROL = "session.pytest_compression_enabled"
-    _DYNAMIC_PYTEST_CONTROL = "dynamic_compression.methods.pytest_failure_focus"
     _CONNECTOR_TRUNCATION_CHARS_CONTROL = "connector.tool_output_truncate_chars"
     _CONNECTOR_TRUNCATION_LINES_CONTROL = "connector.tool_output_truncate_lines"
     _COMPACTION_CONTROL = "compaction.enabled"
     _DYNAMIC_COMPRESSION_CONTROL = "dynamic_compression.enabled"
-
-    def resolve_pytest_mode(
-        self,
-        *,
-        legacy_pytest_enabled: bool,
-        dynamic_pytest_mode: bool | str | None,
-    ) -> PytestCompatibilityDecision:
-        if dynamic_pytest_mode in (None, "inherit_legacy"):
-            return PytestCompatibilityDecision(
-                effective_enabled=legacy_pytest_enabled,
-                source="legacy",
-                overridden=False,
-            )
-
-        if isinstance(dynamic_pytest_mode, bool):
-            overridden = dynamic_pytest_mode != legacy_pytest_enabled
-            return PytestCompatibilityDecision(
-                effective_enabled=dynamic_pytest_mode,
-                source="dynamic_override",
-                overridden=overridden,
-            )
-
-        return PytestCompatibilityDecision(
-            effective_enabled=legacy_pytest_enabled,
-            source="legacy",
-            warning=(
-                "Invalid dynamic pytest mode detected; "
-                "falling back to legacy pytest compression setting."
-            ),
-        )
-
-    def resolve_pytest_mode_with_diagnostics(
-        self,
-        *,
-        legacy_pytest_enabled: bool,
-        dynamic_pytest_mode: bool | str | None,
-    ) -> tuple[
-        PytestCompatibilityDecision,
-        DynamicCompressionCompatibilityDiagnostics,
-    ]:
-        """Resolve pytest mode and emit migration-safe diagnostics."""
-        decision = self.resolve_pytest_mode(
-            legacy_pytest_enabled=legacy_pytest_enabled,
-            dynamic_pytest_mode=dynamic_pytest_mode,
-        )
-        diagnostics = DynamicCompressionCompatibilityDiagnostics()
-
-        if decision.source == "dynamic_override":
-            diagnostics.applied.append(self._DYNAMIC_PYTEST_CONTROL)
-        else:
-            diagnostics.applied.append(self._LEGACY_PYTEST_CONTROL)
-            if dynamic_pytest_mode not in (None, "inherit_legacy"):
-                diagnostics.ignored.append(self._DYNAMIC_PYTEST_CONTROL)
-
-        if decision.overridden:
-            diagnostics.overridden.append(self._LEGACY_PYTEST_CONTROL)
-        if not decision.effective_enabled:
-            diagnostics.inactive.append(self._DYNAMIC_PYTEST_CONTROL)
-        if decision.warning:
-            diagnostics.warnings.append(decision.warning)
-        if decision.overridden and decision.source == "dynamic_override":
-            diagnostics.warnings.append(
-                "dynamic_compression.methods.pytest_failure_focus overrides "
-                "session.pytest_compression_enabled for the dynamic request-path "
-                "pipeline; legacy response-time pytest filtering may still differ."
-            )
-
-        return decision, diagnostics
 
     def resolve_connector_truncation(
         self,

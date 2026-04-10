@@ -153,20 +153,6 @@ def apply_config_part1b(
             path="session.dangerous_command_steering_message",
             resolution=resolution,
         ),
-        "pytest_compression_enabled": _env_to_bool(
-            "PYTEST_COMPRESSION_ENABLED",
-            True,
-            env,
-            path="session.pytest_compression_enabled",
-            resolution=resolution,
-        ),
-        "pytest_compression_min_lines": _env_to_int(
-            "PYTEST_COMPRESSION_MIN_LINES",
-            30,
-            env,
-            path="session.pytest_compression_min_lines",
-            resolution=resolution,
-        ),
         "pytest_full_suite_steering_enabled": _env_to_bool(
             "PYTEST_FULL_SUITE_STEERING_ENABLED",
             False,

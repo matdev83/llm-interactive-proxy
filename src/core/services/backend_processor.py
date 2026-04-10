@@ -10,6 +10,7 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import SessionInteraction
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
+from src.core.services.composite_routing_state import is_composite_selector
 
 if TYPE_CHECKING:
     from src.core.interfaces.application_state_interface import IApplicationState
@@ -111,6 +112,9 @@ class BackendProcessor(IBackendProcessor):
 
         model_spec = str(getattr(request, "model", "") or "")
         explicit_backend = has_explicit_backend_selector(model_spec)
+        explicit_non_composite_backend = explicit_backend and not is_composite_selector(
+            model_spec
+        )
 
         # Get failover routes from session and add them to extra_body.
         # IMPORTANT: explicit backend routing ("backend:model") must never be subject
@@ -146,7 +150,7 @@ class BackendProcessor(IBackendProcessor):
                 )
                 failover_routes = None
 
-        if failover_routes and not explicit_backend:
+        if failover_routes and not explicit_non_composite_backend:
             serializable_routes = [
                 r.model_dump() if hasattr(r, "model_dump") else r
                 for r in failover_routes
@@ -162,7 +166,7 @@ class BackendProcessor(IBackendProcessor):
         backend_response = await self._backend_service.call_completion(
             request=call_request,
             stream=call_request.stream if call_request.stream is not None else False,
-            allow_failover=not explicit_backend,
+            allow_failover=not explicit_non_composite_backend,
             context=context,
         )
 

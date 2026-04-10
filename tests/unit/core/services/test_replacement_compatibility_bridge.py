@@ -30,11 +30,36 @@ def test_translate_selector_returns_weighted_composite_for_safe_replacement() ->
         context=context,
     )
 
-    assert translated == "openai:gpt-4o-mini"
+    assert translated == "[weight=1]openai:gpt-4o-mini^[weight=1]openai:gpt-4o-mini"
     deprecation = context.extensions.get("replacement_deprecation")
     assert isinstance(deprecation, dict)
     assert deprecation.get("removal_timeline") == "N+1"
     assert deprecation.get("effective_session_id") == "replacement-session-1"
+    assert (
+        deprecation.get("translated_selector")
+        == "[weight=1]openai:gpt-4o-mini^[weight=1]openai:gpt-4o-mini"
+    )
+
+
+def test_translate_selector_prefers_effective_selector_hint_when_present() -> None:
+    bridge = ReplacementCompatibilityBridge()
+    context = _context()
+    context.extensions["replacement_source_selector"] = "openai:gpt-4o-mini"
+    context.extensions["replacement_effective_selector"] = "anthropic:claude-3-5-sonnet"
+
+    translated = bridge.translate_selector(
+        selector="openai:gpt-4o-mini",
+        context=context,
+    )
+
+    assert (
+        translated
+        == "[weight=1]anthropic:claude-3-5-sonnet^[weight=1]anthropic:claude-3-5-sonnet"
+    )
+    deprecation = context.extensions.get("replacement_deprecation")
+    assert isinstance(deprecation, dict)
+    assert deprecation.get("source_selector_hint") == "openai:gpt-4o-mini"
+    assert deprecation.get("effective_selector") == "anthropic:claude-3-5-sonnet"
 
 
 @pytest.mark.parametrize(

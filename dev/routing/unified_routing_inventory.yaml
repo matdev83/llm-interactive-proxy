@@ -69,7 +69,7 @@ call_surfaces:
 
   - id: auxiliary_sidecar_inference
     kind: indirect
-    file: src/core/services/request_processor_service.py
+    file: src/core/services/backend_completion_flow/backend_request_preparer.py
     marker: context.extensions["auxiliary_request"] = True
     routes_via: primary_request_execution
 

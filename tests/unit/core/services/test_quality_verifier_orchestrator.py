@@ -105,3 +105,44 @@ class TestQualityVerifierOrchestrator:
         backend_work_guard.wrap_stream_with_cancellation.assert_called_once()
         call_kwargs = backend_work_guard.wrap_stream_with_cancellation.call_args.kwargs
         assert call_kwargs["purpose"] == "quality_verifier"
+
+    @pytest.mark.asyncio
+    async def test_quality_verifier_overrides_stale_surface_metadata(self) -> None:
+        async def _qv_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content="<status>NO_STEERING_NEEDED</status>",
+                metadata={},
+            )
+
+        backend_service = MagicMock()
+        backend_service.chat_completions = AsyncMock(
+            return_value=StreamingResponseEnvelope(content=_qv_stream())
+        )
+        context = _context()
+        context.extensions["composite_routing_surface"] = "auxiliary"
+
+        outcome = await run_quality_verifier_decision(
+            original_request=_request(),
+            assistant_text="assistant output",
+            model_spec="openai:gpt-4o-mini",
+            max_history=None,
+            max_consecutive_failures=5,
+            cooldown_seconds=30,
+            ttft_timeout_seconds=0.2,
+            backend_service=backend_service,
+            request_context=context,
+            cancellation_coordinator=None,
+            notification_service=None,
+            backend_work_guard=None,
+        )
+
+        assert outcome.kind == "pass"
+        assert context.extensions["call_purpose"] == "quality_verifier"
+        assert context.extensions["composite_routing_surface"] == "quality_verifier"
+        backend_service.chat_completions.assert_awaited_once()
+        assert backend_service.chat_completions.await_args is not None
+        call_context = backend_service.chat_completions.await_args.kwargs["context"]
+        assert call_context is context
+        assert (
+            call_context.extensions["composite_routing_surface"] == "quality_verifier"
+        )

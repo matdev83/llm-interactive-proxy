@@ -263,6 +263,24 @@ class TestAuthErrorHandler:
             == InstanceStatus.ACTIVE
         )
 
+    def test_does_not_disable_opencode_go_on_auth_error(self) -> None:
+        """OpenCode Go shares one key across protocol shapes; 401 must not brick routing."""
+        manager = RateLimitStateManager()
+        handler = AuthErrorHandler(manager)
+
+        error = AuthenticationError("HTTP 401")
+        context = ErrorContext(
+            instance_id="opencode-go",
+            model="kimi-k2.5",
+            error=error,
+            extra={"backend_type": "opencode-go"},
+        )
+
+        action = handler.handle(context)
+
+        assert action.type == ActionType.PROCEED
+        assert manager.get_instance_status("opencode-go") == InstanceStatus.ACTIVE
+
     def test_skips_disable_for_unscoped_personal_backend(self) -> None:
         """Should not disable unscoped instances for personal OAuth backends."""
         manager = RateLimitStateManager()

@@ -568,7 +568,10 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                 dynamic_config = DynamicCompressionConfig.model_validate(
                     dynamic_from_config
                 )
-        return self._resolve_pytest_compatibility(dynamic_config)
+        diagnostics = DynamicCompressionCompatibilityDiagnostics(
+            applied=["dynamic_compression"],
+        )
+        return dynamic_config, diagnostics
 
     def _is_compaction_enabled(self) -> bool:
         if self._config is None:
@@ -883,100 +886,6 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                 "compression pass for this request."
             )
         return notes
-
-    def _resolve_pytest_compatibility(
-        self,
-        dynamic_config: DynamicCompressionConfig,
-    ) -> tuple[DynamicCompressionConfig, DynamicCompressionCompatibilityDiagnostics]:
-        legacy_pytest_enabled = True
-        legacy_pytest_min_lines = 30
-        legacy_pytest_configured = False
-        legacy_pytest_min_lines_configured = False
-        if self._config is not None:
-            session_config = getattr(self._config, "session", None)
-            if session_config is not None:
-                maybe_legacy_pytest = getattr(
-                    session_config,
-                    "pytest_compression_enabled",
-                    True,
-                )
-                if isinstance(maybe_legacy_pytest, bool):
-                    legacy_pytest_enabled = maybe_legacy_pytest
-                    legacy_pytest_configured = maybe_legacy_pytest is not True
-                maybe_legacy_min_lines = getattr(
-                    session_config,
-                    "pytest_compression_min_lines",
-                    legacy_pytest_min_lines,
-                )
-                if isinstance(maybe_legacy_min_lines, int):
-                    legacy_pytest_min_lines = max(0, maybe_legacy_min_lines)
-                    legacy_pytest_min_lines_configured = legacy_pytest_min_lines != 30
-
-        dynamic_pytest_mode = dynamic_config.methods.get("pytest_failure_focus")
-        decision, compatibility_diagnostics = (
-            self._legacy_compression_compatibility_resolver.resolve_pytest_mode_with_diagnostics(
-                legacy_pytest_enabled=legacy_pytest_enabled,
-                dynamic_pytest_mode=dynamic_pytest_mode,
-            )
-        )
-        if dynamic_pytest_mode in (None, "inherit_legacy") and legacy_pytest_configured:
-            warning = (
-                "session.pytest_compression_enabled is deprecated; "
-                "set dynamic_compression.methods.pytest_failure_focus instead."
-            )
-            if warning not in compatibility_diagnostics.warnings:
-                compatibility_diagnostics.warnings.append(warning)
-        min_lines_override = self._resolve_pytest_min_lines_override(
-            dynamic_config=dynamic_config,
-            legacy_min_lines=legacy_pytest_min_lines,
-            legacy_control_configured=legacy_pytest_min_lines_configured,
-            compatibility_diagnostics=compatibility_diagnostics,
-        )
-        resolved_methods = dict(dynamic_config.methods)
-        resolved_methods["pytest_failure_focus"] = decision.effective_enabled
-        return (
-            dynamic_config.model_copy(
-                update={
-                    "methods": resolved_methods,
-                    "pytest_failure_focus_min_lines": min_lines_override,
-                }
-            ),
-            compatibility_diagnostics,
-        )
-
-    @staticmethod
-    def _resolve_pytest_min_lines_override(
-        *,
-        dynamic_config: DynamicCompressionConfig,
-        legacy_min_lines: int,
-        legacy_control_configured: bool,
-        compatibility_diagnostics: DynamicCompressionCompatibilityDiagnostics,
-    ) -> int:
-        legacy_control = "session.pytest_compression_min_lines"
-        dynamic_control = "dynamic_compression.pytest_failure_focus_min_lines"
-        dynamic_value = dynamic_config.pytest_failure_focus_min_lines
-
-        if dynamic_value is not None:
-            try:
-                effective_min_lines = max(0, int(dynamic_value))
-            except (TypeError, ValueError):
-                effective_min_lines = legacy_min_lines
-                compatibility_diagnostics.warnings.append(
-                    "Invalid dynamic pytest min-lines override detected; "
-                    "falling back to session.pytest_compression_min_lines."
-                )
-            compatibility_diagnostics.applied.append(dynamic_control)
-            if effective_min_lines != legacy_min_lines:
-                compatibility_diagnostics.overridden.append(legacy_control)
-            return effective_min_lines
-
-        compatibility_diagnostics.applied.append(legacy_control)
-        if legacy_control_configured:
-            compatibility_diagnostics.warnings.append(
-                "session.pytest_compression_min_lines is deprecated; "
-                "set dynamic_compression.pytest_failure_focus_min_lines instead."
-            )
-        return legacy_min_lines
 
     @staticmethod
     def _merge_compatibility_warnings(

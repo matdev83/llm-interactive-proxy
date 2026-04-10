@@ -54,8 +54,8 @@ Advanced features that enhance the proxy's capabilities:
 
 ### Development Tools
 
+- **[Token Saving Guide](features/token-saving.md)** - Overview of both token-saving mechanisms and how to combine them
 - **[Dynamic Tool Output Compression](features/dynamic-tool-output-compression.md)** - Strategy-based compression for tool outputs with content-aware reduction
-- **[Pytest Output Compression](features/pytest-compression.md)** - Compress verbose pytest output to save context tokens (legacy, see dynamic compression)
 - **[Pytest Context Saving](features/pytest-context-saving.md)** - Automatically add helpful pytest flags for better output
 - **[Pytest Full-Suite Steering](features/pytest-full-suite-steering.md)** - Prevent agents from running entire test suites inadvertently
 - **[Inline Python Steering](features/inline-python-steering.md)** - Control Python code execution within responses

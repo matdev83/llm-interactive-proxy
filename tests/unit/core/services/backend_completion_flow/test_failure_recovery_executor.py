@@ -4,12 +4,13 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.core.common.exceptions import (
+    AuthenticationError,
     BackendError,
     RoutingError,
     SessionCancelledError,
 )
 from src.core.domain.b2bua_identity import B2buaIdentity
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.client_termination import ClientTerminationReason
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
@@ -26,6 +27,10 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_completion_flow.failure_recovery_executor import (
     FailureRecoveryExecutor,
 )
+from src.core.services.composite_failure_recovery_bridge import (
+    CompositeFailureRecoveryBridge,
+)
+from src.core.services.weighted_branch_selector import WeightedBranchSelector
 
 
 class TestFailureRecoveryExecutor:
@@ -305,10 +310,16 @@ class TestFailureRecoveryExecutor:
         self, executor
     ) -> None:
         executor._failure_strategy = None
-        request = ChatRequest(
-            model="openai:gpt-4",
-            messages=[ChatMessage(role="user", content="hello")],
-            extra_body={"backend_type": "openai", "_resolved_uri_params": {"a": "1"}},
+        request = cast(
+            CanonicalChatRequest,
+            ChatRequest(
+                model="openai:gpt-4",
+                messages=[ChatMessage(role="user", content="hello")],
+                extra_body={
+                    "backend_type": "openai",
+                    "_resolved_uri_params": {"a": "1"},
+                },
+            ),
         )
         context = RequestContext(
             headers={},
@@ -440,3 +451,215 @@ class TestFailureRecoveryExecutor:
 
         callback.assert_not_called()
         assert exc_info.value.details["reason"] == "attempt_budget_exhausted"
+
+    @pytest.mark.asyncio
+    async def test_apply_failure_recovery_rerolls_weighted_selector_pre_output(
+        self, failover_planner, failure_strategy, config
+    ) -> None:
+        bridge = CompositeFailureRecoveryBridge(
+            weighted_branch_selector=WeightedBranchSelector(
+                random_value_provider=lambda: 0.0
+            )
+        )
+        executor = FailureRecoveryExecutor(
+            failover_planner=failover_planner,
+            failure_handling_strategy=failure_strategy,
+            routing_service=None,
+            config=config,
+            failover_routes={},
+            composite_failure_recovery_bridge=bridge,
+        )
+        executor._failure_strategy = None
+        request = cast(
+            CanonicalChatRequest,
+            ChatRequest(
+                model="openai:gpt-4",
+                messages=[ChatMessage(role="user", content="hello")],
+                extra_body={
+                    "backend_type": "openai",
+                    "_resolved_uri_params": {"a": "1"},
+                },
+            ),
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-weighted-runtime-recovery",
+        )
+        context.extensions["composite_routing_state"] = {
+            "mode": "weighted_retry",
+            "branches": [
+                {"selector": "openai:gpt-4", "weight": 1},
+                {"selector": "anthropic:claude-3-5-sonnet", "weight": 1},
+                {"selector": "gemini:gemini-2.0-flash", "weight": 1},
+            ],
+            "excluded_selectors": [],
+            "selected_selector": "openai:gpt-4",
+            "hop_count": 0,
+            "max_hops": 3,
+        }
+        callback = AsyncMock(return_value="ok")
+
+        result = await executor.apply_failure_recovery(
+            error=BackendError("backend down", "openai", status_code=502),
+            model="gpt-4",
+            backend_type="openai",
+            attempted_backends=[],
+            start_time=0.0,
+            is_streaming=False,
+            content_started=False,
+            request=request,
+            call_completion_callback=callback,
+            context=context,
+        )
+
+        assert result == "ok"
+        callback.assert_awaited_once()
+        assert callback.await_args is not None
+        retry_request = callback.await_args.kwargs["request"]
+        assert retry_request.model == "anthropic:claude-3-5-sonnet"
+        assert retry_request.extra_body is not None
+        assert retry_request.extra_body["backend_type"] == "anthropic"
+        assert retry_request.extra_body["_resolved_uri_params"] == {}
+        assert context.extensions["retry_attempt"] == 1
+        assert context.extensions["last_retry_reason"] == "composite_failover"
+        state = cast(dict[str, Any], context.extensions["composite_routing_state"])
+        assert state["mode"] == "weighted_retry"
+        assert state["selected_selector"] == "anthropic:claude-3-5-sonnet"
+        assert state["excluded_selectors"] == ["openai:gpt-4"]
+        assert state["hop_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_apply_failure_recovery_skips_weighted_reroll_for_authentication_errors(
+        self, failover_planner, failure_strategy, config
+    ) -> None:
+        bridge = CompositeFailureRecoveryBridge(
+            weighted_branch_selector=WeightedBranchSelector(
+                random_value_provider=lambda: 0.5
+            )
+        )
+        executor = FailureRecoveryExecutor(
+            failover_planner=failover_planner,
+            failure_handling_strategy=failure_strategy,
+            routing_service=None,
+            config=config,
+            failover_routes={},
+            composite_failure_recovery_bridge=bridge,
+        )
+        executor._failure_strategy = None
+        request = cast(
+            CanonicalChatRequest,
+            ChatRequest(
+                model="openai:gpt-4",
+                messages=[ChatMessage(role="user", content="hello")],
+                extra_body={"backend_type": "openai"},
+            ),
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-weighted-auth-no-reroll",
+        )
+        context.extensions["composite_routing_state"] = {
+            "mode": "weighted_retry",
+            "branches": [
+                {"selector": "openai:gpt-4", "weight": 1},
+                {"selector": "anthropic:claude-3-5-sonnet", "weight": 1},
+            ],
+            "excluded_selectors": [],
+            "selected_selector": "openai:gpt-4",
+            "hop_count": 0,
+            "max_hops": 3,
+        }
+        callback = AsyncMock(return_value="ok")
+
+        with pytest.raises(AuthenticationError):
+            await executor.apply_failure_recovery(
+                error=AuthenticationError("invalid token"),
+                model="gpt-4",
+                backend_type="openai",
+                attempted_backends=[],
+                start_time=0.0,
+                is_streaming=False,
+                content_started=False,
+                request=request,
+                call_completion_callback=callback,
+                context=context,
+            )
+
+        callback.assert_not_called()
+        state = cast(dict[str, Any], context.extensions["composite_routing_state"])
+        assert state["selected_selector"] == "openai:gpt-4"
+        assert state["excluded_selectors"] == []
+        assert state["hop_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_apply_failure_recovery_surfaces_last_error_when_weighted_candidates_exhausted(
+        self, failover_planner, failure_strategy, config
+    ) -> None:
+        bridge = CompositeFailureRecoveryBridge(
+            weighted_branch_selector=WeightedBranchSelector(
+                random_value_provider=lambda: 0.5
+            )
+        )
+        executor = FailureRecoveryExecutor(
+            failover_planner=failover_planner,
+            failure_handling_strategy=failure_strategy,
+            routing_service=None,
+            config=config,
+            failover_routes={},
+            composite_failure_recovery_bridge=bridge,
+        )
+        executor._failure_strategy = None
+        request = cast(
+            CanonicalChatRequest,
+            ChatRequest(
+                model="anthropic:claude-3-5-sonnet",
+                messages=[ChatMessage(role="user", content="hello")],
+                extra_body={"backend_type": "anthropic"},
+            ),
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-weighted-exhausted",
+        )
+        context.extensions["composite_routing_state"] = {
+            "mode": "weighted_retry",
+            "branches": [
+                {"selector": "openai:gpt-4", "weight": 1},
+                {"selector": "anthropic:claude-3-5-sonnet", "weight": 1},
+            ],
+            "excluded_selectors": ["openai:gpt-4"],
+            "selected_selector": "anthropic:claude-3-5-sonnet",
+            "hop_count": 0,
+            "max_hops": 3,
+        }
+        callback = AsyncMock(return_value="ok")
+
+        with pytest.raises(BackendError, match="secondary down"):
+            await executor.apply_failure_recovery(
+                error=BackendError("secondary down", "anthropic", status_code=503),
+                model="claude-3-5-sonnet",
+                backend_type="anthropic",
+                attempted_backends=[],
+                start_time=0.0,
+                is_streaming=False,
+                content_started=False,
+                request=request,
+                call_completion_callback=callback,
+                context=context,
+            )
+
+        callback.assert_not_called()
+        state = cast(dict[str, Any], context.extensions["composite_routing_state"])
+        assert state["excluded_selectors"] == [
+            "openai:gpt-4",
+            "anthropic:claude-3-5-sonnet",
+        ]

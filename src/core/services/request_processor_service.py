@@ -44,16 +44,6 @@ from src.core.interfaces.request_processor_internal import (
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
-from src.core.services.auxiliary_identity import (
-    build_auxiliary_effective_session_id,
-    derive_auxiliary_operation_key,
-)
-from src.core.services.auxiliary_request_router import (
-    AuxiliaryRequestRouter,
-)
-from src.core.services.auxiliary_request_router import (
-    AuxiliaryRoutingConfig as AuxRoutingConfigDomain,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -294,82 +284,6 @@ class RequestProcessor(IRequestProcessor):
                     exc_info=True,
                 )
 
-    def _try_apply_auxiliary_routing(
-        self,
-        *,
-        context: RequestContext,
-        request_data: ChatRequest,
-        session_id: str,
-    ) -> ChatRequest:
-        """Optionally route lightweight requests to configured auxiliary backend/model."""
-        try:
-            if self._app_state is None:
-                return request_data
-
-            app_config = self._app_state.get_setting("app_config")
-            aux_cfg = getattr(app_config, "auxiliary_routing", None)
-            if not (aux_cfg and getattr(aux_cfg, "enabled", False)):
-                return request_data
-
-            domain_cfg = AuxRoutingConfigDomain(
-                enabled=True,
-                backend=getattr(aux_cfg, "backend", None),
-                model=getattr(aux_cfg, "model", None),
-                detection_patterns=list(getattr(aux_cfg, "detection_patterns", [])),
-                max_message_count=getattr(aux_cfg, "max_message_count", 3),
-            )
-            router = AuxiliaryRequestRouter(domain_cfg)
-            if not router.should_route_to_auxiliary(request_data):
-                return request_data
-
-            aux_backend = router.get_auxiliary_backend()
-            aux_model = router.get_auxiliary_model()
-            parsed_original = parse_model_backend(
-                str(getattr(request_data, "model", "") or ""),
-                "",
-            )
-            original_backend = parsed_original.backend_type
-            original_model = parsed_original.model_name
-
-            routed_model = aux_model or original_model
-            routed_request = request_data.model_copy(
-                update={"model": f"{aux_backend}:{routed_model}"}
-            )
-
-            auxiliary_purpose = f"{aux_backend}:{routed_model}"
-            operation_key = derive_auxiliary_operation_key(
-                context=context,
-                request_data=request_data,
-                purpose=auxiliary_purpose,
-            )
-            auxiliary_attempt_ordinal = 1
-            auxiliary_effective_session_id = build_auxiliary_effective_session_id(
-                root_session_id=session_id,
-                purpose=auxiliary_purpose,
-                operation_key=operation_key,
-                attempt_ordinal=auxiliary_attempt_ordinal,
-            )
-
-            context.extensions["auxiliary_request"] = True
-            context.extensions["auxiliary_root_session_id"] = session_id
-            context.extensions["auxiliary_purpose"] = auxiliary_purpose
-            context.extensions["auxiliary_operation_key"] = operation_key
-            context.extensions["auxiliary_attempt_ordinal"] = auxiliary_attempt_ordinal
-            context.extensions["auxiliary_effective_session_id"] = (
-                auxiliary_effective_session_id
-            )
-            context.extensions["auxiliary_original_backend"] = original_backend
-            context.extensions["auxiliary_original_model"] = original_model
-            context.extensions["auxiliary_backend"] = aux_backend
-            context.extensions["auxiliary_model"] = routed_model
-            context.extensions["call_purpose"] = "auxiliary"
-
-            return routed_request
-        except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Auxiliary routing failed; continuing", exc_info=True)
-            return request_data
-
     async def process_request(  # noqa: C901
         self,
         context: RequestContext,
@@ -413,17 +327,6 @@ class RequestProcessor(IRequestProcessor):
         )
         context.extensions["quality_verifier_effective_session_id"] = (
             quality_verifier_session_id
-        )
-
-        # Optional auxiliary request routing (title/summary generation).
-        #
-        # Clients like OpenCode may issue parallel lightweight requests (e.g. title
-        # generation). When configured, route those to an alternative backend/model
-        # and isolate their session lifecycle from the primary conversation.
-        request_data = self._try_apply_auxiliary_routing(
-            context=context,
-            request_data=request_data,
-            session_id=session_id,
         )
 
         # Apply request side effects (streaming registry, memory injection/capture)
@@ -637,6 +540,8 @@ class RequestProcessor(IRequestProcessor):
             )
 
         replacement_active_for_request = False
+        context.extensions.pop("replacement_source_selector", None)
+        context.extensions.pop("replacement_effective_selector", None)
 
         if (
             self._replacement_service is not None
@@ -727,6 +632,12 @@ class RequestProcessor(IRequestProcessor):
                 )
                 replacement_active_for_request = True
                 context.extensions["call_purpose"] = "replacement"
+                context.extensions["replacement_source_selector"] = (
+                    f"{original_backend}:{original_model}"
+                )
+                context.extensions["replacement_effective_selector"] = (
+                    f"{effective_backend}:{effective_model}"
+                )
 
                 if logger.isEnabledFor(logging.DEBUG) and quality_verifier_enabled:
                     logger.debug(

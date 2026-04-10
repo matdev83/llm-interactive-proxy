@@ -257,6 +257,34 @@ class TestHybridModelSpecificationParsing:
         )
 
 
+class TestHybridInitializationWiring:
+    """Test runtime dependency wiring performed during initialize()."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_propagates_default_registry_into_phase_executor(
+        self, app_config
+    ):
+        """When backend registry is resolved lazily, phase executor must be updated."""
+        from src.core.services.backend_registry import (
+            backend_registry as global_registry,
+        )
+
+        connector = HybridConnector(
+            client=Mock(),
+            config=app_config,
+            translation_service=Mock(),
+            backend_registry=None,
+        )
+
+        phase_executor = connector._orchestrator.phase_executor
+        assert getattr(phase_executor, "backend_registry", None) is None
+
+        await connector.initialize()
+
+        assert connector._backend_registry is global_registry
+        assert getattr(phase_executor, "backend_registry", None) is global_registry
+
+
 class TestAdaptiveMessageAugmentation:
     """Test adaptive message augmentation (Task 8.2)."""
 

@@ -128,7 +128,6 @@ Customize the proxy behavior with these common flags:
 - `--capture-file wire.log` - Record requests/responses for debugging (see [Wire Capture](debugging/wire-capture.md))
 - `--disable-dangerous-git-commands-protection` - Disable protection against [dangerous git commands](features/dangerous-command-protection.md)
 - `--strict-command-detection` - Only process commands on the last non-blank line
-- `--enable-pytest-compression` - Enable [pytest output compression](features/pytest-compression.md)
 - `--enable-pytest-context-saving` - Automatically add `-r fE` and `-q` flags to [pytest commands](features/pytest-context-saving.md)
 - `--fix-think-tags` - Correct improperly formatted [`<think>` tags](features/think-tags-fix.md) in model responses
 - `--enable-edit-precision` / `--disable-edit-precision` - Control automated [edit-precision tuning](features/edit-precision.md)

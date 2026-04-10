@@ -3,11 +3,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
-from src.connectors.openai import OpenAIConnector
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.usage_summary import UsageSummary
 
 qwen_oauth = pytest.importorskip("llm_proxy_oauth_connectors.qwen_oauth")
+
+
+def _get_openai_connector_class():
+    from src.connectors.openai import OpenAIConnector as OpenAIConnectorRuntime
+
+    return OpenAIConnectorRuntime
 
 
 def _build_connector():
@@ -57,7 +62,7 @@ async def test_qwen_oauth_retries_429_with_retry_after(monkeypatch):
     sleep_mock = AsyncMock()
 
     monkeypatch.setattr(
-        OpenAIConnector,
+        _get_openai_connector_class(),
         "_chat_completions_canonical",
         base_call,
     )
@@ -85,7 +90,7 @@ async def test_qwen_oauth_retries_429_with_random_delay(monkeypatch):
     uniform_mock = MagicMock(return_value=4.25)
 
     monkeypatch.setattr(
-        OpenAIConnector,
+        _get_openai_connector_class(),
         "_chat_completions_canonical",
         base_call,
     )
@@ -113,7 +118,7 @@ async def test_qwen_oauth_rejects_non_retryable_http_exception(monkeypatch):
     warning_mock = MagicMock()
 
     monkeypatch.setattr(
-        OpenAIConnector,
+        _get_openai_connector_class(),
         "_chat_completions_canonical",
         base_call,
     )

@@ -369,14 +369,11 @@ When auto-enabled with no explicit model configured, the system defaults to `ope
 
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
-| `--enable-pytest-compression` | `PYTEST_COMPRESSION_ENABLED=true` | Enable pytest output compression. |
-| `--disable-pytest-compression` | `PYTEST_COMPRESSION_ENABLED=false` | Disable pytest output compression. |
 | `--enable-pytest-full-suite-steering` | `PYTEST_FULL_SUITE_STEERING_ENABLED=true` | Enable steering for full pytest suite. |
 | `--disable-pytest-full-suite-steering` | `PYTEST_FULL_SUITE_STEERING_ENABLED=false` | Disable steering for full pytest suite. |
 | `--enable-pytest-context-saving` | N/A | Enable context saving rewrites. |
 | `--test-execution-reminder-enabled` | `TEST_EXECUTION_REMINDER_ENABLED=true` | Enable test execution reminder. |
 | `--no-test-execution-reminder-enabled` | `TEST_EXECUTION_REMINDER_ENABLED=false` | Disable test execution reminder. |
-| N/A | `PYTEST_COMPRESSION_MIN_LINES` | Min lines for compression. |
 | N/A | `PYTEST_FULL_SUITE_STEERING_MESSAGE` | Custom steering message. |
 | N/A | `TEST_EXECUTION_REMINDER_MESSAGE` | Custom reminder message. |
 

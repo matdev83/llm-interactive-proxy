@@ -54,7 +54,6 @@ class TestSessionApplicator:
             planning_phase_top_p=None,
             planning_phase_reasoning_effort=None,
             planning_phase_thinking_budget=None,
-            pytest_compression_enabled=None,
             pytest_full_suite_steering_enabled=None,
             pytest_context_saving_enabled=None,
             test_execution_reminder_enabled=None,
@@ -197,46 +196,6 @@ class TestSessionApplicator:
             )
             assert os.environ.get("QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS") == "11.5"
 
-    def test_apply_pytest_compression_enabled(
-        self,
-        applicator,
-        empty_args: CliArgs,
-        overrides: CliOverrides,
-        resolution: ParameterResolution,
-    ) -> None:
-        """Test that pytest_compression_enabled is applied correctly."""
-        empty_args.pytest_compression_enabled = True
-        applicator.apply(empty_args, overrides, resolution)
-
-        assert "session" in overrides
-        assert overrides["session"].get("pytest_compression_enabled") is True
-        cli_records = resolution.latest_by_source(ParameterSource.CLI)
-        assert "session.pytest_compression_enabled" in cli_records
-        assert (
-            cli_records["session.pytest_compression_enabled"].origin
-            == "--enable-pytest-compression"
-        )
-
-    def test_apply_pytest_compression_disabled_records_disable_origin(
-        self,
-        applicator,
-        empty_args: CliArgs,
-        overrides: CliOverrides,
-        resolution: ParameterResolution,
-    ) -> None:
-        """Test that disabling pytest compression records disable origin."""
-        empty_args.pytest_compression_enabled = False
-        applicator.apply(empty_args, overrides, resolution)
-
-        assert "session" in overrides
-        assert overrides["session"].get("pytest_compression_enabled") is False
-        cli_records = resolution.latest_by_source(ParameterSource.CLI)
-        assert "session.pytest_compression_enabled" in cli_records
-        assert (
-            cli_records["session.pytest_compression_enabled"].origin
-            == "--disable-pytest-compression"
-        )
-
     def test_apply_tool_access_overrides(
         self,
         applicator,
@@ -277,7 +236,6 @@ class TestSessionApplicator:
     ) -> None:
         """Test that applicator only modifies session-related keys (Property 3: Domain Applicator Isolation)."""
         empty_args.disable_interactive_mode = True
-        empty_args.pytest_compression_enabled = True
 
         applicator.apply(empty_args, overrides, resolution)
 

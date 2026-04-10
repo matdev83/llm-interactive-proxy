@@ -85,3 +85,73 @@ async def test_backend_processor_falls_back_to_app_state_routes() -> None:
             "elements": ["openai:other"],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_backend_processor_preserves_failover_for_explicit_composite_selector() -> (
+    None
+):
+    backend_service = AsyncMock()
+    backend_service.call_completion.return_value = ResponseEnvelope(content={})
+
+    session_service = AsyncMock()
+    session_service.get_session.return_value = Session(session_id="test-session")
+
+    app_state = MagicMock()
+    app_state.get_failover_routes.return_value = [
+        {"name": "global", "policy": "m", "elements": ["openai:other"]}
+    ]
+
+    processor = BackendProcessor(backend_service, session_service, app_state)
+    request = ChatRequest(
+        model="openai:gpt-4o|anthropic:claude-3-5-sonnet",
+        messages=[ChatMessage(role="user", content="hi")],
+    )
+
+    await processor.process_backend_request(request, session_id="test-session")
+
+    backend_service.call_completion.assert_awaited_once()
+    call_kwargs = backend_service.call_completion.await_args.kwargs
+    called_request = call_kwargs["request"]
+    assert call_kwargs["allow_failover"] is True
+    assert called_request.extra_body is not None
+    assert called_request.extra_body["failover_routes"] == [
+        {
+            "name": "global",
+            "policy": "m",
+            "elements": ["openai:other"],
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_backend_processor_disables_failover_for_explicit_non_composite_selector() -> (
+    None
+):
+    backend_service = AsyncMock()
+    backend_service.call_completion.return_value = ResponseEnvelope(content={})
+
+    session_service = AsyncMock()
+    session_service.get_session.return_value = Session(session_id="test-session")
+
+    app_state = MagicMock()
+    app_state.get_failover_routes.return_value = [
+        {"name": "global", "policy": "m", "elements": ["openai:other"]}
+    ]
+
+    processor = BackendProcessor(backend_service, session_service, app_state)
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="hi")],
+        extra_body={"failover_routes": [{"name": "caller"}], "other": "value"},
+    )
+
+    await processor.process_backend_request(request, session_id="test-session")
+
+    backend_service.call_completion.assert_awaited_once()
+    call_kwargs = backend_service.call_completion.await_args.kwargs
+    called_request = call_kwargs["request"]
+    assert call_kwargs["allow_failover"] is False
+    assert called_request.extra_body is not None
+    assert called_request.extra_body.get("other") == "value"
+    assert "failover_routes" not in called_request.extra_body

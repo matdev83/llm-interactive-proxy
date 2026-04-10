@@ -16,8 +16,6 @@ from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.legacy_compression_compatibility_resolver import (
     ConnectorTruncationCompatibilityDecision,
     ConnectorTruncationCompatibilityDiagnostics,
-    DynamicCompressionCompatibilityDiagnostics,
-    PytestCompatibilityDecision,
 )
 
 
@@ -90,31 +88,6 @@ class MockRequestBodyBuilder(IRequestBodyBuilder):
 class ForcedTruncationResolver:
     def __init__(self) -> None:
         self.calls: list[dict[str, int | bool | None]] = []
-
-    def resolve_pytest_mode(
-        self,
-        *,
-        legacy_pytest_enabled: bool,
-        dynamic_pytest_mode: bool | str | None,
-    ) -> PytestCompatibilityDecision:
-        return PytestCompatibilityDecision(
-            effective_enabled=legacy_pytest_enabled,
-            source="legacy",
-        )
-
-    def resolve_pytest_mode_with_diagnostics(
-        self,
-        *,
-        legacy_pytest_enabled: bool,
-        dynamic_pytest_mode: bool | str | None,
-    ) -> tuple[PytestCompatibilityDecision, DynamicCompressionCompatibilityDiagnostics]:
-        return (
-            self.resolve_pytest_mode(
-                legacy_pytest_enabled=legacy_pytest_enabled,
-                dynamic_pytest_mode=dynamic_pytest_mode,
-            ),
-            DynamicCompressionCompatibilityDiagnostics(),
-        )
 
     def resolve_connector_truncation(
         self,

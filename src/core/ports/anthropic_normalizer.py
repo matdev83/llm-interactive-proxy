@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
+from src.core.domain.chat import StreamingFunctionCall, StreamingToolCall
 from src.core.domain.streaming.sentinels import SentinelManager
 from src.core.domain.streaming.streaming_content import StreamingContent
 from src.core.ports.streaming.normalizer_base import BaseStreamNormalizer
@@ -69,6 +70,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
         model: str | None = None
         role: str | None = None
         emitted_any = False
+        tool_blocks: dict[int, dict[str, Any]] = {}
 
         try:
             async for raw_chunk in stream:
@@ -94,6 +96,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                     event_data = event.event_data
                     # Handle different event types
                     if event_type == "message_start":
+                        tool_blocks.clear()
                         # Extract message metadata
                         message = event_data.get("message", {})
                         message_id = message.get("id")
@@ -129,9 +132,53 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 )
 
                     elif event_type == "content_block_start":
-                        # Content block started - may contain type info
-                        # For thinking blocks, we'll extract content in delta events
-                        # No need to emit a chunk here
+                        idx = event_data.get("index", 0)
+                        if not isinstance(idx, int):
+                            try:
+                                idx = int(idx)
+                            except (TypeError, ValueError):
+                                idx = 0
+                        block = event_data.get("content_block") or {}
+                        if block.get("type") == "tool_use":
+                            raw_name = block.get("name")
+                            tool_blocks[idx] = {
+                                "id": block.get("id"),
+                                "name": raw_name if isinstance(raw_name, str) else "",
+                                "arguments": "",
+                            }
+                            fn_name = tool_blocks[idx]["name"] or None
+                            starter = StreamingToolCall(
+                                index=idx,
+                                id=tool_blocks[idx].get("id"),
+                                type="function",
+                                function=StreamingFunctionCall(
+                                    name=fn_name,
+                                    arguments="",
+                                ),
+                            )
+                            st_dict = starter.model_dump(exclude_none=True)
+                            start_chunk = self.create_normalized_chunk(
+                                content="",
+                                metadata={
+                                    "model": model,
+                                    "id": message_id,
+                                    "index": idx,
+                                    "tool_calls": [st_dict],
+                                },
+                                is_empty=False,
+                                stream_id=stream_id,
+                            )
+                            if self.validate_chunk(start_chunk):
+                                emitted_any = True
+                                yield start_chunk
+                            else:
+                                logger.warning(
+                                    "Dropping invalid tool_start chunk",
+                                    extra={
+                                        "provider": self.provider,
+                                        "stream_id": stream_id,
+                                    },
+                                )
                         continue
 
                     elif event_type == "content_block_delta":
@@ -139,8 +186,11 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                         delta = event_data.get("delta", {})
                         delta_type = delta.get("type")
 
-                        # Get the index to track which content block this is
-                        index = event_data.get("index", 0)
+                        raw_ix = event_data.get("index", 0)
+                        try:
+                            index = int(raw_ix)
+                        except (TypeError, ValueError):
+                            index = 0
 
                         if delta_type == "text_delta":
                             # Regular text content
@@ -168,18 +218,39 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                 )
 
                         elif delta_type == "input_json_delta":
-                            # Tool use input (partial JSON)
-                            partial_json = delta.get("partial_json", "")
-
-                            # Emit as content for now - tool call assembly happens in middleware
+                            partial_json = delta.get("partial_json", "") or ""
+                            if partial_json == "":
+                                continue
+                            if index not in tool_blocks:
+                                tool_blocks[index] = {
+                                    "id": None,
+                                    "name": "",
+                                    "arguments": "",
+                                }
+                            block = tool_blocks[index]
+                            block["arguments"] = str(block.get("arguments", "")) + str(
+                                partial_json
+                            )
+                            fn = StreamingFunctionCall(
+                                name=None,
+                                arguments=str(partial_json),
+                            )
+                            stc = StreamingToolCall(
+                                index=index,
+                                id=block.get("id"),
+                                type="function",
+                                function=fn,
+                            )
+                            tc_dict = stc.model_dump(exclude_none=True)
                             chunk = self.create_normalized_chunk(
-                                content=partial_json,
+                                content="",
                                 metadata={
                                     "model": model,
                                     "id": message_id,
                                     "index": index,
-                                    "delta_type": "input_json_delta",
+                                    "tool_calls": [tc_dict],
                                 },
+                                is_empty=False,
                                 stream_id=stream_id,
                             )
                             if self.validate_chunk(chunk):
@@ -337,26 +408,38 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                     data_content = line[5:].strip()
                     data_lines.append(data_content)
 
-            # Parse data as JSON
-            if event_type and data_lines:
-                data_str = " ".join(data_lines)
+            if not data_lines:
+                continue
 
-                try:
-                    event_data = json.loads(data_str)
-                    events.append(
-                        SSEEvent(event_type=event_type, event_data=event_data)
-                    )
-                except json.JSONDecodeError as e:
-                    logger.warning(
-                        "Failed to parse Anthropic event data as JSON",
-                        exc_info=True,
-                        extra={
-                            "provider": self.provider,
-                            "event_type": event_type,
-                            "error": str(e),
-                            "data_preview": data_str[:200] if data_str else "",
-                        },
-                    )
+            data_str = " ".join(data_lines)
+
+            try:
+                event_data = json.loads(data_str)
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    "Failed to parse Anthropic event data as JSON",
+                    exc_info=True,
+                    extra={
+                        "provider": self.provider,
+                        "event_type": event_type,
+                        "error": str(e),
+                        "data_preview": data_str[:200] if data_str else "",
+                    },
+                )
+                continue
+
+            resolved_event_type = event_type
+            if not resolved_event_type and isinstance(event_data, dict):
+                top = event_data.get("type")
+                if isinstance(top, str) and top.strip():
+                    resolved_event_type = top.strip()
+
+            if not resolved_event_type:
+                continue
+
+            events.append(
+                SSEEvent(event_type=resolved_event_type, event_data=event_data)
+            )
 
         return events
 
