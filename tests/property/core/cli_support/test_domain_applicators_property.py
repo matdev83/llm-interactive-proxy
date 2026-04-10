@@ -128,7 +128,6 @@ class TestDomainApplicatorIsolation:
                 planning_phase_top_p=None,
                 planning_phase_reasoning_effort=None,
                 planning_phase_thinking_budget=None,
-                pytest_compression_enabled=True,
                 pytest_full_suite_steering_enabled=None,
                 pytest_context_saving_enabled=None,
                 test_execution_reminder_enabled=None,
