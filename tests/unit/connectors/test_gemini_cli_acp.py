@@ -845,8 +845,10 @@ class TestGeminiCliAcpCancellation:
         assert runtime.cancellation_event is not None
         connector._process_timeout = 0.05
 
+        block_event = asyncio.Event()
+
         async def _mock_read(_: GeminiCliRuntime) -> ACPNotification:
-            await asyncio.Event().wait()
+            await block_event.wait()
             raise AssertionError("unreachable")
 
         with (

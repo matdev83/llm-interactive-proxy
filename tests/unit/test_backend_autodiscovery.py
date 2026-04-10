@@ -26,16 +26,16 @@ class TestBackendAutoDiscovery:
 
         original_registry = registry_module.backend_registry
 
+        # Save and remove connector modules from cache to force re-import
+        saved_modules = {
+            key: sys.modules.pop(key)
+            for key in list(sys.modules)
+            if key.startswith("src.connectors")
+        }
+
         try:
             # Replace with test registry
             registry_module.backend_registry = test_registry
-
-            # Remove connectors module from cache to force re-import
-            modules_to_remove = [
-                key for key in sys.modules if key.startswith("src.connectors")
-            ]
-            for module_name in modules_to_remove:
-                del sys.modules[module_name]
 
             # Import connectors to trigger auto-discovery
             import src.connectors  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -93,6 +93,13 @@ class TestBackendAutoDiscovery:
         finally:
             # Restore original registry
             registry_module.backend_registry = original_registry
+            # Restore saved modules to avoid polluting sys.modules for other tests
+            sys.modules.update(saved_modules)
+            from src.core.services.backend_discovery import (
+                reset_backend_discovery_state,
+            )
+
+            reset_backend_discovery_state()
 
     def test_backend_modules_discovered_without_hardcoded_imports(self):
         """Test that backend modules are discovered dynamically, not from hardcoded list."""
@@ -183,15 +190,15 @@ class TestBackendAutoDiscovery:
         test_registry = BackendRegistry()
         original_registry = registry_module.backend_registry
 
+        # Save and remove connector modules from cache to force re-import
+        saved_modules = {
+            key: sys.modules.pop(key)
+            for key in list(sys.modules)
+            if key.startswith("src.connectors")
+        }
+
         try:
             registry_module.backend_registry = test_registry
-
-            # Clear module cache
-            modules_to_remove = [
-                key for key in sys.modules if key.startswith("src.connectors")
-            ]
-            for module_name in modules_to_remove:
-                del sys.modules[module_name]
 
             # Import connectors
             import src.connectors  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -202,6 +209,13 @@ class TestBackendAutoDiscovery:
 
         finally:
             registry_module.backend_registry = original_registry
+            # Restore saved modules to avoid polluting sys.modules for other tests
+            sys.modules.update(saved_modules)
+            from src.core.services.backend_discovery import (
+                reset_backend_discovery_state,
+            )
+
+            reset_backend_discovery_state()
 
     def test_failed_backend_import_doesnt_break_others(self):
         """Test that if one backend fails to import, others still load."""

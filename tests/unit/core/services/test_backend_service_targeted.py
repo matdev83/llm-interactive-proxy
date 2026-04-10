@@ -2,7 +2,6 @@
 Additional targeted tests for the BackendService to improve coverage.
 """
 
-import asyncio
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
@@ -74,7 +73,7 @@ class MockBackend(LLMBackend):
 
 def create_backend_service():
     """Create a BackendService instance for testing."""
-    client = httpx.AsyncClient()
+    client = AsyncMock(spec=httpx.AsyncClient)
     from src.core.config.app_config import AppConfig
     from src.core.services.backend_registry import BackendRegistry
 
@@ -139,7 +138,7 @@ class TestBackendServiceTargeted:
         """Test call_completion when backend needs to be parsed from model."""
         # Arrange
         service = create_backend_service()
-        client = httpx.AsyncClient()
+        client = AsyncMock(spec=httpx.AsyncClient)
         mock_backend = MockBackend(client)
         mock_backend.chat_completions_mock.return_value = ResponseEnvelope(
             content={
@@ -218,7 +217,7 @@ class TestBackendServiceTargeted:
         """Test call_completion when backend is determined from session."""
         # Arrange
         service = create_backend_service()
-        client = httpx.AsyncClient()
+        client = AsyncMock(spec=httpx.AsyncClient)
         mock_backend = MockBackend(client)
         mock_backend.chat_completions_mock.return_value = ResponseEnvelope(
             content={
@@ -325,7 +324,7 @@ class TestBackendServiceTargeted:
     async def test_call_completion_raises_when_backend_not_functional(self):
         """Ensure non-functional backends trigger an immediate error."""
         service = create_backend_service()
-        client = httpx.AsyncClient()
+        client = AsyncMock(spec=httpx.AsyncClient)
         mock_backend = MockBackend(client)
         mock_backend.chat_completions_mock.return_value = ResponseEnvelope(
             content={"id": "resp", "choices": []},
@@ -446,7 +445,8 @@ class TestBackendServiceTargeted:
             is False
         )
 
-    def test_provider_identity_precedence(self):
+    @pytest.mark.asyncio
+    async def test_provider_identity_precedence(self):
         """Provider-supplied backend identity should override global defaults."""
 
         provider_identity = AppIdentityConfig(
@@ -585,7 +585,7 @@ class TestBackendServiceTargeted:
         async def _invoke() -> None:
             await service.call_completion(chat_request, stream=False)
 
-        asyncio.run(_invoke())
+        await _invoke()
 
         assert backend_instance.recorded_identity is not None
         assert backend_instance.recorded_identity.title.default_value == "ProviderTitle"

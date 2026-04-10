@@ -23,17 +23,13 @@ class TestBackendImportsIntegration:
     @pytest.fixture
     def clean_import_state(self) -> Generator[None, None, None]:
         """Clean module cache before and after test to ensure fresh imports."""
-        # Store modules to clean up
-        modules_to_remove = [
-            key
-            for key in sys.modules
+        # Save modules to clean up and remove from cache
+        saved_modules = {
+            key: sys.modules.pop(key)
+            for key in list(sys.modules)
             if key.startswith("src.connectors")
             or key == "src.core.services.backend_imports"
-        ]
-
-        # Remove from cache
-        for module_name in modules_to_remove:
-            del sys.modules[module_name]
+        }
 
         # Also need to reset the backend registry and discovery idempotency
         from src.core.services.backend_discovery import reset_backend_discovery_state
@@ -48,17 +44,10 @@ class TestBackendImportsIntegration:
         # Cleanup: restore original state
         backend_registry._factories.clear()
         backend_registry._factories.update(original_factories)
+        reset_backend_discovery_state()
 
-        # Remove test modules from cache
-        modules_to_remove = [
-            key
-            for key in sys.modules
-            if key.startswith("src.connectors")
-            or key == "src.core.services.backend_imports"
-        ]
-        for module_name in modules_to_remove:
-            if module_name in sys.modules:
-                del sys.modules[module_name]
+        # Restore saved modules to avoid polluting sys.modules for other tests
+        sys.modules.update(saved_modules)
 
     def test_backend_imports_triggers_connector_discovery(
         self, clean_import_state: None
@@ -83,7 +72,7 @@ class TestBackendImportsIntegration:
         )
 
         # NOW IMPORT backend_imports - this is what the CLI does
-        import src.core.services.backend_imports  # noqa: F401
+        import src.core.services.backend_imports  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
         # After importing backend_imports, ALL connectors should be registered
         registered_backends = backend_registry.get_registered_backends()
@@ -140,7 +129,7 @@ class TestBackendImportsIntegration:
         connector classes can be imported and instantiated.
         """
         # Import backend_imports to trigger discovery
-        import src.core.services.backend_imports  # noqa: F401
+        import src.core.services.backend_imports  # noqa: F401  # pyright: ignore[reportUnusedImport]
         from src.connectors.anthropic import AnthropicBackend
         from src.connectors.gemini import GeminiBackend
 
@@ -160,7 +149,7 @@ class TestBackendImportsIntegration:
         This is important because the module might be imported from multiple places.
         """
         # Import once
-        import src.core.services.backend_imports  # noqa: F401
+        import src.core.services.backend_imports  # noqa: F401  # pyright: ignore[reportUnusedImport]
         from src.core.services.backend_registry import backend_registry
 
         first_import_backends = set(backend_registry.get_registered_backends())
@@ -279,4 +268,4 @@ class TestBackendImportsErrorHandling:
         if "src.core.services.backend_imports" in sys.modules:
             return
 
-        import src.core.services.backend_imports  # noqa: F401
+        import src.core.services.backend_imports  # noqa: F401  # pyright: ignore[reportUnusedImport]

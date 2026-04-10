@@ -1,4 +1,3 @@
-import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,7 +8,8 @@ from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
 
 
-def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
+@pytest.mark.asyncio
+async def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
     client = AsyncMock()
     config = AppConfig()
     mock_translation_service = AsyncMock(spec=TranslationService)
@@ -40,14 +40,11 @@ def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
         OpenAICodexConnector, "_call_codex_responses_api", mock_codex_call
     )
 
-    async def invoke_chat_completion() -> None:
-        with pytest.raises(HTTPException):
-            request = CanonicalChatRequest(
-                model="gpt-5.4-mini",
-                messages=[ChatMessage(role="user", content="test")],
-            )
-            await connector.chat_completions(request, [], "gpt-5.4-mini")
-
-    asyncio.run(invoke_chat_completion())
+    with pytest.raises(HTTPException):
+        request = CanonicalChatRequest(
+            model="gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+        await connector.chat_completions(request, [], "gpt-5.4-mini")
 
     assert connector.is_functional is False

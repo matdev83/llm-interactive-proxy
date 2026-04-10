@@ -332,6 +332,7 @@ class TestProjectDirectoryResolutionService:
     ):
         # Ensure we don't accidentally set project_dir via deterministic fallback-to-cwd.
         # The fallback is dot-based, so use an empty temp directory without dot entries.
+        original_cwd = Path.cwd()
         monkeypatch.chdir(tmp_path)
         request = ChatRequest(
             model="test-model",
@@ -351,6 +352,7 @@ class TestProjectDirectoryResolutionService:
         assert session.state.project_dir_resolution_attempted is True
         mock_backend_service.call_completion.assert_not_called()
         assert "did not identify a directory (deterministic mode)" in caplog.text
+        monkeypatch.chdir(original_cwd)
 
     async def test_deterministic_auto_fallbacks_to_openrouter_in_single_user_mode(
         self, mock_backend_service, mock_session_service, session
@@ -386,6 +388,7 @@ class TestProjectDirectoryResolutionService:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         (workspace / ".git").mkdir()
+        original_cwd = Path.cwd()
         monkeypatch.chdir(workspace)
 
         non_project_dir = tmp_path / "non_project_dir"
@@ -417,6 +420,7 @@ class TestProjectDirectoryResolutionService:
         assert session.state.project_dir is None
         assert session.state.project_dir_resolution_attempted is True
         mock_backend_service.call_completion.assert_not_called()
+        monkeypatch.chdir(original_cwd)
 
     # LLM Mode Tests
     async def test_llm_mode_success(
@@ -440,9 +444,47 @@ class TestProjectDirectoryResolutionService:
 
         assert session.state.project_dir == "/home/user/Desktop"
         mock_backend_service.call_completion.assert_called_once()
+        assert mock_backend_service.call_completion.await_args is not None
+        assert (
+            mock_backend_service.call_completion.await_args.kwargs["allow_failover"]
+            is True
+        )
         assert (
             "Project directory auto-detected (LLM): /home/user/Desktop" in caplog.text
         )
+
+    async def test_llm_mode_preserves_runtime_failover_for_composite_selector(
+        self, mock_backend_service, mock_session_service, session
+    ) -> None:
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="I want to work on my project")],
+        )
+        config = create_app_config(
+            "llm",
+            model_spec="openai:gpt-4o-mini|anthropic:claude-3-5-sonnet",
+        )
+        mock_backend_service.call_completion.return_value = ResponseEnvelope(
+            content=(
+                "<directory-resolution-response>"
+                "<project-absolute-directory>/home/user/Desktop</project-absolute-directory>"
+                "</directory-resolution-response>"
+            )
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        mock_backend_service.call_completion.assert_called_once()
+        assert mock_backend_service.call_completion.await_args is not None
+        assert (
+            mock_backend_service.call_completion.await_args.kwargs["allow_failover"]
+            is True
+        )
+        llm_request = mock_backend_service.call_completion.await_args.args[0]
+        assert llm_request.model == "openai:gpt-4o-mini|anthropic:claude-3-5-sonnet"
 
     async def test_llm_mode_llm_fails(
         self, mock_backend_service, mock_session_service, session, caplog
