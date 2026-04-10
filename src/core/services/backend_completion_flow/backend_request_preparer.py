@@ -12,6 +12,7 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+from src.core.domain.composite_routing import RoutingSurface
 from src.core.domain.model_utils import has_explicit_backend_selector
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
@@ -31,6 +32,7 @@ from src.core.services.auxiliary_identity import (
     build_auxiliary_effective_session_id,
     derive_auxiliary_operation_key,
 )
+from src.core.services.composite_routing_state import COMPOSITE_ROUTING_SURFACE_KEY
 
 if TYPE_CHECKING:
     from src.core.services.auxiliary_request_router import AuxiliaryRequestRouter
@@ -74,6 +76,7 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         as an auxiliary request (title/summary generation), the target will
         be overridden to use the configured auxiliary backend.
         """
+
         async def _resolve_target_with_optional_static_route_skip(
             request_to_resolve: CanonicalChatRequest,
             *,
@@ -154,6 +157,11 @@ class BackendRequestPreparer(IBackendRequestPreparer):
                     ),
                 }
             )
+            if context is not None:
+                context.extensions["call_purpose"] = "auxiliary"
+                context.extensions[COMPOSITE_ROUTING_SURFACE_KEY] = (
+                    RoutingSurface.AUXILIARY.value
+                )
             target = await _resolve_target_with_optional_static_route_skip(
                 auxiliary_request,
                 skip_static_route=True,

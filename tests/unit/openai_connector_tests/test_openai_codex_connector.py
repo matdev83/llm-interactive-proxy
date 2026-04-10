@@ -3,7 +3,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
-from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
@@ -27,7 +26,7 @@ def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
     async def fake_load_auth(self: OpenAICodexConnector) -> bool:
         return True
 
-    mock_chat_completions = AsyncMock(
+    mock_codex_call = AsyncMock(
         side_effect=HTTPException(status_code=401, detail="invalid token")
     )
 
@@ -37,15 +36,17 @@ def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
         fake_validate_runtime_credentials,
     )
     monkeypatch.setattr(OpenAICodexConnector, "_load_auth", fake_load_auth)
-    monkeypatch.setattr(OpenAIConnector, "chat_completions", mock_chat_completions)
+    monkeypatch.setattr(
+        OpenAICodexConnector, "_call_codex_responses_api", mock_codex_call
+    )
 
     async def invoke_chat_completion() -> None:
         with pytest.raises(HTTPException):
             request = CanonicalChatRequest(
-                model="gpt-test",
+                model="gpt-5.4-mini",
                 messages=[ChatMessage(role="user", content="test")],
             )
-            await connector.chat_completions(request, [], "gpt-test")
+            await connector.chat_completions(request, [], "gpt-5.4-mini")
 
     asyncio.run(invoke_chat_completion())
 

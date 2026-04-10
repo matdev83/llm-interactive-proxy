@@ -325,7 +325,11 @@ properties:
       tool_access_global_overrides: { type: ["object", "null"] }
       force_reprocess_tool_calls: { type: boolean }
       log_skipped_tool_calls: { type: boolean }
-      quality_verifier_model: { type: ["string", "null"] }
+      quality_verifier_model:
+        type: ["string", "null"]
+        description: >
+          Model selector for the quality verifier. Supports composite routing (`|` failover, `^` weighted)
+          and URI-style parameters (e.g. `model?temperature=0.5`). Mixing `|` and `^` in one selector is rejected.
       quality_verifier_frequency:
         type: integer
         minimum: 1
@@ -344,7 +348,11 @@ properties:
     additionalProperties: true
     properties:
       default_backend: { type: string }
-      static_route: { type: ["string", "null"] }
+      static_route:
+        type: ["string", "null"]
+        description: >
+          Optional forced routing selector applied to requests (strict `backend:model`).
+          Composite routing syntax is supported (`|`, `^`, `[weight=N]`), and mixing operators is rejected.
       disable_gemini_oauth_fallback: { type: boolean }
       disable_hybrid_backend: { type: boolean }
       hybrid_backend_repeat_messages: { type: boolean }
@@ -471,6 +479,10 @@ properties:
       max_message_size_bytes: { type: integer, minimum: 1024 }
   replacement:
     type: object
+    description: >
+      Deprecated random model replacement feature. Prefer composite weighted routing (`^` with optional `[weight=N]`)
+      for new setups. When enabled, the proxy uses a compatibility bridge during the deprecation window and emits
+      operator-facing deprecation metadata with an `N+1` removal timeline (removed in the release after deprecation).
     additionalProperties: false
     properties:
       enabled: { type: boolean }

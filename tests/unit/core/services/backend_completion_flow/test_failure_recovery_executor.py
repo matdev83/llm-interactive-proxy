@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -9,7 +9,7 @@ from src.core.common.exceptions import (
     SessionCancelledError,
 )
 from src.core.domain.b2bua_identity import B2buaIdentity
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.client_termination import ClientTerminationReason
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
@@ -299,3 +299,144 @@ class TestFailureRecoveryExecutor:
             )
 
         callback.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_apply_failure_recovery_advances_composite_failover_pre_output(
+        self, executor
+    ) -> None:
+        executor._failure_strategy = None
+        request = ChatRequest(
+            model="openai:gpt-4",
+            messages=[ChatMessage(role="user", content="hello")],
+            extra_body={"backend_type": "openai", "_resolved_uri_params": {"a": "1"}},
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-composite-recovery",
+        )
+        context.extensions["composite_routing_state"] = {
+            "mode": "failover",
+            "branches": ["openai:gpt-4", "anthropic:claude-3-5-sonnet"],
+            "next_index": 1,
+            "hop_count": 0,
+            "max_hops": 2,
+        }
+        callback = AsyncMock(return_value="ok")
+
+        result = await executor.apply_failure_recovery(
+            error=BackendError("backend down", "openai"),
+            model="gpt-4",
+            backend_type="openai",
+            attempted_backends=[],
+            start_time=0.0,
+            is_streaming=False,
+            content_started=False,
+            request=request,
+            call_completion_callback=callback,
+            context=context,
+        )
+
+        assert result == "ok"
+        callback.assert_awaited_once()
+        assert callback.await_args is not None
+        retry_request = callback.await_args.kwargs["request"]
+        assert retry_request.extra_body is not None
+        assert retry_request.model == "anthropic:claude-3-5-sonnet"
+        assert retry_request.extra_body["backend_type"] == "anthropic"
+        assert retry_request.extra_body["_resolved_uri_params"] == {}
+        assert context.extensions["retry_attempt"] == 1
+        assert context.extensions["last_retry_reason"] == "composite_failover"
+        state = cast(dict[str, Any], context.extensions["composite_routing_state"])
+        assert state["next_index"] == 2
+        assert state["hop_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_apply_failure_recovery_does_not_advance_composite_failover_post_output(
+        self, executor
+    ) -> None:
+        executor._failure_strategy = None
+        request = ChatRequest(
+            model="openai:gpt-4",
+            messages=[ChatMessage(role="user", content="hello")],
+            extra_body={"backend_type": "openai", "_resolved_uri_params": {}},
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-composite-recovery-post-output",
+        )
+        context.extensions["composite_routing_state"] = {
+            "mode": "failover",
+            "branches": ["openai:gpt-4", "anthropic:claude-3-5-sonnet"],
+            "next_index": 1,
+            "hop_count": 0,
+            "max_hops": 2,
+        }
+        callback = AsyncMock(return_value="ok")
+
+        with pytest.raises(BackendError):
+            await executor.apply_failure_recovery(
+                error=BackendError("backend down", "openai"),
+                model="gpt-4",
+                backend_type="openai",
+                attempted_backends=[],
+                start_time=0.0,
+                is_streaming=True,
+                content_started=True,
+                request=request,
+                call_completion_callback=callback,
+                context=context,
+            )
+
+        callback.assert_not_called()
+        state = cast(dict[str, Any], context.extensions["composite_routing_state"])
+        assert state["next_index"] == 1
+        assert state["hop_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_apply_failure_recovery_surfaces_composite_budget_exhaustion(
+        self, executor
+    ) -> None:
+        executor._failure_strategy = None
+        request = ChatRequest(
+            model="openai:gpt-4",
+            messages=[ChatMessage(role="user", content="hello")],
+            extra_body={"backend_type": "openai", "_resolved_uri_params": {}},
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-composite-recovery-exhausted",
+        )
+        context.extensions["composite_routing_state"] = {
+            "mode": "failover",
+            "branches": ["openai:gpt-4", "anthropic:claude-3-5-sonnet"],
+            "next_index": 1,
+            "hop_count": 1,
+            "max_hops": 1,
+        }
+        callback = AsyncMock(return_value="ok")
+
+        with pytest.raises(RoutingError) as exc_info:
+            await executor.apply_failure_recovery(
+                error=BackendError("backend down", "openai"),
+                model="gpt-4",
+                backend_type="openai",
+                attempted_backends=[],
+                start_time=0.0,
+                is_streaming=False,
+                content_started=False,
+                request=request,
+                call_completion_callback=callback,
+                context=context,
+            )
+
+        callback.assert_not_called()
+        assert exc_info.value.details["reason"] == "attempt_budget_exhausted"

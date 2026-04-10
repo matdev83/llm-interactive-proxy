@@ -20,6 +20,10 @@
     {
       "spec": "compression-layer-rtk-inspired",
       "reason": "Spec completed and retained in active folder during final validation pass"
+    },
+    {
+      "spec": "composite-model-routing-failover-weighted-random",
+      "reason": "Wave C2 finalized and retained in active folder for immediate follow-up validation"
     }
   ]
 }

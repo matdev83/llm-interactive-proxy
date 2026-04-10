@@ -707,7 +707,11 @@ class ChatController:
 
                             raw_usage = metadata.get(
                                 "usage",
-                                None,
+                                {
+                                    "prompt_tokens": 0,
+                                    "completion_tokens": 0,
+                                    "total_tokens": 0,
+                                },
                             )
                             usage_summary = None
                             if isinstance(raw_usage, UsageSummary):
@@ -716,7 +720,7 @@ class ChatController:
                                 usage_summary = UsageSummary.from_dict(raw_usage)
 
                             # Create the response using Pydantic model
-                            chat_response = ChatResponse(
+                            response = ChatResponse(
                                 id=response_id,
                                 created=created_val,
                                 model=model_name,
@@ -724,7 +728,7 @@ class ChatController:
                                 usage=usage_summary,
                             )
 
-                            return _inject_reasoning_aliases(chat_response.model_dump())
+                            return _inject_reasoning_aliases(response.model_dump())
 
                     if metadata:
                         meta_role = metadata.get("role")  # type: ignore[arg-type]
@@ -777,11 +781,7 @@ class ChatController:
                             choice = ChatCompletionChoice(
                                 index=0,
                                 message=message,
-                                finish_reason=(
-                                    finish_reason
-                                    if isinstance(finish_reason, str)
-                                    else None
-                                ),
+                                finish_reason=finish_reason,  # type: ignore[arg-type]
                             )
 
                             from src.core.domain.usage_summary import UsageSummary
@@ -793,7 +793,7 @@ class ChatController:
                             elif isinstance(raw_usage, dict):
                                 usage_summary = UsageSummary.from_dict(raw_usage)
 
-                            chat_response = ChatResponse(
+                            response = ChatResponse(
                                 id=response_id,
                                 created=created_val,
                                 model=model_name,
@@ -801,7 +801,7 @@ class ChatController:
                                 usage=usage_summary,
                             )
 
-                            return chat_response.model_dump()
+                            return response.model_dump()
 
                     # Check if content is a JSON string of tool calls (common backend response format)
                     if isinstance(content, str):
@@ -855,14 +855,18 @@ class ChatController:
                                 if metadata:
                                     raw_usage = metadata.get("usage")
                                 else:
-                                    raw_usage = None
+                                    raw_usage = {
+                                        "prompt_tokens": 0,
+                                        "completion_tokens": 0,
+                                        "total_tokens": 0,
+                                    }
                                 usage_summary = None
                                 if isinstance(raw_usage, UsageSummary):
                                     usage_summary = raw_usage
                                 elif isinstance(raw_usage, dict):
                                     usage_summary = UsageSummary.from_dict(raw_usage)
 
-                                chat_response = ChatResponse(
+                                response = ChatResponse(
                                     id=response_id,
                                     created=created_val,
                                     model=model_name,
@@ -870,7 +874,7 @@ class ChatController:
                                     usage=usage_summary,
                                 )
 
-                                return chat_response.model_dump()
+                                return response.model_dump()
                         except (ValueError, TypeError) as e:
                             if logger.isEnabledFor(TRACE_LEVEL):
                                 logger.log(
@@ -960,7 +964,7 @@ class ChatController:
                         )
 
                         # Create the response using Pydantic model
-                        chat_response = ChatResponse(
+                        response = ChatResponse(
                             id=content.get("id", f"chatcmpl-{_uuid.uuid4().hex[:16]}"),
                             created=int(_time.time()),
                             model=content.get(
@@ -970,7 +974,7 @@ class ChatController:
                             usage=UsageSummary.from_dict(openai_usage),
                         )
 
-                        return chat_response
+                        return response
 
                     import json as _json
                     import time
@@ -1017,7 +1021,7 @@ class ChatController:
                     from src.core.domain.usage_summary import UsageSummary
 
                     # Create the response using Pydantic model
-                    chat_response = ChatResponse(
+                    response = ChatResponse(
                         id=f"chatcmpl-{uuid.uuid4().hex[:16]}",
                         created=int(time.time()),
                         model=getattr(domain_request, "model", "gpt-4"),
@@ -1031,7 +1035,7 @@ class ChatController:
                         ),
                     )
 
-                    return chat_response
+                    return response
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(

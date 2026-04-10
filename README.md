@@ -151,7 +151,13 @@ See the full [Backends Overview](docs/user_guide/backends/overview.md) for confi
 - `model` and `vendor/model` are model-only selectors.
 - `vendor/model:variant` remains model-only unless `:` appears before the first `/`.
 - URI-style parameters in selectors such as `model?temperature=0.5` are parsed and propagated through routing metadata.
+- Ordered composite failover uses `selectorA|selectorB|selectorC` and advances left-to-right when pre-output failures occur.
+- Weighted composite routing uses `selectorA^selectorB` with optional `[weight=N]` branch prefixes (for example `[weight=3]openai:gpt-4^anthropic:claude-3-5-sonnet`).
+- Composite selectors must not mix `|` and `^` in the same selector string (they are rejected during validation).
+- Composite failover shares one bounded attempt budget with existing retry/failover safety controls.
+- When providing selectors via CLI/env, quote/escape the full selector string. On Windows, `|` is a PowerShell pipeline operator and `^` is a cmd.exe escape character.
 - Explicit-backend configuration and command surfaces such as `--static-route`, replacement targets, and one-off routing require strict `backend:model` format.
+- Legacy random model replacement now routes through a compatibility bridge that emits deprecation metadata (removal timeline: `N+1`, i.e. removed in the release after the one that introduced deprecation) and rejects unsafe mappings with explicit migration errors.
 
 ## Access Modes
 
@@ -214,7 +220,6 @@ graph TD
 The proxy sits between the client and the provider, which is exactly why it can translate protocols, enforce policy, capture traffic, and route requests without forcing your app to change its calling pattern.
 
 ## Documentation Map
-
 - **[Quick Start](docs/user_guide/quick-start.md)** - Get running fast
 - **[User Guide](docs/user_guide/index.md)** - End-user documentation and feature catalog
 - **[Configuration Guide](docs/user_guide/configuration.md)** - Flags, config, and operational settings
@@ -226,7 +231,6 @@ The proxy sits between the client and the provider, which is exactly why it can 
 - **[CONTRIBUTING](CONTRIBUTING.md)** - Contribution guidelines
 
 ## Development
-
 ```bash
 # Run the test suite
 python -m pytest
@@ -237,13 +241,9 @@ python -m ruff check --fix .
 # Format
 python -m black .
 ```
-
 See the [Development Guide](docs/development_guide/index.md) for architecture, contribution workflow, and extra dev scripts.
 
 ## Support
-
 [GitHub Issues](https://github.com/matdev83/llm-interactive-proxy/issues) and [Discussions](https://github.com/matdev83/llm-interactive-proxy/discussions).
-
 ## License
-
 This project is licensed under the [GNU AGPL v3.0 or later](LICENSE).

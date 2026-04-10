@@ -60,6 +60,10 @@ from src.core.services.b2bua_bleg_allocator_service import B2buaBlegAllocator
 from src.core.services.boundary_validation import (
     log_boundary_validation_failure,
 )
+from src.core.services.composite_routing_state import (
+    COMPOSITE_ROUTING_SURFACE_KEY,
+    resolve_composite_routing_surface,
+)
 from src.core.services.connector_invoker import ConnectorInvoker
 from src.core.services.resilience.scope import (
     build_resilience_error_context,
@@ -505,6 +509,11 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         if "is_retry" not in extensions:
             extensions["is_retry"] = False
 
+    @staticmethod
+    def _set_composite_routing_surface(context: RequestContext) -> None:
+        surface = resolve_composite_routing_surface(context)
+        context.extensions[COMPOSITE_ROUTING_SURFACE_KEY] = surface.value
+
     def _build_capture_metadata(
         self,
         *,
@@ -756,6 +765,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
         if context is not None:
             self._initialize_retry_metadata(context)
+            self._set_composite_routing_surface(context)
         # Step 1: Prepare request (resolve target + synchronize)
         target = await self._request_preparer.prepare_request(
             canonical_request, context

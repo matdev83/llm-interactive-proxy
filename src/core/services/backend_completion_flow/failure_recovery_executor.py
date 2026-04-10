@@ -36,6 +36,9 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.services.backend_routing_service import BackendRoutingService
+from src.core.services.composite_failure_recovery_bridge import (
+    CompositeFailureRecoveryBridge,
+)
 from src.core.services.failover_service import FailoverAttempt
 
 logger = logging.getLogger(__name__)
@@ -53,6 +56,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         failover_routes: dict[str, dict[str, Any]] | None = None,
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
         backend_work_guard: IBackendWorkGuard | None = None,
+        composite_failure_recovery_bridge: CompositeFailureRecoveryBridge | None = None,
     ):
         """Initialize the failure recovery executor."""
         self._failover_planner = failover_planner
@@ -62,6 +66,9 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         self._failover_routes = failover_routes or {}
         self._cancellation_coordinator = cancellation_coordinator
         self._backend_work_guard = backend_work_guard
+        self._composite_failure_recovery_bridge = (
+            composite_failure_recovery_bridge or CompositeFailureRecoveryBridge()
+        )
 
     async def check_complex_failover(
         self,
@@ -569,6 +576,24 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         # Track this backend as attempted
         if backend_type not in attempted_backends:
             attempted_backends.append(backend_type)
+
+        composite_retry_request = (
+            self._composite_failure_recovery_bridge.build_next_request(
+                request=request,
+                context=context,
+                content_started=content_started,
+            )
+        )
+        if composite_retry_request is not None:
+            if context is not None:
+                self._increment_retry_metadata(context, reason="composite_failover")
+                context.extensions["last_retry_reason"] = "composite_failover"
+            return await call_completion_callback(
+                request=composite_retry_request,
+                stream=is_streaming,
+                allow_failover=True,
+                context=context,
+            )
 
         # Check if we have a failure strategy configured
         if self._failure_strategy is None:

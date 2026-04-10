@@ -39,7 +39,6 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
-from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.tool_text_renderer import OverrideRenderer
@@ -587,7 +586,7 @@ class ResponseExecutor(IResponseExecutor):
             with OverrideRenderer(renderer_key):
                 domain_response = (
                     self._base_connector.translation_service.to_domain_response(
-                        response_json, "openai-responses"
+                        response_json, "openai"
                     )
                 )
 
@@ -686,10 +685,6 @@ class ResponseExecutor(IResponseExecutor):
         conversation_id = payload.prompt_cache_key or context.session_id
         headers = self._build_headers(conversation_id, context.session_id)
         payload_dict = payload.model_dump(exclude_none=True)
-        estimated_prompt_tokens = self._estimate_prompt_tokens(
-            context=context,
-            payload_dict=payload_dict,
-        )
 
         headers_holder: dict[str, str] = {}
         current_cancel: list[Callable[[], Awaitable[None]] | None] = [None]
@@ -706,8 +701,6 @@ class ResponseExecutor(IResponseExecutor):
             incompatible_tool_retries = 0
             current_headers = dict(headers)
             current_payload_dict = dict(payload_dict)
-            estimated_completion_text_parts: list[str] = []
-            usage_seen_in_stream = False
 
             # Get compatibility state from context metadata if available
             # State should always be provided by the facade via CodexRequestContext.metadata
@@ -978,38 +971,6 @@ class ResponseExecutor(IResponseExecutor):
 
                             if self._chunk_has_client_visible_output(processed_chunk):
                                 visible_output_emitted = True
-                            chunk_has_usage = self._chunk_has_usage_information(
-                                processed_chunk
-                            )
-                            if chunk_has_usage:
-                                usage_seen_in_stream = True
-                            text_fragment = self._extract_chunk_text_fragment(
-                                processed_chunk
-                            )
-                            if text_fragment:
-                                estimated_completion_text_parts.append(text_fragment)
-                            finish_reason = self._extract_finish_reason(processed_chunk)
-                            if not usage_seen_in_stream and finish_reason in {
-                                "stop",
-                                "length",
-                                "content_filter",
-                            }:
-                                fallback_usage = self._build_stream_usage_fallback(
-                                    prompt_tokens=estimated_prompt_tokens,
-                                    completion_text="".join(
-                                        estimated_completion_text_parts
-                                    ),
-                                    model=context.effective_model,
-                                )
-                                if fallback_usage is not None:
-                                    self._attach_usage_metadata(
-                                        processed_chunk,
-                                        fallback_usage,
-                                    )
-                                    processed_chunk.usage = UsageSummary.from_dict(
-                                        fallback_usage
-                                    )
-                                    usage_seen_in_stream = True
                             yield processed_chunk
 
                     # If stream completed successfully without auth errors, exit retry loop
@@ -1293,156 +1254,6 @@ class ResponseExecutor(IResponseExecutor):
                     return True
         return False
 
-    @staticmethod
-    def _chunk_has_usage_information(chunk: ProcessedResponse) -> bool:
-        if chunk.usage is not None:
-            return True
-        usage_metadata = chunk.metadata.get("usage")
-        if isinstance(usage_metadata, dict):
-            return True
-        provider_data = chunk.metadata.get("provider_data")
-        if isinstance(provider_data, dict):
-            provider_usage = provider_data.get("usage")
-            if isinstance(provider_usage, dict):
-                return True
-        if isinstance(chunk.content, Mapping):
-            usage_content = chunk.content.get("usage")
-            if isinstance(usage_content, dict):
-                return True
-        return False
-
-    @staticmethod
-    def _extract_chunk_text_fragment(chunk: ProcessedResponse) -> str:
-        content = chunk.content
-        if isinstance(content, str):
-            return content
-        if not isinstance(content, Mapping):
-            return ""
-        output = content.get("output")
-        if isinstance(output, list):
-            text_parts: list[str] = []
-            for item in output:
-                if not isinstance(item, Mapping):
-                    continue
-                item_content = item.get("content")
-                if isinstance(item_content, str) and item_content:
-                    text_parts.append(item_content)
-            if text_parts:
-                return "".join(text_parts)
-
-        choices = content.get("choices")
-        if not isinstance(choices, list):
-            return ""
-        choice_text_parts: list[str] = []
-        for choice in choices:
-            if not isinstance(choice, Mapping):
-                continue
-            for container_key in ("delta", "message"):
-                container = choice.get(container_key)
-                if not isinstance(container, Mapping):
-                    continue
-                text = container.get("content")
-                if isinstance(text, str) and text:
-                    choice_text_parts.append(text)
-        return "".join(choice_text_parts)
-
-    @staticmethod
-    def _extract_finish_reason(chunk: ProcessedResponse) -> str | None:
-        metadata = chunk.metadata
-        finish_reason = metadata.get("finish_reason")
-        if isinstance(finish_reason, str) and finish_reason:
-            return finish_reason
-
-        content = chunk.content
-        if not isinstance(content, Mapping):
-            return None
-        finish_reason_value = content.get("finish_reason")
-        if isinstance(finish_reason_value, str) and finish_reason_value:
-            return finish_reason_value
-        choices = content.get("choices")
-        if not isinstance(choices, list):
-            return None
-        for choice in choices:
-            if not isinstance(choice, Mapping):
-                continue
-            choice_finish_reason = choice.get("finish_reason")
-            if isinstance(choice_finish_reason, str) and choice_finish_reason:
-                return choice_finish_reason
-        return None
-
-    @staticmethod
-    def _attach_usage_metadata(
-        chunk: ProcessedResponse,
-        usage: dict[str, int],
-    ) -> None:
-        usage_payload: dict[str, Any] = {
-            "prompt_tokens": int(usage.get("prompt_tokens", 0)),
-            "completion_tokens": int(usage.get("completion_tokens", 0)),
-            "total_tokens": int(usage.get("total_tokens", 0)),
-        }
-        metadata_any = dict(chunk.metadata)
-        metadata_any["usage"] = usage_payload
-        chunk.metadata = metadata_any
-
-    @staticmethod
-    def _estimate_prompt_tokens(
-        *,
-        context: CodexRequestContext,
-        payload_dict: Mapping[str, Any],
-    ) -> int:
-        from src.core.services.usage_calculation_service import (
-            get_usage_calculation_service,
-        )
-
-        service = get_usage_calculation_service()
-        messages = context.request.messages
-        if messages:
-            tokens = service.calculate_prompt_tokens(
-                messages=messages,
-                model=context.effective_model,
-            )
-            if tokens > 0:
-                return tokens
-
-        payload_input = payload_dict.get("input")
-        if isinstance(payload_input, list) and payload_input:
-            tokens = service.calculate_prompt_tokens(
-                messages=payload_input,
-                model=context.effective_model,
-            )
-            if tokens > 0:
-                return tokens
-        return 0
-
-    @staticmethod
-    def _build_stream_usage_fallback(
-        *,
-        prompt_tokens: int,
-        completion_text: str,
-        model: str,
-    ) -> dict[str, int] | None:
-        from src.core.services.usage_calculation_service import (
-            get_usage_calculation_service,
-        )
-
-        service = get_usage_calculation_service()
-        completion_tokens = service.calculate_completion_tokens(
-            content=completion_text,
-            model=model,
-        )
-        if completion_tokens <= 0 and completion_text.strip():
-            completion_tokens = 1
-        if prompt_tokens <= 0 and completion_tokens <= 0:
-            return None
-        total_tokens = prompt_tokens + completion_tokens
-        if total_tokens <= 0:
-            return None
-        return {
-            "prompt_tokens": max(prompt_tokens, 0),
-            "completion_tokens": max(completion_tokens, 0),
-            "total_tokens": total_tokens,
-        }
-
     def _refresh_headers_auth(
         self, headers: dict[str, str], conversation_id: str, session_id: str
     ) -> None:
@@ -1615,15 +1426,16 @@ class ResponseExecutor(IResponseExecutor):
         # Primary signal: explicit error payload from translation layer
         error_flag = content.get("error")
         details = content.get("details")
-        details_mapping = cast(Mapping[str, Any] | None, details)
 
-        status = self._extract_status_code(details_mapping)
+        status = self._extract_status_code(
+            details if isinstance(details, Mapping) else None
+        )
         if status in {401, 403}:
             return True
 
         # Some payloads stash status inside nested metadata objects
-        if isinstance(details_mapping, Mapping):
-            metadata = details_mapping.get("metadata")
+        if isinstance(details, Mapping):
+            metadata = details.get("metadata")
             if isinstance(metadata, Mapping):
                 status = self._extract_status_code(metadata)
                 if status in {401, 403}:
@@ -1631,9 +1443,9 @@ class ResponseExecutor(IResponseExecutor):
 
         # Fall back to heuristics based on codes/messages
         code = None
-        if isinstance(details_mapping, Mapping):
-            code = details_mapping.get("code")
-        if code is None:
+        if isinstance(details, Mapping):  # type: ignore[unreachable]
+            code = details.get("code")
+        if code is None and isinstance(content, Mapping):  # type: ignore[unreachable]
             code = content.get("code")
 
         def _is_auth_code(value: Any) -> bool:

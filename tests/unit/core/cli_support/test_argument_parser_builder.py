@@ -1016,6 +1016,18 @@ class TestParserFunctionality:
                 ]
             )
 
+    def test_parse_mutually_exclusive_dynamic_compression(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Parser enforces mutual exclusivity for dynamic compression toggle flags."""
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                [
+                    "--dynamic-compression-enabled",
+                    "--dynamic-compression-disabled",
+                ]
+            )
+
     def test_parse_model_alias(self, parser: argparse.ArgumentParser) -> None:
         """Parser correctly parses --model-alias with pattern=replacement format."""
         args = parser.parse_args(

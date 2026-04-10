@@ -73,3 +73,5 @@ class GeminiCliRuntime:
     last_activity: float = 0.0
     process_lock: Any = field(default=None)
     request_lock: Any = field(default=None)
+    cancellation_lock: Any = field(default=None)
+    cancellation_event: Any = field(default=None)

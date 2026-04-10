@@ -13,7 +13,10 @@ from typing import Any, Literal, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.model_utils import parse_model_backend
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import Session
@@ -205,6 +208,18 @@ class ProjectDirectoryResolutionService:
             "- Do not execute, simulate, or reason about running any tools or commands.\n"
             "- Operate strictly in a headless, non-interactive environment.\n"
             "- Communicate only via the XML response; no commentary or markdown.\n"
+        )
+        command_prefix = getattr(app_config, "command_prefix", "!/")
+        normalized_prefix = (
+            str(command_prefix).strip() if isinstance(command_prefix, str) else "!/"
+        )
+        if not normalized_prefix:
+            normalized_prefix = "!/"
+        command_prefixes = {normalized_prefix, "~/"}
+        self._command_detection_patterns = tuple(
+            re.compile(rf"(?:^|\s){re.escape(prefix)}[\w-]+(?:\(|\b)")
+            for prefix in sorted(command_prefixes)
+            if prefix
         )
 
     def _normalize_unc_path(self, path: str) -> str:
@@ -576,8 +591,16 @@ class ProjectDirectoryResolutionService:
                 return consensus
 
         # Step 3: conservative text-only fallback.
-        # If all mentions look like file paths, we cannot safely infer a root.
+        # Multiple file-only mentions are typically ambiguous and should not infer a root.
+        # A single file path mention is accepted because normalization already strips
+        # common source/file suffixes (e.g., .../src/main.py -> project root).
         if all(candidate.is_file for candidate in candidates):
+            if len(candidates) == 1:
+                candidate = candidates[0]
+                if self._is_valid_project_directory_candidate(
+                    candidate.directory, candidate.path_type
+                ):
+                    return candidate.directory
             return None
 
         grouped: dict[_PathType, list[str]] = {}
@@ -787,6 +810,15 @@ class ProjectDirectoryResolutionService:
                     f" {existing_dir}"
                 ),
             )
+            return
+
+        skip_reason = self._resolution_skip_reason(request)
+        if skip_reason:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping project directory auto-detection for request: %s",
+                    skip_reason,
+                )
             return
 
         startup_prompt_text = self._extract_trusted_startup_prompt(request)
@@ -1401,6 +1433,29 @@ class ProjectDirectoryResolutionService:
             return True
         # Windows
         return bool(re.match(r"^[a-zA-Z]:\\", value))
+
+    def _resolution_skip_reason(self, request: ChatRequest) -> str | None:
+        tools = getattr(request, "tools", None)
+        if tools:
+            return "request includes tool definitions"
+
+        model_value = str(getattr(request, "model", "") or "").strip()
+        if model_value:
+            route_portion, separator, _ = model_value.partition("?")
+            if separator:
+                return "request model includes URI parameters"
+            if has_explicit_backend_selector(model_value):
+                return "request model includes explicit backend selector"
+            if "/" in route_portion:
+                return "request model uses vendor/model selector"
+
+        user_prompt_text = self._extract_user_prompt(request)
+        if user_prompt_text:
+            for pattern in self._command_detection_patterns:
+                if pattern.search(user_prompt_text):
+                    return "request includes interactive command invocation"
+
+        return None
 
 
 __all__ = ["ProjectDirectoryResolutionService"]

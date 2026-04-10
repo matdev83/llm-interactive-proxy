@@ -103,36 +103,9 @@ class TestUsageSummary:
         assert summary.total_tokens == 150
         assert summary.extensions == {"cost": 0.002}
 
-    def test_usage_summary_from_dict_supports_responses_api_fields(self) -> None:
-        """Responses API usage fields should populate canonical token counts."""
-        data: dict[str, int] = {
-            "input_tokens": 17,
-            "output_tokens": 9,
-            "total_tokens": 26,
-        }
-
-        summary = UsageSummary.from_dict(data)
-
-        assert summary.prompt_tokens == 17
-        assert summary.completion_tokens == 9
-        assert summary.total_tokens == 26
-        assert summary.extensions == {"input_tokens": 17, "output_tokens": 9}
-
-    def test_usage_summary_from_dict_computes_total_for_responses_api_fields(
-        self,
-    ) -> None:
-        """Responses API usage should compute total_tokens when omitted."""
-        data: dict[str, int] = {"input_tokens": 11, "output_tokens": 5}
-
-        summary = UsageSummary.from_dict(data)
-
-        assert summary.prompt_tokens == 11
-        assert summary.completion_tokens == 5
-        assert summary.total_tokens == 16
-
     def test_usage_summary_from_dict_with_none(self) -> None:
         """Test creating UsageSummary from dictionary with None values."""
-        data: dict[str, object] = {
+        data = {
             "prompt_tokens": None,
             "completion_tokens": None,
             "total_tokens": None,

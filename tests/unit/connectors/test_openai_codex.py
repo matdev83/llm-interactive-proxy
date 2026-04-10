@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from pytest_httpx import HTTPXMock
+from fastapi import HTTPException
+from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex import (
     OpenAICodexConnector,
     OpenAICredentialsFileHandler,
@@ -15,29 +16,46 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 
 
 @pytest.mark.asyncio
-async def test_openai_codex_uses_bearer_from_auth_json(
-    openai_codex_backend: OpenAICodexConnector, httpx_mock: HTTPXMock
+async def test_openai_codex_routes_gpt_5_4_mini_through_codex_api(
+    openai_codex_backend: OpenAICodexConnector,
 ):
-    # Mock chat completion
-    httpx_mock.add_response(
-        url=f"{openai_codex_backend.api_base_url}/chat/completions",
-        method="POST",
-        json={
-            "id": "cmpl_1",
-            "object": "chat.completion",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "Hello"},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-        },
-        status_code=200,
-        headers={"Content-Type": "application/json"},
+    req = ChatRequest(
+        model="openai-codex:gpt-5.4-mini",
+        messages=[ChatMessage(role="user", content="hi")],
+        max_tokens=16,
+        stream=False,
     )
 
+    expected = MagicMock()
+
+    with (
+        patch.object(
+            openai_codex_backend,
+            "_validate_runtime_credentials",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(
+            openai_codex_backend,
+            "_call_codex_responses_api",
+            AsyncMock(return_value=expected),
+        ) as codex_call,
+        patch.object(OpenAIConnector, "chat_completions", AsyncMock()) as base_call,
+    ):
+        result = await openai_codex_backend.chat_completions(
+            request_data=req,
+            processed_messages=[ChatMessage(role="user", content="hi")],
+            effective_model="gpt-5.4-mini",
+        )
+
+    assert result is expected
+    codex_call.assert_awaited_once()
+    base_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_openai_codex_rejects_unsupported_models_without_openai_fallback(
+    openai_codex_backend: OpenAICodexConnector,
+):
     req = ChatRequest(
         model="openai-codex:gpt-4o-mini",
         messages=[ChatMessage(role="user", content="hi")],
@@ -45,9 +63,19 @@ async def test_openai_codex_uses_bearer_from_auth_json(
         stream=False,
     )
 
-    # Mock runtime validation for the test
-    with patch.object(
-        openai_codex_backend, "_validate_runtime_credentials", return_value=(True, [])
+    with (
+        patch.object(
+            openai_codex_backend,
+            "_validate_runtime_credentials",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(
+            openai_codex_backend,
+            "_call_codex_responses_api",
+            AsyncMock(),
+        ) as codex_call,
+        patch.object(OpenAIConnector, "chat_completions", AsyncMock()) as base_call,
+        pytest.raises(HTTPException) as exc_info,
     ):
         await openai_codex_backend.chat_completions(
             request_data=req,
@@ -55,10 +83,13 @@ async def test_openai_codex_uses_bearer_from_auth_json(
             effective_model="gpt-4o-mini",
         )
 
-    sent = httpx_mock.get_request()
-    assert sent is not None
-    # Ensure Authorization header uses access token
-    assert sent.headers.get("Authorization") == "Bearer chatgpt_token"
+    assert exc_info.value.status_code == 400
+    detail = exc_info.value.detail
+    assert isinstance(detail, dict)
+    assert detail["error"] == "openai_codex_model_not_supported"
+    assert detail["details"]["requested_model"] == "gpt-4o-mini"
+    codex_call.assert_not_awaited()
+    base_call.assert_not_awaited()
 
 
 @pytest.mark.asyncio

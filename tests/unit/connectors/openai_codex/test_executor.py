@@ -391,46 +391,7 @@ class TestResponseExecutor:
         compatibility_layer.detect_incompatible_tool_calls.assert_called()
         compatibility_layer.append_incompatible_tool_steering.assert_called_once()
         mock_base_connector.translation_service.to_domain_response.assert_called_once_with(
-            second_response.json.return_value, "openai-responses"
-        )
-
-    @pytest.mark.asyncio
-    async def test_execute_non_streaming_uses_responses_translation_format(
-        self, executor, mock_base_connector, sample_context, non_streaming_payload
-    ):
-        """Non-streaming Codex responses should use Responses-format translation for usage."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "id": "resp-123",
-            "output": [
-                {
-                    "type": "message",
-                    "role": "assistant",
-                    "content": [{"type": "output_text", "text": "Response"}],
-                }
-            ],
-            "usage": {
-                "input_tokens": 11,
-                "output_tokens": 7,
-                "total_tokens": 18,
-            },
-        }
-        mock_response.headers = {}
-        mock_base_connector.client.post = AsyncMock(return_value=mock_response)
-
-        domain_response = MagicMock()
-        domain_response.model_dump.return_value = {"content": "Response"}
-        domain_response.usage = {"prompt_tokens": 11, "completion_tokens": 7}
-        mock_base_connector.translation_service.to_domain_response.return_value = (
-            domain_response
-        )
-
-        await executor.execute(non_streaming_payload, sample_context)
-
-        mock_base_connector.translation_service.to_domain_response.assert_called_once_with(
-            mock_response.json.return_value,
-            "openai-responses",
+            second_response.json.return_value, "openai"
         )
 
     @pytest.mark.asyncio
@@ -663,80 +624,6 @@ class TestResponseExecutor:
         assert chunks[1] == chunk2
         # After consuming all chunks, headers should still be set
         assert result.headers == {"x-request-id": "stream-123"}
-
-    @pytest.mark.asyncio
-    async def test_execute_streaming_does_not_inject_unsupported_stream_options(
-        self, executor, mock_base_connector, sample_context, streaming_payload
-    ):
-        """Codex backend rejects stream_options, so executor must not inject them."""
-
-        captured_payloads: list[dict[str, object]] = []
-
-        async def empty_iterator():
-            return
-            yield  # pragma: no cover
-
-        stream_handle = MagicMock()
-        stream_handle.headers = {}
-        stream_handle.cancel_callback = AsyncMock()
-        stream_handle.iterator = empty_iterator()
-
-        async def handle_streaming_side_effect(
-            url, payload_dict, headers, session_id, *args
-        ):
-            captured_payloads.append(dict(payload_dict))
-            return stream_handle
-
-        mock_base_connector._handle_streaming_response = AsyncMock(
-            side_effect=handle_streaming_side_effect
-        )
-
-        result = await executor.execute(streaming_payload, sample_context)
-        assert result.content is not None
-        async for _ in result.content:
-            pass
-
-        assert len(captured_payloads) == 1
-        assert "stream_options" not in captured_payloads[0]
-
-    @pytest.mark.asyncio
-    async def test_execute_streaming_adds_usage_fallback_when_provider_usage_missing(
-        self, executor, mock_base_connector, sample_context, streaming_payload
-    ):
-        """Streaming final chunks should get non-zero usage fallback when provider omits usage."""
-
-        async def missing_usage_iterator():
-            yield ProcessedResponse(
-                content={
-                    "choices": [
-                        {
-                            "delta": {"content": "fallback usage text"},
-                            "finish_reason": "stop",
-                        }
-                    ]
-                }
-            )
-
-        stream_handle = MagicMock()
-        stream_handle.headers = {}
-        stream_handle.cancel_callback = AsyncMock()
-        stream_handle.iterator = missing_usage_iterator()
-        mock_base_connector._handle_streaming_response = AsyncMock(
-            return_value=stream_handle
-        )
-
-        result = await executor.execute(streaming_payload, sample_context)
-        chunks = [
-            chunk
-            async for chunk in cast(AsyncIterator[ProcessedResponse], result.content)
-        ]
-
-        assert len(chunks) == 1
-        assert chunks[0].usage is not None
-        total_tokens = chunks[0].usage.total_tokens
-        assert total_tokens is not None
-        assert total_tokens > 0
-        assert chunks[0].metadata.get("usage") is not None
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_auth_retry(

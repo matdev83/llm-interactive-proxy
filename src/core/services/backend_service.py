@@ -69,6 +69,7 @@ from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingW
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_routing_service import BackendRoutingService
+from src.core.services.composite_routing_state import is_composite_selector
 from src.core.services.failover_service import FailoverAttempt, FailoverService
 from src.core.services.stream_formatting_service import StreamFormattingService
 
@@ -320,7 +321,7 @@ class BackendService(IBackendService):
         if (
             isinstance(model_spec, str)
             and has_explicit_backend_selector(model_spec)
-            and not self._is_composite_selector(model_spec)
+            and not is_composite_selector(model_spec)
         ):
             allow_failover = False
         return await self._backend_completion_flow.call_completion(
@@ -329,11 +330,6 @@ class BackendService(IBackendService):
             allow_failover=allow_failover,
             context=context,
         )
-
-    @staticmethod
-    def _is_composite_selector(model_spec: str) -> bool:
-        route_portion, _, _ = model_spec.partition("?")
-        return "|" in route_portion or "^" in route_portion
 
     async def validate_backend_and_model(
         self, backend: str, model: str
@@ -399,17 +395,24 @@ class BackendService(IBackendService):
         )
 
     async def _resolve_backend_and_model(
-        self, request: ChatRequest
+        self,
+        request: ChatRequest,
+        context: RequestContext | None = None,
     ) -> tuple[str, str, dict[str, Any]]:
         """Resolve backend type, effective model, and URI parameters from request and session.
 
         This is a thin wrapper method that delegates to the injected
         IBackendModelResolver. Preserved for backward compatibility
         with existing tests that call this method directly.
+
+        Args:
+            request: Chat completion request whose model string is resolved.
+            context: Optional request context forwarded to the resolver (e.g. composite
+                routing surface). When omitted, behavior matches the historical default.
         """
         resolved = await self._backend_model_resolver.resolve_target(
             request=request,
-            context=None,
+            context=context,
         )
         return resolved.backend, resolved.model, resolved.uri_params
 

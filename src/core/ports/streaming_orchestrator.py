@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from contextlib import AsyncExitStack, suppress
 from typing import Any
 
+from src.core.common.exceptions import LLMProxyError
 from src.core.ports.sse_assembler import SSEAssembler
 from src.core.ports.streaming.interfaces import IProviderStreamNormalizer
 from src.core.ports.streaming_contracts import (
@@ -25,7 +26,6 @@ from src.core.ports.streaming_contracts import (
     StreamingContent,
 )
 from src.core.ports.streaming_metrics import get_metrics_instance
-from src.core.common.exceptions import LLMProxyError
 
 logger = logging.getLogger(__name__)
 

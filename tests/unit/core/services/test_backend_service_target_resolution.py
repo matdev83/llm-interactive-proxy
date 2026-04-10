@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
+from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.request_context import RequestContext
@@ -129,6 +130,52 @@ class TestTargetResolutionOrdering:
             # Should resolve to anthropic backend from the aliased result
             assert backend == "anthropic"
             assert model == "claude-3-5-sonnet"
+
+
+class TestResolveBackendAndModelContextForwarding:
+    """Regression tests for `_resolve_backend_and_model` context plumbing."""
+
+    @pytest.mark.asyncio
+    async def test_forwards_request_context_to_model_resolver(self, backend_service):
+        ctx = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="rid-bs-ctx",
+            session_id="sid-bs-ctx",
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+        with patch.object(
+            backend_service._backend_model_resolver,
+            "resolve_target",
+            new_callable=AsyncMock,
+        ) as mock_resolve:
+            mock_resolve.return_value = BackendTarget(
+                backend="openai", model="gpt-4", uri_params={}
+            )
+            await backend_service._resolve_backend_and_model(request, context=ctx)
+            mock_resolve.assert_awaited_once_with(request=request, context=ctx)
+
+    @pytest.mark.asyncio
+    async def test_omitted_context_defaults_to_none(self, backend_service):
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+        with patch.object(
+            backend_service._backend_model_resolver,
+            "resolve_target",
+            new_callable=AsyncMock,
+        ) as mock_resolve:
+            mock_resolve.return_value = BackendTarget(
+                backend="openai", model="gpt-4", uri_params={}
+            )
+            await backend_service._resolve_backend_and_model(request)
+            mock_resolve.assert_awaited_once_with(request=request, context=None)
 
 
 class TestBackendPrefixParsing:
@@ -442,7 +489,9 @@ class TestStaticRouteOverride:
         assert exc_info.value.details.get("error_code") == "invalid_static_route_format"
 
     @pytest.mark.asyncio
-    async def test_static_route_can_be_skipped_with_context_flag(self, mock_dependencies):
+    async def test_static_route_can_be_skipped_with_context_flag(
+        self, mock_dependencies
+    ):
         """Per-request context flag should bypass static_route overrides."""
         mock_dependencies["config"].backends.static_route = "gemini:gemini-2.0-flash"
 

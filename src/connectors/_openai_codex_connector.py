@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import dataclasses
 import inspect
 import logging
 import os
@@ -108,6 +107,7 @@ class OpenAICodexConnector(OpenAIConnector):
     # Supported Codex models - sourced from official Codex CLI models.json
     SUPPORTED_CODEX_MODELS: tuple[str, ...] = (
         "gpt-5.4",
+        "gpt-5.4-mini",
         "gpt-5.3-codex",
         "gpt-5.2-codex",
         "gpt-5.2",
@@ -132,6 +132,7 @@ class OpenAICodexConnector(OpenAIConnector):
     # All current models support xhigh reasoning effort
     XHIGH_SUPPORTED_MODELS: tuple[str, ...] = (
         "gpt-5.4",
+        "gpt-5.4-mini",
         "gpt-5.3-codex",
         "gpt-5.2-codex",
         "gpt-5.2",
@@ -2083,25 +2084,62 @@ class OpenAICodexConnector(OpenAIConnector):
                     self._degrade([f"Authentication failed: {exc!s}"])
                 raise
 
-        # For non-Codex models, fall back to the base OpenAI connector
-        # Update the request with any modifications made (e.g., effective_model)
-        connector_request = dataclasses.replace(
-            request, effective_model=effective_model, options=kwargs
-        )
+        requested_model_raw: str | None = None
+        if isinstance(request_data, dict):
+            request_model_value = request_data.get("model")
+            if isinstance(request_model_value, str):
+                requested_model_raw = request_model_value
+        else:
+            model_attr = getattr(request_data, "model", None)
+            if isinstance(model_attr, str):
+                requested_model_raw = model_attr
 
-        try:
-            result = await super().chat_completions(connector_request)
-            if not self.is_functional:
-                self._recover()
-            return result
-        except Exception as exc:
-            if (
-                isinstance(exc, AuthenticationError | HTTPException)
-                and hasattr(exc, "status_code")
-                and exc.status_code in (401, 403)
-            ):
-                self._degrade([f"Authentication failed: {exc!s}"])
-            raise
+        explicit_codex_selection = False
+        if isinstance(requested_model_raw, str):
+            try:
+                parsed_requested_model = parse_model_with_params(requested_model_raw)
+                explicit_codex_selection = (
+                    parsed_requested_model.backend_type.lower()
+                    == self.backend_type.lower()
+                )
+            except Exception:
+                explicit_codex_selection = requested_model_raw.lower().startswith(
+                    f"{self.backend_type.lower()}:"
+                )
+
+        if explicit_codex_selection:
+            supported_models = ", ".join(self.SUPPORTED_CODEX_MODELS)
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "openai_codex_model_not_supported",
+                    "message": (
+                        "Model is not supported by the OpenAI Codex backend and was not "
+                        "forwarded to metered OpenAI API endpoints."
+                    ),
+                    "details": {
+                        "backend": self.name,
+                        "requested_model": effective_model,
+                        "supported_models": list(self.SUPPORTED_CODEX_MODELS),
+                        "suggestion": (
+                            "Use one of the supported Codex model slugs for this backend: "
+                            f"{supported_models}"
+                        ),
+                    },
+                },
+            )
+
+        fallback_request = ConnectorChatCompletionsRequest(
+            request=request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            identity=request.identity,
+            cancellation_token=request.cancellation_token,
+            cancellation_coordinator=request.cancellation_coordinator,
+            context=request.context,
+            options=kwargs,
+        )
+        return await super().chat_completions(fallback_request)
 
     async def _handle_non_streaming_response(
         self,

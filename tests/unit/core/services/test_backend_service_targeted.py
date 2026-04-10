@@ -55,7 +55,7 @@ class MockBackend(LLMBackend):
     def get_available_models(self) -> list[str]:
         return self.available_models
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: ChatRequest,
         processed_messages: list,
@@ -69,7 +69,7 @@ class MockBackend(LLMBackend):
             "effective_model": effective_model,
             "kwargs": kwargs,
         }
-        return await self.chat_completions_mock()
+        return await self.chat_completions_mock()  # type: ignore[no-any-return]
 
 
 def create_backend_service():
@@ -372,6 +372,80 @@ class TestBackendServiceTargeted:
         assert "not functional" in str(exc_info.value).lower()
         assert not mock_backend.chat_completions_called
 
+    @pytest.mark.asyncio
+    async def test_call_completion_preserves_failover_for_composite_selectors(self):
+        service = create_backend_service()
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="openai:gpt-4|anthropic:claude-3-5-sonnet",
+            extra_body={},
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-composite-service",
+        )
+
+        from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+
+        service._backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
+        )
+        service._backend_model_resolver.synchronize_request_with_target = (
+            lambda request, resolved: request
+        )
+        service._backend_completion_flow.call_completion = AsyncMock(
+            return_value=ResponseEnvelope(content={"ok": True}, headers={})
+        )
+
+        await service.call_completion(
+            chat_request,
+            stream=False,
+            allow_failover=True,
+            context=context,
+        )
+
+        assert (
+            service._backend_completion_flow.call_completion.call_args.kwargs[
+                "allow_failover"
+            ]
+            is True
+        )
+
+    @pytest.mark.asyncio
+    async def test_call_completion_disables_failover_for_non_composite_explicit_backend(
+        self,
+    ):
+        service = create_backend_service()
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="openai:gpt-4",
+            extra_body={},
+        )
+
+        from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+
+        service._backend_model_resolver.resolve_target = AsyncMock(
+            return_value=ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
+        )
+        service._backend_model_resolver.synchronize_request_with_target = (
+            lambda request, resolved: request
+        )
+        service._backend_completion_flow.call_completion = AsyncMock(
+            return_value=ResponseEnvelope(content={"ok": True}, headers={})
+        )
+
+        await service.call_completion(chat_request, stream=False, allow_failover=True)
+
+        assert (
+            service._backend_completion_flow.call_completion.call_args.kwargs[
+                "allow_failover"
+            ]
+            is False
+        )
+
     def test_provider_identity_precedence(self):
         """Provider-supplied backend identity should override global defaults."""
 
@@ -416,7 +490,7 @@ class TestBackendServiceTargeted:
             def get_available_models(self) -> list[str]:
                 return ["gpt-4"]
 
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: ChatRequest,
                 processed_messages: list,

@@ -12,7 +12,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import cast
 
-from src.core.common.exceptions import LLMProxyError
+from src.core.common.exceptions import LLMProxyError, RateLimitExceededError
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -317,15 +317,29 @@ async def integrate_streaming_pipeline(
         # a successful no-content response and silently suppress the body.
         status_code = 502
     except Exception as e:
-        # Error before any output: raise a normalized backend exception so
-        # higher-level failure handling can apply retry/failover policies.
         mapped_error = StreamingErrorMapper.map_backend_error(e, provider, stream_id)
-        # Suppress exception chain for expected domain errors (e.g., RateLimitExceededError)
-        # to prevent upstream callers from logging verbose stack traces for anticipated failures.
-        if isinstance(mapped_error, LLMProxyError):
-            raise mapped_error from None
-        else:
-            raise mapped_error from e
+        # Early rate-limit failures should bubble up as retryable domain errors.
+        # This preserves provider retry metadata (e.g., Retry-After) for callers.
+        if isinstance(mapped_error, RateLimitExceededError):
+            raise mapped_error
+        error_chunk = await handle_streaming_error(mapped_error, stream_id, provider)
+
+        async def error_stream() -> AsyncIterator[ProcessedResponse]:
+            yielded_content = error_chunk.to_bytes()
+            yield ProcessedResponse(
+                content=normalize_to_processed_chunk_content(yielded_content)
+            )
+
+        return StreamingResponseEnvelope(
+            content=error_stream(),
+            media_type="text/event-stream",
+            headers=headers or {},
+            status_code=(
+                mapped_error.status_code
+                if hasattr(mapped_error, "status_code") and mapped_error.status_code
+                else 500
+            ),
+        )
 
     async def processed_stream() -> AsyncIterator[ProcessedResponse]:
         """Wrap pipeline output in ProcessedResponse for backward compatibility."""

@@ -8,7 +8,7 @@ URI parameter extraction, and static routing overrides.
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic.types import JsonValue
 
@@ -16,6 +16,7 @@ from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
+from src.core.domain.composite_routing import CompositeRoutingInput, RoutingSurface
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.model_utils import (
     has_explicit_backend_selector,
@@ -33,6 +34,17 @@ from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolv
 from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_routing_service import BackendRoutingService
+from src.core.services.composite_routing_state import (
+    COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
+    COMPOSITE_LEAF_RESOLUTION_FLAG,
+    resolve_composite_routing_surface,
+)
+from src.core.services.replacement_compatibility_bridge import (
+    ReplacementCompatibilityBridge,
+)
+
+if TYPE_CHECKING:
+    from src.core.services.composite_routing_service import CompositeRoutingService
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +73,8 @@ class BackendModelResolver(IBackendModelResolver):
         backend_lifecycle_manager: IBackendLifecycleManager,
         config: IConfig,
         routing_service: BackendRoutingService,
+        composite_routing_service: CompositeRoutingService | None = None,
+        replacement_compatibility_bridge: ReplacementCompatibilityBridge | None = None,
     ):
         """Initialize the backend model resolver.
 
@@ -78,6 +92,12 @@ class BackendModelResolver(IBackendModelResolver):
         self._backend_lifecycle_manager = backend_lifecycle_manager
         self._config = config
         self._routing_service = routing_service
+        self._composite_routing_service = (
+            composite_routing_service or self._build_default_composite_routing_service()
+        )
+        self._replacement_compatibility_bridge = (
+            replacement_compatibility_bridge or ReplacementCompatibilityBridge()
+        )
 
     async def resolve_target(
         self, request: ChatRequest, context: RequestContext | None = None
@@ -100,6 +120,39 @@ class BackendModelResolver(IBackendModelResolver):
         Returns:
             ResolvedTarget with backend, model, and URI parameters
         """
+        effective_model = self._model_alias_resolver.resolve(request.model)
+        routing_surface = resolve_composite_routing_surface(context)
+
+        if not self._is_composite_leaf_resolution(context=context, request=request):
+            selector_for_routing = effective_model
+            if routing_surface is RoutingSurface.REPLACEMENT_BRIDGE:
+                selector_for_routing = (
+                    self._replacement_compatibility_bridge.translate_selector(
+                        selector=effective_model,
+                        context=context,
+                    )
+                )
+            should_route_via_composite = bool(selector_for_routing.strip())
+            if routing_surface is RoutingSurface.REPLACEMENT_BRIDGE:
+                # Keep replacement bridge validation strict, even for degenerate input.
+                should_route_via_composite = True
+
+            if should_route_via_composite:
+                composite_input = CompositeRoutingInput(
+                    selector=selector_for_routing,
+                    surface=routing_surface,
+                    require_explicit_backend=self._require_explicit_backend_for_surface(
+                        routing_surface
+                    ),
+                    configured_max_hops=self._resolve_max_hops_from_config(),
+                    default_backend=self._resolve_default_backend(),
+                )
+                return await self._composite_routing_service.resolve_target(
+                    routing_input=composite_input,
+                    request=request,
+                    context=context,
+                )
+
         # Extract session ID and fetch session
         session_id = (
             request.extra_body.get("session_id") if request.extra_body else None
@@ -110,11 +163,7 @@ class BackendModelResolver(IBackendModelResolver):
 
         # Get default backend from configuration
         app_config = cast(AppConfig, self._config)
-        default_backend: str = (
-            app_config.backends.default_backend
-            if hasattr(app_config, "backends")
-            else "openai"
-        )
+        default_backend = self._resolve_default_backend()
 
         # Apply planning phase if needed
         await self._planning_phase_manager.apply_if_needed(session, default_backend)
@@ -136,13 +185,6 @@ class BackendModelResolver(IBackendModelResolver):
             backend_type = (
                 request.extra_body.get("backend_type") if request.extra_body else None
             )
-
-        # Get the effective model from request
-        effective_model: str = request.model
-
-        # CRITICAL: Apply model aliases BEFORE parsing backend from model name
-        # This ensures aliases that expand to "backend:model" format are handled correctly
-        effective_model = self._model_alias_resolver.resolve(effective_model)
 
         # Parse model string with URI parameters
         uri_params: dict[str, JsonValue] = {}
@@ -277,9 +319,7 @@ class BackendModelResolver(IBackendModelResolver):
                     # Static-route parameters override request-provided URI params.
                     uri_params = {**uri_params, **parsed_static.uri_params}
         elif skip_static_route and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Skipping static_route override due to request context flag"
-            )
+            logger.debug("Skipping static_route override due to request context flag")
 
         self._persist_uri_params_in_context(context, uri_params)
 
@@ -370,6 +410,72 @@ class BackendModelResolver(IBackendModelResolver):
 
         return request.model_copy(update=updates)
 
+    def _build_default_composite_routing_service(self) -> CompositeRoutingService:
+        from src.core.services.composite_diagnostics_publisher import (
+            CompositeDiagnosticsPublisher,
+        )
+        from src.core.services.composite_leaf_target_resolver_adapter import (
+            CompositeLeafTargetResolverAdapter,
+        )
+        from src.core.services.composite_routing_coordinator import (
+            CompositeRoutingCoordinator,
+        )
+        from src.core.services.composite_routing_service import CompositeRoutingService
+        from src.core.services.composite_selector_parser import CompositeSelectorParser
+        from src.core.services.weighted_branch_selector import WeightedBranchSelector
+
+        leaf_resolver = CompositeLeafTargetResolverAdapter(
+            backend_model_resolver=self,
+        )
+        diagnostics_publisher = CompositeDiagnosticsPublisher()
+        coordinator = CompositeRoutingCoordinator(
+            weighted_branch_selector=WeightedBranchSelector(),
+            leaf_target_resolver=leaf_resolver,
+            diagnostics_publisher=diagnostics_publisher,
+        )
+        return CompositeRoutingService(
+            parser=CompositeSelectorParser(),
+            coordinator=coordinator,
+            diagnostics_publisher=diagnostics_publisher,
+        )
+
+    def _resolve_default_backend(self) -> str:
+        app_config = cast(AppConfig, self._config)
+        if hasattr(app_config, "backends"):
+            return app_config.backends.default_backend
+        return "openai"
+
+    def _resolve_max_hops_from_config(self) -> int | None:
+        app_config = cast(AppConfig, self._config)
+        failure_handling = getattr(app_config, "failure_handling", None)
+        max_hops = getattr(failure_handling, "max_failover_hops", None)
+        if isinstance(max_hops, int) and max_hops > 0:
+            return max_hops
+        return None
+
+    @staticmethod
+    def _require_explicit_backend_for_surface(surface: RoutingSurface) -> bool:
+        """Return whether composite leaf parsing must enforce backend:model leaves."""
+        return surface is RoutingSurface.REPLACEMENT_BRIDGE
+
+    @staticmethod
+    def _is_composite_leaf_resolution(
+        *,
+        context: RequestContext | None,
+        request: ChatRequest,
+    ) -> bool:
+        if context is None:
+            extra_body = request.extra_body
+            if isinstance(extra_body, dict):
+                return bool(extra_body.get(COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY))
+            return False
+        if bool(context.extensions.get(COMPOSITE_LEAF_RESOLUTION_FLAG)):
+            return True
+        extra_body = request.extra_body
+        if isinstance(extra_body, dict):
+            return bool(extra_body.get(COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY))
+        return False
+
     @staticmethod
     def _normalize_uri_params(raw_value: Any) -> dict[str, JsonValue]:
         if not isinstance(raw_value, dict):
@@ -395,18 +501,21 @@ class BackendModelResolver(IBackendModelResolver):
         request: ChatRequest,
         context: RequestContext | None,
     ) -> dict[str, JsonValue]:
+        extra_body = getattr(request, "extra_body", None)
+        if (
+            isinstance(extra_body, dict)
+            and _RESOLVED_URI_PARAMS_EXTRA_BODY_KEY in extra_body
+        ):
+            # Respect explicit request-scoped URI params first.
+            # An explicit empty map means "clear previously resolved params".
+            extra_value = extra_body.get(_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
+            return cls._normalize_uri_params(extra_value)
+
         if context is not None:
             context_value = context.extensions.get(_RESOLVED_URI_PARAMS_CONTEXT_KEY)
             normalized_context = cls._normalize_uri_params(context_value)
             if normalized_context:
                 return normalized_context
-
-        extra_body = getattr(request, "extra_body", None)
-        if isinstance(extra_body, dict):
-            extra_value = extra_body.get(_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
-            normalized_extra = cls._normalize_uri_params(extra_value)
-            if normalized_extra:
-                return normalized_extra
 
         return {}
 

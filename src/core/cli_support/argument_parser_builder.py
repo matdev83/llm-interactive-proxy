@@ -122,14 +122,15 @@ class ArgumentParserBuilder:
         """Add random model replacement arguments."""
         replacement_group = parser.add_argument_group(
             "Random Model Replacement",
-            "Options for probabilistic swapping of models for session diversity and resilience",
+            "Deprecated in favor of composite weighted routing (`^`). "
+            "This compatibility feature will be removed in N+1 (the release after deprecation).",
         )
         replacement_group.add_argument(
             "--enable-replacement",
             dest="replacement_enabled",
             action="store_true",
             default=None,
-            help="Enable random model replacement feature",
+            help="Enable deprecated random model replacement feature (removed in N+1)",
         )
         replacement_group.add_argument(
             "--disable-replacement",
@@ -152,6 +153,7 @@ class ArgumentParserBuilder:
             type=self._validate_replacement_rule,
             metavar="FROM=TO",
             help=(
+                "Deprecated: prefer composite selectors with `^` for weighted routing. "
                 "Replacement rule in format '<from-model-name>=<to-model-name>'. "
                 "Can be specified multiple times. "
                 "<from-model-name> can be: '*' (wildcard), 'model-name' (partial match), "
@@ -165,7 +167,7 @@ class ArgumentParserBuilder:
             "--replacement-backend-model",
             dest="replacement_backend_model",
             metavar="BACKEND:MODEL",
-            help="Deprecated: Use --random-model-replacement-from-to instead. Backend and model to use for replacement.",
+            help="Deprecated (removed in N+1): Use --random-model-replacement-from-to instead. Backend and model to use for replacement.",
         )
         replacement_group.add_argument(
             "--replacement-turn-count",
