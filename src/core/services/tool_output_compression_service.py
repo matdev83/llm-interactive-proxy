@@ -860,7 +860,7 @@ class ToolOutputCompressionService:
 
     @staticmethod
     def estimate_tokens(text: str) -> int:
-        """Approximate token count using the RTK 4-chars heuristic."""
+        """Approximate token count using the 4-characters heuristic."""
         if not text:
             return 0
         return (len(text) + 3) // 4

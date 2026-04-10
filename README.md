@@ -32,19 +32,33 @@ It is a compatibility layer, a security layer, a traffic control plane, a debugg
 
 Beyond basic forwarding, the proxy adds cross-protocol translation, tool safety, routing and failover, session-oriented features (including B2BUA-style handling), boundary-level CBOR captures, and usage tracking. Longer narratives, use-case lists, and feature tours live in the [User Guide](docs/user_guide/index.md).
 
-## Resilience Behavior
+## Resilience & Reliability
 
-Recent resilience hardening adds safer retry and failover behavior by default:
+The proxy includes built-in resilience features for production use:
 
-- Shared async retry policy (`stamina`-backed) is used in major retry hotspots, with canonical `Retry-After` extraction.
-- Routing availability now includes circuit-breaker and endpoint-health gates (when health checks are enabled), so unstable instances are temporarily excluded instead of repeatedly selected.
-- Streaming recovery avoids retry/failover after meaningful output has already started, preventing duplicate output and tool-call corruption.
+- **Smart retry and failover** - Automatic recovery from transient backend failures
+- **Circuit breaker** - Temporarily excludes unhealthy backends to prevent repeated failures
+- **Streaming protection** - Avoids retry after output has started, preventing corruption
+- **Health monitoring** - Tracks backend availability and performance
 
-`resilience.circuit_breaker` is now a first-class config block in `config.yaml` for threshold/cooldown tuning.
+Configure via the `resilience` section in `config.yaml` or see the [Failure Handling Guide](docs/user_guide/features/failure-handling.md).
 
 ## Dynamic Tool-Output Compression
 
-The proxy supports strategy-based compression for `role="tool"` outputs during backend request preparation. It is disabled by default (`dynamic_compression.enabled: false`) with deterministic precedence (CLI > ENV > YAML > defaults) and is configured via `dynamic_compression.*`, `DYNAMIC_COMPRESSION_*`, or CLI flags (for example `--dynamic-compression-enabled`). Legacy Gemini connector truncation controls (`GEMINI_TOOL_OUTPUT_TRUNCATE_*` and backend `tool_output_truncate_*` extras) remain deprecated, but still run through a compatibility path when request-path compaction/dynamic compression is inactive; when request-path reduction is active they are accepted and marked inactive with diagnostics so double reduction is avoided. Legacy session pytest compression toggles remain compatibility-only and emit deprecation warnings. Built-in strategies now include ANSI normalization, dedupe/grouping, unified-diff compaction, directory/listing summaries, search-result grouping, file-read detail/line-window reductions, failure-focused test/build reduction, diagnostics grouping (file/rule), JSON/NDJSON structural summarization, XML parseability-preserving safeguards, noisy-log dedupe with volatile-field normalization, and sensitive-field projection for env/cloud-style outputs. Dynamic compression now also supports RTK-inspired declarative rule filters via `dynamic_compression.declarative_rules` and `dynamic_compression.declarative_rule_files` (with regex guard timeouts from `dynamic_compression.declarative_regex_timeout_ms`), including an 8-stage filter pipeline and optional precedence override over code-based rules. File-detail outputs can optionally include line numbers through `dynamic_compression.file_detail_include_line_numbers` (`DYNAMIC_COMPRESSION_FILE_DETAIL_INCLUDE_LINE_NUMBERS`, `--dynamic-compression-file-detail-include-line-numbers`, `--dynamic-compression-file-detail-exclude-line-numbers`). Compression observability now includes per-output telemetry records, aggregate savings counters, rate-safe failure/fallback alerts, and effective-configuration diagnostics; optional bounded truncation-recovery handles are configured under `dynamic_compression.recovery.*`.
+**Documentation:** [Dynamic Tool Output Compression Guide](docs/user_guide/features/dynamic-tool-output-compression.md)
+
+Intelligently compress verbose tool outputs to conserve context window space while preserving essential information for LLM reasoning.
+
+**Enable:** `--dynamic-compression-enabled` or set `dynamic_compression.enabled: true` in your config file.
+
+The proxy analyzes tool outputs and applies content-aware compression strategies:
+- **Test output reduction** - Keeps only failures from pytest/build output
+- **File summarization** - Reduces large file reads to structure or signatures  
+- **Log deduplication** - Removes repetitive log lines while preserving unique events
+- **Search result grouping** - Organizes and limits search matches
+- **JSON/XML summarization** - Compresses structured data intelligently
+
+Use this when working with large codebases, extensive test suites, or long-running sessions where token conservation matters.
 
 ## Quick Start
 
@@ -105,8 +119,19 @@ print(response.choices[0].message.content)
 
 See the full [Quick Start Guide](docs/user_guide/quick-start.md) for additional setup, auth, and backend examples.
 
-### First user message appender (per session)
-Optional once-per-session suffix on the first `user` message (HTTP chat): `auto_append_first_prompt_filename` in config (`.txt`/`.md`), `AUTO_APPEND_FIRST_PROMPT_FILENAME`, or `--auto-append-first-prompt-filename`. File must exist at startup; contents are read once into memory (restart to reload). At default log level, startup logs confirm load; each session logs once when the suffix is merged. Applied after redaction on the outbound request only (history stays pre-transform, like redaction). Skipped for auxiliary-routed calls.
+### Auto-Append First Prompt
+
+Automatically append text from a file to the first user message in each session. Useful for injecting context, instructions, or system prompts without modifying client code.
+
+**Usage:**
+```yaml
+# config.yaml
+auto_append_first_prompt_filename: "./prompts/context.txt"
+```
+
+Or via CLI: `--auto-append-first-prompt-file ./prompts/context.txt`
+
+The file is loaded once at startup and appended to the first user message of every new session. See [Configuration Guide](docs/user_guide/configuration.md) for details.
 
 ## Supported Frontend Interfaces
 
@@ -144,20 +169,32 @@ The backend catalog keeps growing. Current documented backends include:
 - [Antigravity OAuth](docs/user_guide/backends/antigravity-oauth.md)
 See the full [Backends Overview](docs/user_guide/backends/overview.md) for configuration and provider-specific notes.
 
-## Routing Selector Semantics
+## Routing & Model Selection
 
-- `backend:model` selects an explicit backend family.
-- `backend-instance:model` such as `openai.1:gpt-4o` targets a concrete backend instance.
-- `model` and `vendor/model` are model-only selectors.
-- `vendor/model:variant` remains model-only unless `:` appears before the first `/`.
-- URI-style parameters in selectors such as `model?temperature=0.5` are parsed and propagated through routing metadata.
-- Ordered composite failover uses `selectorA|selectorB|selectorC` and advances left-to-right when pre-output failures occur.
-- Weighted composite routing uses `selectorA^selectorB` with optional `[weight=N]` branch prefixes (for example `[weight=3]openai:gpt-4^anthropic:claude-3-5-sonnet`).
-- Composite selectors must not mix `|` and `^` in the same selector string (they are rejected during validation).
-- Composite failover shares one bounded attempt budget with existing retry/failover safety controls.
-- When providing selectors via CLI/env, quote/escape the full selector string. On Windows, `|` is a PowerShell pipeline operator and `^` is a cmd.exe escape character.
-- Explicit-backend configuration and command surfaces such as `--static-route`, replacement targets, and one-off routing require strict `backend:model` format.
-- Legacy random model replacement now routes through a compatibility bridge that emits deprecation metadata (removal timeline: `N+1`, i.e. removed in the release after the one that introduced deprecation) and rejects unsafe mappings with explicit migration errors.
+The proxy uses a flexible selector syntax for routing requests to backends:
+
+**Basic format:** `backend:model`
+```bash
+--default-backend openai:gpt-4o
+--default-backend anthropic:claude-3-5-sonnet
+```
+
+**Failover chains:** Use `|` to specify fallback backends
+```bash
+--default-backend "openai:gpt-4o|anthropic:claude-3-5-sonnet|openrouter:openai/gpt-4o"
+```
+
+**Weighted routing:** Use `^` to distribute traffic
+```bash
+--default-backend "[weight=3]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet"
+```
+
+**With parameters:** Pass model parameters in the selector
+```bash
+--default-backend "openai:gpt-4o?temperature=0.5&max_tokens=2000"
+```
+
+See the [Technical Reference: Routing Selectors](docs/development_guide/routing-selectors.md) for detailed syntax rules and advanced usage.
 
 ## Access Modes
 
@@ -177,47 +214,6 @@ python -m src.core.cli --multi-user-mode --host=0.0.0.0 --api-keys key1,key2
 ```
 
 See [Access Modes](docs/user_guide/access-modes.md) for the security model and deployment guidance.
-
-## Architecture
-
-```mermaid
-graph TD
-    subgraph "Clients"
-        A[OpenAI Client]
-        B[OpenAI Responses Client]
-        C[Anthropic Client]
-        D[Gemini Client]
-        E[Any LLM App or Agent]
-    end
-
-    subgraph "LLM Interactive Proxy"
-        FE[Frontend APIs]
-        Core[Routing Translation Safety Observability]
-        BE[Backend Connectors]
-        FE --> Core --> BE
-    end
-
-    subgraph "Providers"
-        P1[OpenAI]
-        P2[Anthropic]
-        P3[Gemini]
-        P4[OpenRouter]
-        P5[Other Backends]
-    end
-
-    A --> FE
-    B --> FE
-    C --> FE
-    D --> FE
-    E --> FE
-    BE --> P1
-    BE --> P2
-    BE --> P3
-    BE --> P4
-    BE --> P5
-```
-
-The proxy sits between the client and the provider, which is exactly why it can translate protocols, enforce policy, capture traffic, and route requests without forcing your app to change its calling pattern.
 
 ## Documentation Map
 - **[Quick Start](docs/user_guide/quick-start.md)** - Get running fast

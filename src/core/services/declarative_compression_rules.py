@@ -187,7 +187,7 @@ class _RegexLinesTimeoutResult:
 
 
 class DeclarativeFilterPipeline:
-    """RTK-style deterministic 8-stage declarative text filter pipeline."""
+    """Deterministic 8-stage declarative text filter pipeline."""
 
     def __init__(self, *, regex_timeout_ms: int = 25) -> None:
         self._regex_timeout_ms = max(1, int(regex_timeout_ms))
@@ -918,9 +918,9 @@ class DeclarativeRuleRegistry:
 
 
 def _builtin_declarative_rule_defs() -> list[dict[str, Any]]:
-    """Built-in declarative rule set modeled after RTK filter coverage."""
+    """Built-in declarative rule set for common tool output patterns."""
 
-    # The rule names mirror RTK built-ins and provide 50+ baseline entries.
+    # Covers 50+ baseline command/tool patterns.
     command_specs: list[tuple[str, str, str]] = [
         ("ansible-playbook", r"^ansible-playbook\b", "ansible-playbook: ok"),
         ("brew-install", r"^brew\s+(install|upgrade|update)\b", "brew: ok"),
@@ -1000,7 +1000,7 @@ def _builtin_declarative_rule_defs() -> list[dict[str, Any]]:
             }
         )
 
-    # RTK-like short-circuit success patterns with unless guards.
+    # Short-circuit success patterns with unless guards.
     defaults.append(
         {
             "name": "make-success-short-circuit",

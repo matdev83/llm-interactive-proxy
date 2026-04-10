@@ -991,7 +991,7 @@ class SearchResultsGroupingStrategy:
 
 
 class FileDetailLevelsStrategy:
-    """Apply RTK-style file detail levels with deterministic fallbacks."""
+    """Apply tiered file detail levels with deterministic fallbacks."""
 
     _known_read_commands = frozenset(
         {"cat", "read", "head", "tail", "more", "less", "type", "bat"}
@@ -2252,7 +2252,7 @@ def _git_porcelain_path_line(line: str) -> str | None:
 
 
 class StatsExtractionSummaryStrategy:
-    """Stats-first summaries with bounded representative lines (RTK-style)."""
+    """Stats-first summaries with bounded representative lines."""
 
     def compress(
         self,
@@ -2269,10 +2269,15 @@ class StatsExtractionSummaryStrategy:
             return content
         if _mutating_ack_failure_heuristic(content):
             return content
-        if context.has_diff_markers and DiffCompactStrategy._looks_like_unified_diff(
-            content
-        ):
-            return content
+        if context.has_diff_markers:
+            lines = content.splitlines()
+            has_hunk_headers = any(line.startswith("@@ ") for line in lines)
+            has_git_header = any(line.startswith("diff --git ") for line in lines)
+            has_unified_headers = any(line.startswith("--- ") for line in lines) and any(
+                line.startswith("+++ ") for line in lines
+            )
+            if has_hunk_headers and (has_git_header or has_unified_headers):
+                return content
 
         sig = (context.identity.command_signature or "").lower()
         prefix = (context.identity.command_prefix or "").lower()

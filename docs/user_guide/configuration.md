@@ -577,6 +577,88 @@ memory:
 
 > **See Also:** [ProxyMem: Cross-Session Memory](proxymem-memory.md) for detailed documentation including commands, privacy controls, and troubleshooting.
 
+### Dynamic Tool Output Compression (`dynamic_compression`)
+
+Strategy-based compression for tool outputs during backend request preparation. Unlike simple truncation, this feature uses content-aware strategies to reduce token usage while preserving semantic information.
+
+Runs **after** history compaction and **before** backend translation. Disabled by default.
+
+```yaml
+dynamic_compression:
+  enabled: false
+  level: "conservative"         # conservative | balanced | aggressive
+  max_level: "aggressive"       # Escalation ceiling
+  min_bytes: 1024               # Skip outputs smaller than this
+  telemetry_include_content_hashes: true
+
+  # Alerting on compression issues
+  alerts:
+    enabled: true
+    failure_threshold: 5
+    fallback_threshold: 8
+    window_seconds: 300
+    cooldown_seconds: 300
+
+  # Recovery artifacts for debugging
+  recovery:
+    mode: "never"               # never | failures | always
+    min_original_bytes: 4096
+    min_saved_bytes: 2048
+    max_artifact_bytes: 262144
+    max_artifacts: 128
+    retention_seconds: 86400
+    storage_dir: "var/compression_recovery"
+    hint_in_text: false
+
+  # Exclusions
+  disable_categories: []        # e.g., ["search", "file_read"]
+  disable_methods: []           # e.g., ["line_dedupe"]
+  disable_tools: []             # e.g., ["shell"]
+  disable_command_prefixes: []  # e.g., ["git diff --stat"]
+
+  # Listing/search/read tuning
+  noise_directories: ["node_modules", ".git", "target", "__pycache__"]
+  search_context_lines: 2
+  search_max_matches_per_file: 8
+  search_max_total_groups: 100
+  search_max_line_length: 240
+
+  # File detail mode
+  file_detail_mode: "auto"             # auto | full | structure | signatures
+  file_detail_fallback_mode: "full"
+  file_detail_auto_full_max_lines: 120
+  file_detail_auto_structure_max_lines: 280
+  file_detail_include_line_numbers: false
+  file_detail_max_lines: null
+  file_detail_last_n_lines: null
+
+  # Pattern-based rules (8-stage pipeline)
+  output_pattern_rules: []
+  output_pattern_regex_timeout_ms: 25
+
+  # Declarative custom rules
+  declarative_rules: []
+  declarative_rule_files: []
+  declarative_regex_timeout_ms: 25
+
+  # Diff output controls
+  diff_max_lines_per_hunk: 100
+  diff_max_total_lines: 500
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Master switch for dynamic compression |
+| `level` | str | `"conservative"` | Base compression level |
+| `max_level` | str | `"aggressive"` | Maximum level during budget pressure |
+| `min_bytes` | int | `1024` | Minimum output size to compress |
+| `alerts.enabled` | bool | `true` | Enable compression issue alerts |
+| `recovery.mode` | str | `"never"` | When to save original artifacts |
+| `file_detail_mode` | str | `"auto"` | File read detail mode |
+| `declarative_rules` | list | `[]` | Custom compression rules |
+
+> **See Also:** [Dynamic Tool Output Compression Guide](features/dynamic-tool-output-compression.md) for detailed documentation, compression strategies, use cases, and examples.
+
 ### Database (`database`)
 
 The proxy uses a unified database layer for storing session data, SSO tokens, and memory summaries. SQLite is the default and requires no configuration.

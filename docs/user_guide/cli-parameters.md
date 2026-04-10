@@ -225,6 +225,8 @@ When no CLI override applies and `notifications.enabled` is omitted in YAML, the
 
 ### Dynamic Tool Output Compression
 
+See the [Dynamic Tool Output Compression Guide](features/dynamic-tool-output-compression.md) for detailed documentation, use cases, and examples.
+
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--dynamic-compression-enabled` | N/A | Enable dynamic tool-output compression in request preparation. |
