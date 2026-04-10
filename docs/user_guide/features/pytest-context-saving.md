@@ -218,7 +218,6 @@ For models with smaller context windows, context saving helps fit more informati
 
 - Context saving only adds `-r fE` and `-q` flags (skipping `-q` when verbose output is requested)
 - If tests have many failures, all failures will still be shown
-- Consider combining with [Pytest Compression](pytest-compression.md)
 - Review if additional pytest flags are needed
 
 **Missing important information:**
@@ -236,7 +235,7 @@ For models with smaller context windows, context saving helps fit more informati
 
 ## Related Features
 
-- [Pytest Compression](pytest-compression.md) - Compress pytest output to save tokens
+- [Dynamic Tool Output Compression](dynamic-tool-output-compression.md) - Strategy-based runtime compression of tool outputs during request preparation (complements command rewriting with content-aware reduction)
 - [Context Window Enforcement](context-window-enforcement.md) - Enforce per-model context window limits
 - [Session Management](session-management.md) - Intelligent session continuity
 - [Tool Access Control](tool-access-control.md) - Control which tools can be executed

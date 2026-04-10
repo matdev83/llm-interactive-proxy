@@ -463,54 +463,12 @@ cat var/compression_recovery/abc123.original.json
 
 Legacy Gemini connector truncation controls (`GEMINI_TOOL_OUTPUT_TRUNCATE_*` and backend `tool_output_truncate_*` extras) are deprecated but still functional:
 
-- When dynamic compression is **active**, legacy controls are accepted but marked inactive
-- When dynamic compression is **inactive**, legacy controls run through a compatibility path
-- Legacy session pytest compression toggles emit deprecation warnings
-
-## Migration from Legacy Features
-
-### From Pytest Output Compression
-
-The legacy `pytest_compression_enabled` toggle is deprecated. Migrate to dynamic compression:
-
-**Before:**
-```yaml
-session:
-  pytest_compression_enabled: true
-```
-
-**After:**
-```yaml
-dynamic_compression:
-  enabled: true
-  level: "balanced"
-```
-
-### From Backend Truncation
-
-Backend-specific truncation settings are deprecated:
-
-**Before:**
-```yaml
-backends:
-  gemini:
-    extra:
-      tool_output_truncate_chars: 10000
-```
-
-**After:**
-```yaml
-dynamic_compression:
-  enabled: true
-  level: "balanced"
-  min_bytes: 1024
-```
-
 ## Related Features
 
 - [Context Compaction](context-compaction.md) - Remove stale tool results before compression
+- [Pytest Context Saving](pytest-context-saving.md) - Rewrite pytest commands at the tool-call level to inject `-r fE` and `-q` flags for compact output (complementary, works *before* request preparation)
+- [Token Saving](token-saving.md) - How compaction and dynamic compression combine for lower context usage
 - [Context Window Enforcement](context-window-enforcement.md) - Enforce per-model context limits
-- [Pytest Output Compression](pytest-compression.md) - Legacy pytest-specific compression (deprecated)
 - [Session Management](session-management.md) - Session handling with compression awareness
 
 ## See Also
