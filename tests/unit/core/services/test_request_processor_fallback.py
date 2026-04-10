@@ -23,6 +23,9 @@ from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
 from src.core.services.request_processor_service import RequestProcessor
+from src.core.transport.fastapi.exception_adapters import (
+    map_domain_exception_to_http_exception,
+)
 
 
 @pytest.fixture
@@ -50,14 +53,18 @@ def base_request_processor() -> tuple[RequestProcessor, MagicMock, AsyncMock]:
     mock_app_state = MagicMock(spec=IApplicationState)
 
     mock_session_enricher = AsyncMock()
-    request = ChatRequest(model="test_model", messages=[ChatMessage(role="user", content="Hello")])
+    request = ChatRequest(
+        model="test_model", messages=[ChatMessage(role="user", content="Hello")]
+    )
     mock_session_enricher.enrich.return_value = (session, request)
 
     mock_request_side_effects = AsyncMock()
     mock_request_side_effects.apply.side_effect = lambda ctx, sid, req: req
 
     mock_command_handler = AsyncMock()
-    mock_command_handler.handle.return_value = ProcessedResult(command_executed=False, modified_messages=[], command_results=[])
+    mock_command_handler.handle.return_value = ProcessedResult(
+        command_executed=False, modified_messages=[], command_results=[]
+    )
 
     mock_backend_preparer = AsyncMock()
     mock_backend_preparer.prepare.side_effect = lambda ctx, sid, req, cmd: req
@@ -80,7 +87,7 @@ def base_request_processor() -> tuple[RequestProcessor, MagicMock, AsyncMock]:
         backend_executor=mock_backend_executor,
         app_state=mock_app_state,
     )
-    
+
     # Inject a mock replacement service directly to bypass initialization
     mock_replacement_service = MagicMock()
     processor._replacement_service = mock_replacement_service
@@ -107,10 +114,10 @@ async def test_fallback_returns_400_raises_routing_error(
     request_context: RequestContext,
 ) -> None:
     processor, mock_replacement, mock_executor = base_request_processor
-    
+
     request_context.backend = "repl_backend"
     request_context.effective_model = "repl_model"
-    
+
     # Setup replacement state matching context
     mock_state = MagicMock()
     mock_state.active = True
@@ -119,7 +126,10 @@ async def test_fallback_returns_400_raises_routing_error(
     mock_state.original_backend = "orig_backend"
     mock_state.original_model = "orig_model"
     mock_replacement.get_state.return_value = mock_state
-    mock_replacement.get_effective_backend_model.return_value = ("repl_backend", "repl_model")
+    mock_replacement.get_effective_backend_model.return_value = (
+        "repl_backend",
+        "repl_model",
+    )
 
     # 1. Primary execution raises generic Exception (fallback trigger)
     # 2. Fallback execution returns a 400 ResponseEnvelope
@@ -128,11 +138,17 @@ async def test_fallback_returns_400_raises_routing_error(
         ResponseEnvelope(
             content={},
             status_code=400,
-            metadata={"error_message": "Invalid request parameters", "error_code": "unsupported_on_instance", "error_type": "RoutingError"}
-        )
+            metadata={
+                "error_message": "Invalid request parameters",
+                "error_code": "unsupported_on_instance",
+                "error_type": "RoutingError",
+            },
+        ),
     ]
 
-    request = ChatRequest(model="test_model", messages=[ChatMessage(role="user", content="Hello")])
+    request = ChatRequest(
+        model="test_model", messages=[ChatMessage(role="user", content="Hello")]
+    )
 
     with pytest.raises(RoutingError) as exc_info:
         await processor.process_request(request_context, request)
@@ -141,7 +157,11 @@ async def test_fallback_returns_400_raises_routing_error(
     # The HTTP mapper translates it to 400 based on 'unsupported_on_instance' code.
     assert exc_info.value.status_code == 403
     assert "Invalid request parameters" in exc_info.value.message
-    assert exc_info.value.details == {"code": "unsupported_on_instance"}
+    assert exc_info.value.details == {
+        "code": "unsupported_on_instance",
+        "category": "availability",
+        "retryable": False,
+    }
 
 
 @pytest.mark.asyncio
@@ -150,10 +170,10 @@ async def test_fallback_returns_401_raises_authentication_error(
     request_context: RequestContext,
 ) -> None:
     processor, mock_replacement, mock_executor = base_request_processor
-    
+
     request_context.backend = "repl_backend"
     request_context.effective_model = "repl_model"
-    
+
     mock_state = MagicMock()
     mock_state.active = True
     mock_state.replacement_backend = "repl_backend"
@@ -161,7 +181,10 @@ async def test_fallback_returns_401_raises_authentication_error(
     mock_state.original_backend = "orig_backend"
     mock_state.original_model = "orig_model"
     mock_replacement.get_state.return_value = mock_state
-    mock_replacement.get_effective_backend_model.return_value = ("repl_backend", "repl_model")
+    mock_replacement.get_effective_backend_model.return_value = (
+        "repl_backend",
+        "repl_model",
+    )
 
     # 1. Primary execution raises generic Exception (fallback trigger)
     # 2. Fallback execution returns a 401 ResponseEnvelope
@@ -170,11 +193,13 @@ async def test_fallback_returns_401_raises_authentication_error(
         ResponseEnvelope(
             content={},
             status_code=401,
-            metadata={"error_message": "Unauthenticated user"}
-        )
+            metadata={"error_message": "Unauthenticated user"},
+        ),
     ]
 
-    request = ChatRequest(model="test_model", messages=[ChatMessage(role="user", content="Hello")])
+    request = ChatRequest(
+        model="test_model", messages=[ChatMessage(role="user", content="Hello")]
+    )
 
     with pytest.raises(AuthenticationError) as exc_info:
         await processor.process_request(request_context, request)
@@ -189,10 +214,10 @@ async def test_fallback_returns_500_raises_backend_error(
     request_context: RequestContext,
 ) -> None:
     processor, mock_replacement, mock_executor = base_request_processor
-    
+
     request_context.backend = "repl_backend"
     request_context.effective_model = "repl_model"
-    
+
     mock_state = MagicMock()
     mock_state.active = True
     mock_state.replacement_backend = "repl_backend"
@@ -200,7 +225,10 @@ async def test_fallback_returns_500_raises_backend_error(
     mock_state.original_backend = "orig_backend"
     mock_state.original_model = "orig_model"
     mock_replacement.get_state.return_value = mock_state
-    mock_replacement.get_effective_backend_model.return_value = ("repl_backend", "repl_model")
+    mock_replacement.get_effective_backend_model.return_value = (
+        "repl_backend",
+        "repl_model",
+    )
 
     # 1. Primary execution raises generic Exception (fallback trigger)
     # 2. Fallback execution returns a 503 ResponseEnvelope
@@ -209,14 +237,78 @@ async def test_fallback_returns_500_raises_backend_error(
         ResponseEnvelope(
             content={},
             status_code=503,
-            metadata={"error_message": "Service unavailable", "error_type": "api_error"}
-        )
+            metadata={
+                "error_message": "Service unavailable",
+                "error_type": "api_error",
+            },
+        ),
     ]
 
-    request = ChatRequest(model="test_model", messages=[ChatMessage(role="user", content="Hello")])
+    request = ChatRequest(
+        model="test_model", messages=[ChatMessage(role="user", content="Hello")]
+    )
 
     with pytest.raises(BackendError) as exc_info:
         await processor.process_request(request_context, request)
 
     assert exc_info.value.status_code == 503
     assert "Service unavailable" in exc_info.value.message
+
+
+@pytest.mark.asyncio
+async def test_fallback_404_routing_error_rewrites_stale_policy_code(
+    base_request_processor: tuple[RequestProcessor, MagicMock, AsyncMock],
+    request_context: RequestContext,
+) -> None:
+    processor, mock_replacement, mock_executor = base_request_processor
+
+    request_context.backend = "repl_backend"
+    request_context.effective_model = "repl_model"
+
+    mock_state = MagicMock()
+    mock_state.active = True
+    mock_state.replacement_backend = "repl_backend"
+    mock_state.replacement_model = "repl_model"
+    mock_state.original_backend = "orig_backend"
+    mock_state.original_model = "orig_model"
+    mock_replacement.get_state.return_value = mock_state
+    mock_replacement.get_effective_backend_model.return_value = (
+        "repl_backend",
+        "repl_model",
+    )
+
+    mock_executor.execute.side_effect = [
+        Exception("Primary model API failed"),
+        ResponseEnvelope(
+            content={},
+            status_code=404,
+            metadata={
+                "error_message": "Backend returned 404 error",
+                "error_type": "RoutingError",
+                "error_code": "policy_rejected",
+                "error_details": {
+                    "code": "policy_rejected",
+                    "category": "policy",
+                    "retryable": False,
+                },
+            },
+        ),
+    ]
+
+    request = ChatRequest(
+        model="test_model",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    with pytest.raises(RoutingError) as exc_info:
+        await processor.process_request(request_context, request)
+
+    assert exc_info.value.message == "Backend returned 404 error"
+    assert exc_info.value.details == {
+        "code": "unknown_model",
+        "category": "validation",
+        "retryable": False,
+    }
+
+    http_exc = map_domain_exception_to_http_exception(exc_info.value)
+    assert http_exc.status_code == 404

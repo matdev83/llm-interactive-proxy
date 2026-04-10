@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
+from src.core.common.exceptions import RoutingError
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_completion_flow.service import BackendCompletionFlow
 
 
@@ -70,6 +71,89 @@ def _build_flow_with_erroring_backend() -> BackendCompletionFlow:
     return BackendCompletionFlow(**deps)
 
 
+def _build_flow_with_streaming_error_envelope() -> (
+    tuple[BackendCompletionFlow, dict[str, Any]]
+):
+    deps: dict[str, Any] = {
+        "availability_checker": MagicMock(),
+        "request_preparer": MagicMock(),
+        "session_resolver": MagicMock(),
+        "backend_invoker": MagicMock(),
+        "failover_executor": MagicMock(),
+        "wire_capture_orchestrator": MagicMock(),
+        "usage_accounting_orchestrator": MagicMock(),
+        "exception_normalizer": MagicMock(),
+        "stream_formatting_service": MagicMock(),
+        "connector_invoker": MagicMock(),
+    }
+
+    deps["exception_normalizer"].normalize.side_effect = lambda exc, _backend: exc
+    deps["request_preparer"].prepare_request = AsyncMock(
+        return_value=MagicMock(
+            backend="ollama",
+            model="minimax-m2.7-cloud",
+            uri_params={},
+        )
+    )
+    deps["request_preparer"].synchronize_request_with_target.side_effect = (
+        lambda req, _target: req
+    )
+    deps["request_preparer"].prepare_backend_request = AsyncMock(
+        side_effect=lambda request, *_args, **_kwargs: request
+    )
+    deps["request_preparer"].prepare_backend_kwargs = MagicMock(return_value={})
+
+    deps["failover_executor"].check_complex_failover = AsyncMock(return_value=False)
+    deps["failover_executor"].apply_failure_recovery = AsyncMock(
+        return_value=ResponseEnvelope(content={"ok": True}, status_code=200)
+    )
+
+    deps["availability_checker"].check_backend_availability = AsyncMock()
+    deps["session_resolver"].resolve_session = AsyncMock(
+        return_value=(MagicMock(), "session-1")
+    )
+    deps["backend_invoker"].acquire_backend = AsyncMock(return_value=MagicMock())
+
+    deps["wire_capture_orchestrator"].prepare_wire_capture_context = AsyncMock(
+        return_value=None
+    )
+    deps["wire_capture_orchestrator"].capture_wire_outbound = AsyncMock()
+    deps["wire_capture_orchestrator"].capture_inbound_response = AsyncMock()
+    deps["wire_capture_orchestrator"].detect_key_name.return_value = "test-key"
+
+    deps["usage_accounting_orchestrator"].calculate_and_record_usage = AsyncMock(
+        return_value=(0, None, None)
+    )
+    deps["usage_accounting_orchestrator"].wrap_response_for_usage = AsyncMock(
+        side_effect=lambda **kwargs: kwargs["result"]
+    )
+    deps["usage_accounting_orchestrator"].handle_backend_error = AsyncMock()
+
+    deps["connector_invoker"].invoke = AsyncMock(
+        return_value=StreamingResponseEnvelope(
+            content=async_iter(()),
+            status_code=404,
+            metadata={
+                "error_message": "Backend returned 404 error",
+                "error_type": "RoutingError",
+                "error_code": "unknown_model",
+                "error_details": {
+                    "code": "unknown_model",
+                    "category": "validation",
+                    "retryable": False,
+                },
+            },
+        )
+    )
+
+    return BackendCompletionFlow(**deps), deps
+
+
+async def async_iter(items):
+    for item in items:
+        yield item
+
+
 @pytest.mark.asyncio
 async def test_streaming_call_returns_terminal_error_envelope_on_http_exception() -> (
     None
@@ -115,3 +199,34 @@ async def test_streaming_call_returns_terminal_error_envelope_on_http_exception(
     error_payload = metadata.get("error")
     assert isinstance(error_payload, dict)
     assert error_payload.get("status_code") == 413
+
+
+@pytest.mark.asyncio
+async def test_streaming_error_envelope_enters_failover_recovery_when_enabled() -> None:
+    flow, deps = _build_flow_with_streaming_error_envelope()
+
+    request = ChatRequest(
+        model="alias:minimax",
+        messages=[ChatMessage(role="user", content="continue")],
+    )
+
+    result = await flow.call_completion(
+        request=request,
+        stream=True,
+        allow_failover=True,
+        context=None,
+    )
+
+    assert isinstance(result, ResponseEnvelope)
+    assert result.content == {"ok": True}
+
+    deps["failover_executor"].apply_failure_recovery.assert_awaited_once()
+    recovery_error = deps["failover_executor"].apply_failure_recovery.await_args.kwargs[
+        "error"
+    ]
+    assert isinstance(recovery_error, RoutingError)
+    assert recovery_error.details == {
+        "code": "unknown_model",
+        "category": "validation",
+        "retryable": False,
+    }

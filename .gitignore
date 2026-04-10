@@ -133,3 +133,9 @@ leveldb_test/
 
 # Cache directory
 var/cache/
+
+# Local test configs
+config/configtest1.yaml
+
+# Debug transcripts
+dev/transcript.md

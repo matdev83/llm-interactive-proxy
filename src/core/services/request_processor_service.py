@@ -48,6 +48,29 @@ from src.core.interfaces.session_manager_interface import ISessionManager
 logger = logging.getLogger(__name__)
 
 MAX_QUALITY_VERIFIER_TURN_STATES = 10_000
+_ROUTING_CODES_BY_STATUS: dict[int, tuple[str, str, bool]] = {
+    400: ("unsupported_on_instance", "availability", False),
+    403: ("policy_rejected", "policy", False),
+    404: ("unknown_model", "validation", False),
+    503: ("temporarily_unavailable", "availability", True),
+}
+
+
+def _canonicalize_routing_error_details(
+    status_code: int,
+    details: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Normalize routing metadata so status and canonical code do not disagree."""
+    normalized = dict(details) if isinstance(details, dict) else {}
+    canonical = _ROUTING_CODES_BY_STATUS.get(status_code)
+    if canonical is None:
+        return normalized
+
+    code, category, retryable = canonical
+    normalized["code"] = code
+    normalized["category"] = category
+    normalized["retryable"] = retryable
+    return normalized
 
 
 class RequestProcessor(IRequestProcessor):
@@ -832,10 +855,14 @@ class RequestProcessor(IRequestProcessor):
                         error_message or "Backend returned 401 error"
                     )
                 elif result.status_code == 404 or orig_type == "RoutingError":
+                    error_details = _canonicalize_routing_error_details(
+                        int(result.status_code),
+                        error_details,
+                    )
                     raise RoutingError(
                         message=error_message,
                         details=error_details,
-                        code=orig_code or "unknown_model",
+                        code=error_details.get("code") or orig_code or "unknown_model",
                     )
                 else:
                     raise BackendError(
@@ -975,10 +1002,16 @@ class RequestProcessor(IRequestProcessor):
                                 fallback_result.status_code == 404
                                 or fallback_type == "RoutingError"
                             ):
+                                error_details = _canonicalize_routing_error_details(
+                                    int(fallback_result.status_code),
+                                    error_details,
+                                )
                                 raise RoutingError(
                                     message=error_message,
                                     details=error_details,
-                                    code=fallback_code or "unknown_model",
+                                    code=error_details.get("code")
+                                    or fallback_code
+                                    or "unknown_model",
                                 )
                             else:
                                 raise BackendError(

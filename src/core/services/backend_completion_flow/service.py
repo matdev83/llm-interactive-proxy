@@ -232,6 +232,55 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
         return candidate
 
+    @staticmethod
+    def _exception_from_streaming_error_envelope(
+        result: StreamingResponseEnvelope,
+    ) -> Exception | None:
+        """Convert terminal streaming error envelopes back into domain errors."""
+        status_code = getattr(result, "status_code", None)
+        if not isinstance(status_code, int) or status_code < 400:
+            return None
+
+        metadata = getattr(result, "metadata", None)
+        error_message = f"Backend returned {status_code} error"
+        error_type = ""
+        error_code = ""
+        error_details: dict[str, Any] = {}
+
+        if isinstance(metadata, dict):
+            raw_message = metadata.get("error_message")
+            if isinstance(raw_message, str) and raw_message.strip():
+                error_message = raw_message
+
+            raw_type = metadata.get("error_type")
+            if isinstance(raw_type, str):
+                error_type = raw_type
+
+            raw_code = metadata.get("error_code")
+            if isinstance(raw_code, str):
+                error_code = raw_code
+
+            raw_details = metadata.get("error_details")
+            if isinstance(raw_details, dict):
+                error_details = dict(raw_details)
+
+        if status_code == 401:
+            return AuthenticationError(error_message)
+
+        if status_code == 404 or error_type == "RoutingError":
+            return RoutingError(
+                message=error_message,
+                details=error_details,
+                code=error_details.get("code") or error_code or "unknown_model",
+            )
+
+        return BackendError(
+            message=error_message,
+            status_code=status_code,
+            details=error_details,
+            code=error_code or None,
+        )
+
     async def _enforce_non_forwardable_content(
         self,
         session_id: str,
@@ -1086,6 +1135,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                 # Step 10: Handle streaming response (wire capture + session ID injection)
                 if isinstance(result, StreamingResponseEnvelope):
+                    if allow_failover:
+                        streaming_error = self._exception_from_streaming_error_envelope(
+                            result
+                        )
+                        if streaming_error is not None:
+                            raise streaming_error
                     return await self._handle_streaming_response(
                         result=result,
                         backend_type=backend_type,
