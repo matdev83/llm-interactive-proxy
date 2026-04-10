@@ -139,7 +139,6 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
         auth_initial_block_seconds=None,
         auth_block_multiplier=None,
         auth_max_block_seconds=None,
-        pytest_compression_enabled=None,
         pytest_full_suite_steering_enabled=None,
         pytest_context_saving_enabled=None,
         fix_think_tags_enabled=None,
