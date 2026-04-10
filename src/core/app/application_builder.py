@@ -328,12 +328,14 @@ class ApplicationBuilder:
         from src.core.config.semantic_validation import (
             validate_constrained_backend_instances,
             validate_extracted_backend_references,
+            validate_model_aliases,
             validate_static_route,
         )
 
         validate_static_route(config)
         validate_extracted_backend_references(config)
         validate_constrained_backend_instances(config)
+        validate_model_aliases(config)
 
         # Replace DI-registered AppConfig and IConfig with runtime config instance
         # This ensures validation services see the same config that the builder was given

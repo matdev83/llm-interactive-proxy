@@ -8,6 +8,7 @@ checking for logical consistency and common configuration mistakes.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,11 +26,21 @@ from src.core.config.constrained_backend_policy import (
     is_constrained_connector_family,
 )
 from src.core.config.models.backends import BackendConfig, BackendSettings
+from src.core.domain.composite_routing import (
+    CompositeFailoverGroupNode,
+    CompositeLeafNode,
+    CompositeRoutePlan,
+    CompositeRoutingInput,
+    CompositeSelectorValidationError,
+    CompositeWeightedGroupNode,
+    RoutingSurface,
+)
 from src.core.domain.model_utils import (
     has_explicit_backend_selector,
     parse_model_backend,
 )
 from src.core.services.backend_registry import backend_registry
+from src.core.services.composite_selector_parser import CompositeSelectorParser
 
 logger = logging.getLogger(__name__)
 
@@ -561,3 +572,190 @@ def validate_constrained_backend_instances(config: AppConfig) -> None:
             ],
         },
     )
+
+
+def _validate_alias_replacement_backends(
+    plan: CompositeRoutePlan,
+    registered_backends: set[str],
+    replacement: str,
+    alias_pattern: str,
+    available_backends: list[str],
+) -> None:
+    def _collect_leaf_nodes(node):
+        if isinstance(node, CompositeLeafNode):
+            return [node]
+        if isinstance(node, CompositeFailoverGroupNode | CompositeWeightedGroupNode):
+            leaves: list[CompositeLeafNode] = []
+            for child in node.children:
+                leaves.extend(_collect_leaf_nodes(child))
+            return leaves
+        return []
+
+    leaf_nodes = _collect_leaf_nodes(plan.root_node)
+
+    for leaf_node in leaf_nodes:
+        leaf = leaf_node.leaf_selector
+        normalized = leaf.normalized_selector
+
+        if not has_explicit_backend_selector(normalized):
+            continue
+
+        parsed = parse_model_backend(normalized, "")
+        backend_name = parsed.backend_type.strip()
+
+        if not backend_name:
+            raise ConfigurationError(
+                message=(
+                    f"Model alias replacement has empty backend name in branch '{normalized}'. "
+                    f"Alias pattern: '{alias_pattern}', replacement: '{replacement}'. "
+                    f"Explicit backend selectors must specify a non-empty backend."
+                ),
+                details={
+                    "error_code": "invalid_alias_backend",
+                    "alias_pattern": alias_pattern,
+                    "replacement": replacement,
+                    "failing_branch": normalized,
+                    "reason": "empty_backend_name",
+                },
+            )
+
+        if not parsed.model_name.strip():
+            raise ConfigurationError(
+                message=(
+                    f"Model alias replacement has empty model name in branch '{normalized}'. "
+                    f"Alias pattern: '{alias_pattern}', replacement: '{replacement}'. "
+                    f"Explicit backend selectors must specify a non-empty model."
+                ),
+                details={
+                    "error_code": "invalid_alias_backend",
+                    "alias_pattern": alias_pattern,
+                    "replacement": replacement,
+                    "failing_branch": normalized,
+                    "reason": "empty_model_name",
+                },
+            )
+
+        if backend_name not in registered_backends and not is_extracted_backend_name(
+            backend_name
+        ):
+            raise ConfigurationError(
+                message=(
+                    f"Model alias replacement references unknown backend '{backend_name}' "
+                    f"in branch '{normalized}'. "
+                    f"Alias pattern: '{alias_pattern}', replacement: '{replacement}'. "
+                    f"Available backends: {', '.join(available_backends)}"
+                ),
+                details={
+                    "error_code": "unknown_alias_backend",
+                    "alias_pattern": alias_pattern,
+                    "replacement": replacement,
+                    "failing_branch": normalized,
+                    "invalid_backend": backend_name,
+                    "available_backends": available_backends,
+                },
+            )
+
+
+def validate_model_aliases(config: AppConfig) -> None:
+    """Validate model alias patterns and replacement routing strings at startup.
+
+    Runs after backend discovery so that explicit backend names in replacement
+    strings can be verified against the registered backend registry.
+
+    Validates:
+    - Regex pattern syntax is valid.
+    - Replacement string is valid composite routing grammar (|, ^, [weight=N]).
+    - No raw separator characters in query-param values.
+    - Explicit backend names reference registered backends.
+
+    Raises:
+        ConfigurationError: If any alias fails validation.
+    """
+    aliases = getattr(config, "model_aliases", [])
+    if not aliases:
+        return
+
+    registered_backends = set(backend_registry.get_registered_backends())
+    available_backends = sorted(registered_backends)
+    parser = CompositeSelectorParser()
+
+    for idx, alias in enumerate(aliases):
+        pattern = getattr(alias, "pattern", None)
+        replacement = getattr(alias, "replacement", None)
+
+        if not pattern:
+            raise ConfigurationError(
+                message=(
+                    f"Model alias at index {idx} has empty pattern. "
+                    f"Each alias must define a non-empty regex pattern."
+                ),
+                details={
+                    "error_code": "invalid_alias_pattern",
+                    "alias_index": idx,
+                    "reason": "empty_pattern",
+                },
+            )
+
+        if not replacement:
+            raise ConfigurationError(
+                message=(
+                    f"Model alias at index {idx} has empty replacement. "
+                    f"Each alias must define a non-empty replacement string."
+                ),
+                details={
+                    "error_code": "invalid_alias_replacement",
+                    "alias_index": idx,
+                    "alias_pattern": pattern,
+                    "reason": "empty_replacement",
+                },
+            )
+
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            raise ConfigurationError(
+                message=(
+                    f"Model alias at index {idx} has invalid regex pattern: '{pattern}'. "
+                    f"Error: {e}"
+                ),
+                details={
+                    "error_code": "invalid_alias_regex",
+                    "alias_index": idx,
+                    "alias_pattern": pattern,
+                    "regex_error": str(e),
+                },
+            )
+
+        routing_input = CompositeRoutingInput(
+            selector=replacement,
+            surface=RoutingSurface.MAIN,
+            require_explicit_backend=False,
+        )
+
+        try:
+            plan = parser.parse(routing_input)
+        except CompositeSelectorValidationError as e:
+            raise ConfigurationError(
+                message=(
+                    f"Model alias at index {idx} has invalid replacement syntax: '{replacement}'. "
+                    f"Alias pattern: '{pattern}'. "
+                    f"Error: {e.message}. "
+                    f"Note: raw separator characters (^, |) in query values must be URL-encoded "
+                    f"(use %5E for ^, %7C for |)."
+                ),
+                details={
+                    "error_code": "invalid_alias_replacement_syntax",
+                    "alias_index": idx,
+                    "alias_pattern": pattern,
+                    "replacement": replacement,
+                    "parser_error": e.envelope.message,
+                },
+            )
+
+        _validate_alias_replacement_backends(
+            plan,
+            registered_backends,
+            replacement,
+            pattern,
+            available_backends,
+        )
