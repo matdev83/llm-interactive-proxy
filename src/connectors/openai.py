@@ -301,6 +301,13 @@ def _raise_for_httpx_request_error(
     ) from exc
 
 
+def _is_retryable_http2_stream_termination(exc: httpx.RequestError) -> bool:
+    if not isinstance(exc, httpx.RemoteProtocolError):
+        return False
+    message = str(exc)
+    return "ConnectionTerminated" in message and "ErrorCodes.NO_ERROR" in message
+
+
 class OpenAIConnector(LLMBackend):
     """Minimal OpenAI-compatible connector used by OpenRouterBackend in tests.
 
@@ -360,6 +367,44 @@ class OpenAIConnector(LLMBackend):
         self._health_check_enabled = not (
             disable_health_checks_env or disable_health_checks_config
         )
+
+    async def _send_request_with_retry(
+        self,
+        *,
+        build_request: Callable[[], httpx.Request],
+        stream: bool,
+        capture: HttpxBoundaryCaptureContext,
+        url: str,
+        log_extra: dict[str, str] | None,
+    ) -> httpx.Response:
+        request = build_request()
+        try:
+            return await self._capture_http_client.send(
+                request,
+                stream=stream,
+                capture=capture,
+            )
+        except httpx.RequestError as exc:
+            if _is_retryable_http2_stream_termination(exc):
+                logger.warning(
+                    "Transient upstream HTTP/2 termination for %s; retrying once",
+                    url,
+                    extra=log_extra if log_extra else None,
+                )
+                retry_request = build_request()
+                try:
+                    return await self._capture_http_client.send(
+                        retry_request,
+                        stream=stream,
+                        capture=capture,
+                    )
+                except httpx.RequestError as retry_exc:
+                    _raise_for_httpx_request_error(
+                        retry_exc,
+                        url=url,
+                        log_extra=log_extra,
+                    )
+            _raise_for_httpx_request_error(exc, url=url, log_extra=log_extra)
 
     @property
     def api_base_url(self) -> str:
@@ -1136,24 +1181,19 @@ class OpenAIConnector(LLMBackend):
 
         guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
         log_extra = self._get_log_extra(context)
-        request = self.client.build_request(
-            "POST", url, json=payload, headers=guarded_headers
+        response = await self._send_request_with_retry(
+            build_request=lambda: self.client.build_request(
+                "POST", url, json=payload, headers=guarded_headers
+            ),
+            stream=False,
+            capture=self._http_boundary_capture(
+                model=str(payload.get("model") or "unknown"),
+                context=context,
+            ),
+            url=url,
+            log_extra=log_extra if log_extra else None,
         )
-
-        try:
-            response = await self._capture_http_client.send(
-                request,
-                stream=False,
-                capture=self._http_boundary_capture(
-                    model=str(payload.get("model") or "unknown"),
-                    context=context,
-                ),
-            )
-            self.update_quota_headers(response.headers)
-        except httpx.RequestError as e:
-            _raise_for_httpx_request_error(
-                e, url=url, log_extra=log_extra if log_extra else None
-            )
+        self.update_quota_headers(response.headers)
 
         if int(response.status_code) >= 400:
             # For backwards compatibility with existing error handlers, still use HTTPException here.
@@ -1265,23 +1305,19 @@ class OpenAIConnector(LLMBackend):
 
         guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
 
-        request = self.client.build_request(
-            "POST", url, json=payload, headers=guarded_headers
+        response = await self._send_request_with_retry(
+            build_request=lambda: self.client.build_request(
+                "POST", url, json=payload, headers=guarded_headers
+            ),
+            stream=True,
+            capture=self._http_boundary_capture(
+                model=str(payload.get("model") or "unknown"),
+                context=context,
+            ),
+            url=url,
+            log_extra=log_extra if log_extra else None,
         )
-        try:
-            response = await self._capture_http_client.send(
-                request,
-                stream=True,
-                capture=self._http_boundary_capture(
-                    model=str(payload.get("model") or "unknown"),
-                    context=context,
-                ),
-            )
-            self.update_quota_headers(response.headers)
-        except httpx.RequestError as exc:
-            _raise_for_httpx_request_error(
-                exc, url=url, log_extra=log_extra if log_extra else None
-            )
+        self.update_quota_headers(response.headers)
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
@@ -2006,21 +2042,19 @@ class OpenAIConnector(LLMBackend):
 
         guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
 
-        request = self.client.build_request(
-            "POST", url, json=payload, headers=guarded_headers
+        response = await self._send_request_with_retry(
+            build_request=lambda: self.client.build_request(
+                "POST", url, json=payload, headers=guarded_headers
+            ),
+            stream=False,
+            capture=self._http_boundary_capture(
+                model=str(payload.get("model") or "unknown"),
+                context=context,
+            ),
+            url=url,
+            log_extra=None,
         )
-        try:
-            response = await self._capture_http_client.send(
-                request,
-                stream=False,
-                capture=self._http_boundary_capture(
-                    model=str(payload.get("model") or "unknown"),
-                    context=context,
-                ),
-            )
-            self.update_quota_headers(response.headers)
-        except httpx.RequestError as e:
-            _raise_for_httpx_request_error(e, url=url, log_extra=None)
+        self.update_quota_headers(response.headers)
 
         if int(response.status_code) >= 400:
             try:
@@ -2217,22 +2251,19 @@ class OpenAIConnector(LLMBackend):
         payload["stream"] = True
 
         # Build and send request
-        http_request = self.client.build_request(
-            "POST", url, json=payload, headers=guarded_headers
+        response = await self._send_request_with_retry(
+            build_request=lambda: self.client.build_request(
+                "POST", url, json=payload, headers=guarded_headers
+            ),
+            stream=True,
+            capture=self._http_boundary_capture(
+                model=str(effective_model),
+                context=connector_context,
+            ),
+            url=url,
+            log_extra=None,
         )
-
-        try:
-            response = await self._capture_http_client.send(
-                http_request,
-                stream=True,
-                capture=self._http_boundary_capture(
-                    model=str(effective_model),
-                    context=connector_context,
-                ),
-            )
-            self.update_quota_headers(response.headers)
-        except httpx.RequestError as exc:
-            _raise_for_httpx_request_error(exc, url=url, log_extra=None)
+        self.update_quota_headers(response.headers)
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
