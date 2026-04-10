@@ -31,6 +31,7 @@ from src.core.domain.responses import (
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.translation_service import TranslationService
+from src.core.transport.fastapi.response_adapters import domain_response_to_fastapi
 
 
 class _FakeTransportWithProviderUsage:
@@ -161,6 +162,26 @@ async def _run_demo() -> None:
                             "Non-streaming total_tokens is zero; expected > 0"
                         )
 
+                    legacy_fastapi_response = domain_response_to_fastapi(
+                        non_stream_result
+                    )
+                    legacy_body = (
+                        legacy_fastapi_response.body.tobytes()
+                        if isinstance(legacy_fastapi_response.body, memoryview)
+                        else legacy_fastapi_response.body
+                    )
+                    legacy_payload = json.loads(legacy_body.decode("utf-8"))
+                    legacy_usage = legacy_payload.get("usage")
+                    print("[legacy-non-stream] usage:", legacy_usage)
+                    if not isinstance(legacy_usage, dict):
+                        raise RuntimeError(
+                            "Legacy OpenAI-compatible payload is missing usage"
+                        )
+                    if int(legacy_usage.get("total_tokens", 0)) <= 0:
+                        raise RuntimeError(
+                            "Legacy OpenAI-compatible total_tokens is zero; expected > 0"
+                        )
+
                     streaming_request = ChatRequest(
                         model="openai-codex:gpt-5-codex",
                         messages=[
@@ -215,7 +236,9 @@ async def _run_demo() -> None:
                             "Streaming total_tokens is zero; expected > 0"
                         )
 
-                    print("SUCCESS: Codex usage reporting is non-zero for both flows.")
+                    print(
+                        "SUCCESS: Codex usage reporting is non-zero for connector and legacy OpenAI frontend flows."
+                    )
             finally:
                 await backend.shutdown()
 

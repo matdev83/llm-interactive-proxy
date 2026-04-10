@@ -4,8 +4,12 @@ Tests for ChatController message content normalization functionality.
 
 import json
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
+import pytest
 from src.core.app.controllers.chat_controller import ChatController
+from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.usage_summary import UsageSummary
 
 
 class TestCoerceMessageContentToText:
@@ -145,3 +149,67 @@ class TestCoerceMessageContentToText:
         assert len(result) > 0
         # The result should contain some indication of the circular reference
         assert "Circular reference detected" in result
+
+
+class TestEnsureOpenAIChatSchemaUsage:
+    @pytest.mark.asyncio
+    async def test_tool_calls_schema_preserves_metadata_usage(self) -> None:
+        processor = AsyncMock()
+        processor.process_request = AsyncMock(
+            return_value=ResponseEnvelope(
+                content='[{"type": "function", "id": "call_1", "function": {"name": "do_work", "arguments": "{}"}}]',
+                metadata={
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "do_work", "arguments": "{}"},
+                        }
+                    ],
+                    "usage": {
+                        "input_tokens": 19,
+                        "output_tokens": 7,
+                        "total_tokens": 26,
+                    },
+                },
+            )
+        )
+
+        controller = ChatController(
+            request_processor=processor,
+            translation_service=None,
+            wire_capture=None,
+            metrics_initializer=None,
+        )
+
+        request = Mock()
+        request.body = AsyncMock(return_value=b"{}")
+        request.headers = {}
+        request.cookies = {}
+        request.url = Mock()
+        request.url.path = "/v1/chat/completions"
+        request.state = Mock()
+        request.app = Mock()
+        request.app.state = Mock()
+        request.app.state.service_provider = None
+
+        from src.core.domain.chat import ChatMessage, ChatRequest
+
+        request_data = ChatRequest(
+            model="openai-codex:gpt-5-codex",
+            messages=[ChatMessage(role="user", content="hello")],
+            stream=False,
+        )
+
+        response = await controller.handle_chat_completion(request, request_data)
+        body = (
+            response.body.tobytes()
+            if isinstance(response.body, memoryview)
+            else response.body
+        )
+        payload = json.loads(body.decode("utf-8"))
+
+        usage = UsageSummary.from_dict(payload["usage"])
+        assert usage.prompt_tokens == 19
+        assert usage.completion_tokens == 7
+        assert usage.total_tokens == 26
