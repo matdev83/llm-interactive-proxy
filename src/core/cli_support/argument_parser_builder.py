@@ -735,21 +735,12 @@ class ArgumentParserBuilder:
             "Dynamic Tool Output Compression",
             "Options for strategy-based tool output compression in request preparation",
         )
-        toggle_group = dynamic_group.add_mutually_exclusive_group()
-        toggle_group.add_argument(
-            "--dynamic-compression-enabled",
-            dest="dynamic_compression_enabled",
-            action="store_const",
-            const=True,
+        dynamic_group.add_argument(
+            "--enable-dynamic-compression",
+            dest="enable_dynamic_compression",
+            action="store_true",
             default=None,
             help="Enable dynamic tool output compression",
-        )
-        toggle_group.add_argument(
-            "--dynamic-compression-disabled",
-            dest="dynamic_compression_enabled",
-            action="store_const",
-            const=False,
-            help="Disable dynamic tool output compression",
         )
         dynamic_group.add_argument(
             "--dynamic-compression-level",
@@ -1213,6 +1204,13 @@ class ArgumentParserBuilder:
             dest="disable_double_ampersand_fixes_for_windows",
             default=None,
             help="Disable automatic && to ; replacement in commands for Windows clients",
+        )
+        parser.add_argument(
+            "--disable-auto-continue-removal",
+            action="store_true",
+            dest="disable_auto_continue_removal",
+            default=None,
+            help="Disable automatic removal of trailing [AUTO-CONTINUE] marker",
         )
 
     def _add_b2bua_arguments(self, parser: argparse.ArgumentParser) -> None:

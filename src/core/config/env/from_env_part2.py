@@ -314,7 +314,7 @@ def apply_config_part2(
 
     config["dynamic_compression"] = {
         "enabled": _env_to_bool(
-            "DYNAMIC_COMPRESSION_ENABLED",
+            "ENABLE_DYNAMIC_COMPRESSION",
             False,
             env,
             path="dynamic_compression.enabled",

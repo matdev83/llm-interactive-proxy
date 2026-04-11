@@ -285,7 +285,7 @@ def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
     resolution = ParameterResolution()
     cfg = AppConfig.from_env(
         environ={
-            "DYNAMIC_COMPRESSION_ENABLED": "true",
+            "ENABLE_DYNAMIC_COMPRESSION": "true",
             "DYNAMIC_COMPRESSION_LEVEL": "balanced",
             "DYNAMIC_COMPRESSION_MAX_LEVEL": "aggressive",
             "DYNAMIC_COMPRESSION_MIN_BYTES": "512",

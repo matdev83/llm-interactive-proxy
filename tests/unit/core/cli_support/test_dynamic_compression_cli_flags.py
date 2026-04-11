@@ -14,8 +14,7 @@ def _collect_flags() -> set[str]:
 
 def test_dynamic_compression_flags_are_registered() -> None:
     flags = _collect_flags()
-    assert "--dynamic-compression-enabled" in flags
-    assert "--dynamic-compression-disabled" in flags
+    assert "--enable-dynamic-compression" in flags
     assert "--dynamic-compression-level" in flags
     assert "--dynamic-compression-max-level" in flags
     assert "--dynamic-compression-min-bytes" in flags

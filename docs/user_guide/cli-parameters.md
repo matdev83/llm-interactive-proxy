@@ -229,8 +229,7 @@ See the [Dynamic Tool Output Compression Guide](features/dynamic-tool-output-com
 
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
-| `--dynamic-compression-enabled` | N/A | Enable dynamic tool-output compression in request preparation. |
-| `--dynamic-compression-disabled` | N/A | Disable dynamic tool-output compression in request preparation. |
+| `--enable-dynamic-compression` | `ENABLE_DYNAMIC_COMPRESSION=true` | Enable dynamic tool-output compression in request preparation. |
 | `--dynamic-compression-level LEVEL` | N/A | Base compression level (`conservative`, `balanced`, `aggressive`). |
 | `--dynamic-compression-max-level LEVEL` | N/A | Maximum level allowed during escalation. |
 | `--dynamic-compression-min-bytes BYTES` | N/A | Minimum output size required before compression is eligible. |

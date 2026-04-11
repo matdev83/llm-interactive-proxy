@@ -451,6 +451,7 @@ class TestSessionTestingFlags:
             "--no-test-execution-reminder-enabled",
             "--disable-dangerous-git-commands-protection",
             "--disable-double-ampersand-fixes-for-windows",
+            "--disable-auto-continue-removal",
         ],
     )
     def test_session_testing_flags_present(
@@ -459,6 +460,15 @@ class TestSessionTestingFlags:
         """Session and testing flags are present."""
         flags = _collect_cli_flags(parser)
         assert flag in flags, f"Flag {flag} not found in parser"
+
+    def test_disable_auto_continue_removal_flag_shape(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """--disable-auto-continue-removal uses expected destination defaults."""
+        action = _get_action_by_dest(parser, "disable_auto_continue_removal")
+        assert action is not None
+        assert "--disable-auto-continue-removal" in action.option_strings
+        assert action.default is None
 
 
 # =============================================================================
@@ -1014,17 +1024,12 @@ class TestParserFunctionality:
                 ]
             )
 
-    def test_parse_mutually_exclusive_dynamic_compression(
+    def test_parse_enable_dynamic_compression(
         self, parser: argparse.ArgumentParser
     ) -> None:
-        """Parser enforces mutual exclusivity for dynamic compression toggle flags."""
-        with pytest.raises(SystemExit):
-            parser.parse_args(
-                [
-                    "--dynamic-compression-enabled",
-                    "--dynamic-compression-disabled",
-                ]
-            )
+        """Parser correctly parses --enable-dynamic-compression flag."""
+        args = parser.parse_args(["--enable-dynamic-compression"])
+        assert args.enable_dynamic_compression is True
 
     def test_parse_model_alias(self, parser: argparse.ArgumentParser) -> None:
         """Parser correctly parses --model-alias with pattern=replacement format."""

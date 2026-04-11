@@ -9,7 +9,7 @@ from src.core.config.parameter_resolution import ParameterResolution, ParameterS
 
 def _empty_args() -> argparse.Namespace:
     return argparse.Namespace(
-        dynamic_compression_enabled=None,
+        enable_dynamic_compression=None,
         dynamic_compression_level=None,
         dynamic_compression_max_level=None,
         dynamic_compression_min_bytes=None,
@@ -27,7 +27,7 @@ def test_dynamic_compression_applicator_sets_overrides_and_resolution() -> None:
     )
 
     args = _empty_args()
-    args.dynamic_compression_enabled = True
+    args.enable_dynamic_compression = True
     args.dynamic_compression_level = "balanced"
     args.dynamic_compression_max_level = "aggressive"
     args.dynamic_compression_min_bytes = 2048

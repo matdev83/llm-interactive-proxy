@@ -59,7 +59,7 @@ dynamic_compression:
 Or via CLI:
 
 ```bash
-python -m src.core.cli --dynamic-compression-enabled
+python -m src.core.cli --enable-dynamic-compression
 ```
 
 ### Complete Configuration Reference
@@ -144,8 +144,7 @@ dynamic_compression:
 
 | Flag | Description |
 |------|-------------|
-| `--dynamic-compression-enabled` | Enable dynamic compression |
-| `--dynamic-compression-disabled` | Disable dynamic compression (mutually exclusive with enabled) |
+| `--enable-dynamic-compression` | Enable dynamic compression |
 | `--dynamic-compression-level LEVEL` | Set base level: `conservative`, `balanced`, `aggressive` |
 | `--dynamic-compression-max-level LEVEL` | Set escalation ceiling |
 | `--dynamic-compression-min-bytes BYTES` | Minimum output size for compression |

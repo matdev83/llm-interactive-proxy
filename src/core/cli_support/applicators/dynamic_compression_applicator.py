@@ -29,17 +29,13 @@ class DynamicCompressionApplicator:
     ) -> None:
         dynamic_overrides: dict[str, Any] = {}
 
-        if getattr(args, "dynamic_compression_enabled", None) is not None:
-            dynamic_overrides["enabled"] = args.dynamic_compression_enabled
+        if getattr(args, "enable_dynamic_compression", None) is not None:
+            dynamic_overrides["enabled"] = args.enable_dynamic_compression
             resolution.record(
                 "dynamic_compression.enabled",
-                args.dynamic_compression_enabled,
+                args.enable_dynamic_compression,
                 ParameterSource.CLI,
-                origin=(
-                    "--dynamic-compression-enabled"
-                    if args.dynamic_compression_enabled
-                    else "--dynamic-compression-disabled"
-                ),
+                origin="--enable-dynamic-compression",
             )
 
         if getattr(args, "dynamic_compression_level", None) is not None:
