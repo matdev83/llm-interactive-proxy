@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 from pydantic import ValidationError
 from src.core.common.exceptions import RoutingError
-from src.core.config.app_config import BackendConfig, RoutingConfig
+from src.core.config.app_config import BackendConfig, ModelAliasRule, RoutingConfig
 from src.core.interfaces.resilience_interface import ActionType, ResilienceDecision
 from src.core.services.backend_routing_service import BackendRoutingService
 
@@ -228,6 +228,65 @@ class TestBackendRoutingService:
         assert exc.value.details is not None
         assert exc.value.details.get("code") == "unknown_model"
         assert exc.value.details.get("model") == "test-model"
+
+    def test_model_only_unknown_alias_mentions_missing_alias_config(
+        self, mock_config_provider_without_model_hints
+    ) -> None:
+        """Alias-style selectors should hint when model_aliases are not loaded."""
+        mock_config_provider_without_model_hints._app_config = Mock(model_aliases=[])
+        service = BackendRoutingService(
+            mock_config_provider_without_model_hints,
+            RoutingConfig(),
+        )
+
+        with pytest.raises(RoutingError) as exc:
+            service.resolve_model_only_backend("alias:oss-code-medium")
+
+        message = str(exc.value)
+        assert "No backend candidates discovered" in message
+        assert "no `model_aliases` are loaded" in message
+        assert "`--config` file" in message
+
+    def test_model_only_unknown_alias_mentions_unmatched_alias_rule(
+        self, mock_config_provider_without_model_hints
+    ) -> None:
+        """Alias-style selectors should hint when aliases are loaded but no rule matches."""
+        mock_config_provider_without_model_hints._app_config = Mock(
+            model_aliases=[
+                ModelAliasRule(
+                    pattern=r"^alias:verifier$",
+                    replacement="openai:gpt-4o-mini",
+                )
+            ]
+        )
+        service = BackendRoutingService(
+            mock_config_provider_without_model_hints,
+            RoutingConfig(),
+        )
+
+        with pytest.raises(RoutingError) as exc:
+            service.resolve_model_only_backend("alias:oss-code-medium")
+
+        message = str(exc.value)
+        assert "No backend candidates discovered" in message
+        assert "no configured alias matched 'alias:oss-code-medium'" in message
+
+    def test_model_only_unknown_auto_mentions_missing_alias_config(
+        self, mock_config_provider_without_model_hints
+    ) -> None:
+        """Auto-style selectors should share alias hinting semantics."""
+        mock_config_provider_without_model_hints._app_config = Mock(model_aliases=[])
+        service = BackendRoutingService(
+            mock_config_provider_without_model_hints,
+            RoutingConfig(),
+        )
+
+        with pytest.raises(RoutingError) as exc:
+            service.resolve_model_only_backend("auto:reasoning")
+
+        message = str(exc.value)
+        assert "The `auto:` selector namespace uses model alias rules" in message
+        assert "`--config` file" in message
 
     def test_model_only_all_candidates_unavailable_raises_temporarily_unavailable(
         self, mock_config_provider

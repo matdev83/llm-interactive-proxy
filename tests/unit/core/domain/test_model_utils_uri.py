@@ -177,6 +177,24 @@ def test_parse_model_backward_compatibility_slash_separator() -> None:
     assert result.uri_params == {}
 
 
+def test_reserved_alias_namespace_is_not_treated_as_backend_selector() -> None:
+    assert has_explicit_backend_selector("alias:oss-code-medium") is False
+
+    parsed = parse_model_backend("alias:oss-code-medium", default_backend="openai")
+
+    assert parsed.backend_type == "openai"
+    assert parsed.model_name == "alias:oss-code-medium"
+
+
+def test_reserved_auto_namespace_is_not_treated_as_backend_selector() -> None:
+    assert has_explicit_backend_selector("auto:oss-code-medium") is False
+
+    parsed = parse_model_backend("auto:oss-code-medium", default_backend="openai")
+
+    assert parsed.backend_type == "openai"
+    assert parsed.model_name == "auto:oss-code-medium"
+
+
 def test_parse_model_backward_compatibility_no_separator() -> None:
     result = parse_model_with_params("gpt-4", default_backend="openai")
 

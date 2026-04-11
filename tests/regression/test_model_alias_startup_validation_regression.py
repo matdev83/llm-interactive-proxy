@@ -21,7 +21,78 @@ from src.core.common.exceptions import ConfigurationError
 from src.core.config.app_config import AppConfig
 from src.core.config.models.backends import BackendSettings
 from src.core.config.models.rewriting import ModelAliasRule
-from src.core.config.semantic_validation import validate_model_aliases
+from src.core.config.semantic_validation import (
+    validate_model_aliases,
+    warn_if_alias_references_without_rules,
+)
+
+
+class TestAliasSelectorStartupWarning:
+    """Guard against silent startup when alias:/auto: selectors have no rules."""
+
+    @pytest.fixture(autouse=True)
+    def setup_connectors(self):
+        importlib.import_module("src.connectors")
+        yield
+
+    def test_warns_on_quality_verifier_alias_without_rules(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        session = importlib.import_module("src.core.config.models.session")
+        config = AppConfig(
+            session=session.SessionConfig(quality_verifier_model="alias:verifier"),
+            model_aliases=[],
+        )
+        with caplog.at_level("WARNING"):
+            warn_if_alias_references_without_rules(config)
+        assert any("alias:/auto: selectors" in m for m in caplog.messages)
+        assert any(
+            "quality_verifier_model='alias:verifier'" in m for m in caplog.messages
+        )
+        assert any("--config" in m for m in caplog.messages)
+
+    def test_no_warning_when_aliases_populated(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        session = importlib.import_module("src.core.config.models.session")
+        config = AppConfig(
+            session=session.SessionConfig(quality_verifier_model="alias:verifier"),
+            model_aliases=[
+                ModelAliasRule(
+                    pattern=r"^alias:verifier$", replacement="openai:gpt-4o"
+                ),
+            ],
+        )
+        with caplog.at_level("WARNING"):
+            warn_if_alias_references_without_rules(config)
+        assert not any("alias:/auto: selectors" in m for m in caplog.messages)
+
+    def test_warns_on_auto_selector_without_rules(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        session = importlib.import_module("src.core.config.models.session")
+        config = AppConfig(
+            session=session.SessionConfig(quality_verifier_model="auto:reasoning"),
+            model_aliases=[],
+        )
+        with caplog.at_level("WARNING"):
+            warn_if_alias_references_without_rules(config)
+        assert any("alias:/auto: selectors" in m for m in caplog.messages)
+        assert any(
+            "quality_verifier_model='auto:reasoning'" in m for m in caplog.messages
+        )
+
+    def test_no_warning_when_no_alias_selectors(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        session = importlib.import_module("src.core.config.models.session")
+        config = AppConfig(
+            session=session.SessionConfig(quality_verifier_model="openai:gpt-4"),
+            model_aliases=[],
+        )
+        with caplog.at_level("WARNING"):
+            warn_if_alias_references_without_rules(config)
+        assert not any("alias:/auto: selectors" in m for m in caplog.messages)
 
 
 class TestModelAliasStartupValidationRegression:

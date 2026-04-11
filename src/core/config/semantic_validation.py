@@ -656,6 +656,66 @@ def _validate_alias_replacement_backends(
             )
 
 
+def _is_alias_selector(value: str | None) -> bool:
+    """Check if a selector string uses alias: or auto: namespace."""
+    if not value or ":" not in value:
+        return False
+    namespace, _, _ = value.partition(":")
+    return namespace.strip().lower() in {"alias", "auto"}
+
+
+def warn_if_alias_references_without_rules(config: AppConfig) -> None:
+    """Warn at startup when config references alias:/auto: selectors but model_aliases is empty.
+
+    This is a fail-open warning (no exception raised) intended to surface the
+    common misconfiguration where the server starts without `--config` and
+    therefore has no alias rules, while some settings still reference alias
+    selectors.
+    """
+    alias_rules = getattr(config, "model_aliases", None)
+    if isinstance(alias_rules, list) and alias_rules:
+        return
+
+    hints: list[str] = []
+
+    session_cfg = getattr(config, "session", None)
+    if session_cfg is not None:
+        qv_model = getattr(session_cfg, "quality_verifier_model", None)
+        if _is_alias_selector(qv_model):
+            hints.append(f"session.quality_verifier_model='{qv_model}'")
+
+    backends_cfg = getattr(config, "backends", None)
+    if backends_cfg is not None:
+        static_route = getattr(backends_cfg, "static_route", None)
+        if _is_alias_selector(static_route):
+            hints.append(f"backends.static_route='{static_route}'")
+
+    aux_cfg = getattr(config, "auxiliary_routing", None)
+    if aux_cfg is not None:
+        aux_model = getattr(aux_cfg, "model", None)
+        if _is_alias_selector(aux_model):
+            hints.append(f"auxiliary_routing.model='{aux_model}'")
+
+    replacement_rules = getattr(config, "replacement_rules", None)
+    if isinstance(replacement_rules, list):
+        for idx, rule in enumerate(replacement_rules):
+            to_selector = getattr(rule, "to_backend_model", None) or getattr(
+                rule, "replacement", None
+            )
+            if _is_alias_selector(to_selector):
+                hints.append(f"replacement_rules[{idx}].to='{to_selector}'")
+
+    if not hints:
+        return
+
+    logger.warning(
+        "The following settings use alias:/auto: selectors, but model_aliases "
+        "is empty. If you expected YAML aliases, restart with the intended "
+        "--config file.  Affected settings: %s",
+        "; ".join(hints),
+    )
+
+
 def validate_model_aliases(config: AppConfig) -> None:
     """Validate model alias patterns and replacement routing strings at startup.
 

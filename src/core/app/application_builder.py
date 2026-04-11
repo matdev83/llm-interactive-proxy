@@ -330,12 +330,14 @@ class ApplicationBuilder:
             validate_extracted_backend_references,
             validate_model_aliases,
             validate_static_route,
+            warn_if_alias_references_without_rules,
         )
 
         validate_static_route(config)
         validate_extracted_backend_references(config)
         validate_constrained_backend_instances(config)
         validate_model_aliases(config)
+        warn_if_alias_references_without_rules(config)
 
         # Replace DI-registered AppConfig and IConfig with runtime config instance
         # This ensures validation services see the same config that the builder was given

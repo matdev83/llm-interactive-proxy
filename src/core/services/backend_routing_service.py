@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import logging
+import re
 from threading import Lock
 from typing import Any
 
@@ -140,7 +141,7 @@ class BackendRoutingService:
         candidates = self._discover_model_candidates(model)
         if not candidates:
             raise RoutingError(
-                message=f"Unknown model '{model}'. No backend candidates discovered.",
+                message=self._build_unknown_model_message(model),
                 details=self._build_routing_error_details(
                     code="unknown_model",
                     model=model,
@@ -181,6 +182,59 @@ class BackendRoutingService:
 
         top_bucket = ranked_buckets[0]
         return self._select_instance(f"model:{model}", top_bucket)
+
+    def _build_unknown_model_message(self, model: str) -> str:
+        message = f"Unknown model '{model}'. No backend candidates discovered."
+        alias_hint = self._build_reserved_selector_hint(model)
+        if alias_hint:
+            return f"{message} {alias_hint}"
+        return message
+
+    def _build_reserved_selector_hint(self, model: str) -> str | None:
+        route_portion, _, _ = model.partition("?")
+        if ":" not in route_portion:
+            return None
+
+        namespace, _, alias_name = route_portion.partition(":")
+        normalized_namespace = namespace.strip().lower()
+        if normalized_namespace not in {"alias", "auto"}:
+            return None
+
+        alias_rules = self._get_model_alias_rules()
+        if not alias_rules:
+            return (
+                f"The `{normalized_namespace}:` selector namespace uses model alias rules, "
+                "but no `model_aliases` are loaded. If you expected YAML aliases, verify "
+                "the server was started with the intended `--config` file."
+            )
+
+        if alias_name and self._matches_any_alias_rule(route_portion, alias_rules):
+            return None
+
+        return (
+            f"The `{normalized_namespace}:` selector namespace uses model alias rules, "
+            f"but no configured alias matched '{route_portion}'."
+        )
+
+    def _get_model_alias_rules(self) -> list[Any]:
+        app_config = getattr(self._config_provider, "_app_config", None)
+        alias_rules = getattr(app_config, "model_aliases", None)
+        if isinstance(alias_rules, list):
+            return alias_rules
+        return []
+
+    @staticmethod
+    def _matches_any_alias_rule(model: str, alias_rules: list[Any]) -> bool:
+        for alias_rule in alias_rules:
+            pattern = getattr(alias_rule, "pattern", None)
+            if not isinstance(pattern, str) or not pattern:
+                continue
+            try:
+                if re.search(pattern, model):
+                    return True
+            except re.error:
+                continue
+        return False
 
     def _resolve_generic_backend(
         self, backend_type: str, model: str, excluded: set[str]

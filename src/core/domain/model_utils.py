@@ -44,16 +44,25 @@ class ParsedModel(BaseModel):
     model_name: str = Field(description="The model name (e.g., 'gpt-4', 'claude-3')")
 
 
+_RESERVED_SELECTOR_NAMESPACES: frozenset[str] = frozenset({"alias", "auto"})
+
+
 def has_explicit_backend_selector(model: str) -> bool:
     """Return whether the selector uses explicit `backend:model` routing syntax.
 
     Backend selection is explicit only when the first `:` appears before the first
     `/` in the route portion (before any query string).
+
+    Reserved namespaces like `alias:` and `auto:` are model-selection shorthands,
+    not concrete backend selectors.
     """
 
     route_portion, _, _ = model.partition("?")
     first_colon_index = route_portion.find(":")
     if first_colon_index < 0:
+        return False
+    namespace = route_portion[:first_colon_index].strip().lower()
+    if namespace in _RESERVED_SELECTOR_NAMESPACES:
         return False
     first_slash_index = route_portion.find("/")
     return first_slash_index < 0 or first_colon_index < first_slash_index
