@@ -25,7 +25,6 @@ def sample_app() -> FastAPI:
 
     app = FastAPI()
 
-    @app.get("/streaming-error-429")
     async def streaming_error_429():
         """Simulate a streaming response with 429 error."""
 
@@ -37,11 +36,10 @@ def sample_app() -> FastAPI:
         envelope = StreamingResponseEnvelope(
             content=error_stream(),
             media_type="text/event-stream",
-            status_code=429,  # CRITICAL: Must be 429, not 200
+            status_code=429,
         )
         return to_fastapi_streaming_response(envelope)
 
-    @app.get("/streaming-error-500")
     async def streaming_error_500():
         """Simulate a streaming response with 500 error."""
 
@@ -57,7 +55,6 @@ def sample_app() -> FastAPI:
         )
         return to_fastapi_streaming_response(envelope)
 
-    @app.get("/streaming-success")
     async def streaming_success():
         """Simulate a successful streaming response."""
 
@@ -74,7 +71,43 @@ def sample_app() -> FastAPI:
         )
         return to_fastapi_streaming_response(envelope)
 
+    app.add_api_route("/streaming-error-429", streaming_error_429, methods=["GET"])
+    app.add_api_route("/streaming-error-500", streaming_error_500, methods=["GET"])
+    app.add_api_route("/streaming-success", streaming_success, methods=["GET"])
+
     return app
+
+
+def _register_streaming_error_502_route(app: FastAPI) -> None:
+    """Register a 502 streaming route used to verify adapter-boundary behavior."""
+
+    from src.core.adapters.response_adapters import to_fastapi_streaming_response
+
+    async def streaming_error_502():
+        async def error_stream():
+            yield ProcessedResponse(
+                content={
+                    "id": "chatcmpl-error-read",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                    "error": {
+                        "message": "Upstream read error: connection lost during streaming (connection reset by peer)",
+                        "type": "BackendError",
+                        "code": "502",
+                        "status_code": 502,
+                    },
+                }
+            )
+            yield ProcessedResponse(content="data: [DONE]\n\n")
+
+        envelope = StreamingResponseEnvelope(
+            content=error_stream(),
+            media_type="text/event-stream",
+            status_code=502,
+        )
+        return to_fastapi_streaming_response(envelope)
+
+    app.add_api_route("/streaming-error-502", streaming_error_502, methods=["GET"])
 
 
 def test_streaming_rate_limit_error_returns_429(sample_app: FastAPI) -> None:
@@ -110,6 +143,19 @@ def test_streaming_server_error_returns_500(sample_app: FastAPI) -> None:
     # Verify error is in the stream
     content = response.text
     assert "Internal server error" in content
+
+
+def test_streaming_bad_gateway_error_returns_502(sample_app: FastAPI) -> None:
+    """Test that adapter boundary preserves HTTP 502 for streaming backend read errors."""
+    _register_streaming_error_502_route(sample_app)
+
+    client = TestClient(sample_app)
+    response = client.get("/streaming-error-502")
+
+    assert response.status_code == 502
+    content = response.text
+    assert "Upstream read error" in content
+    assert '"status_code": 502' in content
 
 
 def test_streaming_success_returns_200(sample_app: FastAPI) -> None:

@@ -26,7 +26,6 @@ from src.core.common.capture_aware_httpx import (
 from src.core.common.exceptions import (
     AuthenticationError,
     ConfigurationError,
-    InvalidRequestError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
@@ -544,17 +543,6 @@ class AnthropicBackend(LLMBackend):
         through :class:`ConnectorChatCompletionsRequest`; legacy positional call shapes
         are not supported at this boundary.
         """
-        if not isinstance(request, ConnectorChatCompletionsRequest):
-            raise InvalidRequestError(
-                message=(
-                    "AnthropicBackend.chat_completions requires ConnectorChatCompletionsRequest. "
-                    "Legacy request_data/processed_messages/effective_model invocation is not supported."
-                ),
-                details={
-                    "received_type": type(request).__name__,
-                    "connector": "anthropic",
-                },
-            )
         return await self._chat_completions_canonical(request)
 
     # -----------------------------------------------------------

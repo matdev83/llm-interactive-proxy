@@ -192,18 +192,21 @@ def _build_quota_exhaustion_stream_chunk(
     message = _extract_insufficient_quota_message(body) or (
         "Upstream quota was exhausted."
     )
-    error_payload = {
+    error_payload: dict[str, Any] = {
         "id": f"chatcmpl-error-{int(time.time())}",
         "object": "chat.completion.chunk",
         "created": int(time.time()),
         "model": model,
         "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-        "error": {
-            "message": message,
-            "type": "quota_exceeded",
-            "code": 503,
-            "status_code": 503,
-        },
+        "error": cast(
+            dict[str, Any],
+            {
+                "message": message,
+                "type": "quota_exceeded",
+                "code": 503,
+                "status_code": 503,
+            },
+        ),
     }
     error_body = error_payload["error"]
     if error_details and isinstance(error_body, dict):
@@ -286,6 +289,20 @@ def _raise_for_httpx_request_error(
             message="Request body upload timed out.",
             details={"url": url, "reason": "write_timeout"},
             status_code=504,
+        ) from exc
+
+    if isinstance(exc, httpx.ReadError):
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Upstream read error (connection lost mid-stream): %s: %s",
+                url,
+                exc,
+                extra=log_extra,
+            )
+        raise BackendError(
+            message=f"Upstream read error: connection lost during read ({exc!s})",
+            details={"url": url, "reason": "read_error"},
+            status_code=502,
         ) from exc
 
     logger.error(
@@ -1607,6 +1624,23 @@ class OpenAIConnector(LLMBackend):
                             details={"url": url, "reason": "read_timeout"},
                             status_code=504,
                         ) from exc
+                    except httpx.ReadError as exc:
+                        if buffer:
+                            yield buffer
+                            buffer = ""
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Streaming read error during SSE for %s",
+                                url,
+                                extra=log_extra if log_extra else None,
+                            )
+                        raise BackendError(
+                            message=(
+                                f"Upstream read error: connection lost during streaming ({exc!s})"
+                            ),
+                            details={"url": url, "reason": "read_error"},
+                            status_code=502,
+                        ) from exc
                     except httpx.RequestError as exc:
                         if buffer:
                             yield buffer
@@ -2401,6 +2435,16 @@ class OpenAIConnector(LLMBackend):
                 ),
                 details={"url": url, "reason": "read_timeout"},
                 status_code=504,
+            ) from exc
+        except httpx.ReadError as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Streaming read error for %s", url)
+            raise BackendError(
+                message=(
+                    f"Upstream read error: connection lost during streaming ({exc!s})"
+                ),
+                details={"url": url, "reason": "read_error"},
+                status_code=502,
             ) from exc
         except httpx.RequestError as exc:
             raise ServiceUnavailableError(

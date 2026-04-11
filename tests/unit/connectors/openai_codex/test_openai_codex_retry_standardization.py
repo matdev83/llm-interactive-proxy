@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import AsyncIterator
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -145,9 +146,11 @@ async def test_non_streaming_refresh_failure_surfaces_deterministic_context() ->
     detail = exc_info.value.detail
     assert exc_info.value.status_code == 401
     assert isinstance(detail, dict)
-    assert detail["error"] == "openai_codex_auth_failed"
-    assert detail["details"]["max_retries"] == 1
-    assert "attempts" in detail["details"]
+    detail_dict = cast(dict[str, object], detail)
+    assert detail_dict["error"] == "openai_codex_auth_failed"
+    details = cast(dict[str, object], detail_dict["details"])
+    assert details["max_retries"] == 1
+    assert "attempts" in details
 
 
 @pytest.mark.asyncio

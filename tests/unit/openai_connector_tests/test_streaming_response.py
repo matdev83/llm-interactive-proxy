@@ -865,6 +865,70 @@ async def test_streaming_response_midstream_request_error(
 
 
 @pytest.mark.asyncio
+async def test_streaming_response_midstream_read_error_maps_to_502(
+    connector: OpenAIConnector, mocker: MockerFixture
+) -> None:
+    """Test that mid-stream read errors surface as BackendError(502)-style chunks."""
+
+    read_error = httpx.ReadError(
+        "connection reset by peer",
+        request=httpx.Request("POST", "https://example.com"),
+    )
+
+    mock_response = MockResponse(headers={"Content-Type": "text/event-stream"})
+
+    def failing_stream_factory():
+        async def _iterator():
+            yield b'data: {"choices": []}\n\n'
+            raise read_error
+
+        return _iterator()
+
+    mock_response.aiter_bytes = failing_stream_factory
+
+    mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+    mocker.patch.object(
+        connector.translation_service,
+        "to_domain_stream_chunk",
+        side_effect=lambda chunk, _: chunk,
+    )
+
+    request_data = ChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
+    )
+
+    processed = [ChatMessage(role="user", content="test")]
+    result = await connector.chat_completions(
+        _connector_chat_request(request_data, processed, "test-model")
+    )
+
+    from src.core.domain.responses import StreamingResponseEnvelope
+
+    assert isinstance(result, StreamingResponseEnvelope)
+
+    error_chunk = None
+    async for chunk in result.content:
+        content = (
+            chunk.content.decode("utf-8")
+            if isinstance(chunk.content, bytes)
+            else chunk.content
+        )
+        if (
+            "error" in content
+            and "connection reset by peer" in content
+            and '"status_code": 502' in content
+        ):
+            error_chunk = chunk
+            break
+
+    assert (
+        error_chunk is not None
+    ), "Expected a 502 error chunk for mid-stream read error"
+
+
+@pytest.mark.asyncio
 async def test_streaming_response_no_auth(connector: OpenAIConnector) -> None:
     """Test handling a streaming response with no auth."""
     # Create a mock ChatRequest with streaming enabled
