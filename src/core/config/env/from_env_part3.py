@@ -137,9 +137,19 @@ def apply_config_part3(
                 origin="OPENROUTER_API_KEY",
             )
 
-    if env.get("GEMINI_API_KEY"):
+    gemini_key, gemini_key_source = get_env_value_with_windows_persistent_fallback(
+        "GEMINI_API_KEY", environ=env
+    )
+    if gemini_key and not _has_numbered_env_variants(env, "GEMINI_API_KEY"):
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Gemini key diagnostics [from_env_part3]: env_type=%s source=%s",
+                type(env).__name__,
+                gemini_key_source,
+            )
+
         config_backends["gemini"] = config_backends.get("gemini", {})
-        config_backends["gemini"]["api_key"] = env["GEMINI_API_KEY"]
+        config_backends["gemini"]["api_key"] = gemini_key
         config_backends["gemini"]["api_url"] = _get_env_value(
             env,
             "GEMINI_API_BASE_URL",
