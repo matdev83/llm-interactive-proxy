@@ -248,6 +248,11 @@ session:
   # Fixes
   fix_think_tags_enabled: false
   fix_think_tags_streaming_buffer_size: 4096
+
+  # Auto continue/proceed removal
+  # When the last user message is exactly "continue" or "proceed",
+  # tag it as non-forwardable so it is excluded from remote LLM submissions.
+  auto_continue_removal_enabled: true
   
   # Quality Verifier
   quality_verifier_model: null            # "backend:model"
@@ -525,6 +530,45 @@ health_check:
 | `http.interval_seconds` | float | `60.0` | Seconds between HTTP checks |
 | `http.timeout_seconds` | float | `10.0` | HTTP request timeout |
 | `http.failure_threshold` | int | `2` | Failures before unhealthy |
+
+### Usage Window Warm-up (`usage_window_warmup`)
+
+Schedules lightweight background prompts at fixed local server times to intentionally start
+sliding provider request windows at more favorable times of day.
+
+- Runs automatically while the server is up.
+- Accepts explicit `backend:model` routes, including numbered backends such as
+  `gemini.2:google/gemini-2.5-flash`.
+- Rejects aliases (`alias:` / `auto:`), model-only selectors, and composite routing
+  expressions using `^` or `|`.
+- Adds random jitter between 5 and 35 seconds before each scheduled request.
+- Sends prompts like `Hi, how much is it 1234 times 567 plus 8901` and retries once
+  when a temporary error prevents a valid response.
+- For `openai-codex:<model>` entries, warm-up fans out across all currently eligible
+  managed OAuth accounts so each account window is warmed independently.
+
+```yaml
+usage_window_warmup:
+  enabled: true
+  entries:
+    - model: "openai-codex:gpt-5.4-mini"
+      time: "08:00"
+      execute_on_weekend: false
+    - model: "gemini.2:google/gemini-2.5-flash"
+      time: "13:30"
+      execute_on_weekend: false
+    - model: "gemini.2:google/gemini-2.5-flash"
+      time: "18:45"
+      execute_on_weekend: true
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | bool | `false` | Enable the background warm-up scheduler |
+| `entries` | list | `[]` | Scheduled warm-up entries |
+| `entries[].model` | str | required | Explicit `backend:model` route; numbered backends allowed |
+| `entries[].time` | str | required | Local server time in `HH:MM` 24-hour format |
+| `entries[].execute_on_weekend` | bool | `false` | Allow this entry to run on Saturday and Sunday |
 
 ### ProxyMem (Cross-Session Memory)
 

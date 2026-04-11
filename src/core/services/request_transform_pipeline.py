@@ -135,6 +135,19 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                     exc_info=True,
                 )
 
+        # Tag exact trailing continue/proceed as never-forward (fail-open)
+        try:
+            request = await self._apply_auto_continue_removal(
+                context, session, session_id, request
+            )
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Auto-continue removal tagging failed; proceeding without tagging: %s",
+                    e,
+                    exc_info=True,
+                )
+
         # Inject pending Quality Verifier steering (fail-open)
         try:
             request = await self._apply_quality_verifier_steering_injection(
@@ -147,6 +160,75 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                     e,
                     exc_info=True,
                 )
+
+        return request
+
+    async def _apply_auto_continue_removal(
+        self,
+        context: RequestContext,
+        session: object,
+        session_id: str,
+        request: ChatRequest,
+    ) -> ChatRequest:
+        del context, session
+
+        if self._app_state is None:
+            return request
+
+        enabled = True
+        app_config = self._get_app_config()
+        try:
+            session_cfg = (
+                getattr(app_config, "session", None) if app_config is not None else None
+            )
+            enabled = bool(getattr(session_cfg, "auto_continue_removal_enabled", True))
+        except Exception:
+            enabled = True
+        if not enabled:
+            return request
+
+        messages = list(request.messages or [])
+        if not messages:
+            return request
+
+        last_message = messages[-1]
+        if getattr(last_message, "role", None) != "user":
+            return request
+
+        content = getattr(last_message, "content", None)
+        if not isinstance(content, str):
+            return request
+
+        if content.strip().lower() not in {"continue", "proceed"}:
+            return request
+
+        try:
+            from typing import cast
+
+            from src.core.domain.non_forwardable import NonForwardableTagScope
+            from src.core.interfaces.non_forwardable_interface import (
+                INonForwardableMessageIdentityService,
+                INonForwardableMessageRegistry,
+            )
+
+            registry = self._app_state.get_service(
+                cast(Any, INonForwardableMessageRegistry)
+            )
+            identity_service = self._app_state.get_service(
+                cast(Any, INonForwardableMessageIdentityService)
+            )
+            if registry is None or identity_service is None:
+                return request
+
+            identity = identity_service.compute_identity(last_message)
+            await registry.tag_identities(
+                session_id=session_id,
+                identities=[identity],
+                scope=NonForwardableTagScope.NEVER_FORWARD,
+                reason="auto_continue_removal",
+            )
+        except Exception:
+            return request
 
         return request
 

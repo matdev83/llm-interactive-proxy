@@ -60,6 +60,7 @@ class TestSessionApplicator:
             fix_think_tags_enabled=None,
             disable_dangerous_git_commands_protection=None,
             disable_double_ampersand_fixes_for_windows=None,
+            disable_auto_continue_removal=None,
             droid_path_fix_enabled=None,
             tool_access_allowed_tools=None,
             tool_access_blocked_tools=None,
@@ -195,6 +196,27 @@ class TestSessionApplicator:
                 == 11.5
             )
             assert os.environ.get("QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS") == "11.5"
+
+    def test_apply_disable_auto_continue_removal(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test disable flag maps to session.auto_continue_removal_enabled=False."""
+        empty_args.disable_auto_continue_removal = True
+
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert "session" in overrides
+        assert overrides["session"].get("auto_continue_removal_enabled") is False
+        cli_records = resolution.latest_by_source(ParameterSource.CLI)
+        assert "session.auto_continue_removal_enabled" in cli_records
+        assert (
+            cli_records["session.auto_continue_removal_enabled"].origin
+            == "--disable-auto-continue-removal"
+        )
 
     def test_apply_tool_access_overrides(
         self,

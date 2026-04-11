@@ -112,6 +112,9 @@ session:
   # Fix improperly formatted <think> tags in model responses
   fix_think_tags_enabled: false  # Set to true to enable think tags correction
 
+  # Remove trailing [AUTO-CONTINUE] marker from assistant responses.
+  auto_continue_removal_enabled: true
+
   # Planning phase: Route initial requests to a strong model for better planning
   planning_phase:
     enabled: false  # Set to true to enable planning phase
@@ -470,6 +473,26 @@ resilience:
   personal_backend_types: []
   # Force shared scoping for selected backends (optional override).
   shared_backend_types: []
+
+# Scheduled provider warm-up for sliding usage windows.
+# Sends lightweight prompts at fixed local server times to intentionally start
+# request windows at more favorable times of day.
+# Only explicit backend:model routes are allowed. Aliases, model-only selectors,
+# and composite selectors using ^ or | are rejected.
+usage_window_warmup:
+  enabled: false
+  entries: []
+  # Example:
+  # entries:
+  #   - model: "openai-codex:gpt-5.4-mini"
+  #     time: "08:00"
+  #     execute_on_weekend: false
+  #   - model: "gemini.2:google/gemini-2.5-flash"
+  #     time: "13:30"
+  #     execute_on_weekend: false
+  #   - model: "gemini.2:google/gemini-2.5-flash"
+  #     time: "18:45"
+  #     execute_on_weekend: true
 
 # Model name rewrite rules (optional)
 # These rules allow you to dynamically rewrite model names before they are processed

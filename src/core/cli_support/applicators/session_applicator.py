@@ -636,6 +636,18 @@ class SessionApplicator:
                 origin="--disable-double-ampersand-fixes-for-windows",
             )
 
+        if getattr(args, "disable_auto_continue_removal", None) is not None:
+            session = overrides.setdefault("session", {})
+            session["auto_continue_removal_enabled"] = (
+                not args.disable_auto_continue_removal
+            )
+            resolution.record(
+                "session.auto_continue_removal_enabled",
+                not args.disable_auto_continue_removal,
+                ParameterSource.CLI,
+                origin="--disable-auto-continue-removal",
+            )
+
     def _apply_strict_command_detection(
         self,
         args: CliArgs,

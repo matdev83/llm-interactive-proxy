@@ -46,6 +46,7 @@ Advanced features that enhance the proxy's capabilities:
 ### Response Processing
 
 - **[Think Tags Fix](features/think-tags-fix.md)** - Correct improperly formatted thinking tags in model responses
+- **[Auto Continue/Proceed Removal](features/auto-continue-removal.md)** - Strip mechanical "continue"/"proceed" messages from remote LLM submissions after interruptions
 - **[Edit Precision Tuning](features/edit-precision.md)** - Automatically adjust temperature and top_p for code editing tasks
 
 ### Session Memory

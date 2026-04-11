@@ -158,3 +158,25 @@ def test_backend_config_provider_missing_backend_returns_default_without_mutatio
     assert cfg_value is not None
     assert cfg_value.api_key is None
     assert "does-not-exist" not in cfg.backends.__dict__
+
+
+def test_session_auto_continue_removal_enabled_defaults_true() -> None:
+    cfg = AppConfig.from_env(environ={})
+
+    assert cfg.session.auto_continue_removal_enabled is True
+
+
+def test_session_auto_continue_removal_enabled_env_mapping_and_resolution() -> None:
+    resolution = ParameterResolution()
+    cfg = AppConfig.from_env(
+        environ={"AUTO_CONTINUE_REMOVAL_ENABLED": "false"},
+        resolution=resolution,
+    )
+
+    assert cfg.session.auto_continue_removal_enabled is False
+    env_records = resolution.latest_by_source(ParameterSource.ENVIRONMENT)
+    assert "session.auto_continue_removal_enabled" in env_records
+    assert (
+        env_records["session.auto_continue_removal_enabled"].origin
+        == "AUTO_CONTINUE_REMOVAL_ENABLED"
+    )

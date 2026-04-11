@@ -202,6 +202,13 @@ def apply_config_part1b(
             path="session.double_ampersand_fixes_for_windows_enabled",
             resolution=resolution,
         ),
+        "auto_continue_removal_enabled": _env_to_bool(
+            "AUTO_CONTINUE_REMOVAL_ENABLED",
+            True,
+            env,
+            path="session.auto_continue_removal_enabled",
+            resolution=resolution,
+        ),
         "planning_phase": {
             "enabled": _env_to_bool(
                 "PLANNING_PHASE_ENABLED",

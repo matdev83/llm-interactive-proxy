@@ -111,6 +111,10 @@ async def test_transform_pipeline_preserves_ordering(
         transformation_order.append("tool_filtering")
         return request
 
+    async def mock_auto_continue_removal(ctx, session, session_id, request):
+        transformation_order.append("auto_continue_removal")
+        return request
+
     async def mock_quality_verifier_injection(ctx, session, session_id, request):
         transformation_order.append("quality_verifier_steering")
         return request
@@ -119,6 +123,7 @@ async def test_transform_pipeline_preserves_ordering(
     pipeline._apply_auto_append_first_user_suffix = mock_auto_append  # type: ignore
     pipeline._apply_edit_precision = mock_precision  # type: ignore
     pipeline._apply_tool_filtering = mock_filtering  # type: ignore
+    pipeline._apply_auto_continue_removal = mock_auto_continue_removal  # type: ignore
     pipeline._apply_quality_verifier_steering_injection = (  # type: ignore
         mock_quality_verifier_injection
     )
@@ -134,6 +139,7 @@ async def test_transform_pipeline_preserves_ordering(
         "auto_append_first_user",
         "edit_precision",
         "tool_filtering",
+        "auto_continue_removal",
         "quality_verifier_steering",
     ]
 
@@ -367,6 +373,311 @@ async def test_transform_pipeline_all_transformations_fail(
     assert result == basic_request
 
 
+@pytest.mark.asyncio
+async def test_auto_continue_removal_tags_exact_last_user_continue(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+) -> None:
+    from src.core.domain.non_forwardable import NonForwardableTagScope
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageIdentityService,
+        INonForwardableMessageRegistry,
+    )
+
+    mock_config = MagicMock()
+    mock_config.session.auto_continue_removal_enabled = True
+
+    registry = AsyncMock()
+    identity_service = MagicMock()
+    identity_service.compute_identity.return_value = "id-continue"
+
+    def _get_setting(key: str, default: Any = None) -> Any:
+        if key == "app_config":
+            return mock_config
+        return default
+
+    def _get_service(service_type: Any) -> Any:
+        name = getattr(service_type, "__name__", "")
+        if name == INonForwardableMessageRegistry.__name__:
+            return registry
+        if name == INonForwardableMessageIdentityService.__name__:
+            return identity_service
+        return None
+
+    cast(Any, mock_app_state).get_setting.side_effect = _get_setting
+    cast(Any, mock_app_state).get_service.side_effect = _get_service
+
+    req = ChatRequest(
+        model="m",
+        messages=[
+            ChatMessage(role="system", content="sys"),
+            ChatMessage(role="user", content="  CONTINUE  "),
+        ],
+    )
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_continue_removal(
+        request_context, Mock(), "sid", req
+    )
+
+    assert out is req
+    identity_service.compute_identity.assert_called_once_with(req.messages[-1])
+    registry.tag_identities.assert_awaited_once_with(
+        session_id="sid",
+        identities=["id-continue"],
+        scope=NonForwardableTagScope.NEVER_FORWARD,
+        reason="auto_continue_removal",
+    )
+
+
+@pytest.mark.asyncio
+async def test_auto_continue_removal_tags_exact_last_user_proceed(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+) -> None:
+    from src.core.domain.non_forwardable import NonForwardableTagScope
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageIdentityService,
+        INonForwardableMessageRegistry,
+    )
+
+    mock_config = MagicMock()
+    mock_config.session.auto_continue_removal_enabled = True
+
+    registry = AsyncMock()
+    identity_service = MagicMock()
+    identity_service.compute_identity.return_value = "id-proceed"
+
+    def _get_setting(key: str, default: Any = None) -> Any:
+        if key == "app_config":
+            return mock_config
+        return default
+
+    def _get_service(service_type: Any) -> Any:
+        name = getattr(service_type, "__name__", "")
+        if name == INonForwardableMessageRegistry.__name__:
+            return registry
+        if name == INonForwardableMessageIdentityService.__name__:
+            return identity_service
+        return None
+
+    cast(Any, mock_app_state).get_setting.side_effect = _get_setting
+    cast(Any, mock_app_state).get_service.side_effect = _get_service
+
+    req = ChatRequest(
+        model="m",
+        messages=[ChatMessage(role="user", content="proceed")],
+    )
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_continue_removal(
+        request_context, Mock(), "sid", req
+    )
+
+    assert out is req
+    identity_service.compute_identity.assert_called_once_with(req.messages[-1])
+    registry.tag_identities.assert_awaited_once_with(
+        session_id="sid",
+        identities=["id-proceed"],
+        scope=NonForwardableTagScope.NEVER_FORWARD,
+        reason="auto_continue_removal",
+    )
+
+
+@pytest.mark.asyncio
+async def test_auto_continue_removal_does_not_tag_when_continue_not_last_user(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+) -> None:
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageIdentityService,
+        INonForwardableMessageRegistry,
+    )
+
+    mock_config = MagicMock()
+    mock_config.session.auto_continue_removal_enabled = True
+
+    registry = AsyncMock()
+    identity_service = MagicMock()
+
+    def _get_setting(key: str, default: Any = None) -> Any:
+        if key == "app_config":
+            return mock_config
+        return default
+
+    def _get_service(service_type: Any) -> Any:
+        name = getattr(service_type, "__name__", "")
+        if name == INonForwardableMessageRegistry.__name__:
+            return registry
+        if name == INonForwardableMessageIdentityService.__name__:
+            return identity_service
+        return None
+
+    cast(Any, mock_app_state).get_setting.side_effect = _get_setting
+    cast(Any, mock_app_state).get_service.side_effect = _get_service
+
+    req = ChatRequest(
+        model="m",
+        messages=[
+            ChatMessage(role="user", content="continue"),
+            ChatMessage(role="user", content="other"),
+        ],
+    )
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_continue_removal(
+        request_context, Mock(), "sid", req
+    )
+
+    assert out is req
+    identity_service.compute_identity.assert_not_called()
+    registry.tag_identities.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_continue_removal_does_not_tag_when_message_has_extra_text(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+) -> None:
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageIdentityService,
+        INonForwardableMessageRegistry,
+    )
+
+    mock_config = MagicMock()
+    mock_config.session.auto_continue_removal_enabled = True
+
+    registry = AsyncMock()
+    identity_service = MagicMock()
+
+    def _get_setting(key: str, default: Any = None) -> Any:
+        if key == "app_config":
+            return mock_config
+        return default
+
+    def _get_service(service_type: Any) -> Any:
+        name = getattr(service_type, "__name__", "")
+        if name == INonForwardableMessageRegistry.__name__:
+            return registry
+        if name == INonForwardableMessageIdentityService.__name__:
+            return identity_service
+        return None
+
+    cast(Any, mock_app_state).get_setting.side_effect = _get_setting
+    cast(Any, mock_app_state).get_service.side_effect = _get_service
+
+    req = ChatRequest(
+        model="m",
+        messages=[ChatMessage(role="user", content="please continue")],
+    )
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_continue_removal(
+        request_context, Mock(), "sid", req
+    )
+
+    assert out is req
+    identity_service.compute_identity.assert_not_called()
+    registry.tag_identities.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_continue_removal_does_not_tag_when_disabled(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+) -> None:
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageIdentityService,
+        INonForwardableMessageRegistry,
+    )
+
+    mock_config = MagicMock()
+    mock_config.session.auto_continue_removal_enabled = False
+
+    registry = AsyncMock()
+    identity_service = MagicMock()
+
+    def _get_setting(key: str, default: Any = None) -> Any:
+        if key == "app_config":
+            return mock_config
+        return default
+
+    def _get_service(service_type: Any) -> Any:
+        name = getattr(service_type, "__name__", "")
+        if name == INonForwardableMessageRegistry.__name__:
+            return registry
+        if name == INonForwardableMessageIdentityService.__name__:
+            return identity_service
+        return None
+
+    cast(Any, mock_app_state).get_setting.side_effect = _get_setting
+    cast(Any, mock_app_state).get_service.side_effect = _get_service
+
+    req = ChatRequest(
+        model="m",
+        messages=[ChatMessage(role="user", content="continue")],
+    )
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_continue_removal(
+        request_context, Mock(), "sid", req
+    )
+
+    assert out is req
+    identity_service.compute_identity.assert_not_called()
+    registry.tag_identities.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_continue_removal_does_not_tag_when_last_message_not_user(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+) -> None:
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageIdentityService,
+        INonForwardableMessageRegistry,
+    )
+
+    mock_config = MagicMock()
+    mock_config.session.auto_continue_removal_enabled = True
+
+    registry = AsyncMock()
+    identity_service = MagicMock()
+
+    def _get_setting(key: str, default: Any = None) -> Any:
+        if key == "app_config":
+            return mock_config
+        return default
+
+    def _get_service(service_type: Any) -> Any:
+        name = getattr(service_type, "__name__", "")
+        if name == INonForwardableMessageRegistry.__name__:
+            return registry
+        if name == INonForwardableMessageIdentityService.__name__:
+            return identity_service
+        return None
+
+    cast(Any, mock_app_state).get_setting.side_effect = _get_setting
+    cast(Any, mock_app_state).get_service.side_effect = _get_service
+
+    req = ChatRequest(
+        model="m",
+        messages=[
+            ChatMessage(role="user", content="continue"),
+            ChatMessage(role="assistant", content="ok"),
+        ],
+    )
+
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+    out = await pipeline._apply_auto_continue_removal(
+        request_context, Mock(), "sid", req
+    )
+
+    assert out is req
+    identity_service.compute_identity.assert_not_called()
+    registry.tag_identities.assert_not_awaited()
+
+
 # ==============================================================================
 # Test Requirement 9.1, 9.2: Redaction Behavior
 # ==============================================================================
@@ -387,7 +698,7 @@ async def test_redaction_enabled_when_config_true(
     mock_config = MagicMock()
     mock_config.auth.redact_api_keys_in_prompts = True
     mock_config.command_prefix = "!/"
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
     mock_app_state.get_command_prefix.return_value = "!/"
     mock_app_state.get_disable_commands.return_value = False
 
@@ -434,7 +745,7 @@ async def test_redaction_disabled_when_session_override_false(
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_config = MagicMock()
     mock_config.auth.redact_api_keys_in_prompts = True  # Config says enabled
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
 
     pipeline = RequestTransformPipeline(app_state=mock_app_state)
 
@@ -471,7 +782,7 @@ async def test_redaction_does_not_pass_command_prefix(
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_config = MagicMock()
     mock_config.auth.redact_api_keys_in_prompts = True
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
 
     pipeline = RequestTransformPipeline(app_state=mock_app_state)
 
@@ -514,7 +825,7 @@ async def test_redaction_fails_open_on_middleware_error(
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_config = MagicMock()
     mock_config.auth.redact_api_keys_in_prompts = True
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
     mock_app_state.get_command_prefix.return_value = "!/"
     mock_app_state.get_disable_commands.return_value = False
 
@@ -619,7 +930,7 @@ async def test_edit_precision_preserves_original_request(
     mock_config = MagicMock()
     mock_config.edit_precision.enabled = True
     mock_config.edit_precision.temperature = 0.1
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
 
     pipeline = RequestTransformPipeline(app_state=mock_app_state)
 
@@ -731,7 +1042,7 @@ async def test_redaction_preserves_original_request(
     mock_config = MagicMock()
     mock_config.auth.redact_api_keys_in_prompts = True
     mock_config.command_prefix = "!/"
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
     mock_app_state.get_command_prefix.return_value = "!/"
     mock_app_state.get_disable_commands.return_value = False
 
@@ -790,7 +1101,7 @@ async def test_auto_append_first_user_suffix_appends_to_first_user_message(
 ) -> None:
     mock_config = MagicMock()
     mock_config.auto_append_first_prompt_text = "\n--tail--"
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
 
     session = Mock()
     session.state = SessionState()
@@ -819,7 +1130,7 @@ async def test_auto_append_first_user_suffix_skips_when_already_applied(
 ) -> None:
     mock_config = MagicMock()
     mock_config.auto_append_first_prompt_text = "\n--tail--"
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
 
     session = Mock()
     session.state = SessionState().with_auto_append_first_prompt_applied(True)
@@ -845,7 +1156,7 @@ async def test_auto_append_first_user_suffix_skips_auxiliary_request(
 ) -> None:
     mock_config = MagicMock()
     mock_config.auto_append_first_prompt_text = "\n--tail--"
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
 
     session = Mock()
     session.state = SessionState()
@@ -872,7 +1183,7 @@ async def test_auto_append_first_user_suffix_multimodal_list(
 ) -> None:
     mock_config = MagicMock()
     mock_config.auto_append_first_prompt_text = " END"
-    mock_app_state.get_setting.return_value = mock_config
+    cast(Any, mock_app_state).get_setting.return_value = mock_config
 
     session = Mock()
     session.state = SessionState()

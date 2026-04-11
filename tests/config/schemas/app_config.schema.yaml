@@ -82,6 +82,7 @@ properties:
       dangerous_command_steering_message: { type: ["string", "null"] }
       pytest_full_suite_steering_enabled: { type: boolean }
       pytest_full_suite_steering_message: { type: ["string", "null"] }
+      auto_continue_removal_enabled: { type: boolean }
       max_per_session_backends: { type: integer, minimum: 1 }
       session_continuity:
         type: object

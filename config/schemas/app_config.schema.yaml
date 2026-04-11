@@ -230,6 +230,7 @@ properties:
       fix_think_tags_streaming_buffer_size: { type: integer, minimum: 1024 }
       droid_path_fix_enabled: { type: boolean }
       double_ampersand_fixes_for_windows_enabled: { type: boolean }
+      auto_continue_removal_enabled: { type: boolean }
       max_per_session_backends: { type: integer, minimum: 1 }
       session_continuity:
         type: object
@@ -554,6 +555,23 @@ properties:
           method: { type: string, enum: [GET, HEAD] }
           path: { type: string }
           accept_any_response: { type: boolean }
+  usage_window_warmup:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+      entries:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [model, time]
+          properties:
+            model: { type: string }
+            time:
+              type: string
+              pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$"
+            execute_on_weekend: { type: boolean }
   failure_handling:
     type: object
     additionalProperties: false
