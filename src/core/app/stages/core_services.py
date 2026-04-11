@@ -19,7 +19,14 @@ import httpx
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.di.registrations._shared import register_singleton_if_absent
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.backend_completion_flow_interface import (
+    IBackendCompletionFlow,
+)
+from src.core.interfaces.backend_lifecycle_manager_interface import (
+    IBackendLifecycleManager,
+)
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_parser_interface import IResponseParser
 
@@ -323,6 +330,9 @@ class CoreServicesStage(InitializationStage):
         # Register connection activity tracker (if enabled)
         self._register_activity_tracker(services, config)
 
+        # Register usage window warm-up scheduler (if enabled)
+        self._register_usage_window_warmup_service(services, config)
+
         # Register wire capture service
         self._register_wire_capture_service(services)
 
@@ -474,6 +484,44 @@ class CoreServicesStage(InitializationStage):
 
         if logger.isEnabledFor(logging.INFO):
             logger.info("Connection tracker cleanup scheduler registered")
+
+    def _register_usage_window_warmup_service(
+        self, services: ServiceCollection, config: AppConfig
+    ) -> None:
+        if not config.usage_window_warmup.enabled:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Usage window warm-up scheduler disabled")
+            return
+
+        from src.core.services.usage_window_warmup_service import (
+            UsageWindowWarmupService,
+        )
+
+        def warmup_service_factory(
+            provider: IServiceProvider,
+        ) -> UsageWindowWarmupService:
+            completion_flow = provider.get_required_service(
+                IBackendCompletionFlow  # type: ignore[type-abstract]
+            )
+            backend_lifecycle_manager = provider.get_service(
+                IBackendLifecycleManager  # type: ignore[type-abstract]
+            )
+            from src.core.services.warmup_target_resolver import WarmupTargetResolver
+
+            target_resolver = WarmupTargetResolver(backend_lifecycle_manager)
+            return UsageWindowWarmupService(
+                completion_flow=completion_flow,
+                config=config.usage_window_warmup,
+                target_resolver=target_resolver,
+            )
+
+        register_singleton_if_absent(
+            services,
+            UsageWindowWarmupService,
+            implementation_factory=warmup_service_factory,
+        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Usage window warm-up scheduler registered")
 
     def _register_wire_capture_service(self, services: ServiceCollection) -> None:
         """Register wire capture service.

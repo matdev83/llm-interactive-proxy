@@ -630,6 +630,9 @@ class ApplicationBuilder:
                 from src.core.services.backend_startup_disablement import (
                     apply_backend_disablement_at_startup,
                 )
+                from src.core.services.usage_window_warmup_service import (
+                    UsageWindowWarmupService,
+                )
 
                 app_config = service_provider.get_service(AppConfig)
                 backend_lifecycle_manager = service_provider.get_service(
@@ -644,6 +647,9 @@ class ApplicationBuilder:
                     )
 
                 routing_service = service_provider.get_service(BackendRoutingService)
+                usage_window_warmup_service = service_provider.get_service(
+                    UsageWindowWarmupService
+                )
                 if routing_service is not None:
                     active_routing_service = routing_service
 
@@ -665,7 +671,7 @@ class ApplicationBuilder:
                     )
 
                     refresh_interval_seconds = 0.0
-                    if app_config is not None and app_config.routing is not None:
+                    if app_config is not None:
                         refresh_interval_seconds = (
                             app_config.routing.capability_refresh_interval_seconds
                             or 0.0
@@ -674,6 +680,8 @@ class ApplicationBuilder:
                         _ = asyncio.create_task(  # noqa: RUF006 - fire-and-forget
                             active_routing_service.start_model_capability_refresh()
                         )
+                if usage_window_warmup_service is not None:
+                    await usage_window_warmup_service.start()
             except Exception as exc:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -690,6 +698,31 @@ class ApplicationBuilder:
                 logger.info("Shutting down application")
 
             # Stop capability refresh loop before backend shutdown.
+            try:
+                from src.core.services.usage_window_warmup_service import (
+                    UsageWindowWarmupService,
+                )
+
+                usage_window_warmup_service = service_provider.get_service(
+                    UsageWindowWarmupService
+                )
+                if usage_window_warmup_service is not None:
+                    await usage_window_warmup_service.stop()
+            except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to stop usage window warm-up scheduler: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+            except Exception as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to stop usage window warm-up scheduler: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+
             try:
                 from src.core.services.backend_routing_service import (
                     BackendRoutingService,

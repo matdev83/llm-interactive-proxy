@@ -492,6 +492,49 @@ class TestCredentialManager:
             assert second_token in {"token_a", "token_b"}
             assert second_token != first_token
 
+    @pytest.mark.asyncio
+    async def test_list_managed_oauth_account_ids_returns_eligible_accounts(
+        self, manager
+    ):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_b",
+                    access_token="token_b",
+                    refresh_token="refresh_b",
+                    expiry_date=9_999_999_999_999,
+                    needs_reauth=True,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+
+            account_ids = await manager.list_managed_oauth_account_ids()
+
+            assert account_ids == ["acct_a"]
+
 
 class TestCredentialWatcher:
     """Test CredentialWatcher debounce and file watching behavior."""

@@ -1150,6 +1150,14 @@ class CredentialManager(ICredentialManager):
 
         return None
 
+    async def list_managed_oauth_account_ids(self) -> list[str]:
+        """Return eligible managed OAuth account IDs for warm-up fan-out."""
+        if not self._managed_enabled():
+            return []
+
+        await self._managed_selector.reload_accounts()
+        return await self._managed_selector.list_eligible_account_ids()
+
 
 def _extract_chatgpt_account_id_from_jwt(token: str) -> str | None:
     """Best-effort decode of ChatGPT account id from an access token JWT.

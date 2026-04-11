@@ -107,6 +107,7 @@ class AppConfig(AppConfigModel):
             "usage_tracking",
             "replacement",
             "health_check",
+            "usage_window_warmup",
             "failure_handling",
             "routing",
             "dynamic_compression",

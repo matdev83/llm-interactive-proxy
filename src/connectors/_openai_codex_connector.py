@@ -647,6 +647,55 @@ class OpenAICodexConnector(OpenAIConnector):
                     exc_info=True,
                 )
 
+    async def list_managed_oauth_account_ids(self) -> list[str]:
+        """Return eligible managed OAuth account IDs for warm-up fan-out.
+
+        Accounts requiring re-auth are excluded. Allowed account filtering configured
+        in managed OAuth settings is applied by delegating to the credential manager.
+        """
+        selector = getattr(self._credential_manager, "_managed_selector", None)
+        if selector is None:
+            return []
+
+        try:
+            reload_accounts = getattr(selector, "reload_accounts", None)
+            if callable(reload_accounts):
+                result = reload_accounts()
+                if inspect.isawaitable(result):
+                    await result
+
+            now_ms = int(time.time() * 1000)
+            available_accounts_fn = getattr(selector, "_available_accounts", None)
+            if callable(available_accounts_fn):
+                maybe_accounts = available_accounts_fn(now_ms)
+                if (
+                    not isinstance(maybe_accounts, tuple)
+                    or len(maybe_accounts) != 2
+                    or not isinstance(maybe_accounts[0], Sequence)
+                    or not isinstance(maybe_accounts[1], Sequence)
+                ):
+                    return []
+                available, eligible = maybe_accounts
+                if available and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "OpenAI Codex warm-up account fan-out candidates: %d available, %d eligible",
+                        len(available),
+                        len(eligible),
+                    )
+                return [
+                    account.account_id
+                    for account in eligible
+                    if isinstance(account.account_id, str) and account.account_id
+                ]
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to enumerate managed OAuth accounts for warm-up fan-out: %s",
+                    exc,
+                    exc_info=True,
+                )
+        return []
+
     @property
     def _auth_credentials(self) -> dict[str, Any] | None:
         return getattr(self._credential_manager, "_auth_credentials", None)

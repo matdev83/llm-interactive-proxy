@@ -127,8 +127,17 @@ class ManagedOAuthAccountSelector:
             if account.needs_reauth:
                 continue
             available.append(account)
-        eligible = [account for account in available if not account.is_rate_limited(now_ms)]
+        eligible = [
+            account for account in available if not account.is_rate_limited(now_ms)
+        ]
         return available, eligible
+
+    async def list_eligible_account_ids(self) -> list[str]:
+        """Return currently eligible account IDs after reload/refresh gating."""
+        await self._ensure_accounts_loaded()
+        now_ms = int(time.time() * 1000)
+        _, eligible = self._available_accounts(now_ms)
+        return [account.account_id for account in eligible]
 
     def _select_by_strategy(
         self,
@@ -333,4 +342,3 @@ class ManagedOAuthAccountSelector:
             session_id=session_id,
             ignore_session_affinity=True,
         )
-

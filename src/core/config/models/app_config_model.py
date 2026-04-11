@@ -44,6 +44,9 @@ from src.core.domain.configuration.reasoning_aliases_config import (
 )
 from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
+from src.core.domain.configuration.usage_window_warmup_config import (
+    UsageWindowWarmupConfig,
+)
 from src.core.domain.model_utils import ModelDefaults
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.model_bases import DomainModel
@@ -104,6 +107,9 @@ class AppConfigModel(DomainModel, IConfig):
     end_of_session: EndOfSessionConfig = Field(default_factory=EndOfSessionConfig)
     replacement: ReplacementConfig = Field(default_factory=ReplacementConfig)
     health_check: HealthCheckConfig = Field(default_factory=HealthCheckConfig)
+    usage_window_warmup: UsageWindowWarmupConfig = Field(
+        default_factory=UsageWindowWarmupConfig
+    )
     failure_handling: FailureHandlingConfig = Field(
         default_factory=FailureHandlingConfig
     )
@@ -141,18 +147,21 @@ class AppConfigModel(DomainModel, IConfig):
 
     @field_validator("auto_append_first_prompt_filename", mode="before")
     @classmethod
-    def validate_auto_append_first_prompt_filename(cls, v: str | None) -> str | None:
-        if v is None or (isinstance(v, str) and not v.strip()):
+    def validate_auto_append_first_prompt_filename(cls, v: Any) -> str | None:
+        if v is None:
             return None
         if not isinstance(v, str):
             raise ValueError("auto_append_first_prompt_filename must be a string")
-        suf = Path(v.strip()).suffix.lower()
+        stripped = v.strip()
+        if not stripped:
+            return None
+        suf = Path(stripped).suffix.lower()
         if suf not in (".txt", ".md"):
             raise ValueError(
                 f"Invalid auto_append_first_prompt_filename {v!r}: "
                 "must end with .txt or .md"
             )
-        return v.strip()
+        return stripped
 
     def model_is_functional(self, model_id: str) -> bool:
         return self.backends.model_is_functional(model_id)

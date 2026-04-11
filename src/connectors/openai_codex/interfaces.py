@@ -160,6 +160,11 @@ class ICredentialManager(ABC):
         """
         ...
 
+    @abstractmethod
+    async def list_managed_oauth_account_ids(self) -> list[str]:
+        """Return eligible managed OAuth account IDs for fan-out warm-up calls."""
+        ...
+
 
 class IPayloadBuilder(ABC):
     """Interface for building Codex payloads.
