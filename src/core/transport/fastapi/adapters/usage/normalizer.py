@@ -68,6 +68,18 @@ class UsageNormalizer:
                 "total_tokens": 0,
             }
 
+        usage = dict(usage)
+
+        if "prompt_tokens" not in usage and "input_tokens" in usage:
+            val = usage["input_tokens"]
+            if isinstance(val, int | float):
+                usage["prompt_tokens"] = int(val)
+
+        if "completion_tokens" not in usage and "output_tokens" in usage:
+            val = usage["output_tokens"]
+            if isinstance(val, int | float):
+                usage["completion_tokens"] = int(val)
+
         # Try to parse as OpenRouterUsage
         try:
             from src.core.domain.openrouter_usage import OpenRouterUsage
@@ -107,6 +119,16 @@ class UsageNormalizer:
             Normalized usage dictionary
         """
         normalized = dict(usage)
+
+        if "prompt_tokens" not in normalized and "input_tokens" in normalized:
+            val = normalized["input_tokens"]
+            if isinstance(val, int | float):
+                normalized["prompt_tokens"] = int(val)
+
+        if "completion_tokens" not in normalized and "output_tokens" in normalized:
+            val = normalized["output_tokens"]
+            if isinstance(val, int | float):
+                normalized["completion_tokens"] = int(val)
 
         # Coerce standard fields to integers
         for key in ("prompt_tokens", "completion_tokens", "total_tokens"):

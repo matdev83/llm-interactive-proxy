@@ -163,3 +163,32 @@ class TestUsageNormalizer:
             "completion_tokens": 0,
             "total_tokens": 0,
         }
+
+    def test_responses_api_input_tokens_mapped_to_prompt_tokens(self):
+        """Responses API uses input_tokens/output_tokens; normalizer must map them."""
+        normalizer = UsageNormalizer()
+        result = normalizer.normalize(
+            {"input_tokens": 42, "output_tokens": 15, "total_tokens": 57}
+        )
+        assert result["prompt_tokens"] == 42
+        assert result["completion_tokens"] == 15
+        assert result["total_tokens"] == 57
+
+    def test_responses_api_only_output_tokens_mapped(self):
+        """If only output_tokens present (no prompt_tokens), it maps correctly."""
+        normalizer = UsageNormalizer()
+        result = normalizer.normalize(
+            {"output_tokens": 15, "total_tokens": 57}
+        )
+        assert result["prompt_tokens"] == 0
+        assert result["completion_tokens"] == 15
+        assert result["total_tokens"] == 57
+
+    def test_merge_preserves_responses_api_usage(self):
+        """Merged streaming usage from Responses API preserves mapped token counts."""
+        normalizer = UsageNormalizer()
+        existing = {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+        new = {"input_tokens": 42, "output_tokens": 15, "total_tokens": 57}
+        result = normalizer.merge_streaming_usage(existing, new)
+        assert result["prompt_tokens"] == 42
+        assert result["completion_tokens"] == 15
