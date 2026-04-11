@@ -69,6 +69,7 @@ _SYSTEM_REMINDER_MARKER = "<system-reminder>"
 _NOISY_NOOP_DECISION_REASONS = frozenset(
     {
         "already_processed_output",
+        "not_applied",
         "compression_disabled",
         "below_min_bytes",
         "category_disabled",

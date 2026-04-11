@@ -761,20 +761,9 @@ async def test_service_logs_debug_for_evaluated_non_applied_output(
 
     assert result.records[0].applied is False
     assert result.records[0].failed_open is False
+    # Suppressed to reduce log noise: not_applied is now in _NOISY_NOOP_DECISION_REASONS
     assert len(capture_logger.info_calls) == 0
-    assert len(capture_logger.debug_calls) == 1
-    _, metadata = capture_logger.debug_calls[0]
-    assert metadata["decision_reason"] == "not_applied"
-    assert metadata["tool_name"] == "shell"
-    assert metadata["tool_category"] == "command_execution"
-    assert metadata["bytes_in"] == 4
-    assert metadata["bytes_out"] == 4
-    assert metadata["methods_attempted"] == ["inflate"]
-    assert metadata["methods_applied"] == []
-    assert metadata["failed_open"] is False
-    assert metadata["applied"] is False
-    assert "content" not in metadata
-    assert "payload" not in metadata
+    assert len(capture_logger.debug_calls) == 0
 
 
 @pytest.mark.asyncio
