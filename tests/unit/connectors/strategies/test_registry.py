@@ -337,7 +337,7 @@ class TestStrategyAutoDiscovery:
 
         gemini_result = gemini_strategy.augment_init_config(test_config.copy())
         assert "key_name" in gemini_result
-        assert gemini_result["key_name"] == "gemini"
+        assert gemini_result["key_name"] == "x-goog-api-key"
 
         anthropic_result = anthropic_strategy.augment_init_config(test_config.copy())
         assert "key_name" in anthropic_result
@@ -384,7 +384,7 @@ class TestStrategyAutoDiscovery:
         test_config = {"api_key": "test-key"}
         gemini_result = gemini_strategy.augment_init_config(test_config.copy())
         assert "key_name" in gemini_result
-        assert gemini_result["key_name"] == "gemini"
+        assert gemini_result["key_name"] == "x-goog-api-key"
 
         anthropic_strategy = registry.get_strategy("anthropic")
         anthropic_result = anthropic_strategy.augment_init_config(test_config.copy())
@@ -474,7 +474,7 @@ class TestConcurrentStrategyDiscovery:
                     "key_name" in result
                 ), f"Thread {thread_id} got default strategy instead of gemini strategy"
                 assert (
-                    result["key_name"] == "gemini"
+                    result["key_name"] == "x-goog-api-key"
                 ), f"Thread {thread_id} got wrong strategy: {result.get('key_name')}"
 
                 results.append(result)
@@ -513,11 +513,11 @@ class TestConcurrentStrategyDiscovery:
             f"Some threads may have timed out or failed."
         )
 
-        # Verify all results are correct (all should have key_name="gemini")
+        # Verify all results are correct (all should have key_name="x-goog-api-key")
         for i, result in enumerate(results):
             assert "key_name" in result, f"Result {i} missing key_name: {result}"
             assert (
-                result["key_name"] == "gemini"
+                result["key_name"] == "x-goog-api-key"
             ), f"Result {i} has wrong key_name: {result.get('key_name')}"
 
         # Verify discovery flag is set

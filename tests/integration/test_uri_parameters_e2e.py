@@ -443,7 +443,7 @@ class TestEndToEndURIParameterFlow:
         backend = backend_factory.create_backend("gemini", mock_app_config)
         await backend.initialize(
             api_key="test-gemini-key",
-            key_name="gemini",
+            key_name="x-goog-api-key",
             gemini_api_base_url="https://generativelanguage.googleapis.com",
         )
 

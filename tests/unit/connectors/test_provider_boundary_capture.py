@@ -280,7 +280,7 @@ async def test_gemini_boundary_capture_uses_final_provider_payload_bytes(
             translation_service=TranslationService(),
         )
         connector.api_key = "test-gemini-key"
-        connector.key_name = "gemini"
+        connector.key_name = "x-goog-api-key"
         connector.gemini_api_base_url = "https://generativelanguage.googleapis.com"
 
         envelope = await connector.chat_completions(

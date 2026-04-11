@@ -123,7 +123,7 @@ class TestCustomModelParameters:
         await backend.initialize(
             api_key="test-key",
             gemini_api_base_url="https://generativelanguage.googleapis.com",
-            key_name="gemini",
+            key_name="x-goog-api-key",
         )
         request_data = sample_request_data.model_copy(update={"top_k": 40})
 
@@ -199,7 +199,7 @@ class TestCustomModelParameters:
         await backend.initialize(
             api_key="test-key",
             gemini_api_base_url="https://generativelanguage.googleapis.com",
-            key_name="gemini",
+            key_name="x-goog-api-key",
         )
         request_data = sample_request_data.model_copy(
             update={"reasoning_effort": "high"}
@@ -312,7 +312,7 @@ class TestCustomModelParameters:
         await backend.initialize(
             api_key="test-key",
             gemini_api_base_url="https://generativelanguage.googleapis.com",
-            key_name="gemini",
+            key_name="x-goog-api-key",
         )
         request_data = sample_request_data.model_copy(update={"top_p": 0.6})
 
@@ -338,7 +338,7 @@ class TestCustomModelParameters:
         await backend.initialize(
             api_key="test-key",
             gemini_api_base_url="https://generativelanguage.googleapis.com",
-            key_name="gemini",
+            key_name="x-goog-api-key",
         )
         request_data = sample_request_data.model_copy(
             update={"stop": ["stop1", "stop2"]}
@@ -388,7 +388,7 @@ class TestCustomModelParameters:
         await backend.initialize(
             api_key="test-key",
             gemini_api_base_url="https://generativelanguage.googleapis.com",
-            key_name="gemini",
+            key_name="x-goog-api-key",
         )
         request_data = sample_request_data.model_copy(
             update={"unsupported_param": "test"}

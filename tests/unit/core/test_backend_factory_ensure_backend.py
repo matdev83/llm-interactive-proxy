@@ -280,7 +280,9 @@ async def test_ensure_backend_zai_coding_plan_keeps_explicit_key_over_live_env(
             "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
             return_value=("live-env-key", "process"),
         ),
-        patch.dict(os.environ, {"ZAI_CODING_PLAN_API_KEY": "live-env-key"}, clear=False),
+        patch.dict(
+            os.environ, {"ZAI_CODING_PLAN_API_KEY": "live-env-key"}, clear=False
+        ),
     ):
         result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
@@ -315,7 +317,9 @@ async def test_ensure_backend_zai_coding_plan_keeps_explicit_key_over_windows_pe
             "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
             return_value=("windows-persistent-key", "windows-user"),
         ),
-        patch.dict(os.environ, {"ZAI_CODING_PLAN_API_KEY": "stale-process-key"}, clear=False),
+        patch.dict(
+            os.environ, {"ZAI_CODING_PLAN_API_KEY": "stale-process-key"}, clear=False
+        ),
     ):
         result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
@@ -385,7 +389,9 @@ async def test_ensure_backend_zai_coding_plan_uses_live_env_when_key_missing(
             "src.core.services.backend_factory.get_env_value_with_windows_persistent_fallback",
             return_value=("live-env-key", "process"),
         ),
-        patch.dict(os.environ, {"ZAI_CODING_PLAN_API_KEY": "live-env-key"}, clear=False),
+        patch.dict(
+            os.environ, {"ZAI_CODING_PLAN_API_KEY": "live-env-key"}, clear=False
+        ),
     ):
         result = await factory.ensure_backend(backend_type, app_config, backend_config)
 
@@ -487,7 +493,7 @@ async def test_ensure_backend_gemini_specific(factory: BackendFactory) -> None:
         mock_init.assert_called_once()
         init_config = mock_init.call_args[0][1]
         assert init_config["api_key"] == "gemini-key"
-        assert init_config["key_name"] == "gemini"
+        assert init_config["key_name"] == "x-goog-api-key"
         assert (
             init_config["gemini_api_base_url"]
             == "https://generativelanguage.googleapis.com"

@@ -134,8 +134,8 @@ async def test_gemini_strategy_is_used_real_registry(
         # Verify Gemini strategy augmentation
         assert init_config["api_key"] == "test-gemini-key"
         assert (
-            init_config["key_name"] == "gemini"
-        ), "Gemini strategy should set key_name='gemini'"
+            init_config["key_name"] == "x-goog-api-key"
+        ), "Gemini strategy should set key_name='x-goog-api-key'"
         assert (
             "gemini_api_base_url" in init_config
         ), "Gemini strategy should set gemini_api_base_url"
@@ -352,9 +352,9 @@ async def test_backward_compatibility_gemini_config_equivalence(
 
         # Verify Gemini strategy preserves existing behavior
         assert init_config["api_key"] == "gemini-api-key"
-        assert init_config["key_name"] == "gemini", (
-            "Gemini strategy should set key_name='gemini' "
-            "(preserving pre-refactoring behavior)"
+        assert init_config["key_name"] == "x-goog-api-key", (
+            "Gemini strategy should set key_name='x-goog-api-key' "
+            "(using correct Gemini API header name)"
         )
         # Verify api_base_url is mapped to gemini_api_base_url
         assert init_config["api_base_url"] == "https://custom-gemini-api.example.com"

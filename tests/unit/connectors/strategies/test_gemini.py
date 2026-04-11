@@ -11,14 +11,14 @@ from src.connectors.strategies.registry import initialization_strategy_registry
 class TestGeminiInitializationStrategy:
     """Tests for the Gemini initialization strategy."""
 
-    def test_strategy_sets_key_name_to_gemini(self) -> None:
-        """Test that strategy sets key_name to 'gemini'."""
+    def test_strategy_sets_key_name_to_x_goog_api_key(self) -> None:
+        """Test that strategy sets key_name to 'x-goog-api-key'."""
         strategy = GeminiInitializationStrategy()
         config = {"api_key": "test-key", "api_base_url": "https://api.gemini.com"}
 
         result = strategy.augment_init_config(config)
 
-        assert result["key_name"] == "gemini"
+        assert result["key_name"] == "x-goog-api-key"
 
     def test_strategy_preserves_other_config_values(self) -> None:
         """Test that strategy preserves all other configuration values."""
@@ -34,7 +34,7 @@ class TestGeminiInitializationStrategy:
 
         assert result["api_key"] == "test-key"
         assert result["auth_header_name"] == "x-api-key"
-        assert result["key_name"] == "gemini"
+        assert result["key_name"] == "x-goog-api-key"
 
     def test_strategy_maps_api_base_url_to_gemini_api_base_url(self) -> None:
         """Test that strategy maps api_base_url to gemini_api_base_url when present."""
@@ -83,7 +83,7 @@ class TestGeminiInitializationStrategy:
         assert result is not config
         assert "key_name" not in config
         assert "gemini_api_base_url" not in config
-        assert result["key_name"] == "gemini"
+        assert result["key_name"] == "x-goog-api-key"
         assert result["gemini_api_base_url"] == "https://api.gemini.com"
         # Original BackendFactory behavior preserves api_base_url
         assert result["api_base_url"] == "https://api.gemini.com"
@@ -95,7 +95,7 @@ class TestGeminiInitializationStrategy:
 
         result = strategy.augment_init_config(config)
 
-        assert result["key_name"] == "gemini"
+        assert result["key_name"] == "x-goog-api-key"
         assert result["key_name"] != "other-value"
 
     def test_strategy_handles_empty_config(self) -> None:
@@ -105,7 +105,7 @@ class TestGeminiInitializationStrategy:
 
         result = strategy.augment_init_config(config)
 
-        assert result["key_name"] == "gemini"
+        assert result["key_name"] == "x-goog-api-key"
         assert (
             result["gemini_api_base_url"] == "https://generativelanguage.googleapis.com"
         )
@@ -120,7 +120,7 @@ class TestGeminiInitializationStrategy:
 
         result = strategy.augment_init_config(config)
 
-        assert result["key_name"] == "gemini"
+        assert result["key_name"] == "x-goog-api-key"
         assert result["api_key"] == "test-key"
         assert result["extra"] == config["extra"]
         assert result["extra"]["nested"] == "value"
@@ -139,7 +139,7 @@ class TestGeminiInitializationStrategy:
         config = {"api_key": "test-key"}
         result = strategy.augment_init_config(config)
 
-        assert result["key_name"] == "gemini"
+        assert result["key_name"] == "x-goog-api-key"
 
     def test_strategy_registry_returns_gemini_strategy(self) -> None:
         """Test that registry returns Gemini strategy for 'gemini' connector type."""
@@ -150,6 +150,6 @@ class TestGeminiInitializationStrategy:
         config = {"api_key": "test-key", "some_other_field": "value"}
         result = strategy.augment_init_config(config)
 
-        assert result["key_name"] == "gemini"
+        assert result["key_name"] == "x-goog-api-key"
         assert result["api_key"] == "test-key"
         assert result["some_other_field"] == "value"
