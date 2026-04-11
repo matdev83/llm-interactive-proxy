@@ -403,6 +403,42 @@ async def test_service_skips_outputs_marked_compacted_in_metadata() -> None:
 
 
 @pytest.mark.asyncio
+async def test_service_sets_compacted_metadata_on_first_compression() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    messages = _build_tool_messages("git status", "x" * 200)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    first = await service.compress_messages(messages=messages, config=cfg)
+
+    assert first.records[0].applied is True
+    assert first.messages[1].metadata == {"_compacted": True}
+
+    second = await service.compress_messages(messages=first.messages, config=cfg)
+
+    assert second.records[0].applied is False
+    assert "skipped_already_processed_compaction" in second.records[0].warnings
+
+
+@pytest.mark.asyncio
 async def test_service_skips_artifact_preview_system_reminder_outputs() -> None:
     registry = CompressionStrategyRegistry()
     registry.register("half_trim", _HalfTrimStrategy())

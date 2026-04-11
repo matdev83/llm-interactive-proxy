@@ -566,8 +566,12 @@ class ToolOutputCompressionService:
                 )
                 continue
 
+            updated_metadata = dict(message.metadata) if message.metadata else {}
+            updated_metadata["_compacted"] = True
             updated_messages.append(
-                message.model_copy(update={"content": final_content})
+                message.model_copy(
+                    update={"content": final_content, "metadata": updated_metadata}
+                )
             )
             self._log_output_evaluation(
                 record=record,
