@@ -105,7 +105,7 @@ class TestUsageSummary:
 
     def test_usage_summary_from_dict_with_none(self) -> None:
         """Test creating UsageSummary from dictionary with None values."""
-        data = {
+        data: dict[str, object] = {
             "prompt_tokens": None,
             "completion_tokens": None,
             "total_tokens": None,

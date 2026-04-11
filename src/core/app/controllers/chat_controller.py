@@ -598,8 +598,12 @@ class ChatController:
             # Ensure OpenAI Chat Completions JSON schema for non-streaming responses
             response_metadata = getattr(response, "metadata", None)
 
+            response_usage = getattr(response, "usage", None)
+
             def _ensure_openai_chat_schema(
-                content: object, metadata: dict[str, object] | None = response_metadata
+                content: object,
+                metadata: dict[str, object] | None = response_metadata,
+                envelope_usage: object = response_usage,
             ) -> object:
                 def _inject_reasoning_aliases(payload: object) -> object:
                     if not isinstance(payload, dict):
@@ -705,14 +709,7 @@ class ChatController:
 
                             from src.core.domain.usage_summary import UsageSummary
 
-                            raw_usage = metadata.get(
-                                "usage",
-                                {
-                                    "prompt_tokens": 0,
-                                    "completion_tokens": 0,
-                                    "total_tokens": 0,
-                                },
-                            )
+                            raw_usage = metadata.get("usage", envelope_usage)
                             usage_summary = None
                             if isinstance(raw_usage, UsageSummary):
                                 usage_summary = raw_usage
@@ -720,7 +717,7 @@ class ChatController:
                                 usage_summary = UsageSummary.from_dict(raw_usage)
 
                             # Create the response using Pydantic model
-                            response = ChatResponse(
+                            chat_response = ChatResponse(
                                 id=response_id,
                                 created=created_val,
                                 model=model_name,
@@ -728,7 +725,7 @@ class ChatController:
                                 usage=usage_summary,
                             )
 
-                            return _inject_reasoning_aliases(response.model_dump())
+                            return _inject_reasoning_aliases(chat_response.model_dump())
 
                     if metadata:
                         meta_role = metadata.get("role")  # type: ignore[arg-type]
@@ -793,7 +790,7 @@ class ChatController:
                             elif isinstance(raw_usage, dict):
                                 usage_summary = UsageSummary.from_dict(raw_usage)
 
-                            response = ChatResponse(
+                            chat_response = ChatResponse(
                                 id=response_id,
                                 created=created_val,
                                 model=model_name,
@@ -801,7 +798,7 @@ class ChatController:
                                 usage=usage_summary,
                             )
 
-                            return response.model_dump()
+                            return chat_response.model_dump()
 
                     # Check if content is a JSON string of tool calls (common backend response format)
                     if isinstance(content, str):
@@ -853,20 +850,16 @@ class ChatController:
                                 from src.core.domain.usage_summary import UsageSummary
 
                                 if metadata:
-                                    raw_usage = metadata.get("usage")
+                                    raw_usage = metadata.get("usage", envelope_usage)
                                 else:
-                                    raw_usage = {
-                                        "prompt_tokens": 0,
-                                        "completion_tokens": 0,
-                                        "total_tokens": 0,
-                                    }
+                                    raw_usage = envelope_usage
                                 usage_summary = None
                                 if isinstance(raw_usage, UsageSummary):
                                     usage_summary = raw_usage
                                 elif isinstance(raw_usage, dict):
                                     usage_summary = UsageSummary.from_dict(raw_usage)
 
-                                response = ChatResponse(
+                                chat_response = ChatResponse(
                                     id=response_id,
                                     created=created_val,
                                     model=model_name,
@@ -874,7 +867,7 @@ class ChatController:
                                     usage=usage_summary,
                                 )
 
-                                return response.model_dump()
+                                return chat_response.model_dump()
                         except (ValueError, TypeError) as e:
                             if logger.isEnabledFor(TRACE_LEVEL):
                                 logger.log(
@@ -964,7 +957,7 @@ class ChatController:
                         )
 
                         # Create the response using Pydantic model
-                        response = ChatResponse(
+                        chat_response = ChatResponse(
                             id=content.get("id", f"chatcmpl-{_uuid.uuid4().hex[:16]}"),
                             created=int(_time.time()),
                             model=content.get(
@@ -974,7 +967,7 @@ class ChatController:
                             usage=UsageSummary.from_dict(openai_usage),
                         )
 
-                        return response
+                        return chat_response
 
                     import json as _json
                     import time
@@ -1021,21 +1014,24 @@ class ChatController:
                     from src.core.domain.usage_summary import UsageSummary
 
                     # Create the response using Pydantic model
-                    response = ChatResponse(
+                    fallback_usage = envelope_usage
+                    chat_response = ChatResponse(
                         id=f"chatcmpl-{uuid.uuid4().hex[:16]}",
                         created=int(time.time()),
                         model=getattr(domain_request, "model", "gpt-4"),
                         choices=[choice],
-                        usage=UsageSummary.from_dict(
-                            {
-                                "prompt_tokens": 0,
-                                "completion_tokens": 0,
-                                "total_tokens": 0,
-                            }
+                        usage=(
+                            fallback_usage
+                            if isinstance(fallback_usage, UsageSummary)
+                            else (
+                                UsageSummary.from_dict(fallback_usage)
+                                if isinstance(fallback_usage, dict)
+                                else None
+                            )
                         ),
                     )
 
-                    return response
+                    return chat_response
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
