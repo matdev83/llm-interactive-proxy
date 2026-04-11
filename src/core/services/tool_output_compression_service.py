@@ -1305,30 +1305,10 @@ class ToolOutputCompressionService:
         strategy = self._strategy_registry.get("pytest_failure_focus")
         if type(strategy) is not PytestFailureFocusStrategy:
             return {}
-        min_lines_value: object | None = effective_config.pytest_failure_focus_min_lines
+        min_lines_value: int | None = effective_config.pytest_failure_focus_min_lines
         if min_lines_value is None:
             return {}
-        if isinstance(min_lines_value, bool):
-            return {}
-        if isinstance(min_lines_value, int):
-            min_lines = max(0, min_lines_value)
-        elif isinstance(min_lines_value, str):
-            try:
-                min_lines = max(0, int(min_lines_value))
-            except (TypeError, ValueError):
-                logger.debug(
-                    "Invalid pytest_failure_focus_min_lines runtime override %r; "
-                    "using registered strategy.",
-                    min_lines_value,
-                )
-                return {}
-        else:
-            logger.debug(
-                "Invalid pytest_failure_focus_min_lines runtime override %r; "
-                "using registered strategy.",
-                min_lines_value,
-            )
-            return {}
+        min_lines = max(0, min_lines_value)
         return {
             "pytest_failure_focus": PytestFailureFocusStrategy(min_lines=min_lines),
         }
