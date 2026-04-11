@@ -439,6 +439,42 @@ async def test_service_sets_compacted_metadata_on_first_compression() -> None:
 
 
 @pytest.mark.asyncio
+async def test_service_skips_outputs_with_compressed_marker_already_processed() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    previously_compressed = (
+        "[COMPRESSED level=balanced methods=ansi_normalize,diff_compact saved=2048B]\n"
+        "diff --git a/foo.py b/foo.py\n--- a/foo.py\n+++ b/foo.py\n"
+    )
+    messages = _build_tool_messages("git diff", previously_compressed)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.messages[1].content == previously_compressed
+    assert result.records[0].applied is False
+    assert "skipped_already_processed_compression" in result.records[0].warnings
+
+
+@pytest.mark.asyncio
 async def test_service_skips_artifact_preview_system_reminder_outputs() -> None:
     registry = CompressionStrategyRegistry()
     registry.register("half_trim", _HalfTrimStrategy())

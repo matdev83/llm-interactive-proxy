@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import time
 from collections.abc import Sequence
 
@@ -65,6 +66,7 @@ _METHOD_YIELD_INTERVAL = 8
 _TIME_BUDGET_EXCEEDED_REASON = "time_budget_exceeded"
 _DYNAMIC_CONFIG_RUNTIME_TUNABLE_ATTR = "__dynamic_config_runtime_tunable__"
 _COMPACTED_STUB_MARKER = "[COMPACTED]"
+_COMPRESSED_MARKER_RE = re.compile(r"^\[COMPRESSED[^\]]*\]", re.MULTILINE)
 _SYSTEM_REMINDER_MARKER = "<system-reminder>"
 _NOISY_NOOP_DECISION_REASONS = frozenset(
     {
@@ -813,6 +815,8 @@ class ToolOutputCompressionService:
             return None
         if _COMPACTED_STUB_MARKER in message.content:
             return "skipped_already_processed_compaction"
+        if _COMPRESSED_MARKER_RE.match(message.content):
+            return "skipped_already_processed_compression"
         if (
             _SYSTEM_REMINDER_MARKER in message.content
             and "artifact" in message.content.lower()
