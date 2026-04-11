@@ -391,7 +391,7 @@ class TestResponseExecutor:
         compatibility_layer.detect_incompatible_tool_calls.assert_called()
         compatibility_layer.append_incompatible_tool_steering.assert_called_once()
         mock_base_connector.translation_service.to_domain_response.assert_called_once_with(
-            second_response.json.return_value, "openai"
+            second_response.json.return_value, "openai-responses"
         )
 
     @pytest.mark.asyncio

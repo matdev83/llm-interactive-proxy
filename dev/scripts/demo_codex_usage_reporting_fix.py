@@ -69,7 +69,7 @@ class _FakeTransportWithProviderUsage:
         )
 
 
-class _FakeTransportWithoutProviderUsage:
+class _FakeTransportWithStreamingUsage:
     async def initiate_streaming_request(
         self,
         url: str,
@@ -82,10 +82,25 @@ class _FakeTransportWithoutProviderUsage:
                 content={
                     "choices": [
                         {
-                            "delta": {"content": "This should carry token usage."},
-                            "finish_reason": "stop",
+                            "delta": {"content": "Hello from Codex streaming. "},
+                            "finish_reason": None,
                         }
                     ]
+                }
+            )
+            yield ProcessedResponse(
+                content={
+                    "choices": [
+                        {
+                            "delta": {"content": "This carries token usage."},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "input_tokens": 17,
+                        "output_tokens": 9,
+                        "total_tokens": 26,
+                    },
                 }
             )
 
@@ -193,7 +208,7 @@ async def _run_demo() -> None:
                         stream=True,
                     )
 
-                    response_executor._transport = _FakeTransportWithoutProviderUsage()  # type: ignore[attr-defined]
+                    response_executor._transport = _FakeTransportWithStreamingUsage()  # type: ignore[attr-defined]
 
                     stream_result = await backend.chat_completions(
                         request_data=streaming_request,
@@ -218,15 +233,24 @@ async def _run_demo() -> None:
 
                     usage_payloads: list[dict[str, Any]] = []
                     async for chunk in stream_content:
+                        # Check explicit usage field
                         if chunk.usage is not None:
                             usage_payloads.append(chunk.usage.model_dump())
+                        # Check metadata
                         usage_metadata = chunk.metadata.get("usage")
                         if isinstance(usage_metadata, dict):
                             usage_payloads.append(dict(usage_metadata))
+                        # Check content dict (where Codex SSE would embed usage)
+                        if isinstance(chunk.content, dict):
+                            content_usage = chunk.content.get("usage")
+                            if isinstance(content_usage, dict):
+                                usage_payloads.append(dict(content_usage))
 
                     print("[stream] usage payloads:", usage_payloads)
                     if not usage_payloads:
-                        raise RuntimeError("Streaming usage is missing")
+                        raise RuntimeError(
+                            "Streaming usage is missing; no chunks carried usage data"
+                        )
 
                     max_total = max(
                         int(p.get("total_tokens", 0)) for p in usage_payloads

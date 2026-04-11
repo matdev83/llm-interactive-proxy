@@ -49,8 +49,15 @@ class UsageSummary(ValueObject):
             UsageSummary instance
         """
         prompt_tokens = data.get("prompt_tokens")
+        if not isinstance(prompt_tokens, int):
+            prompt_tokens = data.get("input_tokens")
         completion_tokens = data.get("completion_tokens")
+        if not isinstance(completion_tokens, int):
+            completion_tokens = data.get("output_tokens")
         total_tokens = data.get("total_tokens")
+        if not isinstance(total_tokens, int):
+            computed = (prompt_tokens or 0) + (completion_tokens or 0)
+            total_tokens = computed if computed > 0 else None
 
         # Extract extensions
         # If "extensions" key exists, use it directly; otherwise extract all non-standard fields

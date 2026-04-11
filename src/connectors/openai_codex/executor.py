@@ -583,10 +583,11 @@ class ResponseExecutor(IResponseExecutor):
                     )
 
             # Parse response using translation service with renderer override
+            # Codex uses OpenAI Responses API format which has 'output' not 'choices'
             with OverrideRenderer(renderer_key):
                 domain_response = (
                     self._base_connector.translation_service.to_domain_response(
-                        response_json, "openai"
+                        response_json, "openai-responses"
                     )
                 )
 
