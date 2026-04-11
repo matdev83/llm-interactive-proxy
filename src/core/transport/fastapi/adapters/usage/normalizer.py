@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.core.domain.openrouter_usage import OpenRouterUsage
+    from src.core.domain.usage_summary import UsageSummary
     from src.core.services.usage_calculation_service import UsageCalculationService
 
 logger = logging.getLogger(__name__)
@@ -32,12 +33,13 @@ class UsageNormalizer:
         self._usage_service = usage_service
 
     def normalize(
-        self, usage: dict[str, Any] | OpenRouterUsage | None
+        self,
+        usage: dict[str, Any] | OpenRouterUsage | UsageSummary | None,
     ) -> dict[str, int]:
         """Normalize usage to standard format.
 
         Args:
-            usage: Usage dictionary, OpenRouterUsage instance, or None
+            usage: Usage dictionary, OpenRouterUsage, UsageSummary, or None
 
         Returns:
             Normalized usage with standard fields as integers
@@ -60,13 +62,6 @@ class UsageNormalizer:
 
         if isinstance(usage, UsageSummary):
             usage = usage.to_legacy_dict()
-
-        if not isinstance(usage, dict):
-            return {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            }
 
         usage = dict(usage)
 
@@ -180,13 +175,15 @@ class UsageNormalizer:
         return usage
 
     def merge_streaming_usage(
-        self, existing: dict[str, int], new: dict[str, Any]
-    ) -> dict[str, int]:
+        self,
+        existing: dict[str, Any] | None,
+        new: dict[str, Any] | None,
+    ) -> dict[str, Any]:
         """Merge usage keeping highest values.
 
         Args:
-            existing: Existing usage dictionary
-            new: New usage dictionary to merge
+            existing: Existing usage dictionary or None
+            new: New usage dictionary to merge or None
 
         Returns:
             Merged usage dictionary with highest values

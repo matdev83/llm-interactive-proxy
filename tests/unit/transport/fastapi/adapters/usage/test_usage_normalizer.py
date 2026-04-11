@@ -177,9 +177,7 @@ class TestUsageNormalizer:
     def test_responses_api_only_output_tokens_mapped(self):
         """If only output_tokens present (no prompt_tokens), it maps correctly."""
         normalizer = UsageNormalizer()
-        result = normalizer.normalize(
-            {"output_tokens": 15, "total_tokens": 57}
-        )
+        result = normalizer.normalize({"output_tokens": 15, "total_tokens": 57})
         assert result["prompt_tokens"] == 0
         assert result["completion_tokens"] == 15
         assert result["total_tokens"] == 57
