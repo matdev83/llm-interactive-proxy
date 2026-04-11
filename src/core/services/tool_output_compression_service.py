@@ -20,6 +20,7 @@ from src.core.domain.dynamic_compression import (
     CompressionAlertRecord,
     CompressionMethodRecord,
     EffectiveCompressionConfigDiagnostics,
+    ToolIdentity,
     ToolOutputCompressionBatchResult,
     ToolOutputCompressionRecord,
 )
@@ -67,6 +68,7 @@ _COMPACTED_STUB_MARKER = "[COMPACTED]"
 _SYSTEM_REMINDER_MARKER = "<system-reminder>"
 _NOISY_NOOP_DECISION_REASONS = frozenset(
     {
+        "already_processed_output",
         "compression_disabled",
         "below_min_bytes",
         "category_disabled",
@@ -142,6 +144,56 @@ class ToolOutputCompressionService:
                 updated_messages.append(message)
                 continue
 
+            already_processed_warning = self._already_processed_skip_warning(message)
+            if already_processed_warning is not None:
+                synthetic_identity = ToolIdentity(
+                    tool_name="unknown",
+                    tool_category="unknown",
+                    command_signature=None,
+                    command_prefix=None,
+                    explicit_format_flags=[],
+                )
+                synthetic_bytes = len(message.content.encode("utf-8"))
+                record = ToolOutputCompressionRecord(
+                    tool_call_id=message.tool_call_id,
+                    identity=synthetic_identity,
+                    original_bytes=synthetic_bytes,
+                    compressed_bytes=synthetic_bytes,
+                    methods=[],
+                    marker_inserted=False,
+                    failed_open=False,
+                    applied=False,
+                    final_level=effective_config.level,
+                    warnings=list(resolver_warnings),
+                )
+                records.append(record)
+                output_started_at = time.perf_counter()
+                updated_messages.append(message)
+                self._append_warning_once(
+                    record=record,
+                    warning=already_processed_warning,
+                )
+                self._finalize_record_fields(
+                    record=record,
+                    final_content=message.content,
+                    output_started_at=output_started_at,
+                )
+                self._log_output_evaluation(
+                    record=record,
+                    selected_rule_name=None,
+                    declared_pipeline=[],
+                    enabled_pipeline=[],
+                    decision_reason="already_processed_output",
+                    output_started_at=output_started_at,
+                )
+                batch_alerts.extend(
+                    self._record_metrics_and_alerts(
+                        record=record,
+                        effective_config=effective_config,
+                    )
+                )
+                continue
+
             context = self._identity_resolver.resolve_tool_output(
                 messages=messages,
                 tool_message=message,
@@ -169,33 +221,6 @@ class ToolOutputCompressionService:
             selected_rule_name: str | None = None
             declared_pipeline: list[str] = []
             enabled_pipeline: list[str] = []
-            already_processed_warning = self._already_processed_skip_warning(message)
-            if already_processed_warning is not None:
-                updated_messages.append(message)
-                self._append_warning_once(
-                    record=record,
-                    warning=already_processed_warning,
-                )
-                self._finalize_record_fields(
-                    record=record,
-                    final_content=message.content,
-                    output_started_at=output_started_at,
-                )
-                self._log_output_evaluation(
-                    record=record,
-                    selected_rule_name=selected_rule_name,
-                    declared_pipeline=declared_pipeline,
-                    enabled_pipeline=enabled_pipeline,
-                    decision_reason="already_processed_output",
-                    output_started_at=output_started_at,
-                )
-                batch_alerts.extend(
-                    self._record_metrics_and_alerts(
-                        record=record,
-                        effective_config=effective_config,
-                    )
-                )
-                continue
 
             if not effective_config.enabled:
                 updated_messages.append(message)
