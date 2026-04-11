@@ -185,7 +185,7 @@ class TestBackendPrefixParsing:
     async def test_parse_backend_from_model_with_colon(self, backend_service):
         """Test parsing 'backend:model' format."""
         request = ChatRequest(
-            model="anthropic:claude-3-5-sonnet",
+            model="claude-3-5-sonnet",
             messages=[ChatMessage(role="user", content="test")],
         )
 
@@ -269,10 +269,10 @@ class TestStaticRouteOverride:
     """Test static route override behavior."""
 
     @pytest.mark.asyncio
-    async def test_static_route_overrides_resolved_backend(
+    async def test_static_route_overrides_backendless_requests(
         self, mock_dependencies, backend_service
     ):
-        """Test that static_route overrides the resolved backend and model."""
+        """Test that static_route overrides requests without explicit backend selectors."""
         # This test needs a fresh service instance with modified config
         mock_dependencies["config"].backends.static_route = "gemini:gemini-2.0-flash"
 
@@ -314,7 +314,7 @@ class TestStaticRouteOverride:
         )
 
         request = ChatRequest(
-            model="anthropic:claude-3-5-sonnet",
+            model="claude-3-5-sonnet",
             messages=[ChatMessage(role="user", content="test")],
         )
 
@@ -323,6 +323,60 @@ class TestStaticRouteOverride:
         # Static route should override everything
         assert backend == "gemini"
         assert model == "gemini-2.0-flash"
+
+    @pytest.mark.asyncio
+    async def test_static_route_does_not_override_explicit_backend_selector(
+        self, mock_dependencies
+    ):
+        """Explicit backend:model selectors must bypass global static_route overrides."""
+        mock_dependencies["config"].backends.static_route = "opencode-go:glm-5.1"
+
+        from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+        from src.core.services.backend_model_resolver import BackendModelResolver
+        from src.core.services.model_alias_resolver import ModelAliasResolver
+        from src.core.services.planning_phase_manager import PlanningPhaseManager
+
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
+        )
+
+        model_alias_resolver = ModelAliasResolver(config=mock_dependencies["config"])
+        planning_phase_manager = PlanningPhaseManager(
+            session_service=mock_dependencies["session_service"]
+        )
+        backend_lifecycle_manager = BackendLifecycleManager(
+            factory=mock_dependencies["factory"],
+            config=mock_dependencies["config"],
+            backend_config_provider=Mock(),
+            per_session_limit=32,
+        )
+        backend_model_resolver = BackendModelResolver(
+            session_service=mock_dependencies["session_service"],
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase_manager,
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            config=mock_dependencies["config"],
+            routing_service=mock_dependencies["routing_service"],
+        )
+        mock_dependencies["model_alias_resolver"] = model_alias_resolver
+        mock_dependencies["planning_phase_manager"] = planning_phase_manager
+        mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
+        mock_dependencies["backend_model_resolver"] = backend_model_resolver
+
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
+
+        request = ChatRequest(
+            model="ollama:glm-5.1:cloud",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
+        backend, model, uri_params = await service._resolve_backend_and_model(request)
+
+        assert backend == "ollama"
+        assert model == "glm-5.1:cloud"
+        assert uri_params == {}
 
     @pytest.mark.asyncio
     async def test_static_route_query_params_are_parsed_and_merged(
@@ -370,7 +424,7 @@ class TestStaticRouteOverride:
         )
 
         request = ChatRequest(
-            model="anthropic:claude-3-5-sonnet?temperature=0.7&top_p=0.8",
+            model="claude-3-5-sonnet?temperature=0.7&top_p=0.8",
             messages=[ChatMessage(role="user", content="test")],
         )
 
@@ -423,7 +477,7 @@ class TestStaticRouteOverride:
         )
 
         request = ChatRequest(
-            model="anthropic:claude-3-5-sonnet",
+            model="claude-3-5-sonnet",
             messages=[ChatMessage(role="user", content="test")],
         )
 
@@ -479,7 +533,7 @@ class TestStaticRouteOverride:
         )
 
         request = ChatRequest(
-            model="anthropic:claude-3-5-sonnet",
+            model="claude-3-5-sonnet",
             messages=[ChatMessage(role="user", content="test")],
         )
 

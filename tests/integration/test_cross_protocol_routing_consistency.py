@@ -271,6 +271,63 @@ def test_uri_model_selector_is_forwarded_consistently_across_protocol_surfaces(
     assert observed_models[:3] == [model_selector, model_selector, model_selector]
 
 
+def test_openai_surface_preserves_explicit_backend_selector_when_static_route_configured(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("DISABLE_AUTH", "true")
+    config = AppConfig(
+        auth=AuthConfig(disable_auth=True),
+        backends=BackendSettings(
+            default_backend="openai",
+            static_route="opencode-go:glm-5.1",
+        ),
+    )
+    app = build_test_app(config=config)
+    observed_models: list[str] = []
+
+    async def _record_call(*args, **kwargs):
+        request = kwargs.get("request")
+        if request is None and args:
+            request = args[0]
+        observed_models.append(str(getattr(request, "model", "")))
+        return ResponseEnvelope(
+            content={
+                "id": "chatcmpl-static-route-explicit-selector",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "ollama/glm-5.1:cloud",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+            status_code=200,
+            headers={},
+        )
+
+    with (
+        patch(
+            "src.core.services.backend_service.BackendService.call_completion",
+            new=_record_call,
+        ),
+        TestClient(app) as client,
+    ):
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "ollama:glm-5.1:cloud",
+                "messages": [{"role": "user", "content": "hi"}],
+            },
+        )
+
+    assert response.status_code == 200
+    assert observed_models
+    assert observed_models[0] == "ollama:glm-5.1:cloud"
+
+
 def test_request_time_missing_extracted_backend_returns_handled_error(
     monkeypatch,
     _extracted_backend_app,

@@ -121,6 +121,9 @@ class BackendModelResolver(IBackendModelResolver):
             ResolvedTarget with backend, model, and URI parameters
         """
         effective_model = self._model_alias_resolver.resolve(request.model)
+        request_has_explicit_backend_selector = has_explicit_backend_selector(
+            request.model
+        )
         routing_surface = resolve_composite_routing_surface(context)
 
         if not self._is_composite_leaf_resolution(context=context, request=request):
@@ -283,6 +286,7 @@ class BackendModelResolver(IBackendModelResolver):
         # override for explicitly rerouted requests.
         if (
             not skip_static_route
+            and not request_has_explicit_backend_selector
             and hasattr(app_config, "backends")
             and hasattr(app_config.backends, "static_route")
             and app_config.backends.static_route
@@ -318,8 +322,15 @@ class BackendModelResolver(IBackendModelResolver):
                 if parsed_static.uri_params:
                     # Static-route parameters override request-provided URI params.
                     uri_params = {**uri_params, **parsed_static.uri_params}
-        elif skip_static_route and logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Skipping static_route override due to request context flag")
+        elif logger.isEnabledFor(logging.DEBUG):
+            if skip_static_route:
+                logger.debug(
+                    "Skipping static_route override due to request context flag"
+                )
+            elif request_has_explicit_backend_selector:
+                logger.debug(
+                    "Skipping static_route override because request uses explicit backend selector"
+                )
 
         self._persist_uri_params_in_context(context, uri_params)
 
