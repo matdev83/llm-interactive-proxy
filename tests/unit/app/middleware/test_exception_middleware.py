@@ -5,6 +5,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.middleware.exception_middleware import DomainExceptionMiddleware
 from src.core.common.exceptions import DuplicateRequestError, RateLimitExceededError
+from src.core.domain.composite_routing import (
+    CompositeSelectorValidationError,
+    CompositeValidationErrorCode,
+    CompositeValidationErrorEnvelope,
+)
 
 
 def test_domain_exception_middleware_sets_retry_after_header(monkeypatch):
@@ -60,6 +65,36 @@ def test_domain_exception_middleware_sets_retry_after_on_duplicate(monkeypatch):
     assert response.headers.get("retry-after") == "6"
     body = response.json()
     assert body["error"]["type"] == "DuplicateRequestError"
+
+
+def test_domain_exception_middleware_serializes_composite_validation_envelope():
+    app = FastAPI()
+    app.add_middleware(DomainExceptionMiddleware)
+
+    @app.get("/composite-validation")
+    async def composite_validation_endpoint() -> None:
+        raise CompositeSelectorValidationError(
+            CompositeValidationErrorEnvelope(
+                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                message="Mixed operators are not supported.",
+                selector_echo="openai:gpt-4|anthropic:claude^gemini:flash",
+            )
+        )
+
+    _ = composite_validation_endpoint
+
+    with TestClient(app) as client:
+        response = client.get("/composite-validation")
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body["error"]["type"] == "CompositeSelectorValidationError"
+    assert body["error"]["details"]["composite_validation"]["code"] == (
+        "unsupported_construct"
+    )
+    assert body["error"]["envelope"]["selector_echo"] == (
+        "openai:gpt-4|anthropic:claude^gemini:flash"
+    )
 
 
 async def test_domain_exception_middleware_reraises_transport_error_on_final_body_send():

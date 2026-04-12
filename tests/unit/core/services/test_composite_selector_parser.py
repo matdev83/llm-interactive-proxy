@@ -69,37 +69,33 @@ def test_parse_rejects_mixed_operators() -> None:
     )
 
 
-def test_parse_weighted_selector_allows_pipe_in_query_values() -> None:
+def test_parse_weighted_selector_rejects_pipe_anywhere_in_branch_text() -> None:
     parser = CompositeSelectorParser()
-    plan = _parse(
-        parser,
-        "[weight=3]openai:gpt-4^" "[weight=1]anthropic:claude-3-5-sonnet?note=foo|bar",
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(
+            parser,
+            "[weight=3]openai:gpt-4^"
+            "[weight=1]anthropic:claude-3-5-sonnet?note=foo|bar",
+        )
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
     )
 
-    assert plan.root_node.kind == "weighted_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
-    assert [leaf.weight_annotation for leaf in leaves] == [3, 1]
-    assert leaves[1].uri_params == {"note": "foo|bar"}
 
-
-def test_parse_failover_selector_allows_caret_in_query_values() -> None:
+def test_parse_failover_selector_rejects_caret_anywhere_in_branch_text() -> None:
     parser = CompositeSelectorParser()
-    plan = _parse(
-        parser,
-        "openai:gpt-4|anthropic:claude-3-5-sonnet?note=foo^bar",
-    )
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(
+            parser,
+            "openai:gpt-4|anthropic:claude-3-5-sonnet?note=foo^bar",
+        )
 
-    assert plan.root_node.kind == "failover_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
-    assert leaves[1].uri_params == {"note": "foo^bar"}
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
 
 
 def test_parse_real_world_weighted_route_with_explicit_and_default_branch_weights() -> (
@@ -229,13 +225,12 @@ def test_parse_preserves_existing_vendor_suffix_semantics_for_leaf_selector() ->
 
 
 def test_parse_operator_in_query_value_is_treated_as_composite_separator() -> None:
-    """Grammar limitation: ``^`` and ``|`` are always composite operators.
+    """Grammar limitation: unencoded ``^`` and ``|`` are always composite operators.
 
     The flat grammar cannot distinguish an operator inside a query-parameter
-    value from a composite separator.  URL-encode same-operator characters
+    value from a composite separator. URL-encode operator characters
     (``%5E`` for ``^``, ``%7C`` for ``|``) in query values to avoid false
-    splits.  Alternate operators in query values are inherently safe because
-    they are not the primary split operator.
+    parsing or mixed-operator validation failures.
     """
     parser = CompositeSelectorParser()
 

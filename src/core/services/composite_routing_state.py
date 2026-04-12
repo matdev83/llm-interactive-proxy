@@ -11,6 +11,7 @@ from src.core.domain.request_context import RequestContext
 __all__ = [
     "COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY",
     "COMPOSITE_LEAF_RESOLUTION_FLAG",
+    "COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY",
     "COMPOSITE_ROUTING_STATE_KEY",
     "COMPOSITE_ROUTING_SURFACE_KEY",
     "FAILOVER_MODE",
@@ -29,6 +30,7 @@ COMPOSITE_ROUTING_STATE_KEY = "composite_routing_state"
 COMPOSITE_ROUTING_SURFACE_KEY = "composite_routing_surface"
 COMPOSITE_LEAF_RESOLUTION_FLAG = "composite_leaf_resolution"
 COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY = "_composite_leaf_resolution"
+COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY = "_composite_leaf_selector"
 FAILOVER_MODE = "failover"
 WEIGHTED_RETRY_MODE = "weighted_retry"
 

@@ -63,6 +63,9 @@ class MessagePart(BaseModel):
     data: object | None = None
 
 
+ProcessedMessage.model_rebuild()
+
+
 class CodexInputItem(BaseModel):
     """Codex API input item.
 

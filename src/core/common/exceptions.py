@@ -15,6 +15,29 @@ if TYPE_CHECKING:
     from src.core.domain.session_key import SessionKey
 
 
+def _is_json_scalar(value: Any) -> bool:
+    return isinstance(value, str | int | float | bool) or value is None
+
+
+def _to_json_safe_error_value(value: Any) -> Any:
+    if _is_json_scalar(value):
+        return value
+    if isinstance(value, dict):
+        return {
+            str(key): _to_json_safe_error_value(nested_value)
+            for key, nested_value in value.items()
+            if isinstance(key, str | int | float | bool)
+        }
+    if isinstance(value, list | tuple | set):
+        return [_to_json_safe_error_value(item) for item in value]
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return _to_json_safe_error_value(model_dump(mode="json"))
+
+    return str(value)
+
+
 class LLMProxyError(Exception):
     """Base exception class for all LLM proxy errors."""
 
@@ -48,7 +71,7 @@ class LLMProxyError(Exception):
         error_dict: dict[str, Any] = {
             "message": self.message,
             "type": self.__class__.__name__,
-            "details": self.details,
+            "details": _to_json_safe_error_value(self.details),
         }
 
         # Include any additional attributes that were set via kwargs
@@ -58,7 +81,9 @@ class LLMProxyError(Exception):
                 and attr_name not in ["message", "details", "status_code", "args"]
                 and not callable(getattr(self, attr_name))
             ):
-                error_dict[attr_name] = getattr(self, attr_name)
+                error_dict[attr_name] = _to_json_safe_error_value(
+                    getattr(self, attr_name)
+                )
 
         return {"error": error_dict}
 

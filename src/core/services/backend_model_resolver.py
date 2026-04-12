@@ -37,7 +37,7 @@ from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.composite_routing_state import (
     COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_RESOLUTION_FLAG,
-    is_composite_selector,
+    COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
     resolve_composite_routing_surface,
 )
 from src.core.services.replacement_compatibility_bridge import (
@@ -476,21 +476,18 @@ class BackendModelResolver(IBackendModelResolver):
         context: RequestContext | None,
         request: ChatRequest,
     ) -> bool:
-        model = request.model
-        if is_composite_selector(model):
-            return False
-
-        if context is None:
-            extra_body = request.extra_body
-            if isinstance(extra_body, dict):
-                return bool(extra_body.get(COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY))
-            return False
-        if bool(context.extensions.get(COMPOSITE_LEAF_RESOLUTION_FLAG)):
+        if context is not None and bool(
+            context.extensions.get(COMPOSITE_LEAF_RESOLUTION_FLAG)
+        ):
             return True
+
         extra_body = request.extra_body
-        if isinstance(extra_body, dict):
-            return bool(extra_body.get(COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY))
-        return False
+        if not isinstance(extra_body, dict):
+            return False
+        if not bool(extra_body.get(COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY)):
+            return False
+        leaf_selector = extra_body.get(COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY)
+        return isinstance(leaf_selector, str) and leaf_selector == request.model
 
     @staticmethod
     def _normalize_uri_params(raw_value: Any) -> dict[str, JsonValue]:

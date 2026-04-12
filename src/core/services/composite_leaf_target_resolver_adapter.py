@@ -13,6 +13,7 @@ from src.core.interfaces.backend_model_resolver_interface import IBackendModelRe
 from src.core.services.composite_routing_state import (
     COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_RESOLUTION_FLAG,
+    COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
 )
 
 __all__ = ["CompositeLeafTargetResolverAdapter"]
@@ -35,6 +36,7 @@ class CompositeLeafTargetResolverAdapter:
     ) -> BackendTarget:
         leaf_extra_body = dict(request.extra_body or {})
         leaf_extra_body[COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY] = True
+        leaf_extra_body[COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY] = leaf_selector
 
         parsed_leaf = parse_model_with_params(leaf_selector, default_backend="")
         if has_explicit_backend_selector(leaf_selector):

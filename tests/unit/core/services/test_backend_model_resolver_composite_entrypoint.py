@@ -19,6 +19,10 @@ from src.core.services.composite_leaf_target_resolver_adapter import (
 )
 from src.core.services.composite_routing_coordinator import CompositeRoutingCoordinator
 from src.core.services.composite_routing_service import CompositeRoutingService
+from src.core.services.composite_routing_state import (
+    COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
+    COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
+)
 from src.core.services.composite_selector_parser import CompositeSelectorParser
 from src.core.services.weighted_branch_selector import WeightedBranchSelector
 
@@ -521,6 +525,60 @@ async def test_stale_leaf_resolution_flag_does_not_bypass_composite_failover() -
     assert result.backend == "anthropic"
     assert result.model == "claude-3-5-sonnet"
     assert result.uri_params == {"reasoning_effort": "medium"}
+
+
+@pytest.mark.asyncio
+async def test_mixed_weighted_and_failover_selector_is_rejected_before_leaf_resolution() -> (
+    None
+):
+    resolver = _build_resolver_with_real_composite()
+    request = ChatRequest(
+        model=(
+            "[weight=1]openai-codex:gpt-5.3-codex?reasoning_effort=high^"
+            "[weight=4]openai-codex:gpt-5.3-codex?reasoning_effort=low|"
+            "[weight=2]openai-codex:gpt-5.3-codex?reasoning_effort=medium"
+        ),
+        messages=[ChatMessage(role="user", content="hello")],
+        extra_body={"_composite_leaf_resolution": True},
+    )
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        await resolver.resolve_target(
+            request,
+            context=_context("main"),
+        )
+
+    assert exc_info.value.envelope.code.value == "unsupported_construct"
+
+
+@pytest.mark.asyncio
+async def test_internal_leaf_resolution_marker_bypasses_composite_reentry_without_context() -> (
+    None
+):
+    resolver = _build_resolver_with_real_composite()
+    leaf_selector = (
+        "openai-codex:gpt-5.3-codex?"
+        "reasoning_effort=low|[weight=2]openai-codex:gpt-5.3-codex"
+        "?reasoning_effort=medium"
+    )
+    request = ChatRequest(
+        model=leaf_selector,
+        messages=[ChatMessage(role="user", content="hello")],
+        extra_body={
+            COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY: True,
+            COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY: leaf_selector,
+        },
+    )
+
+    result = await resolver.resolve_target(request, context=None)
+
+    assert result.backend == "openai-codex"
+    assert result.model == "gpt-5.3-codex"
+    assert result.uri_params == {
+        "reasoning_effort": (
+            "low|[weight=2]openai-codex:gpt-5.3-codex?reasoning_effort=medium"
+        )
+    }
 
 
 @pytest.mark.asyncio

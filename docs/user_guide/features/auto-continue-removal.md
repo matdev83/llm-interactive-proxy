@@ -55,6 +55,29 @@ session:
 - Your workflow uses custom continue-like keywords that should reach the model.
 - You are testing context window behavior and need every message forwarded verbatim.
 
+## Usage Examples
+
+### Resume After A Network Interruption
+
+1. A coding session is interrupted mid-stream.
+2. The user sends `continue`.
+3. The proxy keeps the message in local history but does not forward it to the remote model.
+4. The next backend request reuses the meaningful prior context without wasting tokens on the mechanical resume prompt.
+
+### Preserve Literal Continue Prompts
+
+If you intentionally want the remote model to see `continue` or `proceed`, disable the feature first:
+
+```bash
+python -m src.core.cli --disable-auto-continue-removal
+```
+
+## Use Cases
+
+- Agentic coding sessions where transient disconnects are common and users resume by typing `continue`.
+- Long-running terminal workflows where preserving context window capacity matters.
+- Local debugging of session history, where the proxy should remember the resume command without sending it upstream.
+
 ## Logging
 
 When a message is tagged, the proxy logs at INFO level:

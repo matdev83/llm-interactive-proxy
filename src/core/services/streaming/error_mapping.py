@@ -21,10 +21,27 @@ from src.core.common.exceptions import (
     LLMProxyError,
     ParsingError,
     RateLimitExceededError,
+    RoutingError,
 )
 from src.core.domain.streaming.contracts import StreamingErrorInfo
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_routing_error_status(error: RoutingError) -> int:
+    details = getattr(error, "details", None)
+    if isinstance(details, dict):
+        code = details.get("code")
+        if code == "unknown_model":
+            return 404
+        if code == "unsupported_on_instance":
+            return 400
+        if code == "temporarily_unavailable":
+            return 503
+        if code == "policy_rejected":
+            return 403
+    status_code = getattr(error, "status_code", None)
+    return status_code if isinstance(status_code, int) else 500
 
 
 def _merge_provider_retry_metadata(
@@ -240,7 +257,9 @@ async def handle_streaming_error(
 
     # Extract status_code if available
     status_code: int | None = None
-    if hasattr(mapped_error, "status_code"):
+    if isinstance(mapped_error, RoutingError):
+        status_code = _resolve_routing_error_status(mapped_error)
+    elif hasattr(mapped_error, "status_code"):
         status_code = mapped_error.status_code
 
     # For quota_exceeded errors, use 503 instead of 429

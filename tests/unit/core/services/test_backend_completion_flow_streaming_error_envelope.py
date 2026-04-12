@@ -230,3 +230,33 @@ async def test_streaming_error_envelope_enters_failover_recovery_when_enabled() 
         "category": "validation",
         "retryable": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_streaming_terminal_routing_error_uses_unknown_model_http_status() -> (
+    None
+):
+    flow = _build_flow_with_erroring_backend()
+
+    routing_error = RoutingError(
+        message="Missing extracted backend",
+        details={
+            "code": "unknown_model",
+            "category": "validation",
+            "retryable": False,
+        },
+    )
+
+    envelope = await flow._build_terminal_error_stream_envelope(
+        error=routing_error,
+        provider="gemini-oauth-plan",
+    )
+
+    assert envelope.status_code == 404
+
+    assert envelope.content is not None
+    chunks = [chunk async for chunk in envelope.content]
+    assert len(chunks) == 1
+    error_payload = chunks[0].metadata.get("error")
+    assert isinstance(error_payload, dict)
+    assert error_payload.get("status_code") == 404

@@ -62,7 +62,7 @@ class CompositeSelectorParser:
         parts = self._split_top_level(selector, operator)
         other_operator = "^" if operator == "|" else "|"
         has_mixed_operator = any(
-            self._contains_operator_in_route_segment(segment, other_operator)
+            self._contains_operator_outside_brackets(segment, other_operator)
             for segment in parts
         )
         if has_mixed_operator:
@@ -131,11 +131,6 @@ class CompositeSelectorParser:
             elif bracket_depth == 0 and char in {"|", "^"}:
                 return char
         return None
-
-    @classmethod
-    def _contains_operator_in_route_segment(cls, segment: str, operator: str) -> bool:
-        route_segment, _, _ = segment.partition("?")
-        return cls._contains_operator_outside_brackets(route_segment, operator)
 
     @staticmethod
     def _contains_operator_outside_brackets(selector: str, operator: str) -> bool:
