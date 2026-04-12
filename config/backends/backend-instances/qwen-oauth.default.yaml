@@ -3,7 +3,10 @@
 connector: qwen-oauth
 extra:
   enable_qwen_oauth_backend_debugging_override: true
+  # Retry the first recoverable upstream rate-limit response once.
   enable_qwen_oauth_initial_rate_limit_retry: true
+  # Cap for Retry-After and randomized fallback delays.
   qwen_oauth_initial_rate_limit_retry_max_wait_seconds: 10.0
+  # Random delay range used when Retry-After is unavailable.
   qwen_oauth_initial_rate_limit_retry_random_min_seconds: 3.0
   qwen_oauth_initial_rate_limit_retry_random_max_seconds: 10.0

@@ -262,6 +262,21 @@ dynamic_compression:
   diff_max_lines_per_hunk: 100
   diff_max_total_lines: 500
 
+# Request-processing unification migration gates (all default-off)
+request_processing_unification:
+  enable_core_canonical_path: false
+  enable_canonical_features: false
+  connector_stream_first: {}
+  retire_legacy_dual_path: false
+  emit_path_selection_metadata: false
+  promotion_requirements:
+    require_characterization_tests: true
+    require_equivalence_tests: true
+    max_non_stream_p95_latency_delta_pct: 10.0
+    max_stream_ttft_delta_pct: 10.0
+    max_memory_delta_pct: 10.0
+    require_cleanup_checks: true
+
 # Logging
 logging:
   level: "INFO"  # TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL
@@ -368,6 +383,12 @@ backends:
 
   # Note: qwen-oauth backend is configured via backend-instances file:
   # config/backends/backend-instances/qwen-oauth.default.yaml
+  #
+  # qwen-oauth retry tuning knobs (in that backend-instances file under `extra:`):
+  #   enable_qwen_oauth_initial_rate_limit_retry: true
+  #   qwen_oauth_initial_rate_limit_retry_max_wait_seconds: 10.0
+  #   qwen_oauth_initial_rate_limit_retry_random_min_seconds: 3.0
+  #   qwen_oauth_initial_rate_limit_retry_random_max_seconds: 10.0
 
   kiro_oauth_auto:
     # Amazon Kiro / Q Developer OAuth connector

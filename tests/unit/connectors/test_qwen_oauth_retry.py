@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -33,6 +34,7 @@ def _build_connector():
     connector._initial_rate_limit_retry_random_max_seconds = (
         qwen_oauth.INITIAL_RATE_LIMIT_RETRY_RANDOM_MAX_SECONDS
     )
+    connector._initial_rate_limit_backoff_until_monotonic = 0.0
     return connector
 
 
@@ -107,6 +109,66 @@ async def test_qwen_oauth_retries_429_with_random_delay(monkeypatch):
         qwen_oauth.INITIAL_RATE_LIMIT_RETRY_RANDOM_MIN_SECONDS,
         qwen_oauth.INITIAL_RATE_LIMIT_RETRY_RANDOM_MAX_SECONDS,
     )
+
+
+@pytest.mark.asyncio
+async def test_qwen_oauth_caps_retry_after_to_max_wait(monkeypatch):
+    connector = _build_connector()
+    request = _build_request()
+    response = ResponseEnvelope(
+        content={"choices": [{"message": {"content": "ok"}}]},
+        usage=UsageSummary(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+    retry_error = HTTPException(
+        status_code=429,
+        detail={"headers": {"Retry-After": "999"}},
+    )
+    base_call = AsyncMock(side_effect=[retry_error, response])
+    sleep_mock = AsyncMock()
+
+    monkeypatch.setattr(
+        _get_openai_connector_class(),
+        "_chat_completions_canonical",
+        base_call,
+    )
+    monkeypatch.setattr(qwen_oauth.asyncio, "sleep", sleep_mock)
+
+    result = await connector._chat_completions_canonical(request)
+
+    assert result is response
+    assert base_call.await_count == 2
+    sleep_mock.assert_awaited_once_with(
+        qwen_oauth.INITIAL_RATE_LIMIT_RETRY_MAX_WAIT_SECONDS
+    )
+
+
+@pytest.mark.asyncio
+async def test_qwen_oauth_respects_connector_wide_backoff(monkeypatch):
+    connector = _build_connector()
+    request = _build_request()
+    response = ResponseEnvelope(
+        content={"choices": [{"message": {"content": "ok"}}]},
+        usage=UsageSummary(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+    base_call = AsyncMock(return_value=response)
+    sleep_mock = AsyncMock()
+
+    connector._initial_rate_limit_backoff_until_monotonic = time.monotonic() + 3.0
+
+    monkeypatch.setattr(
+        _get_openai_connector_class(),
+        "_chat_completions_canonical",
+        base_call,
+    )
+    monkeypatch.setattr(qwen_oauth.asyncio, "sleep", sleep_mock)
+
+    result = await connector._chat_completions_canonical(request)
+
+    assert result is response
+    assert base_call.await_count == 1
+    sleep_mock.assert_awaited_once()
+    waited_seconds = sleep_mock.await_args_list[0].args[0]
+    assert waited_seconds == pytest.approx(3.0, rel=0.2)
 
 
 @pytest.mark.asyncio
