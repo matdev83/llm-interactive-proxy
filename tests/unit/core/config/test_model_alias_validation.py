@@ -158,6 +158,28 @@ class TestValidateModelAliases:
             == "invalid_alias_replacement_syntax"
         )
 
+    def test_mixed_weighted_alias_is_normalized_and_passes(self):
+        config = AppConfig(
+            model_aliases=[
+                ModelAliasRule(
+                    pattern="^alias:gpt-5.3-codex-mixed$",
+                    replacement=(
+                        "openai-codex:gpt-5.3-codex?reasoning_effort=high"
+                        "^[weight=4]openai-codex:gpt-5.3-codex?reasoning_effort=low"
+                        "|[weight=2]openai-codex:gpt-5.3-codex?reasoning_effort=medium"
+                    ),
+                ),
+            ],
+        )
+
+        validate_model_aliases(config)
+
+        assert config.model_aliases[0].replacement == (
+            "[weight=1]openai-codex:gpt-5.3-codex?reasoning_effort=high"
+            "^[weight=4]openai-codex:gpt-5.3-codex?reasoning_effort=low"
+            "^[weight=2]openai-codex:gpt-5.3-codex?reasoning_effort=medium"
+        )
+
     def test_empty_branch_in_failover_raises(self):
         config = AppConfig(
             model_aliases=[

@@ -255,6 +255,28 @@ class TestModelAliasStartupValidationRegression:
         )
         validate_model_aliases(config)
 
+    def test_legacy_mixed_weighted_alias_is_canonicalized(self) -> None:
+        config = AppConfig(
+            model_aliases=[
+                ModelAliasRule(
+                    pattern="^alias:gpt-5.3-codex-mixed$",
+                    replacement=(
+                        "openai-codex:gpt-5.3-codex?reasoning_effort=high"
+                        "^[weight=4]openai-codex:gpt-5.3-codex?reasoning_effort=low"
+                        "|[weight=2]openai-codex:gpt-5.3-codex?reasoning_effort=medium"
+                    ),
+                ),
+            ],
+        )
+
+        validate_model_aliases(config)
+
+        assert config.model_aliases[0].replacement == (
+            "[weight=1]openai-codex:gpt-5.3-codex?reasoning_effort=high"
+            "^[weight=4]openai-codex:gpt-5.3-codex?reasoning_effort=low"
+            "^[weight=2]openai-codex:gpt-5.3-codex?reasoning_effort=medium"
+        )
+
     def test_valid_failover_alias_like_configtest1_passes(self) -> None:
         """Matches the pattern used in config/configtest1.yaml."""
         config = AppConfig(

@@ -32,6 +32,7 @@ from src.core.domain.composite_routing import (
     CompositeRoutePlan,
     CompositeRoutingInput,
     CompositeSelectorValidationError,
+    CompositeValidationErrorCode,
     CompositeWeightedGroupNode,
     RoutingSurface,
 )
@@ -43,6 +44,7 @@ from src.core.services.backend_registry import backend_registry
 from src.core.services.composite_selector_parser import CompositeSelectorParser
 
 logger = logging.getLogger(__name__)
+_MIXED_OPERATOR_ERROR_MESSAGE = "Composite selector cannot mix failover ('|') and weighted ('^') operators in one string."
 
 
 class ConfigurationValidator:
@@ -739,6 +741,8 @@ def validate_model_aliases(config: AppConfig) -> None:
     available_backends = sorted(registered_backends)
     parser = CompositeSelectorParser()
 
+    normalized_aliases: list[Any] = []
+
     for idx, alias in enumerate(aliases):
         pattern = getattr(alias, "pattern", None)
         replacement = getattr(alias, "replacement", None)
@@ -791,10 +795,54 @@ def validate_model_aliases(config: AppConfig) -> None:
             surface=RoutingSurface.MAIN,
             require_explicit_backend=False,
         )
+        replacement_for_validation = replacement
 
         try:
             plan = parser.parse(routing_input)
         except CompositeSelectorValidationError as e:
+            normalized_legacy_selector = _normalize_legacy_mixed_weighted_selector(
+                replacement
+            )
+            if (
+                normalized_legacy_selector is not None
+                and _is_mixed_operator_selector_error(e)
+            ):
+                normalized_input = CompositeRoutingInput(
+                    selector=normalized_legacy_selector,
+                    surface=RoutingSurface.MAIN,
+                    require_explicit_backend=False,
+                )
+                try:
+                    plan = parser.parse(normalized_input)
+                except CompositeSelectorValidationError:
+                    pass
+                else:
+                    canonical_replacement = plan.normalized_selector
+                    replacement_for_validation = canonical_replacement
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Model alias at index %s uses legacy mixed separators in weighted replacement. "
+                            "Normalizing replacement for pattern '%s': '%s' -> '%s'",
+                            idx,
+                            pattern,
+                            replacement,
+                            canonical_replacement,
+                        )
+                    normalized_aliases.append(
+                        alias.model_copy(
+                            update={
+                                "replacement": canonical_replacement,
+                            }
+                        )
+                    )
+                    _validate_alias_replacement_backends(
+                        plan,
+                        registered_backends,
+                        replacement_for_validation,
+                        pattern,
+                        available_backends,
+                    )
+                    continue
             raise ConfigurationError(
                 message=(
                     f"Model alias at index {idx} has invalid replacement syntax: '{replacement}'. "
@@ -812,10 +860,55 @@ def validate_model_aliases(config: AppConfig) -> None:
                 },
             )
 
+        normalized_aliases.append(alias)
         _validate_alias_replacement_backends(
             plan,
             registered_backends,
-            replacement,
+            replacement_for_validation,
             pattern,
             available_backends,
         )
+
+    if normalized_aliases != aliases:
+        config.model_aliases = normalized_aliases
+
+
+def _is_mixed_operator_selector_error(error: CompositeSelectorValidationError) -> bool:
+    return (
+        error.envelope.code == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+        and error.envelope.message == _MIXED_OPERATOR_ERROR_MESSAGE
+    )
+
+
+def _normalize_legacy_mixed_weighted_selector(selector: str) -> str | None:
+    if "[weight=" not in selector:
+        return None
+
+    bracket_depth = 0
+    saw_caret = False
+    saw_pipe = False
+    normalized_chars: list[str] = []
+
+    for char in selector:
+        if char == "[":
+            bracket_depth += 1
+        elif char == "]" and bracket_depth > 0:
+            bracket_depth -= 1
+
+        if bracket_depth == 0 and char in {"|", "^"}:
+            if char == "|":
+                saw_pipe = True
+            else:
+                saw_caret = True
+            normalized_chars.append("^")
+            continue
+
+        normalized_chars.append(char)
+
+    if not (saw_pipe and saw_caret):
+        return None
+
+    normalized = "".join(normalized_chars)
+    if normalized == selector:
+        return None
+    return normalized
