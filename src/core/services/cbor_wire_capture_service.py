@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import errno
 import logging
 import threading
 import time
@@ -164,6 +165,11 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
         # Background flush task
         self._flush_task: asyncio.Task[None] | None = None
         self._flush_start_lock = threading.Lock()
+        # Event loop that owns async capture work (for executor-thread cancellation).
+        self._owner_loop: asyncio.AbstractEventLoop | None = None
+        # Throttle traceback spam when capture writes fail repeatedly (e.g. disk full).
+        self._capture_os_error_exc_info_logged = False
+        self._capture_os_error_log_lock = threading.Lock()
         logging_cfg = getattr(config, "logging", None)
         raw_flush_interval = (
             getattr(logging_cfg, "cbor_capture_flush_interval", None)
@@ -226,8 +232,11 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             # Set up file path for this session
             self._file_path = self._capture_dir / f"{self._session_id}.cbor"
 
-            # Write header
-            self._write_header()
+            # Write header (failure leaves capture disabled)
+            if not self._write_header():
+                self._enabled = False
+                return
+
             self._enabled = True
 
             # Start background flush task if event loop is running
@@ -236,10 +245,11 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             if logger.isEnabledFor(logging.INFO):
                 logger.info("CBOR wire capture initialized: %s", self._file_path)
 
-        except OSError:
-            # OSError covers file I/O errors (PermissionError, FileNotFoundError, etc.)
-            logger.error("Failed to initialize CBOR wire capture", exc_info=True)
+        except OSError as e:
             self._enabled = False
+            self._throttled_capture_os_warning(
+                "Failed to initialize CBOR wire capture", e
+            )
         except RuntimeError:
             # RuntimeError may occur from _maybe_start_flush_task() if event loop issues
             logger.error(
@@ -247,10 +257,68 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             )
             self._enabled = False
 
-    def _write_header(self) -> None:
-        """Write capture file header."""
-        if not self._file_path:
+    def _throttled_capture_os_warning(self, message: str, exc: OSError) -> None:
+        """Log OS capture errors with a single traceback, then one-line warnings."""
+        with self._capture_os_error_log_lock:
+            first = not self._capture_os_error_exc_info_logged
+            if first:
+                self._capture_os_error_exc_info_logged = True
+        if first:
+            logger.warning("%s: %s", message, exc, exc_info=True)
+        else:
+            logger.warning("%s: %s", message, exc)
+
+    @staticmethod
+    def _is_fatal_capture_oserror(exc: OSError) -> bool:
+        """Return True for conditions where capture cannot succeed until operator action."""
+        if exc.errno == errno.ENOSPC or exc.errno == errno.EROFS:
+            return True
+        # Windows: ERROR_DISK_FULL / ERROR_HANDLE_DISK_FULL
+        winerr = getattr(exc, "winerror", None)
+        return winerr in (112, 39)
+
+    def _disable_capture_after_io_failure(self) -> None:
+        """Stop capture, drop buffered entries, cancel background flush (best-effort)."""
+        with self._buffer_lock:
+            self._enabled = False
+            self._buffer.clear()
+        self._schedule_cancel_flush_task()
+
+    def _schedule_cancel_flush_task(self) -> None:
+        """Cancel the background flush task from sync code (e.g. executor thread)."""
+        loop = self._owner_loop
+        if loop is None:
+            with self._flush_start_lock:
+                self._flush_task = None
             return
+
+        def _cancel() -> None:
+            with self._flush_start_lock:
+                task = self._flush_task
+                self._flush_task = None
+            if task is not None and not task.done():
+                task.cancel()
+
+        try:
+            loop.call_soon_threadsafe(_cancel)
+        except RuntimeError:
+            with self._flush_start_lock:
+                self._flush_task = None
+
+    def _handle_capture_os_error(self, exc: OSError, *, context: str) -> None:
+        """Disable capture after a failed write and log without traceback spam."""
+        self._disable_capture_after_io_failure()
+        fatal = self._is_fatal_capture_oserror(exc)
+        qualifier = (
+            "no space left on device or read-only filesystem" if fatal else "I/O error"
+        )
+        msg = f"CBOR wire capture disabled ({qualifier}) during {context}"
+        self._throttled_capture_os_warning(msg, exc)
+
+    def _write_header(self) -> bool:
+        """Write capture file header. Returns False on failure."""
+        if not self._file_path:
+            return False
 
         header = CaptureFileHeader(
             session_id=self._session_id,
@@ -261,13 +329,23 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             },
         )
 
+        f = None
         try:
-            with open(self._file_path, "wb") as f:
-                cbor2.dump(header.to_dict(), f)
+            # Manual close in finally with OSError suppressed (avoids chained exc on ENOSPC).
+            f = open(self._file_path, "wb")  # noqa: SIM115
+            cbor2.dump(header.to_dict(), f)
             self._header_written = True
-        except OSError:
-            # OSError covers file I/O errors (PermissionError, FileNotFoundError, etc.)
-            logger.error("Failed to write capture header", exc_info=True)
+            return True
+        except OSError as e:
+            self._handle_capture_os_error(e, context="header write")
+            return False
+        except (ValueError, TypeError) as e:
+            logger.error("Failed to write capture header: %s", e, exc_info=True)
+            return False
+        finally:
+            if f is not None:
+                with contextlib.suppress(OSError):
+                    f.close()
 
     def enabled(self) -> bool:
         """Return True if capture is enabled."""
@@ -319,6 +397,7 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 return
             try:
                 loop = asyncio.get_running_loop()
+                self._owner_loop = loop
                 self._flush_task = loop.create_task(self._background_flush_loop())
             except RuntimeError:
                 # Expected when called from non-async context - log for debugging
@@ -1239,7 +1318,10 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
         Does not block the caller for flushing unless explicitly requested
         via force_flush_sync().
         """
+        entries_to_write: list[CapturedWireEvent] | None = None
         with self._buffer_lock:
+            if not self._enabled:
+                return
             self._buffer.append(entry)
 
             # Flush if buffer is full
@@ -1249,15 +1331,17 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 entries_to_write = self._buffer.copy()
                 self._buffer.clear()
 
-                try:
-                    loop = asyncio.get_running_loop()
-                    # Schedule write in executor without awaiting it
-                    loop.run_in_executor(
-                        None, self._write_entries_sync, entries_to_write
-                    )
-                except RuntimeError:
-                    # No event loop; fallback to sync write
-                    self._write_entries_sync(entries_to_write)
+        if entries_to_write is None:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+            self._owner_loop = loop
+            # Schedule write in executor without awaiting it
+            loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
+        except RuntimeError:
+            # No event loop; fallback to sync write
+            self._write_entries_sync(entries_to_write)
 
     async def _flush_buffer(self) -> None:
         """Flush buffered entries to file."""
@@ -1275,6 +1359,7 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
         # Write entries outside lock
         try:
             loop = asyncio.get_running_loop()
+            self._owner_loop = loop
             await loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
         except (OSError, RuntimeError) as e:
             # OSError: file I/O errors from executor
@@ -1287,22 +1372,27 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
 
     def _write_entries_sync(self, entries: list[CapturedWireEvent]) -> None:
         """Synchronously write entries to file."""
-        if not self._file_path:
+        if not self._file_path or not entries:
             return
 
-        try:
-            with self._write_lock, open(self._file_path, "ab") as f:
+        f: Any = None
+        with self._write_lock:
+            try:
+                f = open(self._file_path, "ab")  # noqa: SIM115
                 for entry in entries:
                     cbor2.dump(entry.to_dict(), f)
-        except (OSError, ValueError, TypeError) as e:
-            # OSError: file I/O errors (FileNotFoundError, PermissionError, etc.)
-            # ValueError: CBOR encoding errors
-            # TypeError: type errors during serialization
-            logger.error(
-                "Failed to write capture entries: %s",
-                e,
-                exc_info=True,
-            )
+            except OSError as e:
+                self._handle_capture_os_error(e, context="append")
+            except (ValueError, TypeError) as e:
+                logger.error(
+                    "Failed to write capture entries (encoding): %s",
+                    e,
+                    exc_info=True,
+                )
+            finally:
+                if f is not None:
+                    with contextlib.suppress(OSError):
+                        f.close()
 
     async def _background_flush_loop(self) -> None:
         """Background task to periodically flush buffer."""
@@ -1388,6 +1478,8 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
     def force_flush_sync(self) -> None:
         """Synchronous flush for testing or cleanup."""
         if not self._file_path:
+            return
+        if not self.enabled():
             return
         with self._buffer_lock:
             if not self._buffer:

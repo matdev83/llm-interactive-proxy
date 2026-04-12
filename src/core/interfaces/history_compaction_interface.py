@@ -17,6 +17,12 @@ from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 
 from src.core.domain.chat import ChatMessage
+from src.core.domain.compaction_telemetry import (
+    CompactionAggregateMetrics,
+    CompactionAlertRecord,
+    CompactionEventRecord,
+    EffectiveCompactionConfigDiagnostics,
+)
 from src.core.domain.configuration.compaction_config import (
     CompactionConfig,
     CompactionPolicies,
@@ -104,6 +110,10 @@ class CompactionResult:
     original_message_count: int = 0
     stale_resources: set[str] = field(default_factory=set)
     error: str | None = None
+    event_records: list[CompactionEventRecord] = field(default_factory=list)
+    aggregate_metrics: CompactionAggregateMetrics | None = None
+    alerts: list[CompactionAlertRecord] = field(default_factory=list)
+    effective_config_diagnostics: EffectiveCompactionConfigDiagnostics | None = None
 
     @property
     def was_compacted(self) -> bool:

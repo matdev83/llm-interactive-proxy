@@ -27,6 +27,9 @@ from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.history_compaction_interface import CompactionResult
+from src.core.services.backend_request_preparation_service import (
+    BackendRequestPreparationService,
+)
 from src.core.services.history_compaction_service import HistoryCompactionService
 
 from tests.helpers.backend_request_manager_fixtures import (
@@ -162,6 +165,61 @@ class TestHistoryCompactionPipelineIntegration:
         compaction_service.compact_history.assert_awaited_once()
         call_args = compaction_service.compact_history.call_args
         assert len(call_args.args[0]) == 5  # Original messages passed
+
+    @pytest.mark.asyncio
+    async def test_prepare_service_attaches_history_compaction_diagnostics_keys(
+        self,
+    ) -> None:
+        """Request path exposes history compaction diagnostics like dynamic compression."""
+        app_config = MagicMock(spec=AppConfig)
+        app_config.compaction = CompactionConfig(
+            enabled=True,
+            token_threshold=0,
+            max_tokens=500_000,
+            min_tool_output_tokens_to_compact=0,
+        )
+        prep = BackendRequestPreparationService(
+            history_compaction_service=HistoryCompactionService(),
+            config=app_config,
+        )
+        pad = "x" * 4000
+        request = ChatRequest(
+            model="gemini",
+            messages=[
+                ChatMessage(role="user", content="view files " + pad),
+                _create_assistant_tool_call_message(
+                    [
+                        _create_tool_call(
+                            "view_file", "call-1", {"AbsolutePath": "/path/a.py"}
+                        ),
+                    ]
+                ),
+                _create_tool_result_message("view_file", "content of a.py", "call-1"),
+                _create_assistant_tool_call_message(
+                    [
+                        _create_tool_call(
+                            "view_file", "call-2", {"AbsolutePath": "/path/b.py"}
+                        ),
+                    ]
+                ),
+                _create_tool_result_message("view_file", "content of b.py", "call-2"),
+            ],
+            stream=False,
+        )
+        out = await prep.prepare(request, _make_no_command_result())
+        assert out is not None
+        diag = out.compression_diagnostics or {}
+        for key in (
+            "history_compaction_compatibility",
+            "history_compaction_effective_config",
+            "history_compaction_records",
+            "history_compaction_stats",
+            "history_compaction_alerts",
+            "history_compaction_correlation",
+        ):
+            assert key in diag, f"missing {key}"
+        assert diag["history_compaction_compatibility"]["failed_open"] is False
+        assert diag["history_compaction_stats"]["processed_evaluations"] >= 1
 
     @pytest.mark.asyncio
     async def test_compacted_messages_returned_in_prepared_request(self) -> None:

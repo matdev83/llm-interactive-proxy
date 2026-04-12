@@ -73,10 +73,11 @@ def test_build_next_request_weighted_retry_excludes_failed_selector_and_rerolls(
     assert next_request.extra_body["backend_type"] == "gemini"
     assert next_request.extra_body["_resolved_uri_params"] == {}
 
-    state = cast(dict[str, Any], context.extensions["composite_routing_state"])
-    assert state["selected_selector"] == "gemini:gemini-2.0-flash"
-    assert state["excluded_selectors"] == ["openai:gpt-4"]
-    assert state["hop_count"] == 1
+    state_raw = context.extensions["composite_routing_state"]
+    assert isinstance(state_raw, dict)
+    assert state_raw["selected_selector"] == "gemini:gemini-2.0-flash"
+    assert state_raw["excluded_selectors"] == ["openai:gpt-4"]
+    assert state_raw["hop_count"] == 1
 
 
 def test_build_next_request_weighted_retry_directly_routes_single_remaining_selector() -> (
@@ -114,10 +115,11 @@ def test_build_next_request_weighted_retry_directly_routes_single_remaining_sele
     assert next_request.model == "anthropic:claude-3-5-sonnet"
     assert next_request.extra_body is not None
     assert next_request.extra_body["backend_type"] == "anthropic"
-    state = cast(dict[str, Any], context.extensions["composite_routing_state"])
-    assert state["selected_selector"] == "anthropic:claude-3-5-sonnet"
-    assert state["excluded_selectors"] == ["openai:gpt-4"]
-    assert state["hop_count"] == 1
+    state_raw = context.extensions["composite_routing_state"]
+    assert isinstance(state_raw, dict)
+    assert state_raw["selected_selector"] == "anthropic:claude-3-5-sonnet"
+    assert state_raw["excluded_selectors"] == ["openai:gpt-4"]
+    assert state_raw["hop_count"] == 1
 
 
 def test_build_next_request_weighted_retry_returns_none_for_authentication_errors() -> (
@@ -141,9 +143,7 @@ def test_build_next_request_weighted_retry_returns_none_for_authentication_error
     assert state["hop_count"] == 0
 
 
-def test_build_next_request_weighted_retry_returns_none_when_candidates_exhausted() -> (
-    None
-):
+def test_build_next_request_weighted_retry_recycles_candidates_within_budget() -> None:
     bridge = CompositeFailureRecoveryBridge()
     context = _context()
     context.extensions["composite_routing_state"] = {
@@ -165,12 +165,14 @@ def test_build_next_request_weighted_retry_returns_none_when_candidates_exhauste
         error=BackendError("secondary down", "anthropic", status_code=500),
     )
 
-    assert next_request is None
+    assert next_request is not None
+    assert next_request.model == "openai:gpt-4"
+    assert next_request.extra_body is not None
+    assert next_request.extra_body["backend_type"] == "openai"
     state = cast(dict[str, Any], context.extensions["composite_routing_state"])
-    assert state["excluded_selectors"] == [
-        "openai:gpt-4",
-        "anthropic:claude-3-5-sonnet",
-    ]
+    assert state["excluded_selectors"] == ["anthropic:claude-3-5-sonnet"]
+    assert state["selected_selector"] == "openai:gpt-4"
+    assert state["hop_count"] == 1
 
 
 def test_build_next_request_weighted_retry_raises_when_budget_is_spent() -> None:

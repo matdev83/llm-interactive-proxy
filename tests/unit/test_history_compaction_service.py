@@ -197,6 +197,54 @@ class TestCompactHistory:
         assert result.messages[3].content == "Content of b.py"
 
 
+class TestCompactionTelemetry:
+    """CompactionResult telemetry fields (Phase 2+3)."""
+
+    @pytest.mark.asyncio
+    async def test_no_stale_emits_evaluation_record_and_aggregate(
+        self, service: HistoryCompactionService, config: CompactionConfig
+    ) -> None:
+        messages = [
+            _make_assistant_with_tool_call("call_1", "view_file", '{"path": "/a.py"}'),
+            _make_tool_result("call_1", "Content of a.py", "view_file"),
+            _make_assistant_with_tool_call("call_2", "view_file", '{"path": "/b.py"}'),
+            _make_tool_result("call_2", "Content of b.py", "view_file"),
+        ]
+        result = await service.compact_history(messages, config)
+        assert result.compacted_count == 0
+        assert result.event_records
+        assert any(
+            r.decision_reason == "no_stale_results" for r in result.event_records
+        )
+        assert result.aggregate_metrics is not None
+        assert result.aggregate_metrics.processed_evaluations >= 1
+        assert result.effective_config_diagnostics is not None
+        assert result.effective_config_diagnostics.active_controls
+
+    @pytest.mark.asyncio
+    async def test_applied_compaction_event_records_match_count(
+        self, service: HistoryCompactionService, config: CompactionConfig
+    ) -> None:
+        messages = [
+            _make_assistant_with_tool_call(
+                "call_1", "view_file", '{"path": "/test/file.py"}'
+            ),
+            _make_tool_result("call_1", "Original content - very long", "view_file"),
+            ChatMessage(role="assistant", content="I'll update it"),
+            _make_assistant_with_tool_call(
+                "call_2", "view_file", '{"path": "/test/file.py"}'
+            ),
+            _make_tool_result("call_2", "Updated content", "view_file"),
+        ]
+        result = await service.compact_history(messages, config)
+        assert result.compacted_count == 1
+        applied = [r for r in result.event_records if r.applied]
+        assert len(applied) == 1
+        assert applied[0].decision_reason == "applied"
+        assert result.aggregate_metrics is not None
+        assert result.aggregate_metrics.applied_evaluations == 1
+
+
 class TestStubReplacement:
     """Tests for stub content generation (Req 2.1-2.5)."""
 

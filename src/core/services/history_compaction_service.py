@@ -13,6 +13,7 @@ Requirements covered:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Any
 
@@ -25,6 +26,12 @@ from src.core.domain.compaction import (
     categorize_tool,
     is_tool_result_message,
 )
+from src.core.domain.compaction_telemetry import (
+    CompactionAggregateMetrics,
+    CompactionAlertRecord,
+    CompactionEventRecord,
+    EffectiveCompactionConfigDiagnostics,
+)
 from src.core.domain.configuration.compaction_config import (
     CompactionConfig,
     CompactionPolicies,
@@ -34,8 +41,90 @@ from src.core.interfaces.history_compaction_interface import (
     CompactionResult,
     IHistoryCompactionService,
 )
+from src.core.services.compaction_metrics_recorder import CompactionMetricsRecorder
 
 logger = logging.getLogger(__name__)
+
+
+def build_effective_compaction_config_diagnostics(
+    config: CompactionConfig,
+) -> EffectiveCompactionConfigDiagnostics:
+    """Build redaction-safe effective compaction controls for request diagnostics."""
+    active: list[str] = []
+    inactive: list[str] = []
+    reasons: dict[str, str] = {}
+
+    if config.enabled:
+        active.append("compaction.enabled")
+    else:
+        inactive.append("compaction.enabled")
+        reasons["compaction.enabled"] = "Compaction disabled in configuration."
+
+    active.append(f"compaction.token_threshold={config.token_threshold}")
+    active.append(f"compaction.max_tokens={config.max_tokens}")
+    active.append(
+        "compaction.min_tool_output_tokens_to_compact="
+        f"{config.min_tool_output_tokens_to_compact}"
+    )
+
+    if config.redact_resource_identifiers:
+        active.append("compaction.redact_resource_identifiers")
+    else:
+        inactive.append("compaction.redact_resource_identifiers")
+        reasons["compaction.redact_resource_identifiers"] = (
+            "Redaction disabled; resource identifiers may appear in stub text."
+        )
+
+    if config.allowed_tool_categories:
+        active.append(
+            "compaction.allowed_tool_categories="
+            + ",".join(sorted(config.allowed_tool_categories))
+        )
+    else:
+        inactive.append("compaction.allowed_tool_categories_empty")
+        reasons["compaction.allowed_tool_categories"] = (
+            "Allowlist empty; all non-denied tool categories are eligible."
+        )
+
+    if config.denied_tool_categories:
+        active.append(
+            "compaction.denied_tool_categories="
+            + ",".join(sorted(config.denied_tool_categories))
+        )
+
+    fingerprint_source = "|".join(sorted(active + inactive))
+    fingerprint = hashlib.sha256(fingerprint_source.encode()).hexdigest()[:16]
+
+    return EffectiveCompactionConfigDiagnostics(
+        active_controls=sorted(active),
+        inactive_controls=sorted(inactive),
+        ignored_controls=[],
+        reasons=reasons,
+        fingerprint=fingerprint,
+        warnings=[],
+    )
+
+
+def _evaluation_only_result(
+    *,
+    messages: list[ChatMessage],
+    config: CompactionConfig,
+    original_count: int,
+    reason: str,
+) -> CompactionResult:
+    recorder = CompactionMetricsRecorder()
+    rec = CompactionEventRecord(decision_reason=reason, applied=False)
+    alerts = list(recorder.record(rec, alerts_config=config.alerts))
+    return CompactionResult(
+        messages=messages,
+        original_message_count=original_count,
+        event_records=[rec],
+        aggregate_metrics=recorder.snapshot(),
+        alerts=alerts,
+        effective_config_diagnostics=build_effective_compaction_config_diagnostics(
+            config
+        ),
+    )
 
 
 class HistoryCompactionService(IHistoryCompactionService):
@@ -67,13 +156,24 @@ class HistoryCompactionService(IHistoryCompactionService):
         # Quick exit checks
         if not config.enabled:
             logger.debug("Compaction disabled - returning original messages")
-            return CompactionResult(
+            return _evaluation_only_result(
                 messages=messages,
-                original_message_count=len(messages),
+                config=config,
+                original_count=len(messages),
+                reason="disabled",
             )
 
         if not messages:
-            return CompactionResult(messages=[], original_message_count=0)
+            return CompactionResult(
+                messages=[],
+                original_message_count=0,
+                event_records=[],
+                aggregate_metrics=CompactionAggregateMetrics(),
+                alerts=[],
+                effective_config_diagnostics=build_effective_compaction_config_diagnostics(
+                    config
+                ),
+            )
 
         # Check token budget threshold
         if current_token_estimate is not None:
@@ -84,9 +184,11 @@ class HistoryCompactionService(IHistoryCompactionService):
                     current_token_estimate,
                     config.token_threshold,
                 )
-                return CompactionResult(
+                return _evaluation_only_result(
                     messages=messages,
-                    original_message_count=len(messages),
+                    config=config,
+                    original_count=len(messages),
+                    reason="below_token_threshold",
                 )
 
         # Build policies and perform compaction
@@ -106,9 +208,11 @@ class HistoryCompactionService(IHistoryCompactionService):
         See IHistoryCompactionService.compact_with_policies for full documentation.
         """
         if not policies.config.enabled:
-            return CompactionResult(
+            return _evaluation_only_result(
                 messages=messages,
-                original_message_count=len(messages),
+                config=policies.config,
+                original_count=len(messages),
+                reason="policies_disabled",
             )
 
         try:
@@ -119,10 +223,24 @@ class HistoryCompactionService(IHistoryCompactionService):
                 "Compaction failed - returning original messages (fail-open)",
                 exc_info=True,
             )
+            recorder = CompactionMetricsRecorder()
+            rec = CompactionEventRecord(
+                decision_reason="fail_open",
+                failed_open=True,
+                failure_reason=str(exc),
+                applied=False,
+            )
+            alerts = list(recorder.record(rec, alerts_config=policies.config.alerts))
             return CompactionResult(
                 messages=messages,
                 original_message_count=len(messages),
                 error=str(exc),
+                event_records=[rec],
+                aggregate_metrics=recorder.snapshot(),
+                alerts=alerts,
+                effective_config_diagnostics=build_effective_compaction_config_diagnostics(
+                    policies.config
+                ),
             )
 
     def should_compact(
@@ -234,29 +352,64 @@ class HistoryCompactionService(IHistoryCompactionService):
         stale_indices: dict[int, CompactionStub] = {}
         stale_resources: set[str] = set()
         bytes_saved = 0
+        recorder = CompactionMetricsRecorder()
+        alerts_accum: list[CompactionAlertRecord] = []
+        event_records: list[CompactionEventRecord] = []
+
+        def _sha256_hex(text: str) -> str:
+            return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+        def emit(rec: CompactionEventRecord) -> None:
+            event_records.append(rec)
+            alerts_accum.extend(
+                recorder.record(rec, alerts_config=policies.config.alerts)
+            )
+
+        effective_diag = build_effective_compaction_config_diagnostics(policies.config)
 
         for identity, occurrences in resource_map.items():
             if len(occurrences) <= 1:
-                # Only one occurrence - not stale
                 continue
 
-            # Check policy for this tool
-            tool_name = occurrences[0][1]
-            category = categorize_tool(tool_name)
+            for msg_idx, tool_name, content in occurrences[:-1]:
+                category = categorize_tool(tool_name)
+                msg = messages[msg_idx]
+                tool_call_id = msg.tool_call_id
+                correlation_id = f"hc:{msg_idx}:{tool_call_id or 'none'}"
+                identity_hash = _sha256_hex(str(identity))
+                preview = str(identity)[:200]
+                preview_redacted = bool(policies.config.redact_resource_identifiers)
+                original_bytes = len(content.encode("utf-8"))
+                original_tokens_estimate = original_bytes // 4
 
-            if not policies.should_compact_tool(tool_name, category):
-                if logger.isEnabledFor(TRACE_LEVEL):
-                    logger.log(
-                        TRACE_LEVEL,
-                        "Skipping compaction for %s - denied by policy",
-                        tool_name,
+                if not policies.should_compact_tool(tool_name, category):
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Skipping compaction for %s - denied by policy",
+                            tool_name,
+                        )
+                    emit(
+                        CompactionEventRecord(
+                            correlation_id=correlation_id,
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name,
+                            tool_category=category.value,
+                            resource_identity_hash=identity_hash,
+                            resource_identity_preview=preview,
+                            resource_preview_redacted=preview_redacted,
+                            original_bytes=original_bytes,
+                            compacted_bytes=original_bytes,
+                            saved_bytes=0,
+                            original_tokens_estimate=original_tokens_estimate,
+                            saved_tokens_estimate=0,
+                            applied=False,
+                            decision_reason="denied_by_policy",
+                            message_index=msg_idx,
+                        )
                     )
-                continue
+                    continue
 
-            # Mark all but the last occurrence as stale
-            for msg_idx, _, content in occurrences[:-1]:
-                # Avoid compacting very small tool outputs: savings are usually not worth
-                # the potential downstream downsides (e.g., remote cache invalidation).
                 min_tokens = policies.config.min_tool_output_tokens_to_compact
                 content_token_estimate = len(content) // 4
                 if min_tokens > 0 and content_token_estimate < min_tokens:
@@ -268,26 +421,76 @@ class HistoryCompactionService(IHistoryCompactionService):
                             content_token_estimate,
                             min_tokens,
                         )
+                    emit(
+                        CompactionEventRecord(
+                            correlation_id=correlation_id,
+                            tool_call_id=tool_call_id,
+                            tool_name=tool_name,
+                            tool_category=category.value,
+                            resource_identity_hash=identity_hash,
+                            resource_identity_preview=preview,
+                            resource_preview_redacted=preview_redacted,
+                            original_bytes=original_bytes,
+                            compacted_bytes=original_bytes,
+                            saved_bytes=0,
+                            original_tokens_estimate=original_tokens_estimate,
+                            saved_tokens_estimate=0,
+                            applied=False,
+                            decision_reason="skipped_below_min_tokens",
+                            message_index=msg_idx,
+                        )
+                    )
                     continue
 
-                # Pass redaction flag from config (Req 4.5)
                 stub = CompactionStub.create(
                     identity,
                     content,
                     msg_idx,
                     redact=policies.config.redact_resource_identifiers,
                 )
+                compacted_bytes = len(stub.stub_text.encode("utf-8"))
+                saved_bytes = max(0, stub.original_byte_size - compacted_bytes)
                 stale_indices[msg_idx] = stub
                 stale_resources.add(str(identity))
-                bytes_saved += stub.original_byte_size - len(
-                    stub.stub_text.encode("utf-8")
+                bytes_saved += saved_bytes
+                emit(
+                    CompactionEventRecord(
+                        correlation_id=correlation_id,
+                        tool_call_id=tool_call_id,
+                        tool_name=tool_name,
+                        tool_category=category.value,
+                        resource_identity_hash=identity_hash,
+                        resource_identity_preview=preview,
+                        resource_preview_redacted=preview_redacted,
+                        original_bytes=stub.original_byte_size,
+                        compacted_bytes=compacted_bytes,
+                        saved_bytes=saved_bytes,
+                        original_tokens_estimate=stub.original_byte_size // 4,
+                        saved_tokens_estimate=max(saved_bytes // 4, 0),
+                        applied=True,
+                        decision_reason="applied",
+                        message_index=msg_idx,
+                        original_sha256=_sha256_hex(content),
+                        compacted_sha256=_sha256_hex(stub.stub_text),
+                    )
                 )
 
+        if not event_records and not stale_indices:
+            emit(
+                CompactionEventRecord(
+                    decision_reason="no_stale_results",
+                    applied=False,
+                )
+            )
+
         if not stale_indices:
-            # No stale messages found
             return CompactionResult(
                 messages=messages,
                 original_message_count=original_count,
+                event_records=event_records,
+                aggregate_metrics=recorder.snapshot(),
+                alerts=alerts_accum,
+                effective_config_diagnostics=effective_diag,
             )
 
         # Phase 3: Build compacted message list
@@ -296,7 +499,6 @@ class HistoryCompactionService(IHistoryCompactionService):
         for idx, msg in enumerate(messages):
             if idx in stale_indices:
                 stub = stale_indices[idx]
-                # Create a new message with stub content
                 compacted_msg = ChatMessage(
                     role=msg.role,
                     content=stub.stub_text,
@@ -312,15 +514,13 @@ class HistoryCompactionService(IHistoryCompactionService):
             else:
                 compacted_messages.append(msg)
 
-        # Log compaction summary (Req 4.1)
         logger.info(
             "Compacted %d messages, saved ~%d bytes, stale resources: %s",
             len(stale_indices),
             bytes_saved,
-            list(stale_resources)[:5],  # Limit logged resources
+            list(stale_resources)[:5],
         )
 
-        # Estimate tokens saved (rough approximation: 4 chars per token)
         tokens_saved = bytes_saved // 4
 
         return CompactionResult(
@@ -330,6 +530,10 @@ class HistoryCompactionService(IHistoryCompactionService):
             tokens_saved_estimate=tokens_saved,
             original_message_count=original_count,
             stale_resources=stale_resources,
+            event_records=event_records,
+            aggregate_metrics=recorder.snapshot(),
+            alerts=alerts_accum,
+            effective_config_diagnostics=effective_diag,
         )
 
     def _extract_tool_name_from_message(

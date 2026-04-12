@@ -16,6 +16,33 @@ from src.core.domain.compaction import ToolCategory
 
 
 @dataclass
+class CompactionAlertsConfig:
+    """Operator alert thresholds for compaction issues."""
+
+    enabled: bool = False
+    window_seconds: int = 300
+    cooldown_seconds: int = 600
+    fail_open_threshold: int = 3
+    overflow_risk_threshold: int = 3
+    no_op_above_threshold_threshold: int = 5
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> "CompactionAlertsConfig":
+        """Create alert config from dictionary payload."""
+        payload = data or {}
+        return cls(
+            enabled=bool(payload.get("enabled", False)),
+            window_seconds=int(payload.get("window_seconds", 300)),
+            cooldown_seconds=int(payload.get("cooldown_seconds", 600)),
+            fail_open_threshold=int(payload.get("fail_open_threshold", 3)),
+            overflow_risk_threshold=int(payload.get("overflow_risk_threshold", 3)),
+            no_op_above_threshold_threshold=int(
+                payload.get("no_op_above_threshold_threshold", 5)
+            ),
+        )
+
+
+@dataclass
 class CompactionConfig:
     """Configuration for context compaction feature.
 
@@ -67,6 +94,9 @@ class CompactionConfig:
         "because a newer result for this resource exists later in the conversation."
     )
 
+    # Telemetry / alerting
+    alerts: CompactionAlertsConfig = field(default_factory=CompactionAlertsConfig)
+
     def is_tool_category_allowed(self, category: ToolCategory) -> bool:
         """Check if a tool category is eligible for compaction.
 
@@ -97,6 +127,7 @@ class CompactionConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CompactionConfig":
         """Create configuration from a dictionary."""
+        alerts = CompactionAlertsConfig.from_dict(data.get("alerts", {}))
         return cls(
             enabled=data.get("enabled", False),
             token_threshold=data.get("token_threshold", 100_000),
@@ -110,12 +141,13 @@ class CompactionConfig:
             preserve_last_n_results=data.get("preserve_last_n_results", 1),
             stub_template=data.get("stub_template", cls.stub_template),
             redact_resource_identifiers=data.get("redact_resource_identifiers", False),
+            alerts=alerts,
         )
 
     @classmethod
     def disabled(cls) -> "CompactionConfig":
         """Create a disabled configuration."""
-        return cls(enabled=False)
+        return cls(enabled=False, alerts=CompactionAlertsConfig(enabled=False))
 
     @classmethod
     def default(cls) -> "CompactionConfig":
@@ -138,6 +170,7 @@ class CompactionConfig:
             ],
             max_stubs_per_resource=1,
             preserve_last_n_results=1,
+            alerts=CompactionAlertsConfig(enabled=False),
         )
 
 

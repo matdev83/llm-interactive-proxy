@@ -17,6 +17,10 @@ from typing import Any
 from pydantic import ValidationError
 
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.compaction_telemetry import (
+    CompactionAggregateMetrics,
+    CompactionEventRecord,
+)
 from src.core.domain.configuration.compaction_config import (
     CompactionConfig,
     TokenBudgetConfig,
@@ -30,10 +34,15 @@ from src.core.interfaces.backend_request_manager_components import (
 )
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.history_compaction_interface import (
+    CompactionResult,
     IHistoryCompactionService,
 )
 from src.core.interfaces.tool_output_compression_interface import (
     IToolOutputCompressionService,
+)
+from src.core.services.compaction_metrics_recorder import CompactionMetricsRecorder
+from src.core.services.history_compaction_service import (
+    build_effective_compaction_config_diagnostics,
 )
 from src.core.services.legacy_compression_compatibility_resolver import (
     DynamicCompressionCompatibilityDiagnostics,
@@ -204,87 +213,100 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
             )
             token_estimate = total_chars // 4  # ~4 chars per token average
 
-            # Initialize config for exception handler
-            config: CompactionConfig | None = None
-            try:
-                # Use injected config or default
-                compaction_config: CompactionConfig
-                if self._config and hasattr(self._config, "compaction"):
-                    compaction_config = getattr(self._config, "compaction", None) or CompactionConfig.default()  # type: ignore[attr-defined]
-                else:
-                    compaction_config = CompactionConfig.default()
+            compaction_config = CompactionConfig.default()
+            if self._config is not None and hasattr(self._config, "compaction"):
+                maybe_compaction = getattr(self._config, "compaction", None)
+                if maybe_compaction is not None:
+                    compaction_config = maybe_compaction  # type: ignore[assignment]
 
-                # Store for exception handler
-                config = compaction_config
+            config: CompactionConfig = compaction_config
+            try:
                 compaction_feature_enabled = bool(compaction_config.enabled)
 
-                # Check if we should even check compaction (token threshold)
-                # First check: is feature enabled?
-                # Second check: is token count above threshold?
-                if (
-                    compaction_config.enabled
-                    and token_estimate >= compaction_config.token_threshold
-                ):
-                    compaction_result = (
-                        await self._history_compaction_service.compact_history(
+                if compaction_config.enabled:
+                    if token_estimate < compaction_config.token_threshold:
+                        below = self._synthetic_below_threshold_compaction_result(
                             final_request.messages,
                             compaction_config,
-                            current_token_estimate=token_estimate,
                         )
-                    )
-                    compaction_mutated_messages = bool(compaction_result.was_compacted)
-                    if compaction_result.was_compacted and logger.isEnabledFor(
-                        logging.INFO
-                    ):
-                        # Use structured logging with observability context (Req 4.1)
-                        logger.info(
-                            "Compacted conversation history",
-                            extra={
-                                "original_messages": compaction_result.original_message_count,
-                                "compacted_messages": compaction_result.compacted_count,
-                                "bytes_saved": compaction_result.bytes_saved,
-                                "tokens_saved_estimate": compaction_result.tokens_saved_estimate,
-                                "original_tokens_estimate": token_estimate,
-                                # Export metrics for observability (Req 4.1)
-                                "metrics": compaction_result.to_metrics().model_dump(),
-                            },
+                        final_request = self._attach_history_compaction_diagnostics(
+                            request=final_request,
+                            compaction_config=compaction_config,
+                            compaction_result=below,
+                            token_estimate=token_estimate,
+                            pipeline_failure=None,
                         )
-                    if compaction_result.was_compacted:
-                        final_request = final_request.model_copy(
-                            update={"messages": compaction_result.messages}
+                        self._log_history_compaction_diagnostics(
+                            compaction_result=below,
+                            token_estimate=token_estimate,
+                            failure=None,
                         )
-
-                        # Check for overflow after compaction (Req 3.2)
-                        # If compaction could not reduce tokens below max_tokens,
-                        # emit a warning to alert operators of potential overflow risk.
-                        # Request is still forwarded (fail-open behavior).
-                        post_compaction_chars = sum(
-                            len(str(msg.content or ""))
-                            for msg in final_request.messages
+                    else:
+                        compaction_result = (
+                            await self._history_compaction_service.compact_history(
+                                final_request.messages,
+                                compaction_config,
+                                current_token_estimate=token_estimate,
+                            )
                         )
-                        post_compaction_estimate = post_compaction_chars // 4
-
-                        budget = TokenBudgetConfig.from_config(
-                            compaction_config, post_compaction_estimate
+                        compaction_mutated_messages = bool(
+                            compaction_result.was_compacted
                         )
-                        if budget.exceeds_max:
-                            overflow = budget.current_estimate - budget.max_tokens
-                            logger.warning(
-                                "Context compaction could not reduce tokens below maximum - overflow risk",
+                        if compaction_result.was_compacted and logger.isEnabledFor(
+                            logging.INFO
+                        ):
+                            logger.info(
+                                "Compacted conversation history",
                                 extra={
-                                    "current_estimate": budget.current_estimate,
-                                    "max_tokens": budget.max_tokens,
-                                    "overflow_tokens": overflow,
-                                    "recommendation": "Consider adjusting compaction policies or token limits",
+                                    "original_messages": compaction_result.original_message_count,
+                                    "compacted_messages": compaction_result.compacted_count,
+                                    "bytes_saved": compaction_result.bytes_saved,
+                                    "tokens_saved_estimate": compaction_result.tokens_saved_estimate,
+                                    "original_tokens_estimate": token_estimate,
+                                    "metrics": compaction_result.to_metrics().model_dump(),
                                 },
                             )
+                        if compaction_result.was_compacted:
+                            final_request = final_request.model_copy(
+                                update={"messages": compaction_result.messages}
+                            )
+
+                            post_compaction_chars = sum(
+                                len(str(msg.content or ""))
+                                for msg in final_request.messages
+                            )
+                            post_compaction_estimate = post_compaction_chars // 4
+
+                            budget = TokenBudgetConfig.from_config(
+                                compaction_config, post_compaction_estimate
+                            )
+                            if budget.exceeds_max:
+                                overflow = budget.current_estimate - budget.max_tokens
+                                logger.warning(
+                                    "Context compaction could not reduce tokens below maximum - overflow risk",
+                                    extra={
+                                        "current_estimate": budget.current_estimate,
+                                        "max_tokens": budget.max_tokens,
+                                        "overflow_tokens": overflow,
+                                        "recommendation": "Consider adjusting compaction policies or token limits",
+                                    },
+                                )
+
+                        final_request = self._attach_history_compaction_diagnostics(
+                            request=final_request,
+                            compaction_config=compaction_config,
+                            compaction_result=compaction_result,
+                            token_estimate=token_estimate,
+                            pipeline_failure=None,
+                        )
+                        self._log_history_compaction_diagnostics(
+                            compaction_result=compaction_result,
+                            token_estimate=token_estimate,
+                            failure=None,
+                        )
             except Exception as exc:
-                # Fail-open: log error and continue with original messages
                 if logger.isEnabledFor(logging.WARNING):
-                    # Safely get config.enabled for logging, defaulting to False if config not available
-                    config_enabled = False
-                    if config is not None:
-                        config_enabled = getattr(config, "enabled", False)
+                    config_enabled = getattr(config, "enabled", False)
                     logger.warning(
                         "History compaction failed - continuing with original messages: %s",
                         exc,
@@ -297,6 +319,23 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                             }
                         },
                     )
+                failed = self._synthetic_pipeline_failure_compaction_result(
+                    final_request.messages,
+                    compaction_config,
+                    exc,
+                )
+                final_request = self._attach_history_compaction_diagnostics(
+                    request=final_request,
+                    compaction_config=compaction_config,
+                    compaction_result=failed,
+                    token_estimate=token_estimate,
+                    pipeline_failure=exc,
+                )
+                self._log_history_compaction_diagnostics(
+                    compaction_result=failed,
+                    token_estimate=token_estimate,
+                    failure=exc,
+                )
 
         # Apply dynamic tool-output compression after compaction.
         dynamic_compression_feature_enabled = self._is_dynamic_compression_enabled()
@@ -905,6 +944,232 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
             seen.add(normalized)
             merged_warnings.append(normalized)
         return diagnostics.model_copy(update={"warnings": merged_warnings})
+
+    @staticmethod
+    def _synthetic_below_threshold_compaction_result(
+        messages: list[ChatMessage],
+        compaction_config: CompactionConfig,
+    ) -> CompactionResult:
+        recorder = CompactionMetricsRecorder()
+        rec = CompactionEventRecord(
+            decision_reason="below_token_threshold",
+            applied=False,
+        )
+        alerts = list(recorder.record(rec, alerts_config=compaction_config.alerts))
+        return CompactionResult(
+            messages=list(messages),
+            original_message_count=len(messages),
+            event_records=[rec],
+            aggregate_metrics=recorder.snapshot(),
+            alerts=alerts,
+            effective_config_diagnostics=build_effective_compaction_config_diagnostics(
+                compaction_config
+            ),
+        )
+
+    @staticmethod
+    def _synthetic_pipeline_failure_compaction_result(
+        messages: list[ChatMessage],
+        compaction_config: CompactionConfig,
+        exc: BaseException,
+    ) -> CompactionResult:
+        recorder = CompactionMetricsRecorder()
+        rec = CompactionEventRecord(
+            decision_reason="fail_open",
+            failed_open=True,
+            failure_reason=str(exc),
+            applied=False,
+        )
+        alerts = list(recorder.record(rec, alerts_config=compaction_config.alerts))
+        return CompactionResult(
+            messages=list(messages),
+            original_message_count=len(messages),
+            error=str(exc),
+            event_records=[rec],
+            aggregate_metrics=recorder.snapshot(),
+            alerts=alerts,
+            effective_config_diagnostics=build_effective_compaction_config_diagnostics(
+                compaction_config
+            ),
+        )
+
+    @staticmethod
+    def _synthetic_aggregate_from_legacy_compaction_result(
+        result: CompactionResult,
+    ) -> dict[str, Any]:
+        return CompactionAggregateMetrics(
+            processed_evaluations=1,
+            applied_evaluations=result.compacted_count,
+            total_original_bytes=0,
+            total_compacted_bytes=0,
+            total_saved_bytes=result.bytes_saved,
+            total_saved_tokens_estimate=result.tokens_saved_estimate,
+        ).model_dump(mode="json")
+
+    @staticmethod
+    def _build_history_compaction_compatibility_dict(
+        *,
+        compaction_config: CompactionConfig,
+        compaction_result: CompactionResult,
+        token_estimate: int,
+        pipeline_failure: BaseException | None,
+    ) -> dict[str, Any]:
+        below = any(
+            r.decision_reason == "below_token_threshold"
+            for r in compaction_result.event_records
+        )
+        failed_open = (
+            pipeline_failure is not None
+            or bool(compaction_result.error)
+            or any(r.failed_open for r in compaction_result.event_records)
+        )
+        warnings: list[str] = []
+        if failed_open and pipeline_failure is None and compaction_result.error:
+            warnings.append(
+                "History compaction failed open inside the compaction service; "
+                "original messages were returned."
+            )
+        if failed_open and pipeline_failure is not None:
+            warnings.append(
+                "History compaction failed open on the request path; "
+                "original messages were returned."
+            )
+        return {
+            "history_compaction_enabled": True,
+            "failed_open": failed_open,
+            "below_token_threshold": below,
+            "token_estimate": token_estimate,
+            "token_threshold": compaction_config.token_threshold,
+            "error": (
+                str(pipeline_failure)
+                if pipeline_failure is not None
+                else compaction_result.error
+            ),
+            "warnings": warnings,
+        }
+
+    def _history_compaction_aggregate_payload(
+        self, compaction_result: CompactionResult
+    ) -> dict[str, Any]:
+        if compaction_result.aggregate_metrics is not None:
+            return compaction_result.aggregate_metrics.model_dump(mode="json")
+        return self._synthetic_aggregate_from_legacy_compaction_result(
+            compaction_result
+        )
+
+    @staticmethod
+    def _build_history_compaction_correlation_payload(
+        records: list[CompactionEventRecord],
+    ) -> dict[str, Any]:
+        dumped = [r.model_dump(mode="json") for r in records]
+        return {
+            "record_count": len(dumped),
+            "records": [
+                {
+                    "tool_call_id": item.get("tool_call_id"),
+                    "correlation_id": item.get("correlation_id"),
+                    "original_sha256": item.get("original_sha256"),
+                    "compacted_sha256": item.get("compacted_sha256"),
+                    "saved_bytes": item.get("saved_bytes"),
+                    "decision_reason": item.get("decision_reason"),
+                    "applied": item.get("applied"),
+                }
+                for item in dumped
+            ],
+        }
+
+    def _attach_history_compaction_diagnostics(
+        self,
+        *,
+        request: ChatRequest,
+        compaction_config: CompactionConfig,
+        compaction_result: CompactionResult,
+        token_estimate: int,
+        pipeline_failure: BaseException | None,
+    ) -> ChatRequest:
+        merged = dict(request.compression_diagnostics or {})
+        records_src = compaction_result.event_records
+        records_payload = [r.model_dump(mode="json") for r in records_src]
+        merged["history_compaction_compatibility"] = (
+            self._build_history_compaction_compatibility_dict(
+                compaction_config=compaction_config,
+                compaction_result=compaction_result,
+                token_estimate=token_estimate,
+                pipeline_failure=pipeline_failure,
+            )
+        )
+        eff = compaction_result.effective_config_diagnostics
+        if eff is None:
+            eff = build_effective_compaction_config_diagnostics(compaction_config)
+        merged["history_compaction_effective_config"] = eff.model_dump(mode="json")
+        merged["history_compaction_records"] = records_payload
+        merged["history_compaction_stats"] = self._history_compaction_aggregate_payload(
+            compaction_result
+        )
+        merged["history_compaction_alerts"] = [
+            a.model_dump(mode="json") for a in compaction_result.alerts
+        ]
+        merged["history_compaction_correlation"] = (
+            self._build_history_compaction_correlation_payload(records_src)
+        )
+        return request.model_copy(update={"compression_diagnostics": merged})
+
+    def _log_history_compaction_diagnostics(
+        self,
+        *,
+        compaction_result: CompactionResult,
+        token_estimate: int,
+        failure: BaseException | None,
+    ) -> None:
+        records = compaction_result.event_records
+        evaluated = len(records)
+        if evaluated == 0 and compaction_result.aggregate_metrics is not None:
+            evaluated = compaction_result.aggregate_metrics.processed_evaluations
+        if evaluated == 0:
+            evaluated = 1
+        applied = (
+            sum(1 for r in records if r.applied)
+            if records
+            else compaction_result.compacted_count
+        )
+        aggregate = (
+            compaction_result.aggregate_metrics.model_dump(mode="json")
+            if compaction_result.aggregate_metrics is not None
+            else self._synthetic_aggregate_from_legacy_compaction_result(
+                compaction_result
+            )
+        )
+        alert_count = len(compaction_result.alerts)
+        payload = {
+            "records_evaluated": evaluated,
+            "records_applied": applied,
+            "aggregate_metrics": aggregate,
+            "alert_count": alert_count,
+            "token_estimate": token_estimate,
+            "failed_open": bool(compaction_result.error) or failure is not None,
+        }
+        if failure is not None:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "History compaction diagnostics (failed open)",
+                    exc_info=True,
+                    extra={"history_compaction": payload},
+                )
+            return
+        if compaction_result.error is not None or any(
+            r.failed_open for r in compaction_result.event_records
+        ):
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "History compaction diagnostics",
+                    extra={"history_compaction": payload},
+                )
+            return
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "History compaction diagnostics",
+                extra={"history_compaction": payload},
+            )
 
     def _log_dynamic_compression_diagnostics(
         self,

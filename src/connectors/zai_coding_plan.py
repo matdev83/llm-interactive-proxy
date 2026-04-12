@@ -573,6 +573,10 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 status_code=getattr(exc, "status_code", 502),
                 code=f"zai_error_{getattr(exc, 'status_code', 'unknown')}",
             ) from exc
+        except BackendError:
+            # RateLimitExceededError and other mapped domain errors must propagate
+            # to resilience / HTTP mapping; do not wrap as zai_error_unexpected.
+            raise
         except Exception as exc:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
@@ -1030,8 +1034,13 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             payload["tools"] = request_data.tools
             logger.debug("Including tools: %d tools", len(request_data.tools))
         if hasattr(request_data, "tool_choice") and request_data.tool_choice:
-            payload["tool_choice"] = request_data.tool_choice
-            logger.debug("Including tool_choice: %s", request_data.tool_choice)
+            tool_choice = request_data.tool_choice
+            if isinstance(tool_choice, dict) and tool_choice.get("type") == "function":
+                # ZAI coding-plan rejects function-enforced tool_choice objects;
+                # use OpenAI-compatible automatic tool selection instead.
+                tool_choice = "auto"
+            payload["tool_choice"] = tool_choice
+            logger.debug("Including tool_choice: %s", tool_choice)
 
         # ZAI coding-plan gateway is strict about accepted payload shape.
         # Only forward a minimal set of known-safe keys to avoid WAF/429 triggers.

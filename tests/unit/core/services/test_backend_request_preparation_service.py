@@ -25,6 +25,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.core.config.models.backends import BackendConfig
 from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
+from src.core.domain.compaction_telemetry import (
+    CompactionAggregateMetrics,
+    CompactionEventRecord,
+    EffectiveCompactionConfigDiagnostics,
+)
 from src.core.domain.configuration.compaction_config import CompactionConfig
 from src.core.domain.configuration.dynamic_compression_config import (
     CompressionMarkerConfig,
@@ -1318,6 +1323,168 @@ class TestDynamicCompressionObservabilitySurfaces:
         recovery = diagnostics["dynamic_compression_recovery"]
         assert recovery["enabled"] is True
         assert recovery["handles"]
+
+
+class TestHistoryCompactionRequestDiagnostics:
+    """History compaction diagnostics parity under compression_diagnostics."""
+
+    @pytest.mark.asyncio
+    async def test_attaches_all_history_compaction_keys_from_result_telemetry(
+        self,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=10, max_tokens=500_000
+        )
+        telemetry = CompactionResult(
+            messages=[ChatMessage(role="user", content="x" * 400)],
+            compacted_count=0,
+            bytes_saved=0,
+            tokens_saved_estimate=0,
+            original_message_count=1,
+            event_records=[
+                CompactionEventRecord(
+                    decision_reason="no_stale_results",
+                    tool_name="view_file",
+                    tool_category="view_file",
+                    applied=False,
+                )
+            ],
+            aggregate_metrics=CompactionAggregateMetrics(
+                processed_evaluations=1, applied_evaluations=0
+            ),
+            alerts=[],
+            effective_config_diagnostics=EffectiveCompactionConfigDiagnostics(
+                active_controls=["compaction.enabled"],
+                fingerprint="abc123",
+            ),
+        )
+        mock_compaction_service.compact_history = AsyncMock(return_value=telemetry)
+        svc = BackendRequestPreparationService(
+            history_compaction_service=mock_compaction_service,
+            config=mock_config,
+        )
+        req = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="x" * 400)],
+        )
+        result = await svc.prepare(
+            req,
+            ProcessedResult(
+                modified_messages=[],
+                command_executed=False,
+                command_results=[],
+            ),
+        )
+        assert result is not None
+        d = result.compression_diagnostics or {}
+        assert "history_compaction_compatibility" in d
+        assert "history_compaction_effective_config" in d
+        assert "history_compaction_records" in d
+        assert "history_compaction_stats" in d
+        assert "history_compaction_alerts" in d
+        assert "history_compaction_correlation" in d
+        assert d["history_compaction_compatibility"]["failed_open"] is False
+        assert len(d["history_compaction_records"]) == 1
+        assert d["history_compaction_stats"]["processed_evaluations"] == 1
+        assert d["history_compaction_correlation"]["record_count"] == 1
+
+    @pytest.mark.asyncio
+    async def test_below_token_threshold_attaches_diagnostics_without_compaction_call(
+        self,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=1_000_000, max_tokens=2_000_000
+        )
+        mock_compaction_service.compact_history = AsyncMock()
+        svc = BackendRequestPreparationService(
+            history_compaction_service=mock_compaction_service,
+            config=mock_config,
+        )
+        req = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+        result = await svc.prepare(
+            req,
+            ProcessedResult(
+                modified_messages=[],
+                command_executed=False,
+                command_results=[],
+            ),
+        )
+        assert result is not None
+        mock_compaction_service.compact_history.assert_not_called()
+        d = result.compression_diagnostics or {}
+        assert d["history_compaction_compatibility"]["below_token_threshold"] is True
+        assert d["history_compaction_compatibility"]["failed_open"] is False
+        assert "history_compaction_records" in d
+        assert "history_compaction_stats" in d
+
+    @pytest.mark.asyncio
+    async def test_compaction_exception_surfaces_fail_open_in_compatibility(
+        self,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=10, max_tokens=500_000
+        )
+        mock_compaction_service.compact_history = AsyncMock(
+            side_effect=RuntimeError("boom")
+        )
+        svc = BackendRequestPreparationService(
+            history_compaction_service=mock_compaction_service,
+            config=mock_config,
+        )
+        req = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="x" * 400)],
+        )
+        result = await svc.prepare(
+            req,
+            ProcessedResult(
+                modified_messages=[],
+                command_executed=False,
+                command_results=[],
+            ),
+        )
+        assert result is not None
+        d = result.compression_diagnostics or {}
+        assert d["history_compaction_compatibility"]["failed_open"] is True
+        assert "boom" in (d["history_compaction_compatibility"].get("error") or "")
+
+    @pytest.mark.asyncio
+    async def test_when_compaction_disabled_no_history_compaction_diagnostics(
+        self,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_compaction_service.compact_history = AsyncMock()
+        svc = BackendRequestPreparationService(
+            history_compaction_service=mock_compaction_service,
+            config=mock_config,
+        )
+        req = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="x" * 4000)],
+        )
+        result = await svc.prepare(
+            req,
+            ProcessedResult(
+                modified_messages=[],
+                command_executed=False,
+                command_results=[],
+            ),
+        )
+        assert result is not None
+        mock_compaction_service.compact_history.assert_not_called()
+        d = result.compression_diagnostics or {}
+        assert "history_compaction_records" not in d
 
 
 class TestNoCommandExecution:

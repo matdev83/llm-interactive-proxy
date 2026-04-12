@@ -239,7 +239,7 @@ class TestBackendModelResolverIntegration:
                 static_route="forced-backend:forced-model",
             ),
             model_aliases=[
-                ModelAliasRule(pattern=".*", replacement="should-not-be-used:model")
+                ModelAliasRule(pattern=".*", replacement="should-not-be-used")
             ],
         )
 
@@ -257,6 +257,7 @@ class TestBackendModelResolverIntegration:
         routing_service.resolve_model_only_backend = Mock(return_value="forced-backend")
         routing_service.resolve_backend_instance = Mock(
             side_effect=lambda backend, model, excluded_backends=None: backend
+            or "openai"
         )
 
         resolver = BackendModelResolver(

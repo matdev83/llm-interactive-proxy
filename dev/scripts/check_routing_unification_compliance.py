@@ -21,6 +21,7 @@ APPROVED_ROUTED_CALL_CHAINS = {
 APPROVED_INTERNAL_DELEGATE_CALL_CHAINS = {
     "self.call_completion",
     "self._backend_completion_flow.call_completion",
+    "self._completion_flow.call_completion",
 }
 
 OUTBOUND_CALL_METHOD_SUFFIXES = (

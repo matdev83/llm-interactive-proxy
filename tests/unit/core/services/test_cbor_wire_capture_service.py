@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import tempfile
 import time
 from pathlib import Path
@@ -410,6 +411,79 @@ class TestCborWireCaptureService:
     def test_implements_recorder_interface(self):
         """Test the CBOR service exposes the canonical recorder interface."""
         assert issubclass(CborWireCaptureService, IWireCaptureRecorder)
+
+    def test_append_enospc_disables_capture(self, mock_config, temp_capture_dir):
+        """Disk full on append must disable capture without leaving the service enabled."""
+        real_open = open
+
+        def fake_open(path, mode="r", *args, **kwargs):
+            m = mode if isinstance(mode, str) else getattr(mode, "value", "")
+            if "a" in m and "b" in m:
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real_open(path, mode, *args, **kwargs)
+
+        import builtins
+
+        orig_open = builtins.open
+        builtins.open = fake_open  # type: ignore[method-assign]
+        try:
+            service = CborWireCaptureService(
+                config=mock_config,
+                capture_dir=temp_capture_dir,
+                session_id="enospc-session",
+            )
+            assert service.enabled()
+            entry = CapturedWireEvent(
+                timestamp=time.time(),
+                direction=CaptureDirection.PROXY_TO_CLIENT,
+                sequence=0,
+                data=b"x",
+                metadata=CaptureMetadata(session_id="enospc-session"),
+            )
+            service._write_entries_sync([entry])
+            assert service.enabled() is False
+        finally:
+            builtins.open = orig_open  # type: ignore[method-assign]
+
+    def test_append_enospc_throttles_exc_info_on_repeat(
+        self, mock_config, temp_capture_dir, caplog
+    ):
+        """Repeated OS write failures should not emit a traceback on every attempt."""
+        import logging
+
+        real_open = open
+
+        def fake_open(path, mode="r", *args, **kwargs):
+            m = mode if isinstance(mode, str) else getattr(mode, "value", "")
+            if "a" in m and "b" in m:
+                raise OSError(errno.ENOSPC, "No space left on device")
+            return real_open(path, mode, *args, **kwargs)
+
+        import builtins
+
+        orig_open = builtins.open
+        builtins.open = fake_open  # type: ignore[method-assign]
+        try:
+            with caplog.at_level(logging.WARNING):
+                service = CborWireCaptureService(
+                    config=mock_config,
+                    capture_dir=temp_capture_dir,
+                    session_id="enospc-throttle",
+                )
+                entry = CapturedWireEvent(
+                    timestamp=time.time(),
+                    direction=CaptureDirection.PROXY_TO_CLIENT,
+                    sequence=0,
+                    data=b"x",
+                    metadata=CaptureMetadata(session_id="enospc-throttle"),
+                )
+                service._write_entries_sync([entry])
+                service._enabled = True
+                service._write_entries_sync([entry])
+            exc_info_records = [r for r in caplog.records if r.exc_info]
+            assert len(exc_info_records) == 1
+        finally:
+            builtins.open = orig_open  # type: ignore[method-assign]
 
     @pytest.mark.asyncio
     async def test_extract_context_metadata_uses_request_id_fallback_when_b2bua_disabled(

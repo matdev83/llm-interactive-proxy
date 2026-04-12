@@ -85,6 +85,54 @@ async def test_rate_limit_preserves_retry_after_details(mocker):
 
 
 @pytest.mark.asyncio
+async def test_rate_limit_from_canonical_propagates_without_wrapping_as_unexpected(
+    mocker,
+):
+    """RateLimitExceededError from the OpenAI stack must not hit the generic Exception path."""
+    backend = ZaiCodingPlanBackend(
+        client=AsyncMock(), config=MagicMock(), translation_service=MagicMock()
+    )
+    backend.available_models = ["glm-5.1"]
+    backend._provider_models = set()
+
+    from src.connectors.contracts import ConnectorChatCompletionsRequest
+    from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+    request = ConnectorChatCompletionsRequest(
+        request=CanonicalChatRequest(
+            model="glm-5.1",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=False,
+        ),
+        processed_messages=[ChatMessage(role="user", content="test")],
+        effective_model="glm-5.1",
+        identity=None,
+        cancellation_coordinator=None,
+        cancellation_token=None,
+        context=None,
+        options={},
+    )
+
+    err = RateLimitExceededError(
+        message="overloaded",
+        details={"error": {"code": "1305"}},
+    )
+    mocker.patch.object(
+        OpenAIConnector,
+        "_chat_completions_canonical",
+        new_callable=AsyncMock,
+        side_effect=err,
+    )
+    log_mock = mocker.patch("src.connectors.zai_coding_plan.logger.error")
+
+    with pytest.raises(RateLimitExceededError) as excinfo:
+        await backend.chat_completions(request)
+
+    assert excinfo.value is err
+    log_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_health_check_reuses_cached_model_discovery(mocker):
     ZaiCodingPlanBackend._MODEL_DISCOVERY_CACHE.clear()
     mocker.patch.dict(
@@ -223,6 +271,58 @@ async def test_temperature_from_request_data_is_applied(mocker):
     # 6. Assert that the temperature in the payload is the one from request_data
     assert "temperature" in payload
     assert payload["temperature"] == temperature_value
+
+
+@pytest.mark.asyncio
+async def test_prepare_payload_normalizes_function_tool_choice_to_auto(mocker):
+    """Function tool_choice should be normalized for ZAI compatibility."""
+    mock_client = AsyncMock()
+    mock_config = MagicMock()
+
+    mocker.patch.object(
+        OpenAIConnector,
+        "_prepare_payload",
+        new_callable=AsyncMock,
+        return_value={"messages": []},
+    )
+    mocker.patch.object(ZaiCodingPlanBackend, "_select_model", return_value="glm-5.1")
+    mocker.patch.object(
+        ZaiCodingPlanBackend, "_extract_mcp_tool_calls_from_messages", return_value=[]
+    )
+
+    backend = ZaiCodingPlanBackend(
+        client=mock_client, config=mock_config, translation_service=MagicMock()
+    )
+    backend.available_models = ["glm-5.1"]
+    backend._max_tokens_limit = 200000
+    backend._default_max_tokens = 8192
+
+    mock_request_data = MagicMock()
+    mock_request_data.model = "glm-5.1"
+    mock_request_data.stream = True
+    mock_request_data.max_tokens = 256
+    mock_request_data.temperature = None
+    mock_request_data.top_p = None
+    mock_request_data.tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "inspect_log",
+                "description": "Inspect logs",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+    mock_request_data.tool_choice = {
+        "type": "function",
+        "function": {"name": "inspect_log"},
+    }
+
+    payload = await backend._prepare_payload(
+        request_data=mock_request_data, processed_messages=[]
+    )
+
+    assert payload["tool_choice"] == "auto"
 
 
 @pytest.mark.asyncio

@@ -185,7 +185,7 @@ class TestBackendPrefixParsing:
     async def test_parse_backend_from_model_with_colon(self, backend_service):
         """Test parsing 'backend:model' format."""
         request = ChatRequest(
-            model="claude-3-5-sonnet",
+            model="anthropic:claude-3-5-sonnet",
             messages=[ChatMessage(role="user", content="test")],
         )
 

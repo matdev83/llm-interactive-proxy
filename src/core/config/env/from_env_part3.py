@@ -101,6 +101,50 @@ def _load_replacement_rules_from_env(
         return []
 
 
+def _apply_gemini_backend(
+    config_backends: dict[str, Any],
+    env: Mapping[str, str],
+    gemini_key: str,
+    resolution: ParameterResolution | None,
+) -> None:
+    if logger.isEnabledFor(logging.INFO):
+        _, gemini_key_source = get_env_value_with_windows_persistent_fallback(
+            "GEMINI_API_KEY", environ=env
+        )
+        logger.info(
+            "Gemini key diagnostics [from_env_part3]: env_type=%s source=%s",
+            type(env).__name__,
+            gemini_key_source,
+        )
+
+    config_backends["gemini"] = config_backends.get("gemini", {})
+    config_backends["gemini"]["api_key"] = gemini_key
+    config_backends["gemini"]["api_url"] = _get_env_value(
+        env,
+        "GEMINI_API_BASE_URL",
+        "https://generativelanguage.googleapis.com",
+        path="backends.gemini.api_url",
+        resolution=resolution,
+    )
+    gemini_timeout = _get_env_value(
+        env,
+        "GEMINI_TIMEOUT",
+        None,
+        path="backends.gemini.timeout",
+        resolution=resolution,
+        transform=lambda value: _to_int(value, 0),
+    )
+    if gemini_timeout:
+        config_backends["gemini"]["timeout"] = gemini_timeout
+    if resolution is not None:
+        resolution.record(
+            "backends.gemini.api_key",
+            config_backends["gemini"]["api_key"],
+            ParameterSource.ENVIRONMENT,
+            origin="GEMINI_API_KEY",
+        )
+
+
 def apply_config_part3(
     config: dict[str, Any],
     env: Mapping[str, str],
@@ -137,43 +181,11 @@ def apply_config_part3(
                 origin="OPENROUTER_API_KEY",
             )
 
-    gemini_key, gemini_key_source = get_env_value_with_windows_persistent_fallback(
+    gemini_key, _gemini_key_source = get_env_value_with_windows_persistent_fallback(
         "GEMINI_API_KEY", environ=env
     )
     if gemini_key and not _has_numbered_env_variants(env, "GEMINI_API_KEY"):
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Gemini key diagnostics [from_env_part3]: env_type=%s source=%s",
-                type(env).__name__,
-                gemini_key_source,
-            )
-
-        config_backends["gemini"] = config_backends.get("gemini", {})
-        config_backends["gemini"]["api_key"] = gemini_key
-        config_backends["gemini"]["api_url"] = _get_env_value(
-            env,
-            "GEMINI_API_BASE_URL",
-            "https://generativelanguage.googleapis.com",
-            path="backends.gemini.api_url",
-            resolution=resolution,
-        )
-        gemini_timeout = _get_env_value(
-            env,
-            "GEMINI_TIMEOUT",
-            None,
-            path="backends.gemini.timeout",
-            resolution=resolution,
-            transform=lambda value: _to_int(value, 0),
-        )
-        if gemini_timeout:
-            config_backends["gemini"]["timeout"] = gemini_timeout
-        if resolution is not None:
-            resolution.record(
-                "backends.gemini.api_key",
-                config_backends["gemini"]["api_key"],
-                ParameterSource.ENVIRONMENT,
-                origin="GEMINI_API_KEY",
-            )
+        _apply_gemini_backend(config_backends, env, gemini_key, resolution)
 
     if env.get("ANTHROPIC_API_KEY"):
         config_backends["anthropic"] = config_backends.get("anthropic", {})
