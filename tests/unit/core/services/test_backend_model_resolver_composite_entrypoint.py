@@ -500,6 +500,30 @@ async def test_composite_failover_across_numbered_backend_instances() -> None:
 
 
 @pytest.mark.asyncio
+async def test_stale_leaf_resolution_flag_does_not_bypass_composite_failover() -> None:
+    resolver = _build_resolver_with_real_composite(
+        unavailable_backends={"openai-codex"}
+    )
+    request = ChatRequest(
+        model=(
+            "openai-codex:gpt-5.3-codex?reasoning_effort=low|"
+            "anthropic:claude-3-5-sonnet?reasoning_effort=medium"
+        ),
+        messages=[ChatMessage(role="user", content="hello")],
+        extra_body={"_composite_leaf_resolution": True},
+    )
+
+    result = await resolver.resolve_target(
+        request,
+        context=_context("main"),
+    )
+
+    assert result.backend == "anthropic"
+    assert result.model == "claude-3-5-sonnet"
+    assert result.uri_params == {"reasoning_effort": "medium"}
+
+
+@pytest.mark.asyncio
 async def test_composite_weighted_numbered_instances_respects_deterministic_random() -> (
     None
 ):

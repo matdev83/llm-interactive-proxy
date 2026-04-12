@@ -37,6 +37,7 @@ from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.composite_routing_state import (
     COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_RESOLUTION_FLAG,
+    is_composite_selector,
     resolve_composite_routing_surface,
 )
 from src.core.services.replacement_compatibility_bridge import (
@@ -475,6 +476,10 @@ class BackendModelResolver(IBackendModelResolver):
         context: RequestContext | None,
         request: ChatRequest,
     ) -> bool:
+        model = request.model
+        if is_composite_selector(model):
+            return False
+
         if context is None:
             extra_body = request.extra_body
             if isinstance(extra_body, dict):
