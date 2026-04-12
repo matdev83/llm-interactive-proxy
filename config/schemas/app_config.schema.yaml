@@ -634,6 +634,27 @@ properties:
       capability_refresh_backoff_seconds:
         type: number
         minimum: 0
+  request_processing_unification:
+    type: object
+    additionalProperties: false
+    properties:
+      enable_core_canonical_path: { type: boolean }
+      enable_canonical_features: { type: boolean }
+      connector_stream_first:
+        type: object
+        additionalProperties: { type: boolean }
+      retire_legacy_dual_path: { type: boolean }
+      emit_path_selection_metadata: { type: boolean }
+      promotion_requirements:
+        type: object
+        additionalProperties: false
+        properties:
+          require_characterization_tests: { type: boolean }
+          require_equivalence_tests: { type: boolean }
+          max_non_stream_p95_latency_delta_pct: { type: number, minimum: 0 }
+          max_stream_ttft_delta_pct: { type: number, minimum: 0 }
+          max_memory_delta_pct: { type: number, minimum: 0 }
+          require_cleanup_checks: { type: boolean }
   usage_tracking:
     type: object
     additionalProperties: false
@@ -732,6 +753,7 @@ properties:
       level: { type: string, enum: [conservative, balanced, aggressive] }
       max_level: { type: string, enum: [conservative, balanced, aggressive] }
       min_bytes: { type: integer, minimum: 0 }
+      per_output_evaluation_log_level: { type: string, enum: [off, debug, info] }
       time_budget_ms_per_output: { type: integer, minimum: 1 }
       explicit_format_flags:
         type: array

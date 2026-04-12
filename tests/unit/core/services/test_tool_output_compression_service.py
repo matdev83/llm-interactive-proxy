@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from re import Pattern
 
 import pytest
 import src.core.services.tool_output_compression_service as compression_service_module
@@ -968,6 +969,120 @@ async def test_service_logs_info_for_fail_open_outcome(
 
 
 @pytest.mark.asyncio
+async def test_service_logs_applied_outcome_as_debug_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("trim_one", _TrimOneStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(compression_service_module, "logger", capture_logger)
+    messages = _build_tool_messages("git status", "hello")
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"trim_one": True},
+        rules=[
+            CompressionRule(
+                name="trim-default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["trim_one"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.records[0].applied is True
+    assert len(capture_logger.info_calls) == 0
+    assert len(capture_logger.debug_calls) == 1
+    _, metadata = capture_logger.debug_calls[0]
+    assert metadata["decision_reason"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_service_logs_applied_outcome_as_info_when_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("trim_one", _TrimOneStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(compression_service_module, "logger", capture_logger)
+    messages = _build_tool_messages("git status", "hello")
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        per_output_evaluation_log_level="info",
+        methods={"trim_one": True},
+        rules=[
+            CompressionRule(
+                name="trim-info",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["trim_one"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.records[0].applied is True
+    assert len(capture_logger.info_calls) == 1
+    assert len(capture_logger.debug_calls) == 0
+    _, metadata = capture_logger.info_calls[0]
+    assert metadata["decision_reason"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_service_suppresses_applied_outcome_logs_when_configured_off(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("trim_one", _TrimOneStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(compression_service_module, "logger", capture_logger)
+    messages = _build_tool_messages("git status", "hello")
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        per_output_evaluation_log_level="off",
+        methods={"trim_one": True},
+        rules=[
+            CompressionRule(
+                name="trim-off",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["trim_one"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.records[0].applied is True
+    assert len(capture_logger.info_calls) == 0
+    assert len(capture_logger.debug_calls) == 0
+
+
+@pytest.mark.asyncio
 async def test_service_suppresses_debug_for_compression_disabled_noop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1065,10 +1180,15 @@ async def test_file_workflow_prefers_known_strategy_and_falls_back_to_generic() 
 async def test_service_uses_effective_runtime_output_pattern_rules(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    def _fake_search(
+        _self: object, pattern: Pattern[str], text: str
+    ) -> tuple[bool, bool]:
+        return (pattern.search(text) is not None, False)
+
     monkeypatch.setattr(
         OutputPatternMatchStrategy,
         "_search_with_timeout",
-        lambda _self, pattern, text: (pattern.search(text) is not None, False),
+        _fake_search,
     )
     service = _build_service_with_default_registry()
     messages = _build_tool_messages(

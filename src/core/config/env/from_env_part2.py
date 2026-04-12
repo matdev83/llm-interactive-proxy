@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from src.core.config.env.util import (
     env_to_bool as _env_to_bool,
@@ -172,11 +172,9 @@ def apply_config_part2(
             alias_data = json.loads(model_aliases_env)
             if isinstance(alias_data, list):
                 config["model_aliases"] = [
-                    {"pattern": item["pattern"], "replacement": item["replacement"]}
-                    for item in alias_data
-                    if isinstance(item, dict)
-                    and "pattern" in item
-                    and "replacement" in item
+                    {"pattern": entry["pattern"], "replacement": entry["replacement"]}
+                    for entry in cast("list[dict[str, Any]]", alias_data)
+                    if "pattern" in entry and "replacement" in entry
                 ]
                 if resolution is not None:
                     resolution.record(
@@ -339,6 +337,13 @@ def apply_config_part2(
             1024,
             env,
             path="dynamic_compression.min_bytes",
+            resolution=resolution,
+        ),
+        "per_output_evaluation_log_level": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_PER_OUTPUT_EVALUATION_LOG_LEVEL",
+            "debug",
+            path="dynamic_compression.per_output_evaluation_log_level",
             resolution=resolution,
         ),
         "file_detail_include_line_numbers": _env_to_bool(

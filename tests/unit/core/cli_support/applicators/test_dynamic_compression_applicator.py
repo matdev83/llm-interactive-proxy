@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from typing import cast
 
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
@@ -13,6 +14,7 @@ def _empty_args() -> argparse.Namespace:
         dynamic_compression_level=None,
         dynamic_compression_max_level=None,
         dynamic_compression_min_bytes=None,
+        dynamic_compression_per_output_evaluation_log_level=None,
         dynamic_compression_file_detail_include_line_numbers=None,
         dynamic_compression_disable_categories=None,
         dynamic_compression_disable_methods=None,
@@ -31,6 +33,7 @@ def test_dynamic_compression_applicator_sets_overrides_and_resolution() -> None:
     args.dynamic_compression_level = "balanced"
     args.dynamic_compression_max_level = "aggressive"
     args.dynamic_compression_min_bytes = 2048
+    args.dynamic_compression_per_output_evaluation_log_level = "off"
     args.dynamic_compression_file_detail_include_line_numbers = True
     args.dynamic_compression_disable_methods = "ansi_normalize,line_dedupe"
 
@@ -41,18 +44,21 @@ def test_dynamic_compression_applicator_sets_overrides_and_resolution() -> None:
 
     dc = overrides.get("dynamic_compression")
     assert isinstance(dc, dict)
-    assert dc.get("enabled") is True
-    assert dc.get("level") == "balanced"
-    assert dc.get("max_level") == "aggressive"
-    assert dc.get("min_bytes") == 2048
-    assert dc.get("file_detail_include_line_numbers") is True
-    assert dc.get("disable_methods") == ["ansi_normalize", "line_dedupe"]
+    dc_typed = cast("dict[str, object]", dc)
+    assert dc_typed.get("enabled") is True
+    assert dc_typed.get("level") == "balanced"
+    assert dc_typed.get("max_level") == "aggressive"
+    assert dc_typed.get("min_bytes") == 2048
+    assert dc_typed.get("per_output_evaluation_log_level") == "off"
+    assert dc_typed.get("file_detail_include_line_numbers") is True
+    assert dc_typed.get("disable_methods") == ["ansi_normalize", "line_dedupe"]
 
     cli_paths = set(resolution.latest_by_source(ParameterSource.CLI))
     assert "dynamic_compression.enabled" in cli_paths
     assert "dynamic_compression.level" in cli_paths
     assert "dynamic_compression.max_level" in cli_paths
     assert "dynamic_compression.min_bytes" in cli_paths
+    assert "dynamic_compression.per_output_evaluation_log_level" in cli_paths
     assert "dynamic_compression.file_detail_include_line_numbers" in cli_paths
     assert "dynamic_compression.disable_methods" in cli_paths
 

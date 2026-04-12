@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import ConfigDict, Field, field_validator
 
@@ -89,7 +89,10 @@ class CompressionRulePredicate(ValueObject):
             return [stripped] if stripped else None
         if not isinstance(value, list):
             return None
-        out = [str(item).strip().lower() for item in value if str(item).strip()]
+        out: list[str] = []
+        for it in cast("list[object]", value):
+            if isinstance(it, str) and it.strip():
+                out.append(it.strip().lower())
         return out or None
 
 
@@ -111,9 +114,9 @@ class CompressionRule(ValueObject):
         if not isinstance(value, list):
             return []
         normalized: list[str] = []
-        for item in value:
-            if isinstance(item, str):
-                stripped = item.strip()
+        for candidate in cast("list[object]", value):
+            if isinstance(candidate, str):
+                stripped = candidate.strip()
                 if stripped:
                     normalized.append(stripped)
         return normalized
@@ -1046,6 +1049,7 @@ class DynamicCompressionConfig(ValueObject):
         ]
     )
     telemetry_include_content_hashes: bool = True
+    per_output_evaluation_log_level: Literal["off", "debug", "info"] = "debug"
     marker: CompressionMarkerConfig = Field(default_factory=CompressionMarkerConfig)
     alerts: CompressionAlertsConfig = Field(default_factory=CompressionAlertsConfig)
     recovery: CompressionRecoveryConfig = Field(
@@ -1062,9 +1066,7 @@ class DynamicCompressionConfig(ValueObject):
             "other": True,
         }
     )
-    methods: dict[str, bool] = Field(
-        default_factory=_default_method_states
-    )
+    methods: dict[str, bool] = Field(default_factory=_default_method_states)
     pytest_failure_focus_min_lines: int | None = Field(default=None, ge=0)
     noise_directories: list[str] = Field(
         default_factory=lambda: [
@@ -1137,7 +1139,10 @@ class DynamicCompressionConfig(ValueObject):
             )
         if not isinstance(value, list):
             return []
-        normalized = [str(item).strip() for item in value if str(item).strip()]
+        normalized: list[str] = []
+        for it in cast("list[object]", value):
+            if isinstance(it, str) and it.strip():
+                normalized.append(it.strip())
         return _dedupe_preserve_order(normalized)
 
     @field_validator("pytest_failure_focus_min_lines", mode="before")
@@ -1161,13 +1166,13 @@ class DynamicCompressionConfig(ValueObject):
         if value is None:
             return []
         if isinstance(value, dict):
-            return [value]
+            return [cast("dict[str, object]", value)]
         if not isinstance(value, list):
             return []
         normalized: list[dict[str, object]] = []
-        for item in value:
-            if isinstance(item, dict):
-                normalized.append(item)
+        for candidate in cast("list[object]", value):
+            if isinstance(candidate, dict):
+                normalized.append(cast("dict[str, object]", candidate))
         return normalized
 
     def is_category_enabled(self, category: str) -> bool:

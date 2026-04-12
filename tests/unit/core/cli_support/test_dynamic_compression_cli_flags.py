@@ -18,6 +18,7 @@ def test_dynamic_compression_flags_are_registered() -> None:
     assert "--dynamic-compression-level" in flags
     assert "--dynamic-compression-max-level" in flags
     assert "--dynamic-compression-min-bytes" in flags
+    assert "--dynamic-compression-per-output-evaluation-log-level" in flags
     assert "--dynamic-compression-file-detail-include-line-numbers" in flags
     assert "--dynamic-compression-file-detail-exclude-line-numbers" in flags
     assert "--dynamic-compression-disable-categories" in flags

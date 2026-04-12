@@ -761,6 +761,12 @@ class ArgumentParserBuilder:
             metavar="BYTES",
             help="Minimum output size in bytes required for compression eligibility",
         )
+        dynamic_group.add_argument(
+            "--dynamic-compression-per-output-evaluation-log-level",
+            dest="dynamic_compression_per_output_evaluation_log_level",
+            choices=["off", "debug", "info"],
+            help="Per-output compression evaluation log level",
+        )
         file_detail_line_numbers_toggle = dynamic_group.add_mutually_exclusive_group()
         file_detail_line_numbers_toggle.add_argument(
             "--dynamic-compression-file-detail-include-line-numbers",

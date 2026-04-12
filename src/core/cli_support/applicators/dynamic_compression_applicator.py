@@ -66,6 +66,20 @@ class DynamicCompressionApplicator:
             )
 
         if (
+            getattr(args, "dynamic_compression_per_output_evaluation_log_level", None)
+            is not None
+        ):
+            dynamic_overrides["per_output_evaluation_log_level"] = (
+                args.dynamic_compression_per_output_evaluation_log_level
+            )
+            resolution.record(
+                "dynamic_compression.per_output_evaluation_log_level",
+                args.dynamic_compression_per_output_evaluation_log_level,
+                ParameterSource.CLI,
+                origin="--dynamic-compression-per-output-evaluation-log-level",
+            )
+
+        if (
             getattr(args, "dynamic_compression_file_detail_include_line_numbers", None)
             is not None
         ):

@@ -24,6 +24,7 @@ from src.core.domain.dynamic_compression import (
     ToolIdentity,
     ToolOutputCompressionBatchResult,
     ToolOutputCompressionRecord,
+    ToolOutputContext,
 )
 from src.core.interfaces.compression_strategy_registry_interface import (
     CompressionStrategy,
@@ -138,6 +139,7 @@ class ToolOutputCompressionService:
         updated_messages: list[ChatMessage] = []
         records: list[ToolOutputCompressionRecord] = []
         batch_alerts: list[CompressionAlertRecord] = []
+        per_output_log_level = effective_config.per_output_evaluation_log_level
         tool_lookup = self._identity_resolver.build_tool_call_lookup(messages)
 
         for message_index, message in enumerate(messages):
@@ -188,6 +190,7 @@ class ToolOutputCompressionService:
                     enabled_pipeline=[],
                     decision_reason="already_processed_output",
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -239,6 +242,7 @@ class ToolOutputCompressionService:
                     enabled_pipeline=enabled_pipeline,
                     decision_reason="compression_disabled",
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -261,6 +265,7 @@ class ToolOutputCompressionService:
                     enabled_pipeline=enabled_pipeline,
                     decision_reason="below_min_bytes",
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -283,6 +288,7 @@ class ToolOutputCompressionService:
                     enabled_pipeline=enabled_pipeline,
                     decision_reason="category_disabled",
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -305,6 +311,7 @@ class ToolOutputCompressionService:
                     enabled_pipeline=enabled_pipeline,
                     decision_reason="tool_disabled",
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -330,6 +337,7 @@ class ToolOutputCompressionService:
                     enabled_pipeline=enabled_pipeline,
                     decision_reason="command_prefix_disabled",
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -381,6 +389,7 @@ class ToolOutputCompressionService:
                     enabled_pipeline=enabled_pipeline,
                     decision_reason="no_matching_rule",
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -425,6 +434,7 @@ class ToolOutputCompressionService:
                     enabled_pipeline=enabled_pipeline,
                     decision_reason="no_enabled_pipeline_methods",
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -559,6 +569,7 @@ class ToolOutputCompressionService:
                         "failed_open" if record.failed_open else "not_applied"
                     ),
                     output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
                 )
                 batch_alerts.extend(
                     self._record_metrics_and_alerts(
@@ -584,6 +595,7 @@ class ToolOutputCompressionService:
                     "applied_failed_open" if record.failed_open else "applied"
                 ),
                 output_started_at=output_started_at,
+                per_output_evaluation_log_level=per_output_log_level,
             )
             batch_alerts.extend(
                 self._record_metrics_and_alerts(
@@ -903,7 +915,7 @@ class ToolOutputCompressionService:
         self,
         *,
         original_content: str,
-        context,
+        context: ToolOutputContext,
         pipeline: list[str],
         level: CompressionLevel,
         max_level: CompressionLevel,
@@ -1035,7 +1047,7 @@ class ToolOutputCompressionService:
         self,
         *,
         content: str,
-        context,
+        context: ToolOutputContext,
         pipeline: list[str],
         level: CompressionLevel,
         started_at: float,
@@ -1498,6 +1510,7 @@ class ToolOutputCompressionService:
         enabled_pipeline: list[str],
         decision_reason: str,
         output_started_at: float,
+        per_output_evaluation_log_level: str,
     ) -> None:
         record.explicit_format_note = self._explicit_format_diagnostic_note(
             record=record,
@@ -1511,12 +1524,26 @@ class ToolOutputCompressionService:
             and decision_reason in _NOISY_NOOP_DECISION_REASONS
         ):
             return
-        should_emit_info = record.applied or record.failed_open
-        if should_emit_info:
-            if not is_log_level_enabled(logger, logging.INFO):
+        should_emit_detail = record.applied or record.failed_open
+        if should_emit_detail:
+            if record.failed_open:
+                target_level = "info"
+            else:
+                target_level = per_output_evaluation_log_level
+                if target_level not in {"off", "debug", "info"}:
+                    target_level = "debug"
+            if target_level == "off":
                 return
-            log_level = "info"
-            log_fn = logger.info
+            if target_level == "info":
+                if not is_log_level_enabled(logger, logging.INFO):
+                    return
+                log_level = "info"
+                log_fn = logger.info
+            else:
+                if not is_log_level_enabled(logger, logging.DEBUG):
+                    return
+                log_level = "debug"
+                log_fn = logger.debug
         else:
             if not is_log_level_enabled(logger, logging.DEBUG):
                 return

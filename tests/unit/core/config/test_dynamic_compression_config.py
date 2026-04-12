@@ -50,6 +50,7 @@ def test_dynamic_compression_defaults_are_safe() -> None:
     assert cfg.level == CompressionLevel.CONSERVATIVE
     assert cfg.max_level == CompressionLevel.AGGRESSIVE
     assert cfg.min_bytes == 1024
+    assert cfg.per_output_evaluation_log_level == "debug"
     assert cfg.marker.enabled is True
     assert cfg.marker.structured_payload_mode == "out_of_band_only"
 
@@ -260,6 +261,7 @@ def test_app_config_accepts_dynamic_compression_block() -> None:
                 "level": "balanced",
                 "max_level": "aggressive",
                 "min_bytes": 256,
+                "per_output_evaluation_log_level": "info",
                 "file_detail_include_line_numbers": True,
                 "disable_categories": ["search"],
                 "disable_methods": ["line_dedupe"],
@@ -274,6 +276,7 @@ def test_app_config_accepts_dynamic_compression_block() -> None:
     assert dc.level == CompressionLevel.BALANCED
     assert dc.max_level == CompressionLevel.AGGRESSIVE
     assert dc.min_bytes == 256
+    assert dc.per_output_evaluation_log_level == "info"
     assert dc.file_detail_include_line_numbers is True
     assert dc.disable_categories == ["search"]
     assert dc.disable_methods == ["line_dedupe"]
@@ -289,6 +292,7 @@ def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
             "DYNAMIC_COMPRESSION_LEVEL": "balanced",
             "DYNAMIC_COMPRESSION_MAX_LEVEL": "aggressive",
             "DYNAMIC_COMPRESSION_MIN_BYTES": "512",
+            "DYNAMIC_COMPRESSION_PER_OUTPUT_EVALUATION_LOG_LEVEL": "off",
             "DYNAMIC_COMPRESSION_FILE_DETAIL_INCLUDE_LINE_NUMBERS": "true",
             "DYNAMIC_COMPRESSION_DISABLE_METHODS": "ansi_normalize,line_dedupe",
         },
@@ -299,6 +303,7 @@ def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
     assert cfg.dynamic_compression.level == CompressionLevel.BALANCED
     assert cfg.dynamic_compression.max_level == CompressionLevel.AGGRESSIVE
     assert cfg.dynamic_compression.min_bytes == 512
+    assert cfg.dynamic_compression.per_output_evaluation_log_level == "off"
     assert cfg.dynamic_compression.file_detail_include_line_numbers is True
     assert cfg.dynamic_compression.disable_methods == [
         "ansi_normalize",
@@ -310,5 +315,6 @@ def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
     assert "dynamic_compression.level" in env_paths
     assert "dynamic_compression.max_level" in env_paths
     assert "dynamic_compression.min_bytes" in env_paths
+    assert "dynamic_compression.per_output_evaluation_log_level" in env_paths
     assert "dynamic_compression.file_detail_include_line_numbers" in env_paths
     assert "dynamic_compression.disable_methods" in env_paths
