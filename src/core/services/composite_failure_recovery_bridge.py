@@ -175,8 +175,9 @@ class CompositeFailureRecoveryBridge:
                 remaining.append(item)
 
         if not remaining:
-            # All branches were exhausted once; recycle candidates by keeping only
-            # the current failed selector excluded and retrying the rest.
+            # All branches were exhausted once; start a fresh recycle round.
+            # Keep only the currently failed selector excluded so all others
+            # become eligible again within the same hop budget window.
             excluded = [selected]
             excluded_set = {selected}
             remaining = [
@@ -256,7 +257,7 @@ class CompositeFailureRecoveryBridge:
             status_code = getattr(exc, "status_code", None)
             if status_code in {401, 403, 499}:
                 return False
-            details = exc.details if isinstance(exc.details, dict) else {}
+            details = exc.details
             error_code = getattr(exc, "code", None)
             if not isinstance(error_code, str) or not error_code:
                 candidate = details.get("code")

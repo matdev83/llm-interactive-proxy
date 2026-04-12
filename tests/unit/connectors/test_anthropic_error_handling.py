@@ -7,6 +7,30 @@ import pytest
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 
+def test_retry_after_metadata_from_headers() -> None:
+    """Retry-After extraction preserves header and parses numeric seconds."""
+    from src.connectors.anthropic import _retry_after_metadata_from_httpx_headers
+
+    details, reset_hint = _retry_after_metadata_from_httpx_headers(
+        httpx.Headers({"Retry-After": "42"})
+    )
+
+    assert details == {"headers": {"retry-after": "42"}}
+    assert reset_hint == 42
+
+
+def test_retry_after_metadata_handles_non_numeric_header() -> None:
+    """Non-numeric Retry-After is preserved while reset hint remains unset."""
+    from src.connectors.anthropic import _retry_after_metadata_from_httpx_headers
+
+    details, reset_hint = _retry_after_metadata_from_httpx_headers(
+        httpx.Headers({"Retry-After": "Wed, 21 Oct 2015 07:28:00 GMT"})
+    )
+
+    assert details == {"headers": {"retry-after": "Wed, 21 Oct 2015 07:28:00 GMT"}}
+    assert reset_hint is None
+
+
 @pytest.mark.asyncio
 async def test_anthropic_streaming_handles_error_events():
     """Test that Anthropic connector properly handles error events in streaming."""

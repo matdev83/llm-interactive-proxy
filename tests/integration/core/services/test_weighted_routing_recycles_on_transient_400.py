@@ -451,6 +451,9 @@ async def test_weighted_routing_recycles_all_candidates_within_hop_budget() -> N
     state = context.extensions["composite_routing_state"]
     assert isinstance(state, dict)
     assert state["selected_selector"] == "zai-coding-plan:glm-5.1"
+    # Recycle policy: after full exhaustion, only the immediately failed selector
+    # remains excluded so prior candidates become eligible again.
+    assert state["excluded_selectors"] == ["qwen-oauth:coder-model"]
     assert state["hop_count"] == 2
 
 
@@ -522,4 +525,5 @@ async def test_weighted_routing_recycles_with_resolver_backend() -> None:
     state = context.extensions["composite_routing_state"]
     assert isinstance(state, dict)
     assert state["selected_selector"] == "zai-coding-plan:glm-5.1"
+    assert state["excluded_selectors"] == ["qwen-oauth:coder-model"]
     assert state["hop_count"] == 2

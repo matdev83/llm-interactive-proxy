@@ -83,25 +83,21 @@ def _retry_after_metadata_from_httpx_headers(
     ``reset_at`` is not a usable wall-clock hint, so we populate that structure here.
     """
 
-    details: dict[str, Any] = {}
-    reset_hint: int | None = None
-    retry_after: str | None = None
-    try:
-        if hasattr(headers, "get"):
-            got = headers.get("retry-after")
-            if got is not None:
-                retry_after = str(got).strip()
-        if not retry_after:
-            for key, value in headers.items():
-                if str(key).lower() == "retry-after":
-                    retry_after = str(value).strip()
-                    break
-        if retry_after:
-            details["headers"] = {"retry-after": retry_after}
-            with contextlib.suppress(ValueError, TypeError):
-                reset_hint = int(retry_after.split(",")[0].strip())
-    except Exception:
+    if not hasattr(headers, "get"):
         return {}, None
+
+    retry_after_raw = headers.get("retry-after")
+    if retry_after_raw is None:
+        return {}, None
+
+    retry_after = str(retry_after_raw).strip()
+    if not retry_after:
+        return {}, None
+
+    details: dict[str, Any] = {"headers": {"retry-after": retry_after}}
+    reset_hint: int | None = None
+    with contextlib.suppress(ValueError, TypeError):
+        reset_hint = int(retry_after.split(",", 1)[0].strip())
     return details, reset_hint
 
 
