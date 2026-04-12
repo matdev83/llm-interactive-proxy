@@ -6,12 +6,13 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 # Add project root to path
 repo_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(repo_root))
 
-from tests.unit.test_time_usage_linter import _scan_repo_for_time_usage
+from tests.unit.support.time_usage_linter_scanner import scan_repo_for_time_usage
 from tests.utils.time_policy import load_allowlist
 
 
@@ -24,10 +25,10 @@ def main() -> None:
         cache_path.unlink()
 
     allowlist = load_allowlist()
-    findings = _scan_repo_for_time_usage(repo_root, allowlist)
+    findings = scan_repo_for_time_usage(repo_root, allowlist)
 
     # Categorize by file and type
-    by_file: dict[str, list[dict[str, any]]] = defaultdict(list)
+    by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
     by_type: dict[str, int] = defaultdict(int)
 
     for finding in findings:

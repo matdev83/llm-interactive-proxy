@@ -1,22 +1,15 @@
-"""
-Unit tests for ConnectorInvoker.
-
-Tests canonical-first dispatch and legacy fallback following TDD principles.
-"""
+"""Unit tests for ConnectorInvoker seam compatibility and typed contracts."""
 
 from __future__ import annotations
 
-import logging
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import MagicMock
 
 import pytest
-from src.connectors.base import LLMBackend
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
-from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -27,701 +20,12 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
 )
 from src.core.services.connector_invoker import ConnectorInvoker
 
-
-class MockCanonicalBackend:
-    """Mock backend implementing ICanonicalChatCompletionsBackend."""
-
-    def __init__(self) -> None:
-        self.chat_completions_called = False
-        self.received_request: ConnectorChatCompletionsRequest | None = None
-
-    async def chat_completions(
-        self,
-        request: ConnectorChatCompletionsRequest,
-    ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Mock canonical chat_completions implementation."""
-        self.chat_completions_called = True
-        self.received_request = request
-        return ResponseEnvelope(
-            content={"model": request.effective_model, "choices": []},
-            headers={},
-        )
-
-
-class MockLegacyBackend(LLMBackend):
-    """Mock legacy backend implementing only LLMBackend."""
-
-    def __init__(self) -> None:
-        # LLMBackend requires config, but we can pass None/Mock for testing
-        from unittest.mock import MagicMock
-
-        mock_config = MagicMock()
-        super().__init__(config=mock_config)
-        self.chat_completions_called = False
-        self.received_kwargs: dict[str, Any] = {}
-
-    async def chat_completions(
-        self,
-        request_data: Any,
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: Any | None = None,
-        **kwargs: Any,
-    ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Mock legacy chat_completions implementation."""
-        self.chat_completions_called = True
-        self.received_kwargs = {
-            "request_data": request_data,
-            "processed_messages": processed_messages,
-            "effective_model": effective_model,
-            "identity": identity,
-            "cancellation_token": cancellation_token,
-            "cancellation_coordinator": cancellation_coordinator,
-            **kwargs,
-        }
-        return ResponseEnvelope(
-            content={"model": effective_model, "choices": []},
-            headers={},
-        )
-
-    async def initialize(self, **kwargs: Any) -> None:
-        """Mock initialize method."""
-
-    def get_available_models(self) -> list[str]:
-        """Mock get_available_models method."""
-        return []
-
-
-@pytest.fixture
-def connector_invoker() -> ConnectorInvoker:
-    """Create a ConnectorInvoker instance."""
-    return ConnectorInvoker()
-
-
-@pytest.fixture
-def sample_canonical_request() -> CanonicalChatRequest:
-    """Create a sample CanonicalChatRequest."""
-    return CanonicalChatRequest(
-        model="gpt-4",
-        messages=[ChatMessage(role="user", content="Hello")],
-    )
-
-
-@pytest.fixture
-def sample_request_context() -> RequestContext:
-    """Create a sample RequestContext."""
-    return RequestContext(
-        headers={},
-        cookies={},
-        state={},
-        app_state=MagicMock(),
-        request_id="req-123",
-        session_id="session-456",
-        client_host="192.168.1.1",
-        extensions={"key1": "value1", "key2": 42},
-    )
-
-
-@pytest.fixture
-def sample_identity() -> IAppIdentityConfig:
-    """Create a mock identity."""
-    identity = Mock(spec=IAppIdentityConfig)
-    identity.api_key = "test-key"
-    return identity
-
-
-@pytest.fixture
-def sample_session_key() -> SessionKey:
-    """Create a sample SessionKey."""
-    return SessionKey(protocol="http", primary_id="session-456", group_id=None)
-
-
-@pytest.fixture
-def sample_cancellation_coordinator() -> ISessionCancellationCoordinator:
-    """Create a mock cancellation coordinator."""
-    return Mock(spec=ISessionCancellationCoordinator)
-
-
-@pytest.fixture
-def sample_options() -> dict[str, Any]:
-    """Create sample connector options."""
-    return {"option1": "value1", "option2": 42}
-
-
-class TestContextProjection:
-    """Tests for RequestContext → ConnectorRequestContext projection."""
-
-    def test_project_context_with_all_fields(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_request_context: RequestContext,
-    ) -> None:
-        """Test context projection with all fields populated."""
-        projected = connector_invoker._project_context(sample_request_context)
-
-        assert projected is not None
-        assert projected.request_id == "req-123"
-        assert projected.session_id == "session-456"
-        assert projected.client_host == "192.168.1.1"
-        assert projected.extensions == {"key1": "value1", "key2": 42}
-
-    def test_project_context_with_none_values(
-        self,
-        connector_invoker: ConnectorInvoker,
-    ) -> None:
-        """Test context projection with None values."""
-        context = RequestContext(
-            headers={},
-            cookies={},
-            state={},
-            app_state=MagicMock(),
-            request_id=None,
-            session_id=None,
-            client_host=None,
-        )
-        projected = connector_invoker._project_context(context)
-
-        assert projected is not None
-        assert projected.request_id is None
-        assert projected.session_id is None
-        assert projected.client_host is None
-        assert projected.extensions == {}
-
-    def test_project_context_returns_none_when_context_is_none(
-        self,
-        connector_invoker: ConnectorInvoker,
-    ) -> None:
-        """Test that None context returns None projection."""
-        projected = connector_invoker._project_context(None)
-        assert projected is None
-
-    def test_project_context_copies_extensions(
-        self,
-        connector_invoker: ConnectorInvoker,
-    ) -> None:
-        """Test that extensions dict is copied (not shared reference)."""
-        context = RequestContext(
-            headers={},
-            cookies={},
-            state={},
-            app_state=MagicMock(),
-            extensions={"key": "value"},
-        )
-        projected = connector_invoker._project_context(context)
-
-        assert projected is not None
-        assert projected.extensions == {"key": "value"}
-        # Modify original - should not affect projected
-        context.extensions["new_key"] = "new_value"
-        assert projected.extensions == {"key": "value"}
-
-    def test_project_context_uses_b_leg_session_and_redacts_client_identity(
-        self,
-        connector_invoker: ConnectorInvoker,
-    ) -> None:
-        """Connector projection should be safe for outbound boundaries."""
-        context = RequestContext(
-            headers={},
-            cookies={},
-            state={},
-            app_state=MagicMock(),
-            session_id="llm-b2bua-abc",
-            b2bua_identity=B2buaIdentity(
-                a_session_id="llm-b2bua-abc",
-                b_session_id="llm-b2bua-b-abc-2",
-                b_seq=2,
-                auth_scope_id="token-1",
-                client_session_id="client-user-session",
-            ),
-            extensions={
-                "safe_key": "safe-value",
-                "client_session_id": "must-not-leak",
-                "a_session_id": "must-not-leak",
-                "auth_scope_id": "must-not-leak",
-                "b2bua": {
-                    "client_session_id": "must-not-leak",
-                    "a_session_id": "must-not-leak",
-                    "auth_scope_id": "must-not-leak",
-                },
-            },
-        )
-
-        projected = connector_invoker._project_context(context)
-
-        assert projected is not None
-        assert projected.session_id == "llm-b2bua-b-abc-2"
-        assert projected.extensions["safe_key"] == "safe-value"
-        assert "client_session_id" not in projected.extensions
-        assert "a_session_id" not in projected.extensions
-        assert "auth_scope_id" not in projected.extensions
-        assert projected.extensions.get("b2bua") == {"b_seq": 2}
-
-    def test_project_context_omits_a_leg_when_b_leg_missing(
-        self,
-        connector_invoker: ConnectorInvoker,
-    ) -> None:
-        """B2BUA mode must not fall back to A-leg at connector boundary."""
-        context = RequestContext(
-            headers={},
-            cookies={},
-            state={},
-            app_state=MagicMock(),
-            session_id="llm-b2bua-a-1234",
-            b2bua_identity=B2buaIdentity(a_session_id="llm-b2bua-a-1234"),
-        )
-
-        projected = connector_invoker._project_context(context)
-
-        assert projected is not None
-        assert projected.session_id is None
-
-
-class TestCanonicalRequestBuilding:
-    """Tests for building ConnectorChatCompletionsRequest."""
-
-    def test_build_canonical_request_with_all_fields(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-        sample_request_context: RequestContext,
-        sample_identity: IAppIdentityConfig,
-        sample_session_key: SessionKey,
-        sample_cancellation_coordinator: ISessionCancellationCoordinator,
-        sample_options: dict[str, Any],
-    ) -> None:
-        """Test building canonical request with all fields."""
-        domain_request = sample_canonical_request
-        processed_messages = list(sample_canonical_request.messages)
-        effective_model = "gpt-4"
-        projected_context = connector_invoker._project_context(sample_request_context)
-
-        connector_request = connector_invoker._build_canonical_request(
-            domain_request=domain_request,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=sample_identity,
-            cancellation_token=sample_session_key,
-            cancellation_coordinator=sample_cancellation_coordinator,
-            context=projected_context,
-            options=sample_options,
-        )
-
-        assert connector_request.request == domain_request
-        assert connector_request.processed_messages == processed_messages
-        assert connector_request.effective_model == effective_model
-        assert connector_request.identity == sample_identity
-        assert connector_request.cancellation_token == sample_session_key
-        assert (
-            connector_request.cancellation_coordinator
-            == sample_cancellation_coordinator
-        )
-        assert connector_request.context == projected_context
-        assert connector_request.options == sample_options
-
-    def test_build_canonical_request_with_minimal_fields(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-    ) -> None:
-        """Test building canonical request with minimal fields."""
-        domain_request = sample_canonical_request
-        processed_messages = list(sample_canonical_request.messages)
-        effective_model = "gpt-4"
-
-        connector_request = connector_invoker._build_canonical_request(
-            domain_request=domain_request,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=None,
-            cancellation_token=None,
-            cancellation_coordinator=None,
-            context=None,
-            options={},
-        )
-
-        assert connector_request.request == domain_request
-        assert connector_request.processed_messages == processed_messages
-        assert connector_request.effective_model == effective_model
-        assert connector_request.identity is None
-        assert connector_request.cancellation_token is None
-        assert connector_request.cancellation_coordinator is None
-        assert connector_request.context is None
-        assert connector_request.options == {}
-
-
-class TestCanonicalBackendDispatch:
-    """Tests for canonical backend dispatch."""
-
-    @pytest.mark.asyncio
-    async def test_canonical_backend_dispatch(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-        sample_request_context: RequestContext,
-        sample_identity: IAppIdentityConfig,
-        sample_session_key: SessionKey,
-        sample_cancellation_coordinator: ISessionCancellationCoordinator,
-        sample_options: dict[str, Any],
-    ) -> None:
-        """Test that canonical backend is invoked correctly."""
-        backend = MockCanonicalBackend()
-        domain_request = sample_canonical_request
-
-        result = await connector_invoker.invoke(
-            backend=backend,  # type: ignore[arg-type]
-            domain_request=domain_request,
-            canonical_request=sample_canonical_request,
-            effective_model="gpt-4",
-            identity=sample_identity,
-            cancellation_token=sample_session_key,
-            cancellation_coordinator=sample_cancellation_coordinator,
-            context=sample_request_context,
-            options=sample_options,
-        )
-
-        assert backend.chat_completions_called
-        assert backend.received_request is not None
-        assert backend.received_request.request == domain_request
-        assert backend.received_request.processed_messages == list(
-            sample_canonical_request.messages
-        )
-        assert backend.received_request.effective_model == "gpt-4"
-        assert backend.received_request.identity == sample_identity
-        assert backend.received_request.cancellation_token == sample_session_key
-        assert (
-            backend.received_request.cancellation_coordinator
-            == sample_cancellation_coordinator
-        )
-        assert backend.received_request.context is not None
-        assert backend.received_request.context.request_id == "req-123"
-        assert backend.received_request.options == sample_options
-        assert isinstance(result, ResponseEnvelope)
-
-    @pytest.mark.asyncio
-    async def test_canonical_backend_never_receives_dicts(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-        sample_request_context: RequestContext,
-    ) -> None:
-        """Test that canonical backend never receives dict payloads."""
-        backend = MockCanonicalBackend()
-        domain_request = sample_canonical_request
-
-        await connector_invoker.invoke(
-            backend=backend,  # type: ignore[arg-type]
-            domain_request=domain_request,
-            canonical_request=sample_canonical_request,
-            effective_model="gpt-4",
-            identity=None,
-            cancellation_token=None,
-            cancellation_coordinator=None,
-            context=sample_request_context,
-            options={},
-        )
-
-        # Verify request is a CanonicalChatRequest, not a dict
-        assert backend.received_request is not None
-        assert isinstance(backend.received_request.request, CanonicalChatRequest)
-        # Verify processed_messages are ChatMessage objects, not dicts
-        for msg in backend.received_request.processed_messages:
-            assert isinstance(msg, ChatMessage)
-
-
-class TestLegacyBackendDispatch:
-    """Tests for legacy backend dispatch."""
-
-    @pytest.mark.asyncio
-    async def test_legacy_backend_dispatch(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-        sample_options: dict[str, Any],
-    ) -> None:
-        """Test that legacy backend is invoked correctly."""
-        backend = MockLegacyBackend()
-        domain_request = sample_canonical_request
-
-        result = await connector_invoker.invoke(
-            backend=backend,
-            domain_request=domain_request,
-            canonical_request=sample_canonical_request,
-            effective_model="gpt-4",
-            identity=None,
-            cancellation_token=None,
-            cancellation_coordinator=None,
-            context=None,
-            options=sample_options,
-        )
-
-        assert backend.chat_completions_called
-        assert backend.received_kwargs["request_data"] == domain_request
-        assert backend.received_kwargs["processed_messages"] == list(
-            sample_canonical_request.messages
-        )
-        assert backend.received_kwargs["effective_model"] == "gpt-4"
-        assert backend.received_kwargs["option1"] == "value1"
-        assert backend.received_kwargs["option2"] == 42
-        assert isinstance(result, ResponseEnvelope)
-
-    @pytest.mark.asyncio
-    async def test_legacy_backend_never_receives_dicts(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-    ) -> None:
-        """Test that legacy backend never receives dict payloads."""
-        backend = MockLegacyBackend()
-        domain_request = sample_canonical_request
-
-        await connector_invoker.invoke(
-            backend=backend,  # type: ignore[arg-type]
-            domain_request=domain_request,
-            canonical_request=sample_canonical_request,
-            effective_model="gpt-4",
-            identity=None,
-            cancellation_token=None,
-            cancellation_coordinator=None,
-            context=None,
-            options={},
-        )
-
-        # Verify request_data is a CanonicalChatRequest, not a dict
-        assert isinstance(backend.received_kwargs["request_data"], CanonicalChatRequest)
-        assert not isinstance(backend.received_kwargs["request_data"], dict)
-        # Verify processed_messages are ChatMessage objects, not dicts
-        for msg in backend.received_kwargs["processed_messages"]:
-            assert isinstance(msg, ChatMessage)
-
-    @pytest.mark.asyncio
-    async def test_legacy_backend_options_expansion(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-    ) -> None:
-        """Test that options are expanded into kwargs for legacy backend."""
-        backend = MockLegacyBackend()
-        domain_request = sample_canonical_request
-
-        await connector_invoker.invoke(
-            backend=backend,  # type: ignore[arg-type]
-            domain_request=domain_request,
-            canonical_request=sample_canonical_request,
-            effective_model="gpt-4",
-            identity=None,
-            cancellation_token=None,
-            cancellation_coordinator=None,
-            context=None,
-            options={"option1": "value1", "option2": 42},
-        )
-
-        assert backend.received_kwargs["option1"] == "value1"
-        assert backend.received_kwargs["option2"] == 42
-
-
-class TestLegacyPathLogging:
-    """Tests for legacy path logging."""
-
-    @pytest.mark.asyncio
-    async def test_legacy_path_logs_when_used(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Test that legacy path usage is logged."""
-        backend = MockLegacyBackend()
-        domain_request = sample_canonical_request
-
-        with caplog.at_level(logging.INFO):
-            await connector_invoker.invoke(
-                backend=backend,
-                domain_request=domain_request,
-                canonical_request=sample_canonical_request,
-                effective_model="gpt-4",
-                identity=None,
-                cancellation_token=None,
-                cancellation_coordinator=None,
-                context=None,
-                options={},
-            )
-
-        # Verify legacy path was logged
-        assert any(
-            "Using legacy connector API" in record.message for record in caplog.records
-        )
-
-    @pytest.mark.asyncio
-    async def test_canonical_path_does_not_log_legacy(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-        sample_request_context: RequestContext,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Test that canonical path does not log legacy message."""
-        backend = MockCanonicalBackend()
-        domain_request = sample_canonical_request
-
-        with caplog.at_level(logging.INFO):
-            await connector_invoker.invoke(
-                backend=backend,  # type: ignore[arg-type]
-                domain_request=domain_request,
-                canonical_request=sample_canonical_request,
-                effective_model="gpt-4",
-                identity=None,
-                cancellation_token=None,
-                cancellation_coordinator=None,
-                context=sample_request_context,
-                options={},
-            )
-
-        # Verify legacy path was NOT logged
-        assert not any(
-            "Using legacy connector API" in record.message for record in caplog.records
-        )
-
-
-class TestErrorPropagation:
-    """Tests for error propagation."""
-
-    @pytest.mark.asyncio
-    async def test_canonical_backend_error_propagation(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-    ) -> None:
-        """Test that errors from canonical backend are propagated."""
-        backend = MockCanonicalBackend()
-        domain_request = sample_canonical_request
-
-        async def error_chat_completions(
-            request: ConnectorChatCompletionsRequest,
-        ) -> ResponseEnvelope | StreamingResponseEnvelope:
-            raise ValueError("Test error")
-
-        backend.chat_completions = error_chat_completions  # type: ignore[method-assign]
-
-        with pytest.raises(ValueError, match="Test error"):
-            await connector_invoker.invoke(
-                backend=backend,  # type: ignore[arg-type]
-                domain_request=domain_request,
-                canonical_request=sample_canonical_request,
-                effective_model="gpt-4",
-                identity=None,
-                cancellation_token=None,
-                cancellation_coordinator=None,
-                context=None,
-                options={},
-            )
-
-    @pytest.mark.asyncio
-    async def test_legacy_backend_error_propagation(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-    ) -> None:
-        """Test that errors from legacy backend are propagated."""
-        backend = MockLegacyBackend()
-        domain_request = sample_canonical_request
-
-        async def error_chat_completions(
-            *args: Any, **kwargs: Any
-        ) -> ResponseEnvelope | StreamingResponseEnvelope:
-            raise ValueError("Test error")
-
-        backend.chat_completions = error_chat_completions  # type: ignore[method-assign]
-
-        with pytest.raises(ValueError, match="Test error"):
-            await connector_invoker.invoke(
-                backend=backend,
-                domain_request=domain_request,
-                canonical_request=sample_canonical_request,
-                effective_model="gpt-4",
-                identity=None,
-                cancellation_token=None,
-                cancellation_coordinator=None,
-                context=None,
-                options={},
-            )
-
-
-class TestStreamingResponse:
-    """Tests for streaming response handling."""
-
-    @pytest.mark.asyncio
-    async def test_canonical_backend_streaming_response(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-    ) -> None:
-        """Test that streaming responses from canonical backend are returned."""
-        backend = MockCanonicalBackend()
-        streaming_response = StreamingResponseEnvelope(
-            content=AsyncMock(),
-            media_type="text/event-stream",
-            headers={},
-        )
-
-        async def streaming_chat_completions(
-            request: ConnectorChatCompletionsRequest,
-        ) -> StreamingResponseEnvelope:
-            return streaming_response
-
-        backend.chat_completions = streaming_chat_completions  # type: ignore[method-assign]
-
-        result = await connector_invoker.invoke(
-            backend=backend,  # type: ignore[arg-type]
-            domain_request=sample_canonical_request,
-            canonical_request=sample_canonical_request,
-            effective_model="gpt-4",
-            identity=None,
-            cancellation_token=None,
-            cancellation_coordinator=None,
-            context=None,
-            options={},
-        )
-
-        assert isinstance(result, StreamingResponseEnvelope)
-        assert result == streaming_response
-
-    @pytest.mark.asyncio
-    async def test_legacy_backend_streaming_response(
-        self,
-        connector_invoker: ConnectorInvoker,
-        sample_canonical_request: CanonicalChatRequest,
-    ) -> None:
-        """Test that streaming responses from legacy backend are returned."""
-        backend = MockLegacyBackend()
-        streaming_response = StreamingResponseEnvelope(
-            content=AsyncMock(),
-            media_type="text/event-stream",
-            headers={},
-        )
-
-        async def streaming_chat_completions(
-            *args: Any, **kwargs: Any
-        ) -> StreamingResponseEnvelope:
-            return streaming_response
-
-        backend.chat_completions = streaming_chat_completions  # type: ignore[method-assign]
-
-        result = await connector_invoker.invoke(
-            backend=backend,
-            domain_request=sample_canonical_request,
-            canonical_request=sample_canonical_request,
-            effective_model="gpt-4",
-            identity=None,
-            cancellation_token=None,
-            cancellation_coordinator=None,
-            context=None,
-            options={},
-        )
-
-        assert isinstance(result, StreamingResponseEnvelope)
-        assert result == streaming_response
+from tests.unit.core.services.connector_invoker_test_support import (
+    MockCanonicalBackend,
+    MockLegacyBackend,
+)
+
+pytest_plugins = ("tests.unit.core.services.connector_invoker_test_support",)
 
 
 class TestConnectorSeamCompatibility:
@@ -1182,7 +486,7 @@ class TestConnectorSeamCompatibility:
         from src.core.common.exceptions import AuthenticationError, LLMProxyError
 
         class AuthErrorLegacyBackend(MockLegacyBackend):
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: Any,
                 processed_messages: list[Any],
@@ -1227,7 +531,7 @@ class TestConnectorSeamCompatibility:
         from src.core.common.exceptions import BackendError, LLMProxyError
 
         class BackendErrorLegacyBackend(MockLegacyBackend):
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: Any,
                 processed_messages: list[Any],
@@ -1275,7 +579,7 @@ class TestConnectorSeamCompatibility:
         from src.core.common.exceptions import InvalidRequestError, LLMProxyError
 
         class InvalidRequestErrorLegacyBackend(MockLegacyBackend):
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: Any,
                 processed_messages: list[Any],
@@ -1320,7 +624,7 @@ class TestConnectorSeamCompatibility:
         from src.core.common.exceptions import LLMProxyError, RateLimitExceededError
 
         class RateLimitErrorLegacyBackend(MockLegacyBackend):
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: Any,
                 processed_messages: list[Any],
@@ -1367,7 +671,7 @@ class TestConnectorSeamCompatibility:
         from src.core.common.exceptions import LLMProxyError, ServiceUnavailableError
 
         class ServiceUnavailableErrorLegacyBackend(MockLegacyBackend):
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: Any,
                 processed_messages: list[Any],
@@ -1467,7 +771,7 @@ class TestConnectorSeamCompatibility:
             """Create a legacy backend class for a specific status code."""
 
             class StatusCodeLegacyBackend(MockLegacyBackend):
-                async def chat_completions(
+                async def chat_completions(  # type: ignore[override]
                     self,
                     request_data: Any,
                     processed_messages: list[Any],
@@ -1567,7 +871,7 @@ class TestConnectorSeamCompatibility:
         }
 
         class DetailsLegacyBackend(MockLegacyBackend):
-            async def chat_completions(
+            async def chat_completions(  # type: ignore[override]
                 self,
                 request_data: Any,
                 processed_messages: list[Any],

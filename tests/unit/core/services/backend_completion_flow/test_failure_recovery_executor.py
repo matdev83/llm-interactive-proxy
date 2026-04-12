@@ -630,13 +630,15 @@ class TestFailureRecoveryExecutor:
             app_state=None,
             request_id="req-weighted-exhausted",
         )
+        # Single weighted leaf: composite bridge cannot pick another selector (even
+        # after in-budget recycle), so it returns None and the executor surfaces the
+        # backend error. Two-branch states with a prior exclusion recycle instead.
         context.extensions["composite_routing_state"] = {
             "mode": "weighted_retry",
             "branches": [
-                {"selector": "openai:gpt-4", "weight": 1},
                 {"selector": "anthropic:claude-3-5-sonnet", "weight": 1},
             ],
-            "excluded_selectors": ["openai:gpt-4"],
+            "excluded_selectors": [],
             "selected_selector": "anthropic:claude-3-5-sonnet",
             "hop_count": 0,
             "max_hops": 3,
@@ -659,7 +661,6 @@ class TestFailureRecoveryExecutor:
 
         callback.assert_not_called()
         state = cast(dict[str, Any], context.extensions["composite_routing_state"])
-        assert state["excluded_selectors"] == [
-            "openai:gpt-4",
-            "anthropic:claude-3-5-sonnet",
-        ]
+        assert state["excluded_selectors"] == ["anthropic:claude-3-5-sonnet"]
+        assert state["selected_selector"] == "anthropic:claude-3-5-sonnet"
+        assert state["hop_count"] == 0

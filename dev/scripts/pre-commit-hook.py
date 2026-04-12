@@ -357,7 +357,7 @@ def run_stall_linter_on_staged_tests() -> bool:
         "pytest",
         "-n",
         "0",
-        "tests/unit/test_stall_linter.py",
+        "tests/unit/stall_linter/",
     ]
     for file_path in target_test_files:
         pytest_args.extend(["--stall-lint-file", file_path])

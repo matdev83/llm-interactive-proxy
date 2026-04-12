@@ -179,8 +179,10 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
 
     # Run the "stall linter" test as early as possible to fail fast on patterns
     # that can wedge xdist workers (e.g., recursive monkeypatching of asyncio.sleep).
-    stall_linter_nodeid = "tests/unit/test_stall_linter.py"
-    stall_linter_items = [item for item in items if stall_linter_nodeid in item.nodeid]
+    stall_linter_nodeid_prefix = "tests/unit/stall_linter/"
+    stall_linter_items = [
+        item for item in items if stall_linter_nodeid_prefix in item.nodeid
+    ]
     if stall_linter_items:
         stall_linter_ids = {id(item) for item in stall_linter_items}
         items[:] = stall_linter_items + [

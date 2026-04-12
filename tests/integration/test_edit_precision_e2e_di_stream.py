@@ -163,7 +163,8 @@ async def test_e2e_di_streaming_pipeline_sets_pending_and_next_call_tuned() -> N
     )
     await rp.process_request(
         __import__(
-            "tests.unit.core.test_request_processor", fromlist=["MockRequestContext"]
+            "tests.unit.core.request_processor_test_support",
+            fromlist=["MockRequestContext"],
         ).MockRequestContext(),
         request,
     )

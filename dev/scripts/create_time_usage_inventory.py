@@ -10,14 +10,15 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 # Add repo root to path
 repo_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(repo_root))
 
-from tests.unit.test_time_usage_linter import (
+from tests.unit.support.time_usage_linter_scanner import (
     LintFinding,
-    _scan_repo_for_time_usage,
+    scan_repo_for_time_usage,
 )
 from tests.utils.time_policy import load_allowlist
 
@@ -99,7 +100,7 @@ def create_inventory(repo_root: Path, output_path: Path) -> None:
     """
     print("Scanning repository for time usage violations...")
     allowlist = load_allowlist()
-    findings = _scan_repo_for_time_usage(repo_root, allowlist)
+    findings = scan_repo_for_time_usage(repo_root, allowlist)
 
     print(f"Found {len(findings)} violations")
 
@@ -143,7 +144,7 @@ def create_inventory(repo_root: Path, output_path: Path) -> None:
         classified[classification].append(entry)
 
     # Create summary statistics
-    summary = {
+    summary: dict[str, Any] = {
         "total_violations": len(findings),
         "by_rule": {
             rule: len(findings_list) for rule, findings_list in by_rule.items()
