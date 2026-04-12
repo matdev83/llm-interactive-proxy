@@ -23,6 +23,7 @@ from src.core.domain.model_utils import (
     parse_model_with_params,
 )
 from src.core.domain.request_context import RequestContext
+from src.core.domain.session import SessionState
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
@@ -142,6 +143,18 @@ class BackendModelResolver(IBackendModelResolver):
                 should_route_via_composite = True
 
             if should_route_via_composite:
+                session, prefer_first_weighted_branch = (
+                    await self._resolve_weighted_first_session_state(
+                        request=request,
+                        context=context,
+                    )
+                )
+                should_consume_weighted_first_flag = bool(
+                    session is not None
+                    and not bool(
+                        getattr(session.state, "weighted_first_request_consumed", False)
+                    )
+                )
                 composite_input = CompositeRoutingInput(
                     selector=selector_for_routing,
                     surface=routing_surface,
@@ -150,12 +163,27 @@ class BackendModelResolver(IBackendModelResolver):
                     ),
                     configured_max_hops=self._resolve_max_hops_from_config(),
                     default_backend=self._resolve_default_backend(),
+                    prefer_first_weighted_branch=prefer_first_weighted_branch,
                 )
-                return await self._composite_routing_service.resolve_target(
-                    routing_input=composite_input,
-                    request=request,
-                    context=context,
-                )
+                try:
+                    return await self._composite_routing_service.resolve_target(
+                        routing_input=composite_input,
+                        request=request,
+                        context=context,
+                    )
+                finally:
+                    if should_consume_weighted_first_flag:
+                        session_for_update = cast(Any, session)
+                        base_state = self._session_state_as_session_state(
+                            session_for_update.state
+                        )
+                        if base_state is not None:
+                            session_for_update.update_state(
+                                base_state.with_weighted_first_request_consumed(True)
+                            )
+                            await self._session_service.update_session(
+                                session_for_update
+                            )
 
         # Extract session ID and fetch session
         session_id = (
@@ -449,6 +477,50 @@ class BackendModelResolver(IBackendModelResolver):
             parser=CompositeSelectorParser(),
             coordinator=coordinator,
             diagnostics_publisher=diagnostics_publisher,
+        )
+
+    @staticmethod
+    def _session_state_as_session_state(state_obj: Any) -> SessionState | None:
+        if isinstance(state_obj, SessionState):
+            return state_obj
+
+        to_dict_fn = getattr(state_obj, "to_dict", None)
+        if callable(to_dict_fn):
+            raw_state = to_dict_fn()
+            if isinstance(raw_state, dict):
+                try:
+                    return cast(SessionState, SessionState.from_dict(raw_state))
+                except Exception:
+                    return None
+        return None
+
+    async def _resolve_weighted_first_session_state(
+        self,
+        *,
+        request: ChatRequest,
+        context: RequestContext | None,
+    ) -> tuple[Any | None, bool]:
+        session_id: str | None = None
+        if context is not None and isinstance(context.session_id, str):
+            candidate = context.session_id.strip()
+            if candidate:
+                session_id = candidate
+        if session_id is None and isinstance(request.extra_body, dict):
+            extra_session_id = request.extra_body.get("session_id")
+            if isinstance(extra_session_id, str):
+                candidate = extra_session_id.strip()
+                if candidate:
+                    session_id = candidate
+
+        if session_id is None:
+            return None, True
+
+        session = cast(Any, await self._session_service.get_session(session_id))
+        if session is None:
+            return None, True
+
+        return session, not bool(
+            getattr(session.state, "weighted_first_request_consumed", False)
         )
 
     def _resolve_default_backend(self) -> str:

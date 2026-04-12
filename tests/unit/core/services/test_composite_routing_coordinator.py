@@ -337,3 +337,140 @@ async def test_failover_coordinator_advances_for_routing_validation_configuratio
 
     assert result.backend == "anthropic"
     assert leaf_resolver.calls == ["openai:gpt-4", "anthropic:claude-3-5-sonnet"]
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_uses_first_branch_when_prefer_first_true() -> None:
+    """Coordinator with prefer_first_weighted_branch=True selects the first-tagged branch."""
+    parser = CompositeSelectorParser()
+    routing_input = CompositeRoutingInput(
+        selector="[first]openai:gpt-4^[weight=100]anthropic:claude-3-5-sonnet",
+        surface=RoutingSurface.MAIN,
+        prefer_first_weighted_branch=True,
+    )
+    plan = parser.parse(routing_input)
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4")),
+            "anthropic:claude-3-5-sonnet": _LeafOutcome(
+                target=_target("anthropic", "claude-3-5-sonnet")
+            ),
+        }
+    )
+    # Even with RNG that would pick claude (weight=100), prefer_first should pick gpt-4
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.99
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    context = _context()
+
+    result = await coordinator.execute(
+        plan=plan,
+        routing_input=routing_input,
+        request=_request(),
+        context=context,
+    )
+
+    assert result.backend == "openai"
+    assert result.model == "gpt-4"
+    assert leaf_resolver.calls == ["openai:gpt-4"]
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_uses_weighted_random_when_prefer_first_false() -> (
+    None
+):
+    """Coordinator with prefer_first_weighted_branch=False uses weighted selection."""
+    parser = CompositeSelectorParser()
+    routing_input = CompositeRoutingInput(
+        selector="[first]openai:gpt-4^[weight=100]anthropic:claude-3-5-sonnet",
+        surface=RoutingSurface.MAIN,
+        prefer_first_weighted_branch=False,
+    )
+    plan = parser.parse(routing_input)
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4")),
+            "anthropic:claude-3-5-sonnet": _LeafOutcome(
+                target=_target("anthropic", "claude-3-5-sonnet")
+            ),
+        }
+    )
+    # RNG=0.99 with total=101: threshold=99.99 -> openai=1, claude=101 -> picks claude
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.99
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    context = _context()
+
+    result = await coordinator.execute(
+        plan=plan,
+        routing_input=routing_input,
+        request=_request(),
+        context=context,
+    )
+
+    # Should use weighted selection, picking the high-weight claude
+    assert result.backend == "anthropic"
+    assert result.model == "claude-3-5-sonnet"
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_retry_does_not_use_first_tag() -> None:
+    """On weighted retry (bridge), first annotation is ignored — uses weighted random."""
+    from src.core.services.composite_failure_recovery_bridge import (
+        CompositeFailureRecoveryBridge,
+    )
+    from src.core.services.composite_routing_state import (
+        COMPOSITE_ROUTING_STATE_KEY,
+        WEIGHTED_RETRY_MODE,
+    )
+
+    bridge = CompositeFailureRecoveryBridge(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.99
+        )
+    )
+    context = _context()
+    context.extensions[COMPOSITE_ROUTING_STATE_KEY] = {
+        "mode": WEIGHTED_RETRY_MODE,
+        "branches": [
+            {"selector": "openai:gpt-4", "weight": 1},
+            {"selector": "anthropic:claude-3-5-sonnet", "weight": 100},
+        ],
+        "excluded_selectors": ["openai:gpt-4"],
+        "selected_selector": "openai:gpt-4",
+        "hop_count": 0,
+        "max_hops": 3,
+    }
+
+    # Retry after a backend error — should use weighted selection among remaining
+    from src.core.common.exceptions import BackendError
+
+    next_request = bridge.build_next_request(
+        request=cast(
+            Any,
+            ChatRequest(
+                model="openai:gpt-4",
+                messages=[ChatMessage(role="user", content="hello")],
+                extra_body={
+                    "backend_type": "openai",
+                    "_resolved_uri_params": {},
+                },
+            ),
+        ),
+        context=context,
+        content_started=False,
+        error=BackendError("backend down", "openai", status_code=503),
+    )
+
+    # Should pick claude (weight=100) via weighted selection, not [first] tag
+    assert next_request is not None
+    assert next_request.model == "anthropic:claude-3-5-sonnet"
+    state = cast(dict[str, Any], context.extensions[COMPOSITE_ROUTING_STATE_KEY])
+    assert state["selected_selector"] == "anthropic:claude-3-5-sonnet"
+    assert state["hop_count"] == 1

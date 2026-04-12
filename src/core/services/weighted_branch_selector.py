@@ -60,9 +60,29 @@ class WeightedBranchSelector:
 
         return len(normalized_weights) - 1
 
-    def select(self, weighted_node: CompositeWeightedGroupNode) -> CompositeLeafNode:
+    def select(
+        self,
+        weighted_node: CompositeWeightedGroupNode,
+        *,
+        prefer_first: bool = False,
+    ) -> CompositeLeafNode:
         if not weighted_node.children:
             raise ValueError("Weighted node must contain at least one branch.")
+
+        if prefer_first:
+            first_branches = [
+                child
+                for child in weighted_node.children
+                if child.leaf_selector.first_annotation
+            ]
+            if len(first_branches) == 1:
+                return first_branches[0]
+            if len(first_branches) > 1:
+                raise ValueError(
+                    "multiple branches annotated with [first]; "
+                    "exactly one is required when prefer_first is enabled"
+                )
+            # No first_annotation found — fall through to weighted selection
 
         normalized_weights: list[int] = []
         for branch in weighted_node.children:

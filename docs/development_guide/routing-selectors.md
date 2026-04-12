@@ -47,6 +47,33 @@ Uses `^` with optional `[weight=N]` prefixes for weighted distribution:
 
 This distributes traffic 75% to OpenAI and 25% to Anthropic.
 
+#### First-Request Override in Weighted Routing
+
+Add a `[first]` annotation to one branch to force that backend/model for the very first request of a session. Subsequent requests use normal weighted routing based on weights.
+
+```
+openai-codex:gpt-5.3-codex?reasoning_effort=low^[first]openai-codex:gpt-5.4?reasoning_effort=xhigh
+```
+
+On the first request of a session, the `[first]`-tagged branch is selected regardless of weight. From the second request onward, weighted routing applies normally (equal 50/50 split in this example since no `[weight=N]` annotations are present).
+
+Accepted annotation forms: `[first]`, `[first=1]`, `[first=yes]`, `[first=true]`. Forms like `[first=false]`, `[first=0]`, `[first=no]` are rejected.
+
+Rules:
+- **Exactly one** branch may be tagged `[first]` per weighted selector. Multiple `[first]` tags cause a validation error.
+- The `[first]` tag only affects the first request of a session. A session-level flag (`weighted_first_request_consumed`) is set after the first request is routed, ensuring subsequent requests use weighted selection even if routing fails and retries.
+- Retry paths (failover bridge) ignore the `[first]` tag and always use weighted selection among remaining candidates.
+- The weight on the `[first]`-tagged branch does not influence the first request; it only applies from the second request onward.
+- The `[first]` annotation is only valid within weighted (`^`) selectors. Using it in failover (`|`) selectors is a validation error.
+
+Combining both annotations on the same branch:
+
+```
+[first][weight=3]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet
+```
+
+This uses gpt-4 for the first session request, then routes 75% / 25% weighted distribution from the second request onward.
+
 ### Selector Rules
 
 1. **No mixing operators** - Composite selectors must not mix `|` and `^` in the same selector string. These are rejected during validation.
@@ -73,6 +100,9 @@ python -m src.core.cli --default-backend "openai:gpt-4o|anthropic:claude-3-5-son
 
 # Weighted routing
 python -m src.core.cli --default-backend "[weight=3]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet"
+
+# Weighted with first-request override
+python -m src.core.cli --default-backend "[weight=3]openai:gpt-4^[first][weight=1]anthropic:claude-3-5-sonnet"
 ```
 
 ### Environment Variables

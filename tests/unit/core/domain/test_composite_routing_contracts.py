@@ -150,3 +150,30 @@ def test_surface_aware_input_and_outcome_envelopes_are_typed() -> None:
     assert request_input.surface is RoutingSurface.REPLACEMENT_BRIDGE
     assert success.kind == "selected_target"
     assert failure.kind == "routing_error"
+
+
+def test_composite_leaf_selector_with_first_annotation() -> None:
+    """Test that CompositeLeafSelector accepts first_annotation=True."""
+    leaf = CompositeLeafSelector(
+        raw_selector="[first]openai:gpt-4",
+        normalized_selector="openai:gpt-4",
+        weight_annotation=1,
+        first_annotation=True,
+        uri_params={},
+    )
+
+    assert leaf.first_annotation is True
+    assert leaf.weight_annotation == 1
+    assert leaf.backend_type == ""
+    assert leaf.model_name == ""
+
+
+def test_composite_leaf_selector_first_annotation_defaults_to_false() -> None:
+    """Test that first_annotation defaults to False."""
+    leaf = CompositeLeafSelector(
+        raw_selector="openai:gpt-4",
+        normalized_selector="openai:gpt-4",
+        uri_params={},
+    )
+
+    assert leaf.first_annotation is False

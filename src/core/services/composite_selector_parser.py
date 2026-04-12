@@ -25,6 +25,10 @@ from src.core.domain.model_utils import (
 __all__ = ["CompositeSelectorParser"]
 
 _WEIGHT_PREFIX_PATTERN = re.compile(r"^\[weight=([^\]]+)\](.*)$")
+_FIRST_PREFIX_PATTERN = re.compile(r"^\[first(?:=(true|yes|1))?\](.*)$", re.IGNORECASE)
+_FIRST_NEGATIVE_PREFIX_PATTERN = re.compile(
+    r"^\[first=(false|no|0)\](.*)$", re.IGNORECASE
+)
 _INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
 
 
@@ -103,6 +107,13 @@ class CompositeSelectorParser:
                 )
                 for segment in parts
             ]
+            first_count = sum(1 for leaf in leaves if leaf.leaf.first_annotation)
+            if first_count > 1:
+                self._raise_validation_error(
+                    code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                    selector=routing_input.selector,
+                    message="Only one branch can have a [first] annotation in a weighted group.",
+                )
             normalized = "^".join(leaf.normalized_leaf_for_plan for leaf in leaves)
             return CompositeRoutePlan(
                 source_selector=routing_input.selector,
@@ -182,24 +193,50 @@ class CompositeSelectorParser:
             )
 
         weight_annotation: int | None = None
+        first_annotation: bool = False
         normalized_leaf_selector = raw_leaf_text
         normalized_leaf_for_plan = raw_leaf_text
 
         if is_weighted_group:
-            weight_annotation, normalized_leaf_selector = self._extract_weight_prefix(
-                raw_leaf_text,
+            remaining = raw_leaf_text
+            weight_annotation = None
+            first_annotation = False
+
+            # Extract first prefix regardless of order (could be [first] or [weight=N])
+            first_annotation, remaining = self._extract_first_prefix(
+                remaining,
                 source_selector=routing_input.selector,
             )
+            weight_annotation, remaining = self._extract_weight_prefix(
+                remaining,
+                source_selector=routing_input.selector,
+            )
+
+            # If first pass didn't find [first], try after extracting [weight]
+            if not first_annotation:
+                first_annotation, remaining = self._extract_first_prefix(
+                    remaining,
+                    source_selector=routing_input.selector,
+                )
+
+            normalized_leaf_selector = remaining
             if weight_annotation is None:
                 weight_annotation = 1
-            normalized_leaf_for_plan = (
-                f"[weight={weight_annotation}]{normalized_leaf_selector}"
-            )
+            prefix_parts = ""
+            prefix_parts += f"[weight={weight_annotation}]"
+            prefix_parts += "[first]" if first_annotation else ""
+            normalized_leaf_for_plan = f"{prefix_parts}{normalized_leaf_selector}"
         elif raw_leaf_text.startswith("[weight="):
             self._raise_validation_error(
                 code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                 selector=routing_input.selector,
                 message="Weight annotations are only supported for weighted ('^') selectors.",
+            )
+        elif "[first" in raw_leaf_text.lower() and raw_leaf_text.startswith("[first"):
+            self._raise_validation_error(
+                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                selector=routing_input.selector,
+                message="First annotations are only supported for weighted ('^') selectors.",
             )
 
         parsed_leaf = parse_model_with_params(
@@ -242,6 +279,7 @@ class CompositeSelectorParser:
             raw_selector=raw_leaf_text,
             normalized_selector=normalized_leaf_selector,
             weight_annotation=weight_annotation if is_weighted_group else None,
+            first_annotation=first_annotation if is_weighted_group else False,
             uri_params=parsed_leaf.uri_params,
             backend_type=parsed_leaf.backend_type,
             model_name=parsed_leaf.model_name,
@@ -295,6 +333,37 @@ class CompositeSelectorParser:
             )
 
         return weight_value, trailing_selector.strip()
+
+    def _extract_first_prefix(
+        self,
+        leaf_text: str,
+        *,
+        source_selector: str,
+    ) -> tuple[bool, str]:
+        # Reject negative forms like [first=false], [first=0], [first=no]
+        neg_match = _FIRST_NEGATIVE_PREFIX_PATTERN.match(leaf_text)
+        if neg_match:
+            self._raise_validation_error(
+                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                selector=source_selector,
+                message=f"Unsupported [first] annotation '{neg_match.group(0)}'. Use [first] without negation.",
+            )
+
+        match = _FIRST_PREFIX_PATTERN.match(leaf_text)
+        if not match:
+            return False, leaf_text
+
+        trailing_selector = match.group(2) or ""
+        if not trailing_selector or trailing_selector[0].isspace():
+            self._raise_validation_error(
+                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                selector=source_selector,
+                message=(
+                    "[first] must appear immediately before a selector without whitespace."
+                ),
+            )
+
+        return True, trailing_selector.strip()
 
     @staticmethod
     def _raise_validation_error(

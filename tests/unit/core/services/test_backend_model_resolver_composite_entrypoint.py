@@ -4,12 +4,13 @@ from collections.abc import Callable
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.common.exceptions import ValidationError
+from src.core.common.exceptions import RoutingError, ValidationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.composite_routing import CompositeSelectorValidationError
 from src.core.domain.request_context import RequestContext
+from src.core.domain.session import Session, SessionState
 from src.core.services.backend_model_resolver import BackendModelResolver
 from src.core.services.composite_diagnostics_publisher import (
     CompositeDiagnosticsPublisher,
@@ -708,3 +709,158 @@ async def test_model_alias_composite_failover_advances_when_first_backend_unavai
 
     assert result.backend == "opencode-zen"
     assert result.model == "minimax-m2.5-free"
+
+
+@pytest.mark.asyncio
+async def test_first_request_in_session_uses_first_tagged_branch() -> None:
+    resolver = _build_resolver_with_real_composite()
+    _attach_deterministic_weighted_composite(resolver, random_for_weights=lambda: 0.99)
+    session = Session(
+        session_id="session-main",
+        state=SessionState(weighted_first_request_consumed=False),
+    )
+    resolver._session_service.get_session = AsyncMock(return_value=session)
+    resolver._session_service.update_session = AsyncMock()
+
+    result = await resolver.resolve_target(
+        _request("[first]openai:first-model^[weight=100]openai:weighted-model"),
+        context=_context("main"),
+    )
+
+    assert result.backend == "openai"
+    assert result.model == "first-model"
+
+
+@pytest.mark.asyncio
+async def test_second_request_in_session_uses_weighted_routing() -> None:
+    resolver = _build_resolver_with_real_composite()
+    _attach_deterministic_weighted_composite(resolver, random_for_weights=lambda: 0.99)
+    session = Session(
+        session_id="session-main",
+        state=SessionState(weighted_first_request_consumed=True),
+    )
+    resolver._session_service.get_session = AsyncMock(return_value=session)
+    resolver._session_service.update_session = AsyncMock()
+
+    result = await resolver.resolve_target(
+        _request("[first]openai:first-model^[weight=100]openai:weighted-model"),
+        context=_context("main"),
+    )
+
+    assert result.backend == "openai"
+    assert result.model == "weighted-model"
+
+
+@pytest.mark.asyncio
+async def test_first_request_flag_is_consumed_after_routing() -> None:
+    resolver = _build_resolver_with_real_composite()
+    _attach_deterministic_weighted_composite(resolver, random_for_weights=lambda: 0.99)
+    session = Session(
+        session_id="session-main",
+        state=SessionState(weighted_first_request_consumed=False),
+    )
+    resolver._session_service.get_session = AsyncMock(return_value=session)
+    resolver._session_service.update_session = AsyncMock()
+
+    await resolver.resolve_target(
+        _request("[first]openai:first-model^[weight=100]openai:weighted-model"),
+        context=_context("main"),
+    )
+
+    assert getattr(session.state, "weighted_first_request_consumed", False) is True
+    assert resolver._session_service.update_session.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_no_session_treated_as_first_request() -> None:
+    session_service = MagicMock()
+    session_service.get_session = AsyncMock(return_value=None)
+    session_service.update_session = AsyncMock()
+    routing_service = MagicMock()
+    routing_service.resolve_backend_instance.return_value = "openai"
+    model_alias_resolver = MagicMock()
+    model_alias_resolver.resolve.return_value = (
+        "[first]openai:first-model^[weight=100]openai:weighted-model"
+    )
+    planning_phase_manager = MagicMock()
+    planning_phase_manager.apply_if_needed = AsyncMock()
+    backend_lifecycle_manager = MagicMock()
+    backend_lifecycle_manager.get_disabled_backends.return_value = {}
+    composite_routing_service = MagicMock()
+    composite_routing_service.resolve_target = AsyncMock(
+        return_value=BackendTarget(backend="openai", model="first-model", uri_params={})
+    )
+    resolver = BackendModelResolver(
+        session_service=session_service,
+        model_alias_resolver=model_alias_resolver,
+        planning_phase_manager=planning_phase_manager,
+        backend_lifecycle_manager=backend_lifecycle_manager,
+        config=AppConfig(),
+        routing_service=routing_service,
+        composite_routing_service=composite_routing_service,
+    )
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state={},
+        app_state=None,
+        request_id="request-main",
+        session_id=None,
+    )
+    context.extensions["composite_routing_surface"] = "main"
+
+    await resolver.resolve_target(
+        _request("[first]openai:first-model^[weight=100]openai:weighted-model"),
+        context=context,
+    )
+
+    assert composite_routing_service.resolve_target.await_args is not None
+    routing_input = composite_routing_service.resolve_target.await_args.kwargs[
+        "routing_input"
+    ]
+    assert routing_input.prefer_first_weighted_branch is True
+    assert session_service.get_session.await_count == 0
+    assert session_service.update_session.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_first_request_flag_persisted_even_on_routing_error() -> None:
+    session = Session(
+        session_id="session-main",
+        state=SessionState(weighted_first_request_consumed=False),
+    )
+    session_service = MagicMock()
+    session_service.get_session = AsyncMock(return_value=session)
+    session_service.update_session = AsyncMock()
+    routing_service = MagicMock()
+    routing_service.resolve_backend_instance.return_value = "openai"
+    model_alias_resolver = MagicMock()
+    model_alias_resolver.resolve.return_value = (
+        "[first]openai:first-model^[weight=100]openai:weighted-model"
+    )
+    planning_phase_manager = MagicMock()
+    planning_phase_manager.apply_if_needed = AsyncMock()
+    backend_lifecycle_manager = MagicMock()
+    backend_lifecycle_manager.get_disabled_backends.return_value = {}
+    composite_routing_service = MagicMock()
+    composite_routing_service.resolve_target = AsyncMock(
+        side_effect=RoutingError(message="composite failed", details={"code": "test"})
+    )
+    resolver = BackendModelResolver(
+        session_service=session_service,
+        model_alias_resolver=model_alias_resolver,
+        planning_phase_manager=planning_phase_manager,
+        backend_lifecycle_manager=backend_lifecycle_manager,
+        config=AppConfig(),
+        routing_service=routing_service,
+        composite_routing_service=composite_routing_service,
+    )
+
+    with pytest.raises(RoutingError):
+        await resolver.resolve_target(
+            _request("[first]openai:first-model^[weight=100]openai:weighted-model"),
+            context=_context("main"),
+        )
+
+    assert getattr(session.state, "weighted_first_request_consumed", False) is True
+    assert session_service.update_session.await_count == 1

@@ -103,7 +103,9 @@ class CompositeRoutingCoordinator:
                 )
             return resolved
         if isinstance(root, CompositeWeightedGroupNode):
-            selected_leaf = self._weighted_branch_selector.select(root)
+            selected_leaf = self._weighted_branch_selector.select(
+                root, prefer_first=routing_input.prefer_first_weighted_branch
+            )
             resolved = await self._resolve_leaf(
                 request=request,
                 context=context,

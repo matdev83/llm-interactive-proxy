@@ -390,30 +390,34 @@ class TestInMemorySessionRepository:
         """Test that per-user session limits are enforced."""
         original_limit = repository._max_sessions_per_user
         repository._max_sessions_per_user = 3
-        
+
         try:
             # Add sessions up to the limit
             for i in range(3):
                 session = MockSessionWithUser(
-                    session_id=f"sess-{i}", user_id="user-123", state=sample_session.state
+                    session_id=f"sess-{i}",
+                    user_id="user-123",
+                    state=sample_session.state,
                 )
                 await repository.add(session)
-                
+
             user_sessions = await repository.get_by_user_id("user-123")
             assert len(user_sessions) == 3
-            
+
             # Add one more, should trigger eviction of the oldest (sess-0)
             session = MockSessionWithUser(
-                session_id="sess-overflow", user_id="user-123", state=sample_session.state
+                session_id="sess-overflow",
+                user_id="user-123",
+                state=sample_session.state,
             )
             await repository.add(session)
-            
+
             user_sessions = await repository.get_by_user_id("user-123")
             assert len(user_sessions) == 3
             session_ids = [s.session_id for s in user_sessions]
             assert "sess-0" not in session_ids
             assert "sess-overflow" in session_ids
-            
+
             # The session remains in the main dictionary (global limit applies there)
             assert await repository.get_by_id("sess-0") is not None
             # But the reverse mapping should be cleared
@@ -428,23 +432,46 @@ class TestInMemorySessionRepository:
         """Test that per-client session limits are enforced."""
         original_limit = repository._max_sessions_per_client
         repository._max_sessions_per_client = 3
-        
+
         try:
             # We track per client using update_client_session method
             for i in range(3):
                 session_id = f"sess-{i}"
                 await repository.update_client_session(session_id, "192.168.1.1")
-                
+
             assert len(repository._client_sessions["192.168.1.1"]) == 3
-            
+
             # Add one more, should trigger eviction of the oldest (sess-0)
             await repository.update_client_session("sess-overflow", "192.168.1.1")
-            
+
             assert len(repository._client_sessions["192.168.1.1"]) == 3
             assert "sess-0" not in repository._client_sessions["192.168.1.1"]
             assert "sess-overflow" in repository._client_sessions["192.168.1.1"]
-            
+
             # But the reverse mapping should be cleared
             assert repository._session_to_client.get("sess-0") is None
         finally:
             repository._max_sessions_per_client = original_limit
+
+    @pytest.mark.asyncio
+    async def test_session_state_weighted_first_request_consumed_persistence(
+        self, repository: InMemorySessionRepository
+    ) -> None:
+        """Test that weighted_first_request_consumed flag persists through save and retrieve."""
+        # Create a session with weighted_first_request_consumed=True
+        session_state = SessionState(weighted_first_request_consumed=True)
+        session = MockSessionWithUser(
+            session_id="weighted-test-session", user_id="user-789", state=session_state
+        )
+
+        # Save the session
+        await repository.add(session)
+
+        # Retrieve the session
+        retrieved = await repository.get_by_id("weighted-test-session")
+
+        assert retrieved is not None
+        # SessionStateAdapter exposes the property; access via getattr for safety
+        assert (
+            getattr(retrieved.state, "weighted_first_request_consumed", False) is True
+        )

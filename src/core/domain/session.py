@@ -88,6 +88,7 @@ class SessionState(ValueObject):
     # (main model, excluding tool-result continuations and replacement-model turns).
     quality_verifier_eligible_turn_count: int = 0
     auto_append_first_prompt_applied: bool = False
+    weighted_first_request_consumed: bool = False
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -171,6 +172,10 @@ class SessionState(ValueObject):
     def with_auto_append_first_prompt_applied(self, applied: bool) -> SessionState:
         """Create a new session state with updated auto-append-first-prompt flag."""
         return self.model_copy(update={"auto_append_first_prompt_applied": applied})
+
+    def with_weighted_first_request_consumed(self, consumed: bool) -> SessionState:
+        """Create a new session state with updated weighted_first_request_consumed flag."""
+        return self.model_copy(update={"weighted_first_request_consumed": consumed})
 
     def with_multiple_updates(self, **updates: Any) -> SessionState:
         """Create a new session state with multiple field updates in a single model_copy operation.
@@ -340,6 +345,11 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def auto_append_first_prompt_applied(self) -> bool:
         """Whether the per-session first user-message append has already run."""
         return bool(getattr(self._state, "auto_append_first_prompt_applied", False))
+
+    @property
+    def weighted_first_request_consumed(self) -> bool:
+        """Whether the weighted routing [first] request has been consumed."""
+        return bool(getattr(self._state, "weighted_first_request_consumed", False))
 
     @property
     def planning_phase_turn_count(self) -> int:

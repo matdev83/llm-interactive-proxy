@@ -107,6 +107,7 @@ class CompositeLeafSelector(DomainModel):
     raw_selector: str
     normalized_selector: str
     weight_annotation: int | None = None
+    first_annotation: bool = False
     uri_params: dict[str, JsonValue] = Field(default_factory=dict)
     backend_type: str = ""
     model_name: str = ""
@@ -126,6 +127,13 @@ class CompositeLeafSelector(DomainModel):
             return None
         if value <= 0:
             raise ValueError("weight annotation must be positive")
+        return value
+
+    @field_validator("first_annotation")
+    @classmethod
+    def _validate_first_annotation(cls, value: bool) -> bool:
+        if not isinstance(value, bool):
+            raise ValueError("first_annotation must be a boolean")
         return value
 
 
@@ -296,6 +304,7 @@ class CompositeRoutingInput(DomainModel):
     configured_max_hops: int | None = None
     max_branch_history: int = _DEFAULT_BRANCH_HISTORY_LIMIT
     default_backend: str = ""
+    prefer_first_weighted_branch: bool = False
 
     @field_validator("selector")
     @classmethod

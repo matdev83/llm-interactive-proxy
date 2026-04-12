@@ -95,3 +95,83 @@ def test_weighted_selection_guards_against_non_positive_weights() -> None:
 
     with pytest.raises(ValueError):
         service.select(selector)
+
+
+def _first_leaf(selector: str, weight: int | None = None) -> CompositeLeafNode:
+    return CompositeLeafNode(
+        leaf_selector=CompositeLeafSelector(
+            raw_selector=selector,
+            normalized_selector=selector,
+            weight_annotation=weight,
+            first_annotation=True,
+            uri_params={},
+            backend_type="openai",
+            model_name=selector,
+        )
+    )
+
+
+def test_select_with_prefer_first_returns_first_tagged_branch() -> None:
+    """When prefer_first=True, returns the [first] tagged branch regardless of weight."""
+    weighted_node = CompositeWeightedGroupNode(
+        children=[
+            _leaf("low-weight", 1),
+            _first_leaf("first-branch", 1),
+            _leaf("high-weight", 10),
+        ]
+    )
+    # Even with random value that would pick high-weight, prefer_first should override
+    service = WeightedBranchSelector(random_value_provider=lambda: 0.99)
+
+    selected = service.select(weighted_node, prefer_first=True)
+
+    assert selected.leaf_selector.normalized_selector == "first-branch"
+    assert selected.leaf_selector.first_annotation is True
+
+
+def test_select_without_prefer_first_uses_weights() -> None:
+    """When prefer_first=False, uses normal weighted selection."""
+    weighted_node = CompositeWeightedGroupNode(
+        children=[
+            _leaf("low-weight", 1),
+            _first_leaf("first-branch", 1),
+            _leaf("high-weight", 100),
+        ]
+    )
+    # Random value 0.5 with total=102: threshold=51, low=1, first=2, high=102 -> picks high
+    service = WeightedBranchSelector(random_value_provider=lambda: 0.5)
+
+    selected = service.select(weighted_node, prefer_first=False)
+
+    assert selected.leaf_selector.normalized_selector == "high-weight"
+
+
+def test_select_prefer_first_with_no_first_tagged_uses_weights() -> None:
+    """prefer_first=True but no first_annotation, falls back to weighted."""
+    weighted_node = CompositeWeightedGroupNode(
+        children=[
+            _leaf("branch-a", 1),
+            _leaf("branch-b", 10),
+        ]
+    )
+    service = WeightedBranchSelector(random_value_provider=lambda: 0.9)
+
+    selected = service.select(weighted_node, prefer_first=True)
+
+    # No first_annotation found, should use weights (0.9 * 11 = 9.9, picks branch-b)
+    assert selected.leaf_selector.normalized_selector == "branch-b"
+
+
+def test_select_prefer_first_with_multiple_first_raises() -> None:
+    """Multiple first_annotation=True raises ValueError."""
+    weighted_node = CompositeWeightedGroupNode(
+        children=[
+            _first_leaf("first-a"),
+            _first_leaf("first-b"),
+            _leaf("normal", 1),
+        ]
+    )
+    service = WeightedBranchSelector(random_value_provider=lambda: 0.5)
+
+    with pytest.raises(ValueError, match="multiple.*first"):
+        service.select(weighted_node, prefer_first=True)

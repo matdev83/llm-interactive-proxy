@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Weighted Routing `[first]` Override**: Added `[first]` annotation for weighted composite selectors (`^`) that forces the tagged backend/model for the very first request of a session, bypassing the dice roll. Subsequent requests use normal weighted routing. Accepted forms: `[first]`, `[first=1]`, `[first=yes]`, `[first=true]`. Exactly one branch may be tagged; negative forms (`[first=false]`, etc.) are rejected. Weight on the first-tagged branch does not affect the first request. Session flag (`weighted_first_request_consumed`) is persisted after first routing and ignored on retry paths. See [Routing Selectors](docs/development_guide/routing-selectors.md).
 - **Composite Model Routing**: Added ordered failover (`|`) and weighted random (`^`) selector syntax for intelligent backend failover and traffic distribution
 - **OpenCode Go Connector**: New hybrid connector for OpenCode Go with dedicated user guide and environment key support
 - **Ollama Local Connector**: Connect to locally running Ollama instances with support for both local and cloud model discovery (30-min TTL cache)

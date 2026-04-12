@@ -261,3 +261,122 @@ def test_parse_url_encoded_operator_in_query_value_preserves_value() -> None:
     ]
     assert len(leaves) == 2
     assert leaves[1].uri_params == {"note": "x^y"}
+
+
+@pytest.mark.parametrize(
+    "first_annotation",
+    ["[first]", "[first=1]", "[first=yes]", "[first=true]"],
+)
+def test_parse_weighted_selector_accepts_first_annotation_forms(
+    first_annotation: str,
+) -> None:
+    """Test that all accepted [first] annotation forms are parsed correctly."""
+    parser = CompositeSelectorParser()
+    selector = f"{first_annotation}openai:gpt-4^anthropic:claude-3"
+
+    plan = _parse(parser, selector)
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [
+        child.leaf_selector
+        for child in plan.root_node.children
+        if isinstance(child, CompositeLeafNode)
+    ]
+    assert len(leaves) == 2
+    assert leaves[0].first_annotation is True
+    assert leaves[1].first_annotation is False
+
+
+def test_parse_weighted_selector_rejects_first_in_failover_groups() -> None:
+    """Test that [first] annotation is rejected in failover groups (| operator)."""
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "[first]openai:gpt-4|anthropic:claude-3")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+    assert "first" in exc_info.value.envelope.message.lower()
+
+
+def test_parse_weighted_selector_rejects_multiple_first_annotations() -> None:
+    """Test that multiple [first] annotations in one weighted group are rejected."""
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "[first]openai:gpt-4^[first]anthropic:claude-3")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+    assert "first" in exc_info.value.envelope.message.lower()
+
+
+def test_parse_weighted_selector_accepts_mixed_weight_and_first_annotations() -> None:
+    """Test that [weight=N] and [first] can appear together in any order."""
+    parser = CompositeSelectorParser()
+    selector = "[weight=3][first]openai:gpt-4^anthropic:claude-3"
+
+    plan = _parse(parser, selector)
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [
+        child.leaf_selector
+        for child in plan.root_node.children
+        if isinstance(child, CompositeLeafNode)
+    ]
+    assert len(leaves) == 2
+    assert leaves[0].weight_annotation == 3
+    assert leaves[0].first_annotation is True
+    assert leaves[1].first_annotation is False
+
+
+def test_parse_weighted_selector_first_before_weight() -> None:
+    """Test that [first][weight=N] order is also accepted."""
+    parser = CompositeSelectorParser()
+    selector = "[first][weight=5]openai:gpt-4^anthropic:claude-3"
+
+    plan = _parse(parser, selector)
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [
+        child.leaf_selector
+        for child in plan.root_node.children
+        if isinstance(child, CompositeLeafNode)
+    ]
+    assert leaves[0].weight_annotation == 5
+    assert leaves[0].first_annotation is True
+
+
+@pytest.mark.parametrize(
+    "rejected_form",
+    ["[first=false]", "[first=0]", "[first=no]"],
+)
+def test_parse_weighted_selector_rejects_negative_first_forms(
+    rejected_form: str,
+) -> None:
+    """Test that [first=false], [first=0], [first=no] are rejected."""
+    parser = CompositeSelectorParser()
+    selector = f"{rejected_form}openai:gpt-4^anthropic:claude-3"
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, selector)
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+
+
+def test_parse_weighted_selector_normalizes_first_in_output() -> None:
+    """Test that normalized selector includes [first] when present."""
+    parser = CompositeSelectorParser()
+    selector = "[first][weight=3]openai:gpt-4^anthropic:claude-3"
+
+    plan = _parse(parser, selector)
+
+    assert "[first]" in plan.normalized_selector
+    assert "[weight=3]" in plan.normalized_selector
