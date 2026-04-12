@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 
 @pytest.mark.asyncio
@@ -117,6 +118,59 @@ async def test_anthropic_streaming_handles_generic_error():
 
         assert "Rate limit exceeded" in str(exc_info.value)
         assert exc_info.value.code == "anthropic_error_rate_limit"
+
+
+@pytest.mark.asyncio
+async def test_stream_completion_http_429_raises_rate_limit_exceeded() -> None:
+    """HTTP 429 before the SSE body must map to RateLimitExceededError for resilience."""
+    from src.connectors.anthropic import AnthropicBackend
+    from src.core.common.exceptions import RateLimitExceededError
+    from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
+
+    client = httpx.AsyncClient()
+    config = AppConfig()
+    translation_service = TranslationService()
+
+    backend = AnthropicBackend(client, config, translation_service)
+    await backend.initialize(
+        anthropic_api_base_url="https://api.anthropic.com/v1",
+        key_name="test_key",
+        api_key="test-api-key-123",
+    )
+
+    err_json = (
+        '{"type":"error","error":{"type":"SubscriptionUsageLimitError",'
+        '"message":"quota exceeded"}}'
+    )
+    mock_response = MagicMock()
+    mock_response.status_code = 429
+    mock_response.headers = httpx.Headers({"retry-after": "42"})
+
+    async def mock_aiter_bytes():
+        yield err_json.encode()
+
+    mock_response.aiter_bytes = mock_aiter_bytes
+    mock_response.aclose = AsyncMock()
+
+    req = CanonicalChatRequest(
+        model="claude-3-5-sonnet-20241022",
+        messages=[ChatMessage(role="user", content="hello")],
+        stream=True,
+    )
+
+    with (
+        patch.object(backend.client, "build_request", return_value=MagicMock()),
+        patch.object(backend, "_capture_http_client") as cap,
+    ):
+        cap.send = AsyncMock(return_value=mock_response)
+        with pytest.raises(RateLimitExceededError) as exc_info:
+            async for _ in backend.stream_completion(req):
+                pass
+
+    assert "quota exceeded" in str(exc_info.value).lower()
+    assert exc_info.value.details.get("headers", {}).get("retry-after") == "42"
+    assert getattr(exc_info.value, "reset_at", None) == 42
 
 
 @pytest.mark.asyncio

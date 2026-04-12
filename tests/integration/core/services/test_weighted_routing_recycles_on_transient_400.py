@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,6 +9,17 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
+from src.core.interfaces.backend_model_resolver_interface import ResolvedTarget
+from src.core.interfaces.domain_entities_interface import ISession
+from src.core.services.backend_completion_flow.failure_recovery_executor import (
+    FailureRecoveryExecutor,
+)
+from src.core.services.backend_completion_flow.service import BackendCompletionFlow
+from src.core.services.backend_model_resolver import BackendModelResolver
+from src.core.services.composite_failure_recovery_bridge import (
+    CompositeFailureRecoveryBridge,
+)
+from src.core.services.weighted_branch_selector import WeightedBranchSelector
 
 
 def _new_request_context() -> RequestContext:
@@ -196,7 +207,7 @@ class _ResolverBackedRequestPreparer:
             request=request,
             resolved=target,
         )
-        return cast(ChatRequest, synchronized)
+        return synchronized
 
     async def prepare_backend_request(
         self,
@@ -366,7 +377,10 @@ async def test_weighted_routing_recycles_on_transient_400_without_surfacing() ->
     state = context.extensions["composite_routing_state"]
     assert isinstance(state, dict)
     assert state["selected_selector"] == "qwen-oauth:coder-model"
-    assert "zai-coding-plan:glm-5.1" in state["excluded_selectors"]
+    excluded_raw = state["excluded_selectors"]
+    assert isinstance(excluded_raw, list)
+    assert all(isinstance(x, str) for x in excluded_raw)
+    assert "zai-coding-plan:glm-5.1" in excluded_raw
     assert state["hop_count"] == 1
 
 
@@ -437,7 +451,7 @@ async def test_weighted_routing_recycles_all_candidates_within_hop_budget() -> N
     state = context.extensions["composite_routing_state"]
     assert isinstance(state, dict)
     assert state["selected_selector"] == "zai-coding-plan:glm-5.1"
-    assert state["hop_count"] == 3
+    assert state["hop_count"] == 2
 
 
 @pytest.mark.asyncio
@@ -508,4 +522,4 @@ async def test_weighted_routing_recycles_with_resolver_backend() -> None:
     state = context.extensions["composite_routing_state"]
     assert isinstance(state, dict)
     assert state["selected_selector"] == "zai-coding-plan:glm-5.1"
-    assert state["hop_count"] == 3
+    assert state["hop_count"] == 2

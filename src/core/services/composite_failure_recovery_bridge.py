@@ -175,11 +175,21 @@ class CompositeFailureRecoveryBridge:
                 remaining.append(item)
 
         if not remaining:
-            weighted["excluded_selectors"] = excluded
-            context.extensions[COMPOSITE_ROUTING_STATE_KEY] = cast(
-                JsonValue, self._serialize_weighted_state(weighted)
-            )
-            return None
+            # All branches were exhausted once; recycle candidates by keeping only
+            # the current failed selector excluded and retrying the rest.
+            excluded = [selected]
+            excluded_set = {selected}
+            remaining = [
+                item
+                for item in weighted["branches"]
+                if item["selector"] not in excluded_set
+            ]
+            if not remaining:
+                weighted["excluded_selectors"] = excluded
+                context.extensions[COMPOSITE_ROUTING_STATE_KEY] = cast(
+                    JsonValue, self._serialize_weighted_state(weighted)
+                )
+                return None
 
         if len(remaining) == 1:
             next_selector = remaining[0]["selector"]

@@ -178,9 +178,25 @@ class StreamingErrorMapper:
                 status_code=status_code,
             )
 
-        # Map BackendError with quota_exceeded code
+        # Map BackendError: promote bare HTTP 429 to RateLimitExceededError so early
+        # streaming prefetch (integrate_streaming_pipeline) and terminal error chunks
+        # agree with connectors that raise RateLimitExceededError directly.
         if isinstance(error, BackendError):
-            # Preserve the BackendError as-is, including code and status_code
+            if (
+                not isinstance(error, RateLimitExceededError)
+                and getattr(error, "status_code", None) == 429
+            ):
+                merged_details = dict(error.details or {})
+                if "provider" not in merged_details:
+                    merged_details["provider"] = provider
+                if stream_id and "stream_id" not in merged_details:
+                    merged_details["stream_id"] = stream_id
+                return RateLimitExceededError(
+                    message=error.message,
+                    details=merged_details,
+                    reset_at=getattr(error, "reset_at", None),
+                )
+            # Preserve other BackendError variants as-is, including code and status_code
             return error
 
         # Map httpx connection errors

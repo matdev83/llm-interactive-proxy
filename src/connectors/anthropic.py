@@ -25,8 +25,10 @@ from src.core.common.capture_aware_httpx import (
 )
 from src.core.common.exceptions import (
     AuthenticationError,
+    BackendError,
     ConfigurationError,
     InvalidRequestError,
+    RateLimitExceededError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
@@ -70,6 +72,37 @@ _NON_FORWARDABLE_EXTRA_BODY_KEYS = frozenset(
 _LLM_PROXY_REQUEST_ID_KEY = "_llm_proxy_request_id"
 _LLM_PROXY_SESSION_ID_KEY = "_llm_proxy_session_id"
 _LLM_PROXY_CLIENT_HOST_KEY = "_llm_proxy_client_host"
+
+
+def _retry_after_metadata_from_httpx_headers(
+    headers: Any,
+) -> tuple[dict[str, Any], int | None]:
+    """Extract Retry-After for resilience (same ``details['headers']`` shape as OpenAI).
+
+    ``RateLimitErrorHandler`` reads ``details['headers']['retry-after']`` when
+    ``reset_at`` is not a usable wall-clock hint, so we populate that structure here.
+    """
+
+    details: dict[str, Any] = {}
+    reset_hint: int | None = None
+    retry_after: str | None = None
+    try:
+        if hasattr(headers, "get"):
+            got = headers.get("retry-after")
+            if got is not None:
+                retry_after = str(got).strip()
+        if not retry_after:
+            for key, value in headers.items():
+                if str(key).lower() == "retry-after":
+                    retry_after = str(value).strip()
+                    break
+        if retry_after:
+            details["headers"] = {"retry-after": retry_after}
+            with contextlib.suppress(ValueError, TypeError):
+                reset_hint = int(retry_after.split(",")[0].strip())
+    except Exception:
+        return {}, None
+    return details, reset_hint
 
 
 def _message_tool_calls(msg: Any) -> list[Any] | None:
@@ -1332,7 +1365,10 @@ class AnthropicBackend(LLMBackend):
 
         # Check for errors before streaming
         if response.status_code >= 400:
-            from src.core.common.exceptions import BackendError
+            status_code = response.status_code
+            rate_limit_details, retry_after_seconds = (
+                _retry_after_metadata_from_httpx_headers(response.headers)
+            )
 
             try:
                 # Read only first 10MB of error body to prevent DoS (consistent with other middleware)
@@ -1356,14 +1392,30 @@ class AnthropicBackend(LLMBackend):
 
                 body_text = body_bytes.decode("utf-8", errors="ignore")
 
-                if logger.isEnabledFor(logging.ERROR):
-                    # Note: stream_completion doesn't have context access (protocol method)
-                    # Context correlation would require protocol change
+                # Operational HTTP errors: never use exc_info=True here — under concurrent
+                # asyncio work, sys.exc_info() can belong to another task and produces a
+                # misleading traceback on this log line.
+                preview = (
+                    (body_text[:500] + "...") if len(body_text) > 500 else body_text
+                )
+                if status_code == 429:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Anthropic API rate limited (HTTP 429): %s",
+                            preview or "(empty body)",
+                        )
+                elif 400 <= status_code < 500:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Anthropic API client error %s: %s",
+                            status_code,
+                            preview or "(empty body)",
+                        )
+                elif logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        "Anthropic API error %s: %s",
-                        response.status_code,
-                        body_text,
-                        exc_info=True,
+                        "Anthropic API server error %s: %s",
+                        status_code,
+                        preview or "(empty body)",
                     )
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 if logger.isEnabledFor(logging.WARNING):
@@ -1375,10 +1427,17 @@ class AnthropicBackend(LLMBackend):
                 body_text = ""
             finally:
                 await response.aclose()
+
+            if status_code == 429:
+                raise RateLimitExceededError(
+                    message=body_text or "Anthropic rate limit exceeded",
+                    details=rate_limit_details,
+                    reset_at=retry_after_seconds,
+                )
             raise BackendError(
                 message=body_text,
                 code="anthropic_error",
-                status_code=response.status_code,
+                status_code=status_code,
             )
         # Stream SSE messages
         try:

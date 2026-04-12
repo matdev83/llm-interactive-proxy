@@ -434,7 +434,7 @@ class TestCborWireCaptureService:
             )
             assert service.enabled()
             entry = CapturedWireEvent(
-                timestamp=time.time(),
+                timestamp=1700000000.0,
                 direction=CaptureDirection.PROXY_TO_CLIENT,
                 sequence=0,
                 data=b"x",
@@ -471,7 +471,7 @@ class TestCborWireCaptureService:
                     session_id="enospc-throttle",
                 )
                 entry = CapturedWireEvent(
-                    timestamp=time.time(),
+                    timestamp=1700000001.0,
                     direction=CaptureDirection.PROXY_TO_CLIENT,
                     sequence=0,
                     data=b"x",

@@ -200,6 +200,23 @@ class TestHandleStreamingError:
         # The retryable flag should be present
         assert "retryable" in chunk.metadata["error"]
 
+    def test_streaming_error_mapper_promotes_backend_error_429(self) -> None:
+        """Plain BackendError(429) should map like a native rate-limit error."""
+
+        mapped_error = StreamingErrorMapper.map_backend_error(
+            BackendError(
+                message="upstream throttled",
+                status_code=429,
+                details={"headers": {"retry-after": "33"}},
+            ),
+            "anthropic",
+            "s-1",
+        )
+
+        assert isinstance(mapped_error, RateLimitExceededError)
+        assert mapped_error.details.get("headers", {}).get("retry-after") == "33"
+        assert mapped_error.details.get("stream_id") == "s-1"
+
     def test_streaming_error_mapper_preserves_retry_after_headers(self) -> None:
         """HTTP 429 detail headers should survive streaming error mapping."""
 
