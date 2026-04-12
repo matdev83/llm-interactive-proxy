@@ -15,6 +15,7 @@ from src.core.domain.configuration.dynamic_compression_config import (
     CompressionRule,
     CompressionRulePredicate,
     DynamicCompressionConfig,
+    MarkerStyle,
     OutputPatternRuleConfig,
 )
 from src.core.domain.dynamic_compression import ToolOutputContext
@@ -472,6 +473,86 @@ async def test_service_skips_outputs_with_compressed_marker_already_processed() 
     assert result.messages[1].content == previously_compressed
     assert result.records[0].applied is False
     assert "skipped_already_processed_compression" in result.records[0].warnings
+
+
+@pytest.mark.asyncio
+async def test_service_skips_outputs_with_compressed_suffix_marker_already_processed() -> (
+    None
+):
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    previously_compressed = (
+        "diff --git a/foo.py b/foo.py\n--- a/foo.py\n+++ b/foo.py\n"
+        "[COMPRESSED level=balanced methods=ansi_normalize,diff_compact saved=2048B]"
+    )
+    messages = _build_tool_messages("git diff", previously_compressed)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.messages[1].content == previously_compressed
+    assert result.records[0].applied is False
+    assert "skipped_already_processed_compression" in result.records[0].warnings
+
+
+@pytest.mark.asyncio
+async def test_service_skips_output_with_suffix_marker_on_second_pass() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    original_content = "line-1\nline-2\nline-3\nline-4\nline-5\n"
+    messages = _build_tool_messages("git diff", original_content)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(
+            enabled=True,
+            style=MarkerStyle.SUFFIX,
+            include_sizes=False,
+            include_methods=False,
+        ),
+        methods={"half_trim": True},
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    first_pass = await service.compress_messages(messages=messages, config=cfg)
+    assert first_pass.records[0].applied is True
+    first_content = first_pass.messages[1].content
+
+    second_pass = await service.compress_messages(
+        messages=first_pass.messages, config=cfg
+    )
+    assert second_pass.records[0].applied is False
+    assert second_pass.messages[1].content == first_content
 
 
 @pytest.mark.asyncio

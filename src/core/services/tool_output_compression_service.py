@@ -815,7 +815,7 @@ class ToolOutputCompressionService:
             return None
         if _COMPACTED_STUB_MARKER in message.content:
             return "skipped_already_processed_compaction"
-        if _COMPRESSED_MARKER_RE.match(message.content):
+        if _COMPRESSED_MARKER_RE.search(message.content):
             return "skipped_already_processed_compression"
         if (
             _SYSTEM_REMINDER_MARKER in message.content
