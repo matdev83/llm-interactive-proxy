@@ -606,6 +606,54 @@ class TestOpenAICanonicalAPI:
         ]
         assert openai_connector._capture_http_client.send.await_count == 2
 
+    @pytest.mark.asyncio
+    async def test_stream_completion_retries_once_on_server_disconnected(
+        self, openai_connector
+    ):
+        request = CanonicalChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="Hello")],
+            max_tokens=100,
+            stream=True,
+        )
+        http_request = httpx.Request(
+            "POST",
+            "https://api.openai.com/v1/chat/completions",
+            json={"model": "gpt-4", "stream": True},
+        )
+        streamed_response = MagicMock()
+        streamed_response.status_code = 200
+        streamed_response.headers = {"content-type": "text/event-stream"}
+        streamed_response.aiter_bytes = lambda: _aiter_bytes(
+            b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+            b"data: [DONE]\n\n",
+        )
+        streamed_response.aclose = AsyncMock()
+
+        openai_connector.client.build_request.return_value = http_request
+        with patch.object(
+            openai_connector,
+            "_prepare_payload",
+            new_callable=AsyncMock,
+            return_value={"model": "gpt-4", "messages": []},
+        ):
+            openai_connector._capture_http_client.send = AsyncMock(
+                side_effect=[
+                    httpx.RemoteProtocolError("Server disconnected"),
+                    streamed_response,
+                ]
+            )
+
+            chunks = [
+                chunk async for chunk in openai_connector.stream_completion(request)
+            ]
+
+        assert chunks == [
+            'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+            "data: [DONE]\n\n",
+        ]
+        assert openai_connector._capture_http_client.send.await_count == 2
+
 
 class TestOpenAIPayloadCleaning:
     """Tests for outbound payload hygiene."""

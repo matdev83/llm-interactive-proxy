@@ -305,6 +305,20 @@ def _raise_for_httpx_request_error(
             status_code=502,
         ) from exc
 
+    if isinstance(exc, httpx.RemoteProtocolError):
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Upstream protocol error (remote disconnect): %s: %s",
+                url,
+                exc,
+                extra=log_extra,
+            )
+        raise BackendError(
+            message=f"Upstream protocol error: remote server disconnected ({exc!s})",
+            details={"url": url, "reason": "remote_protocol_error"},
+            status_code=502,
+        ) from exc
+
     logger.error(
         "Request failed to %s: %s",
         url,
@@ -322,7 +336,10 @@ def _is_retryable_http2_stream_termination(exc: httpx.RequestError) -> bool:
     if not isinstance(exc, httpx.RemoteProtocolError):
         return False
     message = str(exc)
-    return "ConnectionTerminated" in message and "ErrorCodes.NO_ERROR" in message
+    lowered = message.lower()
+    if "ConnectionTerminated" in message and "ErrorCodes.NO_ERROR" in message:
+        return True
+    return "server disconnected" in lowered
 
 
 class OpenAIConnector(LLMBackend):

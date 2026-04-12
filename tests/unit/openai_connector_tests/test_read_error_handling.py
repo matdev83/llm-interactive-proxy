@@ -113,6 +113,24 @@ class TestHttpErrorMapping:
         assert ctx.value.status_code == 503
         assert "Could not connect to backend" in ctx.value.message
 
+    def test_remote_protocol_error_maps_to_backend_error_502(self) -> None:
+        """httpx.RemoteProtocolError should map to BackendError(502)."""
+        exc = httpx.RemoteProtocolError(
+            "Server disconnected",
+            request=httpx.Request("POST", "https://example.com/v1/chat/completions"),
+        )
+
+        with pytest.raises(BackendError) as ctx:
+            _raise_for_httpx_request_error(
+                exc,
+                url="https://example.com/v1/chat/completions",
+                log_extra=None,
+            )
+
+        assert ctx.value.status_code == 502
+        assert ctx.value.details.get("reason") == "remote_protocol_error"
+        assert "remote server disconnected" in ctx.value.message.lower()
+
 
 class TestRetryableHttp2StreamTermination:
     """Test HTTP/2 stream termination retry detection."""
@@ -130,15 +148,14 @@ class TestRetryableHttp2StreamTermination:
 
         assert not _is_retryable_http2_stream_termination(exc)
 
-    def test_remote_protocol_error_with_no_error_is_retryable(self) -> None:
-        """httpx.RemoteProtocolError with NO_ERROR termination is retryable."""
+    def test_remote_protocol_error_with_server_disconnected_is_retryable(self) -> None:
+        """httpx.RemoteProtocolError with server disconnected message is retryable."""
         exc = httpx.RemoteProtocolError(
-            "Server disconnected without sending a response.",
+            "Server disconnected",
             request=httpx.Request("POST", "https://example.com/v1/chat/completions"),
         )
 
-        # This is NOT retryable because it doesn't have ConnectionTerminated/NO_ERROR
-        assert not _is_retryable_http2_stream_termination(exc)
+        assert _is_retryable_http2_stream_termination(exc)
 
     def test_remote_protocol_error_with_graceful_termination_is_retryable(self) -> None:
         """httpx.RemoteProtocolError with graceful HTTP/2 termination is retryable."""
@@ -147,5 +164,4 @@ class TestRetryableHttp2StreamTermination:
             "Server disconnected without sending a response. ConnectionTerminated",
             request=httpx.Request("POST", "https://example.com/v1/chat/completions"),
         )
-        # Note: This doesn't match the full pattern because NO_ERROR is missing
-        assert not _is_retryable_http2_stream_termination(exc)
+        assert _is_retryable_http2_stream_termination(exc)
