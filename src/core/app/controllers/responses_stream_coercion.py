@@ -1,4 +1,4 @@
-"""Helpers for coercing streaming chunks into canonical dict payloads."""
+"""Coercion helpers for Responses streaming chunks into canonical dict payloads."""
 
 from __future__ import annotations
 

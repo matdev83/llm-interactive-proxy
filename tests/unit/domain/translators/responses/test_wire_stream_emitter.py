@@ -156,3 +156,39 @@ def test_emitter_mixes_text_and_tool_calls_without_legacy_shape() -> None:
     assert all("object" not in evt for evt in out)
     assert "response.function_call_arguments.delta" in [evt["type"] for evt in out]
     assert out[-1]["type"] == "response.completed"
+
+
+def test_emitter_pure_tool_call_emits_complete_wire_sequence() -> None:
+    """Pure tool call (no text) should still emit full message + tool lifecycle."""
+    em = ResponsesWireStreamEmitter(model="gpt-test", created_at=1700000000.0)
+    out = em.feed(
+        {
+            "id": "resp_pure_tool",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "id": "call_pure",
+                                "type": "function",
+                                "function": {"name": "fetch_data", "arguments": "{}"},
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+        }
+    )
+    types = [e["type"] for e in out]
+    assert types == [
+        "response.created",
+        "response.in_progress",
+        "response.output_item.added",  # function_call item
+        "response.function_call_arguments.delta",
+        "response.function_call_arguments.done",
+        "response.output_item.done",
+        "response.completed",
+    ]
+    assert em.is_finished()

@@ -16,7 +16,7 @@ from fastapi import HTTPException, Request, Response, WebSocket, WebSocketDiscon
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from src.core.app.controllers.responses_stream_legacy import coerce_stream_chunk_payload
+from src.core.app.controllers.responses_stream_coercion import coerce_stream_chunk_payload
 from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,

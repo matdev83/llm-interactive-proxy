@@ -496,6 +496,12 @@ class ResponsesWireStreamEmitter:
         ):
             self._close_tool_call(out, state)
 
+        # Always emit a final text.done event (even if empty) when a message was started.
+        # This ensures strict clients see a complete message lifecycle even in pure-tool-call
+        # responses.
+        if self._message_item_id is not None and not self._message_done:
+            self._close_message(out)
+
         usage = domain_chunk.get("usage")
         usage_dict = usage if isinstance(usage, dict) else None
 
