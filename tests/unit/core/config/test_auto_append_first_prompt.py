@@ -1,4 +1,4 @@
-"""Tests for auto-append-first-prompt configuration and hydration."""
+"""Tests for auto-append-first-prompt configuration resolution."""
 
 from __future__ import annotations
 
@@ -9,7 +9,8 @@ from unittest.mock import MagicMock
 import pytest
 from src.core.config.app_config import AppConfig
 from src.core.config.auto_append_first_prompt_hydration import (
-    hydrate_auto_append_first_prompt,
+    resolve_app_config,
+    resolve_auto_append_first_prompt_text,
 )
 from src.core.config.models.app_config_model import AppConfigModel
 
@@ -26,22 +27,21 @@ def test_app_config_model_accepts_txt_and_md() -> None:
     assert m2.auto_append_first_prompt_filename == "b.md"
 
 
-def test_hydrate_missing_file_raises(tmp_path: Path) -> None:
+def test_resolve_missing_file_raises(tmp_path: Path) -> None:
     missing = tmp_path / "missing.md"
     cfg = AppConfig(auto_append_first_prompt_filename=str(missing))
     with pytest.raises(ValueError, match="file not found"):
-        hydrate_auto_append_first_prompt(cfg)
+        resolve_auto_append_first_prompt_text(cfg)
 
 
-def test_hydrate_reads_file(tmp_path: Path) -> None:
+def test_resolve_reads_file(tmp_path: Path) -> None:
     p = tmp_path / "suffix.txt"
     p.write_text("hello\nworld\n", encoding="utf-8")
     cfg = AppConfig(auto_append_first_prompt_filename=str(p))
-    hydrate_auto_append_first_prompt(cfg)
-    assert cfg.auto_append_first_prompt_text == "hello\nworld"
+    assert resolve_auto_append_first_prompt_text(cfg) == "hello\nworld"
 
 
-def test_hydrate_logs_load_info(
+def test_resolve_logs_load_info(
     caplog: pytest.LogCaptureFixture, tmp_path: Path
 ) -> None:
     p = tmp_path / "note.md"
@@ -50,28 +50,35 @@ def test_hydrate_logs_load_info(
     with caplog.at_level(
         logging.INFO, logger="src.core.config.auto_append_first_prompt_hydration"
     ):
-        hydrate_auto_append_first_prompt(cfg)
+        resolve_auto_append_first_prompt_text(cfg)
     assert "Auto-append first prompt: loaded 1 characters" in caplog.text
 
 
-def test_hydrate_empty_file_sets_text_none(tmp_path: Path) -> None:
+def test_resolve_empty_file_returns_none(tmp_path: Path) -> None:
     p = tmp_path / "empty.md"
     p.write_text("   \n", encoding="utf-8")
     cfg = AppConfig(auto_append_first_prompt_filename=str(p))
-    hydrate_auto_append_first_prompt(cfg)
-    assert cfg.auto_append_first_prompt_text is None
+    assert resolve_auto_append_first_prompt_text(cfg) is None
 
 
-def test_hydrate_clears_when_filename_unset() -> None:
+def test_resolve_returns_none_when_filename_unset() -> None:
     cfg = AppConfig()
-    cfg.auto_append_first_prompt_text = "stale"
-    hydrate_auto_append_first_prompt(cfg)
-    assert cfg.auto_append_first_prompt_text is None
+    assert resolve_auto_append_first_prompt_text(cfg) is None
 
 
-def test_hydrate_skips_non_string_filename() -> None:
+def test_resolve_skips_non_string_filename() -> None:
     cfg = AppConfig()
     cfg.auto_append_first_prompt_filename = MagicMock()  # type: ignore[assignment]
-    cfg.auto_append_first_prompt_text = "stale"
-    hydrate_auto_append_first_prompt(cfg)
-    assert cfg.auto_append_first_prompt_text is None
+    assert resolve_auto_append_first_prompt_text(cfg) is None
+
+
+def test_resolve_app_config_returns_immutable_resolved_model(tmp_path: Path) -> None:
+    p = tmp_path / "suffix.txt"
+    p.write_text("tail", encoding="utf-8")
+    cfg = AppConfig(auto_append_first_prompt_filename=str(p))
+
+    resolved = resolve_app_config(cfg)
+
+    assert resolved.auto_append_first_prompt_text == "tail"
+    with pytest.raises((TypeError, ValueError)):
+        resolved.auto_append_first_prompt_text = "other"  # type: ignore[misc]

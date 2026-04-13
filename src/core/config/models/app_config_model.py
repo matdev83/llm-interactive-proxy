@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -195,5 +196,17 @@ class AppConfigModel(DomainModel, IConfig):
             return default
 
     def set(self, key: str, value: Any) -> None:
-        """Set a configuration value (legacy convenience)."""
+        """Set a configuration value (legacy convenience).
+
+        .. deprecated::
+            ``IConfig.set()`` is deprecated.  Use ``model_copy(update=...)`` on
+            the immutable model or mutate runtime state via ``ApplicationState``
+            instead.
+        """
+        warnings.warn(
+            "IConfig.set() is deprecated; use model_copy(update=...) or mutate "
+            "runtime state via ApplicationState instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         setattr(self, key, value)

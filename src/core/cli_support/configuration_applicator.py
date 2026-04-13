@@ -196,11 +196,6 @@ class ConfigurationApplicator:
 
         # Validate and apply command prefix (ensures it's never None)
         final_cfg = self._validate_and_apply_prefix(final_cfg, validate_command_prefix)
-        from src.core.config.auto_append_first_prompt_hydration import (
-            hydrate_auto_append_first_prompt,
-        )
-
-        hydrate_auto_append_first_prompt(final_cfg)
         return final_cfg
 
     def _set_auxiliary_routing_base_config_disable(

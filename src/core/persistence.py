@@ -541,22 +541,37 @@ class ConfigManager:
         return f"{backend_name}:{model_name}", None
 
     def _prune_unavailable_routes(self) -> None:
+        """Compute effective failover routes and store in runtime state.
+
+        This method no longer mutates ``app_config.failover_routes``.  Instead
+        it computes the subset of declared routes whose elements are all
+        functional and stores them as effective routes in the application
+        state service.
+        """
         if not self.app_state or not self.app_state.app_config:
             return
 
-        self.app_state.app_config.failover_routes = {
-            name: route
-            for name, route in self.app_state.app_config.failover_routes.items()
-            if (
-                getattr(route, "elements", None) if hasattr(route, "elements") else route.get("elements")  # type: ignore[attr-defined]
+        declared_routes = self.app_state.app_config.failover_routes
+        for name, route in declared_routes.items():
+            elements = (
+                getattr(route, "elements", [])
+                if hasattr(route, "elements")
+                else route.get("elements", [])  # type: ignore[attr-defined]
             )
-            and all(
+            if not elements:
+                continue
+            if not all(
                 self.app_state.app_config.model_is_functional(element)
-                for element in (
-                    getattr(route, "elements", []) if hasattr(route, "elements") else route.get("elements", [])  # type: ignore[attr-defined]
-                )
+                for element in elements
+            ):
+                continue
+            self.app_state.set_failover_route(
+                name,
+                {
+                    "policy": getattr(route, "policy", "k"),
+                    "elements": list(elements),
+                },
             )
-        }
 
     def _apply_failover_routes(self, froutes_value: Any) -> list[str]:
         warnings: list[str] = []

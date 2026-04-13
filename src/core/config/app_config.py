@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
@@ -161,11 +162,6 @@ class AppConfig(AppConfigModel):
         loader = AppConfigLoader(backend_instances_dir=BACKEND_INSTANCES_DIR)
         model = loader.load(None, environ=env, resolution=res)
         cfg = cls.model_validate(model.model_dump())
-        from src.core.config.auto_append_first_prompt_hydration import (
-            hydrate_auto_append_first_prompt,
-        )
-
-        hydrate_auto_append_first_prompt(cfg)
         return cfg
 
     def get(self, key: str, default: Any = None) -> Any:
@@ -190,7 +186,19 @@ class AppConfig(AppConfigModel):
             return default
 
     def set(self, key: str, value: Any) -> None:
-        """Set a configuration value (legacy convenience)."""
+        """Set a configuration value (legacy convenience).
+
+        .. deprecated::
+            ``IConfig.set()`` is deprecated.  Use ``model_copy(update=...)`` on
+            the immutable model or mutate runtime state via ``ApplicationState``
+            instead.
+        """
+        warnings.warn(
+            "IConfig.set() is deprecated; use model_copy(update=...) or mutate "
+            "runtime state via ApplicationState instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         setattr(self, key, value)
 
     def get_gcp_project_id(self) -> str | None:
@@ -214,11 +222,6 @@ def load_config(
 
     # Return the legacy concrete type (subclass) for compatibility.
     cfg = AppConfig.model_validate(model.model_dump())
-    from src.core.config.auto_append_first_prompt_hydration import (
-        hydrate_auto_append_first_prompt,
-    )
-
-    hydrate_auto_append_first_prompt(cfg)
     return cfg
 
 

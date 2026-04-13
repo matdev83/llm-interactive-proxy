@@ -22,6 +22,7 @@ from src.core.config.models.misc import (
 )
 from src.core.config.models.non_forwardable_config import NonForwardableTaggingConfig
 from src.core.config.models.notification import NotificationConfig
+from src.core.config.models.resolved_app_config import ResolvedAppConfig
 from src.core.config.models.rewriting import (
     EditPrecisionConfig,
     ModelAliasRule,
@@ -57,6 +58,7 @@ __all__ = [
     "PlanningPhaseConfig",
     "CanonicalRequestProcessingConfig",
     "ReasoningModelTokenFloorConfig",
+    "ResolvedAppConfig",
     "RewritingConfig",
     "ResilienceConfig",
     "RoutingConfig",

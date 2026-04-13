@@ -288,10 +288,10 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         ) and context.extensions.get("auxiliary_request"):
             return request
 
-        app_config = self._get_app_config()
+        resolved_app_config = self._get_resolved_app_config()
         suffix_raw = (
-            getattr(app_config, "auto_append_first_prompt_text", None)
-            if app_config is not None
+            getattr(resolved_app_config, "auto_append_first_prompt_text", None)
+            if resolved_app_config is not None
             else None
         )
         suffix = str(suffix_raw).strip() if suffix_raw is not None else ""
@@ -453,6 +453,31 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         try:
             return self._app_state.get_setting("app_config")
         except (AttributeError, KeyError, TypeError):
+            return None
+
+    def _get_resolved_app_config(self) -> Any | None:
+        if self._app_state is None:
+            return None
+
+        try:
+            resolved = self._app_state.get_setting("resolved_app_config")
+        except (AttributeError, KeyError, TypeError):
+            resolved = None
+
+        if resolved is not None:
+            return resolved
+
+        app_config = self._get_app_config()
+        if app_config is None:
+            return None
+
+        try:
+            from src.core.config.auto_append_first_prompt_hydration import (
+                resolve_app_config,
+            )
+
+            return resolve_app_config(app_config)
+        except Exception:
             return None
 
     def _get_session_state(self, session: object) -> Any | None:

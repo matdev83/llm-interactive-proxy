@@ -51,6 +51,14 @@ async def create_anthropic_app_async(
 
     _register_anthropic_endpoints(app, prefix="")
     app.state.app_config = app_config
+    try:
+        from src.core.config.auto_append_first_prompt_hydration import (
+            resolve_app_config,
+        )
+
+        app.state.resolved_app_config = resolve_app_config(app_config)
+    except Exception:
+        app.state.resolved_app_config = None
 
     # Register Codebuff WebSocket endpoint if enabled
     if app_config.codebuff.enabled:
