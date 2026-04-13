@@ -318,6 +318,7 @@ def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
             "DYNAMIC_COMPRESSION_PER_OUTPUT_EVALUATION_LOG_LEVEL": "off",
             "DYNAMIC_COMPRESSION_FILE_DETAIL_INCLUDE_LINE_NUMBERS": "true",
             "DYNAMIC_COMPRESSION_DISABLE_METHODS": "ansi_normalize,line_dedupe",
+            "DYNAMIC_COMPRESSION_DISABLE_TOOL_NAME_SUBSTRINGS": "fff,mcp_",
         },
         resolution=resolution,
     )
@@ -332,6 +333,7 @@ def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
         "ansi_normalize",
         "line_dedupe",
     ]
+    assert cfg.dynamic_compression.disable_tool_name_substrings == ["fff", "mcp_"]
 
     env_paths = set(resolution.latest_by_source(ParameterSource.ENVIRONMENT))
     assert "dynamic_compression.enabled" in env_paths
@@ -341,3 +343,4 @@ def test_dynamic_compression_env_is_loaded_and_tracked() -> None:
     assert "dynamic_compression.per_output_evaluation_log_level" in env_paths
     assert "dynamic_compression.file_detail_include_line_numbers" in env_paths
     assert "dynamic_compression.disable_methods" in env_paths
+    assert "dynamic_compression.disable_tool_name_substrings" in env_paths

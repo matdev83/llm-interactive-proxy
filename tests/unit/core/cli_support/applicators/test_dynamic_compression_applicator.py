@@ -37,6 +37,7 @@ def test_dynamic_compression_applicator_sets_overrides_and_resolution() -> None:
     args.dynamic_compression_per_output_evaluation_log_level = "off"
     args.dynamic_compression_file_detail_include_line_numbers = True
     args.dynamic_compression_disable_methods = "ansi_normalize,line_dedupe"
+    args.dynamic_compression_disable_tool_name_substrings = "fff,mcp_"
 
     overrides: dict[str, object] = {}
     resolution = ParameterResolution()
@@ -53,6 +54,7 @@ def test_dynamic_compression_applicator_sets_overrides_and_resolution() -> None:
     assert dc_typed.get("per_output_evaluation_log_level") == "off"
     assert dc_typed.get("file_detail_include_line_numbers") is True
     assert dc_typed.get("disable_methods") == ["ansi_normalize", "line_dedupe"]
+    assert dc_typed.get("disable_tool_name_substrings") == ["fff", "mcp_"]
 
     cli_paths = set(resolution.latest_by_source(ParameterSource.CLI))
     assert "dynamic_compression.enabled" in cli_paths
@@ -62,6 +64,7 @@ def test_dynamic_compression_applicator_sets_overrides_and_resolution() -> None:
     assert "dynamic_compression.per_output_evaluation_log_level" in cli_paths
     assert "dynamic_compression.file_detail_include_line_numbers" in cli_paths
     assert "dynamic_compression.disable_methods" in cli_paths
+    assert "dynamic_compression.disable_tool_name_substrings" in cli_paths
 
 
 def test_dynamic_compression_applicator_is_noop_when_no_args() -> None:

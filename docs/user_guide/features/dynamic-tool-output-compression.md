@@ -107,6 +107,9 @@ dynamic_compression:
   # Specific tool exclusions
   disable_tools: []             # e.g., ["shell", "bash", "run_command"]
 
+  # Tool-name substring exclusions (match anywhere, case-insensitive)
+  disable_tool_name_substrings: []  # e.g., ["fff", "mcp_"]
+
   # Command prefix exclusions
   disable_command_prefixes: []  # e.g., ["git diff --stat", "pytest -v"]
 
@@ -153,7 +156,24 @@ dynamic_compression:
 | `--dynamic-compression-disable-categories CSV` | Comma-separated categories to bypass |
 | `--dynamic-compression-disable-methods CSV` | Comma-separated methods to disable |
 | `--dynamic-compression-disable-tools CSV` | Comma-separated tool names to bypass |
+| `--dynamic-compression-disable-tool-name-substrings CSV` | Comma-separated substrings matched anywhere in tool names |
 | `--dynamic-compression-disable-command-prefixes CSV` | Comma-separated command prefixes to bypass |
+
+### Excluding MCP Tool Families (for example `fff`)
+
+If a tool family already produces compact output, skip dynamic compression for it using `disable_tool_name_substrings`.
+
+```yaml
+dynamic_compression:
+  enabled: true
+  disable_tool_name_substrings: ["fff"]
+```
+
+This matches tool names case-insensitively and anywhere in the name, including:
+- `fff_grep`
+- `fff_find_files`
+- `fff_multi_grep`
+- `turbo_fff_grep`
 
 ### Compression Levels
 
