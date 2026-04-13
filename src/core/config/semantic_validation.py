@@ -718,6 +718,11 @@ def warn_if_alias_references_without_rules(config: AppConfig) -> None:
     )
 
 
+def _replacement_starts_with_weighted_separator(replacement: str) -> bool:
+    """True when the first composite branch would be empty (leading '^' after spaces)."""
+    return bool(replacement.lstrip().startswith("^"))
+
+
 def validate_model_aliases(config: AppConfig) -> None:
     """Validate model alias patterns and replacement routing strings at startup.
 
@@ -726,6 +731,8 @@ def validate_model_aliases(config: AppConfig) -> None:
 
     Validates:
     - Regex pattern syntax is valid.
+    - Replacement does not begin with '^' (weighted branch separator), which would
+      yield an empty first branch and a confusing parser error.
     - Replacement string is valid composite routing grammar (|, ^, [weight=N]).
     - No raw separator characters in query-param values.
     - Explicit backend names reference registered backends.
@@ -787,6 +794,25 @@ def validate_model_aliases(config: AppConfig) -> None:
                     "alias_index": idx,
                     "alias_pattern": pattern,
                     "regex_error": str(e),
+                },
+            )
+
+        if _replacement_starts_with_weighted_separator(replacement):
+            raise ConfigurationError(
+                message=(
+                    f"Model alias at index {idx} has invalid replacement: it starts with '^' "
+                    f"(after optional leading whitespace). In composite weighted routing, '^' "
+                    f"separates branches; a leading '^' creates an empty first branch. "
+                    f'Write the first branch first, e.g. "[first]backend:model^..." instead of '
+                    f'"^[first]backend:model^...". '
+                    f"Alias pattern: '{pattern}'. Replacement: '{replacement}'."
+                ),
+                details={
+                    "error_code": "invalid_alias_replacement_leading_weighted_separator",
+                    "alias_index": idx,
+                    "alias_pattern": pattern,
+                    "replacement": replacement,
+                    "reason": "leading_caret_weighted_separator",
                 },
             )
 

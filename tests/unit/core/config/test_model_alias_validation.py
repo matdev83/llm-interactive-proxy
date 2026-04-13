@@ -197,6 +197,49 @@ class TestValidateModelAliases:
             == "invalid_alias_replacement_syntax"
         )
 
+    def test_leading_weighted_separator_caret_raises_clear_error(self):
+        """Leading '^' creates an empty branch; surface a dedicated message."""
+        config = AppConfig(
+            model_aliases=[
+                ModelAliasRule(
+                    pattern="^alias:oss-code-medium$",
+                    replacement=(
+                        "^[first]zai-coding-plan:glm-5.1"
+                        "^[weight=4]qwen-oauth:qwen/coder-model"
+                        "^[weight=2]opencode-go:opencode-go/mimo-v2-pro"
+                    ),
+                ),
+            ],
+        )
+        with pytest.raises(ConfigurationError) as exc_info:
+            validate_model_aliases(config)
+
+        assert (
+            exc_info.value.details.get("error_code")
+            == "invalid_alias_replacement_leading_weighted_separator"
+        )
+        assert "starts with '^'" in exc_info.value.message
+        assert (
+            exc_info.value.details.get("reason") == "leading_caret_weighted_separator"
+        )
+
+    def test_leading_whitespace_before_caret_raises_same_error(self):
+        config = AppConfig(
+            model_aliases=[
+                ModelAliasRule(
+                    pattern="^x$",
+                    replacement="  ^openai:gpt-4o^anthropic:claude-3-5-sonnet",
+                ),
+            ],
+        )
+        with pytest.raises(ConfigurationError) as exc_info:
+            validate_model_aliases(config)
+
+        assert (
+            exc_info.value.details.get("error_code")
+            == "invalid_alias_replacement_leading_weighted_separator"
+        )
+
     def test_unknown_backend_raises(self):
         config = AppConfig(
             model_aliases=[
