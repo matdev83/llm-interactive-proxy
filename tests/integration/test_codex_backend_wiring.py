@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -27,8 +27,8 @@ from src.core.domain.validation import ValidationResult
 from src.core.services.backend_registry import backend_registry
 
 
-@pytest_asyncio.fixture(name="auth_dir")
-async def auth_dir_tmp(tmp_path: Path):
+@pytest_asyncio.fixture(name="auth_dir")  # type: ignore[reportUntypedFunctionDecorator]
+async def auth_dir_tmp(tmp_path: Path) -> Path:
     """Create temporary auth directory with credentials."""
     data = {"tokens": {"access_token": "test_token"}}
     tmp_path.mkdir(parents=True, exist_ok=True)
@@ -580,24 +580,30 @@ async def test_staged_initialization_constructs_connector_with_partial_bundle(
 
         backend_config = BackendConfig()
 
-    backend = await backend_factory.ensure_backend(
-        backend_type="openai-codex",
-        app_config=config,
-        backend_config=backend_config,
-    )
+    with patch.object(
+        OpenAICodexConnector,
+        "initialize",
+        new=AsyncMock(return_value=None),
+    ) as initialize_mock:
+        backend = await backend_factory.ensure_backend(
+            backend_type="openai-codex",
+            app_config=config,
+            backend_config=backend_config,
+        )
 
-    try:
-        assert backend is not None
-        assert backend.backend_type == "openai-codex"
+        try:
+            assert backend is not None
+            assert backend.backend_type == "openai-codex"
+            initialize_mock.assert_awaited_once()
 
-        # Verify connector was constructed with components
-        assert backend._settings_loader is not None
-        assert backend._credential_manager is not None
-        assert backend._payload_builder is not None
-        assert backend._response_executor is not None
-    finally:
-        if hasattr(backend, "shutdown"):
-            await backend.shutdown()
+            # Verify connector was constructed with components
+            assert backend._settings_loader is not None
+            assert backend._credential_manager is not None
+            assert backend._payload_builder is not None
+            assert backend._response_executor is not None
+        finally:
+            if hasattr(backend, "shutdown"):
+                await backend.shutdown()
 
 
 @pytest.mark.integration

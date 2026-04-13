@@ -1288,39 +1288,44 @@ async def test_codex_refresh_failure_propagates(
 
 @pytest.mark.asyncio
 async def test_codex_api_http_error_propagation(
-    connector: OpenAICodexConnector, mocker: MockerFixture
+    mocker: MockerFixture,
 ) -> None:
-    chat_request = ChatRequest(
-        messages=[ChatMessage(role="user", content="hello")],
-        model="gpt-5.1-codex",
-        stream=False,
-    )
-    mocker.patch.object(
-        connector, "_validate_runtime_credentials", return_value=(True, [])
-    )
-    mocker.patch.object(connector, "_load_auth", AsyncMock(return_value=True))
-    mocker.patch.object(
-        connector, "get_headers", return_value={"Authorization": "Bearer valid-token"}
-    )
-    connector.api_key = "Bearer valid-token"
+    async with _build_connector_with_streaming_settings(
+        max_retries=0, retry_backoff_seconds=(0.0,)
+    ) as connector:
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hello")],
+            model="gpt-5.1-codex",
+            stream=False,
+        )
+        mocker.patch.object(
+            connector, "_validate_runtime_credentials", return_value=(True, [])
+        )
+        mocker.patch.object(connector, "_load_auth", AsyncMock(return_value=True))
+        mocker.patch.object(
+            connector,
+            "get_headers",
+            return_value={"Authorization": "Bearer valid-token"},
+        )
+        connector.api_key = "Bearer valid-token"
 
-    # Codex backend is streamed under the hood even for non-streaming requests; errors can surface
-    # during stream handshake/consumption and are converted into a non-streaming error envelope.
-    mocker.patch.object(
-        connector._response_executor._base_connector,
-        "_handle_streaming_response",
-        AsyncMock(
-            side_effect=HTTPException(
-                status_code=429, detail={"error": "rate limit exceeded"}
-            )
-        ),
-    )
+        # Codex backend is streamed under the hood even for non-streaming requests; errors can
+        # surface during stream handshake/consumption and are converted into an error envelope.
+        mocker.patch.object(
+            connector._response_executor._base_connector,
+            "_handle_streaming_response",
+            AsyncMock(
+                side_effect=HTTPException(
+                    status_code=429, detail={"error": "rate limit exceeded"}
+                )
+            ),
+        )
 
-    result = await connector.chat_completions(
-        chat_request, chat_request.messages, "gpt-5.1-codex"
-    )
+        result = await connector.chat_completions(
+            chat_request, chat_request.messages, "gpt-5.1-codex"
+        )
 
-    assert isinstance(result, ResponseEnvelope)
-    assert result.status_code == 429
-    assert isinstance(result.content, dict)
-    assert result.content.get("error", {}).get("error") == "rate limit exceeded"
+        assert isinstance(result, ResponseEnvelope)
+        assert result.status_code == 429
+        assert isinstance(result.content, dict)
+        assert result.content.get("error", {}).get("error") == "rate limit exceeded"

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -24,6 +24,14 @@ from src.core.ports.streaming_contracts import (
     StreamingContent,
     UsageChunkLeakError,
 )
+
+
+def _extract_first_sse_payload(result_str: str) -> dict[str, Any] | None:
+    """Return the first JSON payload from SSE output, if present."""
+    for line in result_str.split("\n"):
+        if line.startswith("data: ") and line != "data: [DONE]":
+            return cast(dict[str, Any], json.loads(line[6:]))
+    return None
 
 
 def get_cbor_capture_files() -> list[Path]:
@@ -47,7 +55,8 @@ def load_cbor_entries(capture_file: Path) -> list[dict[str, Any]]:
         try:
             while True:
                 obj = decoder.decode()
-                objects.append(obj)
+                if isinstance(obj, dict):
+                    objects.append(cast(dict[str, Any], obj))
         except Exception:
             pass
     return objects
@@ -59,8 +68,6 @@ def extract_stop_chunks_with_usage(
     """Extract stop chunks that have usage data from backend responses."""
     stop_chunks: list[dict[str, Any]] = []
     for obj in objects:
-        if not isinstance(obj, dict):
-            continue
         direction = obj.get("dir")
         # Direction 3 = BACKEND_TO_PROXY
         if direction != 3:
@@ -110,6 +117,9 @@ def verify_no_usage_leak(proc_resp: ProcessedResponse) -> tuple[bool, str]:
 
     Returns (success, error_message)
     """
+    if proc_resp.content is None:
+        return False, "ProcessedResponse content is None"
+
     sc = StreamingContent(
         content=proc_resp.content,
         is_done=False,
@@ -200,7 +210,7 @@ class TestStopChunkWithUsageProtection:
 class TestUsageChunkSerializationWithCBORData:
     """Regression tests using real captured CBOR data."""
 
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def cbor_stop_chunks(self) -> list[dict[str, Any]]:
         """Load stop chunks from available CBOR captures."""
         capture_files = get_cbor_capture_files()
@@ -244,6 +254,7 @@ class TestUsageChunkSerializationWithCBORData:
         """Verify usage data appears at top level in SSE output, not in delta.content."""
         for chunk in cbor_stop_chunks[:5]:  # Test first 5 to keep fast
             proc_resp = simulate_connector_output(chunk)
+            assert proc_resp.content is not None
             sc = StreamingContent(
                 content=proc_resp.content,
                 is_done=False,
@@ -253,27 +264,24 @@ class TestUsageChunkSerializationWithCBORData:
 
             result_bytes = sc.to_bytes()
             result_str = result_bytes.decode("utf-8")
+            parsed = _extract_first_sse_payload(result_str)
+            assert (
+                parsed is not None
+            ), f"No SSE data line found in output for {chunk['id']}"
 
-            # Parse the SSE data
-            for line in result_str.split("\n"):
-                if line.startswith("data: ") and line != "data: [DONE]":
-                    parsed = json.loads(line[6:])
+            # Verify usage at top level
+            assert "usage" in parsed, f"Missing top-level usage in {chunk['id']}"
+            assert "prompt_tokens" in parsed["usage"]
+            assert "completion_tokens" in parsed["usage"]
 
-                    # Verify usage at top level
-                    assert (
-                        "usage" in parsed
-                    ), f"Missing top-level usage in {chunk['id']}"
-                    assert "prompt_tokens" in parsed["usage"]
-                    assert "completion_tokens" in parsed["usage"]
-
-                    # Verify no leak in delta.content
-                    choices = parsed.get("choices", [])
-                    if choices:
-                        delta = choices[0].get("delta", {})
-                        content = delta.get("content", "")
-                        assert (
-                            "prompt_tokens" not in content
-                        ), f"Usage leaked to delta.content in {chunk['id']}"
+            # Verify no leak in delta.content
+            choices = parsed.get("choices", [])
+            if choices:
+                delta = choices[0].get("delta", {})
+                content = delta.get("content", "")
+                assert (
+                    "prompt_tokens" not in content
+                ), f"Usage leaked to delta.content in {chunk['id']}"
 
 
 class TestSyntheticUsageChunkSerialization:
