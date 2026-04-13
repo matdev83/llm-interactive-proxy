@@ -41,6 +41,7 @@ from src.core.interfaces.time_source_interface import ITimeSource
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
+from src.core.services.migration_gate_service import MigrationGateService
 from src.core.services.request_processor_service import RequestProcessor
 from src.core.services.session_service_impl import SessionService
 from src.core.services.time_source_service import TimeSource
@@ -295,6 +296,10 @@ class TestCoreRegistrarRequestProcessing:
 
         backend_request_manager = provider.get_service(BackendRequestManager)
         assert backend_request_manager is not None
+
+        migration_gate = provider.get_service(MigrationGateService)
+        assert migration_gate is not None
+        assert backend_request_manager._migration_gate_service is migration_gate
 
         ibackend_request_manager = provider.get_service(
             cast(type, IBackendRequestManager)

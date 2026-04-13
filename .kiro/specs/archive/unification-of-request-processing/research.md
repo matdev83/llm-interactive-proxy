@@ -43,10 +43,10 @@
 ### Handler asymmetry is the main migration challenge
 - **Context**: Determine whether the two handlers can be trivially merged into one stream-first coordinator.
 - **Sources Consulted**:
-  - `src/core/services/backend_non_streaming_response_handler.py`
+  - `src/core/services/post_backend_response_coordinator.py`
   - `src/core/services/backend_request_manager/streaming_response_handler.py`
-  - `tests/unit/core/services/test_backend_non_streaming_response_handler.py`
-  - `tests/unit/core/services/test_backend_streaming_response_handler.py`
+  - `tests/unit/core/services/test_canonical_post_backend_response_pipeline.py`
+  - `tests/unit/core/services/test_backend_streaming_middleware_and_recovery.py`
 - **Findings**:
   - The non-streaming handler owns empty-response retry, structured-output enforcement, metadata filtering, and non-stream tool-call retry coordination.
   - The streaming handler owns middleware wrapping, quality-verifier buffering, loop detection, empty-stream recovery, tool-call retry coordination, status extraction, and stream lifecycle behavior.
@@ -121,8 +121,9 @@
 - **Context**: Determine whether the codebase already has enough behavioral evidence to support characterization-first migration.
 - **Sources Consulted**:
   - `tests/unit/core/services/test_backend_request_manager_deduplication.py`
-  - `tests/unit/core/services/test_backend_non_streaming_response_handler.py`
-  - `tests/unit/core/services/test_backend_streaming_response_handler.py`
+  - `tests/unit/core/services/test_canonical_post_backend_response_pipeline.py`
+  - `tests/unit/core/services/test_backend_streaming_failopen_terminal.py`
+  - `tests/unit/core/services/test_backend_streaming_middleware_and_recovery.py`
   - `tests/unit/core/services/test_quality_verifier_stream_verifier.py`
   - `tests/unit/core/services/test_response_processor_quality_verifier.py`
   - `tests/integration/test_backend_request_manager_e2e.py`
@@ -181,13 +182,14 @@
 
 ## References
 - `src/core/services/backend_request_manager_service.py` — current split branch and dedup completion wrapper
-- `src/core/services/backend_non_streaming_response_handler.py` — non-stream safeguard ownership
+- `src/core/services/post_backend_response_coordinator.py` — canonical post-backend safeguard orchestration
 - `src/core/services/backend_request_manager/streaming_response_handler.py` — streaming safeguard ownership
 - `src/core/services/response_pipeline.py` — existing internal stream-first unification precedent
 - `src/core/services/streaming/non_streaming_adapter.py` — non-stream-as-stream adaptation precedent
 - `src/core/transport/fastapi/response_adapters.py` — transport boundary behavior and disconnect cleanup
 - `src/connectors/gemini_base/orchestrator.py` — proven stream-first accumulation example in connectors
 - `tests/unit/core/services/test_backend_request_manager_deduplication.py` — streaming dedup and completion tracking invariants
-- `tests/unit/core/services/test_backend_non_streaming_response_handler.py` — non-stream retry and validation invariants
-- `tests/unit/core/services/test_backend_streaming_response_handler.py` — loop detection, cancel callback, and streaming safeguard invariants
+- `tests/unit/core/services/test_canonical_post_backend_response_pipeline.py` — canonical post-backend pipeline invariants
+- `tests/unit/core/services/test_backend_streaming_failopen_terminal.py` — streaming fail-open and terminal error semantics
+- `tests/unit/core/services/test_backend_streaming_middleware_and_recovery.py` — streaming safeguards, loop metadata, and recovery paths
 - `tests/integration/transport/fastapi/test_response_adapters_integration.py` — boundary compatibility coverage

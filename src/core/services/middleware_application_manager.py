@@ -4,6 +4,10 @@ import logging
 from collections.abc import AsyncGenerator
 from typing import Any
 
+from src.core.domain.feature_lifecycle_context import (
+    attach_feature_lifecycle_context,
+    build_feature_lifecycle_context_from_manager_chunk,
+)
 from src.core.interfaces.middleware_application_manager_interface import (
     IMiddlewareApplicationManager,
 )
@@ -23,8 +27,9 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
     """
     Orchestrates the application of response features/middleware.
 
-    This manager supports both IResponseFeature (preferred, with explicit
-    streaming/non-streaming methods) and legacy IResponseMiddleware.
+    This manager supports both IResponseFeature (preferred, canonical
+    :meth:`IResponseFeature.process_chunk` via :meth:`IResponseFeature.process`)
+    and legacy IResponseMiddleware.
     """
 
     def __init__(self, middleware: list[ResponseProcessor]) -> None:
@@ -54,9 +59,8 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         """
         Applies a list of response features/middleware to the given content.
 
-        Supports both IResponseFeature (with explicit streaming/non-streaming methods)
-        and legacy IResponseMiddleware. Features are preferred and will use the
-        explicit methods for better parity enforcement.
+        Supports both IResponseFeature (single-path ``process``/``process_chunk``)
+        and legacy IResponseMiddleware.
 
         Args:
             content: The content to apply features/middleware to.
@@ -107,22 +111,20 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
         for mw in middleware_list:
             try:
                 middleware_context = dict(base_context)
-                # Prefer explicit non-streaming method if available (IResponseFeature)
-                if isinstance(mw, IResponseFeature):
-                    result = await mw.process_non_streaming(
-                        processed_response,
-                        session_id,
-                        middleware_context,
-                    )
-                else:
-                    # Legacy IResponseMiddleware fallback
-                    result = await mw.process(
-                        processed_response,
-                        session_id,
-                        middleware_context,
-                        is_streaming=False,
-                        stop_event=stop_event,
-                    )
+                flc = build_feature_lifecycle_context_from_manager_chunk(
+                    chunk=processed_response,
+                    is_streaming=False,
+                    session_id=session_id,
+                    base_context=middleware_context,
+                )
+                attach_feature_lifecycle_context(middleware_context, flc)
+                result = await mw.process(
+                    processed_response,
+                    session_id,
+                    middleware_context,
+                    is_streaming=False,
+                    stop_event=stop_event,
+                )
                 if result is not None:
                     processed_response = result
             except Exception as e:
@@ -159,22 +161,20 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
                 for mw in middleware_list:
                     try:
                         middleware_context = dict(base_context)
-                        # Prefer explicit streaming method if available (IResponseFeature)
-                        if isinstance(mw, IResponseFeature):
-                            result = await mw.process_streaming(
-                                processed_chunk,
-                                session_id,
-                                middleware_context,
-                            )
-                        else:
-                            # Legacy IResponseMiddleware fallback
-                            result = await mw.process(
-                                processed_chunk,
-                                session_id,
-                                middleware_context,
-                                is_streaming=True,
-                                stop_event=stop_event,
-                            )
+                        flc = build_feature_lifecycle_context_from_manager_chunk(
+                            chunk=processed_chunk,
+                            is_streaming=True,
+                            session_id=session_id,
+                            base_context=middleware_context,
+                        )
+                        attach_feature_lifecycle_context(middleware_context, flc)
+                        result = await mw.process(
+                            processed_chunk,
+                            session_id,
+                            middleware_context,
+                            is_streaming=True,
+                            stop_event=stop_event,
+                        )
                         if result is not None:
                             processed_chunk = result
                         if logger.isEnabledFor(logging.DEBUG):

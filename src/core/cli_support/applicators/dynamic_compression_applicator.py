@@ -118,6 +118,11 @@ class DynamicCompressionApplicator:
                 "dynamic_compression.disable_command_prefixes",
                 "--dynamic-compression-disable-command-prefixes",
             ),
+            "dynamic_compression_disable_tool_name_substrings": (
+                "disable_tool_name_substrings",
+                "dynamic_compression.disable_tool_name_substrings",
+                "--dynamic-compression-disable-tool-name-substrings",
+            ),
         }
         for attr_name, (
             target_key,

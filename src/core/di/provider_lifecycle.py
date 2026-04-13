@@ -218,19 +218,18 @@ def temporary_service_provider(
 def post_build_hooks(provider: IServiceProvider) -> None:
     """Execute post-build hooks after provider is built.
 
-    This includes feature parity registry initialization and other
-    post-build setup that should happen once after the provider is built.
+    Runs tool-call handler registration, plugin hooks, and other one-shot setup.
+    Feature parity registry population is **not** a startup requirement; tests
+    and diagnostics may call ``initialize_feature_parity_registry`` explicitly.
 
     Args:
         provider: The service provider that was just built
     """
     from src.core.common.backend_discovery_state import get_plugin_post_build_hooks
     from src.core.di.registration_helpers.post_build_actions import (
-        initialize_feature_parity_registry,
         register_tool_call_handlers,
     )
 
-    initialize_feature_parity_registry(provider)
     register_tool_call_handlers(provider)
 
     for backend_name, hook in get_plugin_post_build_hooks():

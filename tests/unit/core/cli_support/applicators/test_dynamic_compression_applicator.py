@@ -19,6 +19,7 @@ def _empty_args() -> argparse.Namespace:
         dynamic_compression_disable_categories=None,
         dynamic_compression_disable_methods=None,
         dynamic_compression_disable_tools=None,
+        dynamic_compression_disable_tool_name_substrings=None,
         dynamic_compression_disable_command_prefixes=None,
     )
 

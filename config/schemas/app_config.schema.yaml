@@ -645,6 +645,15 @@ properties:
         additionalProperties: { type: boolean }
       retire_legacy_dual_path: { type: boolean }
       emit_path_selection_metadata: { type: boolean }
+      legacy_streaming_client_blocking_envelope: { type: boolean }
+      empty_stream_recovery_prompt:
+        type: string
+        description: "Recovery prompt appended to retry requests when stream produces no content"
+      max_empty_stream_retries:
+        type: integer
+        minimum: 0
+        maximum: 5
+        description: "Maximum number of empty stream retry attempts before failing"
       promotion_requirements:
         type: object
         additionalProperties: false
@@ -790,6 +799,9 @@ properties:
         type: array
         items: { type: string }
       disable_command_prefixes:
+        type: array
+        items: { type: string }
+      disable_tool_name_substrings:
         type: array
         items: { type: string }
       categories:

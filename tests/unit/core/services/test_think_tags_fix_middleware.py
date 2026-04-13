@@ -2,7 +2,10 @@
 
 import pytest
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.services.think_tags_fix_middleware import ThinkTagsFixMiddleware
+from src.core.services.think_tags_fix_middleware import (
+    ThinkTagsFixFeature,
+    ThinkTagsFixMiddleware,
+)
 
 
 class TestThinkTagsFixMiddleware:
@@ -246,3 +249,84 @@ of thought process
 
         # Should not raise any errors
         middleware.reset_session("session1")
+
+
+class TestThinkTagsFixFeatureParity:
+    """Parity checks for ThinkTagsFixFeature vs legacy middleware behavior."""
+
+    def test_backend_only_per_model_config_enabled(self) -> None:
+        feature = ThinkTagsFixFeature(
+            enabled=False,
+            per_model_config={"openai": {"enabled": True}},
+        )
+        assert feature._should_process_for_model("openai", "gpt-4") is True
+        assert feature._should_process_for_model("anthropic", "gpt-4") is False
+
+    def test_backend_only_streaming_buffer_size(self) -> None:
+        feature = ThinkTagsFixFeature(
+            streaming_buffer_size=100,
+            per_model_config={"openai": {"streaming_buffer_size": 999}},
+        )
+        assert feature._get_buffer_size_for_model("openai", "gpt-4") == 999
+        assert feature._get_buffer_size_for_model("anthropic", "gpt-4") == 100
+
+    @pytest.mark.asyncio
+    async def test_streaming_uses_canonical_backend_and_model_context_keys(
+        self,
+    ) -> None:
+        feature = ThinkTagsFixFeature(
+            enabled=False,
+            per_model_config={"openai:gpt-4o-mini": {"enabled": True}},
+        )
+        first = await feature.process_chunk(
+            ProcessedResponse(content="<think>r</think>"),
+            "s1",
+            {"backend_name": "openai", "model_name": "gpt-4o-mini"},
+            is_streaming=True,
+        )
+        assert isinstance(first, ProcessedResponse)
+        assert first.content == ""
+
+        result = await feature.process_chunk(
+            ProcessedResponse(content="Hello"),
+            "s1",
+            {"backend_name": "openai", "model_name": "gpt-4o-mini"},
+            is_streaming=True,
+        )
+        assert isinstance(result, ProcessedResponse)
+        assert result.content == "Hello"
+        assert result.metadata is not None
+        assert result.metadata["reasoning"] == "r"
+        assert result.metadata["streaming_extraction"] is True
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_pure_reasoning_open_tag_only(self) -> None:
+        feature = ThinkTagsFixFeature(enabled=True)
+        response = ProcessedResponse(
+            content="<think>This is just reasoning without any actual response"
+        )
+        result = await feature.process_chunk(
+            response,
+            "session1",
+            {"backend": "b", "model": "m"},
+            is_streaming=False,
+        )
+        assert isinstance(result, ProcessedResponse)
+        assert result.content == ""
+        assert result.metadata["reasoning"] == (
+            "This is just reasoning without any actual response"
+        )
+        assert result.metadata["think_tags_fixed"] is True
+        assert result.metadata["reasoning_format"] == "extracted_from_think_tags"
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_full_tags_matches_middleware(self) -> None:
+        feature = ThinkTagsFixFeature(enabled=True)
+        content = "<think>r</think>Hello"
+        response = ProcessedResponse(content=content)
+        result = await feature.process_chunk(
+            response, "s1", {"backend": "b", "model": "m"}, is_streaming=False
+        )
+        assert result.content == "Hello"
+        assert result.metadata["reasoning"] == "r"
+        assert result.metadata["think_tags_fixed"] is True

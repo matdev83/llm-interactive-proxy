@@ -385,6 +385,14 @@ def apply_config_part2(
             resolution=resolution,
             transform=_parse_csv_list,
         ),
+        "disable_tool_name_substrings": _get_env_value(
+            env,
+            "DYNAMIC_COMPRESSION_DISABLE_TOOL_NAME_SUBSTRINGS",
+            [],
+            path="dynamic_compression.disable_tool_name_substrings",
+            resolution=resolution,
+            transform=_parse_csv_list,
+        ),
         "explicit_format_flags": _get_env_value(
             env,
             "DYNAMIC_COMPRESSION_EXPLICIT_FORMAT_FLAGS",

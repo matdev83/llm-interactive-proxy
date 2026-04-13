@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, cast
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from src.core.domain.configuration.loop_detection_config import (
@@ -9,7 +10,10 @@ from src.core.domain.configuration.loop_detection_config import (
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.streaming.stream_context_registry import ToolCallBufferState
-from src.core.services.tool_call_loop_middleware import ToolCallLoopDetectionMiddleware
+from src.core.services.tool_call_loop_middleware import (
+    ToolCallLoopDetectionFeature,
+    ToolCallLoopDetectionMiddleware,
+)
 from src.tool_call_loop.config import ToolLoopMode
 
 
@@ -507,3 +511,37 @@ async def test_streaming_buffer_state_feeds_loop_detector() -> None:
 
     assert buffer_state.loop_cursor == 1
     assert buffered_call.get("_already_processed") is not True
+
+
+@pytest.mark.asyncio
+async def test_feature_clear_stream_only_for_non_streaming() -> None:
+    """Documented semantics: reset lifecycle per non-streaming pass; keep across streaming chunks."""
+    feature = ToolCallLoopDetectionFeature()
+    config = LoopDetectionConfiguration(
+        tool_loop_detection_enabled=True,
+        tool_loop_max_repeats=4,
+        tool_loop_ttl_seconds=120,
+        tool_loop_mode=ToolLoopMode.BREAK,
+    )
+    response = _make_response("lifecycle_probe_tool")
+    ctx: dict[str, Any] = {"config": config}
+
+    with patch.object(
+        feature._lifecycle,
+        "clear_stream",
+        new=AsyncMock(),
+    ) as clear_mock:
+        await feature.process_chunk(
+            response, "lifecycle-non-stream", ctx, is_streaming=False
+        )
+        clear_mock.assert_awaited_once()
+
+    with patch.object(
+        feature._lifecycle,
+        "clear_stream",
+        new=AsyncMock(),
+    ) as clear_mock:
+        await feature.process_chunk(
+            response, "lifecycle-stream", ctx, is_streaming=True
+        )
+        clear_mock.assert_not_called()

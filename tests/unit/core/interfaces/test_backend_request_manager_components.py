@@ -6,9 +6,7 @@ import pytest
 from src.core.interfaces.backend_request_manager_components import (
     IBackendRequestPreparation,
     ILoopDetectorFactory,
-    INonStreamingBackendResponseHandler,
     IQualityVerifierStreamVerifier,
-    IStreamingBackendResponseHandler,
     IStructuredOutputEnforcer,
     IToolCallRetryCoordinator,
 )
@@ -26,34 +24,6 @@ class TestIBackendRequestPreparation:
         """Test that IBackendRequestPreparation defines prepare method."""
         assert hasattr(IBackendRequestPreparation, "prepare")
         assert callable(IBackendRequestPreparation.prepare)
-
-
-class TestINonStreamingBackendResponseHandler:
-    """Tests for INonStreamingBackendResponseHandler interface contract."""
-
-    def test_interface_is_abstract(self) -> None:
-        """Test that INonStreamingBackendResponseHandler cannot be instantiated."""
-        with pytest.raises(TypeError):
-            INonStreamingBackendResponseHandler()  # type: ignore[abstract]
-
-    def test_interface_has_handle_method(self) -> None:
-        """Test that INonStreamingBackendResponseHandler defines handle method."""
-        assert hasattr(INonStreamingBackendResponseHandler, "handle")
-        assert callable(INonStreamingBackendResponseHandler.handle)
-
-
-class TestIStreamingBackendResponseHandler:
-    """Tests for IStreamingBackendResponseHandler interface contract."""
-
-    def test_interface_is_abstract(self) -> None:
-        """Test that IStreamingBackendResponseHandler cannot be instantiated."""
-        with pytest.raises(TypeError):
-            IStreamingBackendResponseHandler()  # type: ignore[abstract]
-
-    def test_interface_has_handle_method(self) -> None:
-        """Test that IStreamingBackendResponseHandler defines handle method."""
-        assert hasattr(IStreamingBackendResponseHandler, "handle")
-        assert callable(IStreamingBackendResponseHandler.handle)
 
 
 class TestIToolCallRetryCoordinator:

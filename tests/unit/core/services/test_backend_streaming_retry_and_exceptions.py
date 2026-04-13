@@ -23,12 +23,12 @@ from src.core.domain.backend_request_manager.context_models import (
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.interfaces.backend_request_manager_components import (
-    IStreamingBackendResponseHandler,
-)
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
+)
+from src.core.services.backend_request_manager.streaming_response_handler import (
+    BackendStreamingResponseHandler,
 )
 
 from tests.unit.core.services.backend_streaming_test_helpers import async_chunk_iterator
@@ -40,7 +40,7 @@ class TestToolCallRetryHandling:
     @pytest.mark.asyncio
     async def test_delegates_to_coordinator_when_tool_call_swallowed(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_tool_call_retry_coordinator: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -118,7 +118,7 @@ class TestToolCallRetryHandling:
     @pytest.mark.asyncio
     async def test_returns_terminal_error_chunk_when_retry_limit_exceeded(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_tool_call_retry_coordinator: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -200,7 +200,7 @@ class TestStreamExceptionRecoverySemantics:
     @pytest.mark.asyncio
     async def test_retries_stream_exception_before_meaningful_output(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -261,7 +261,7 @@ class TestStreamExceptionRecoverySemantics:
     @pytest.mark.asyncio
     async def test_rate_limit_before_meaningful_output_does_not_trigger_empty_retry(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -338,7 +338,7 @@ class TestStreamExceptionRecoverySemantics:
         error: Exception,
         expected_type: str,
         expected_status: int,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -389,7 +389,7 @@ class TestStreamExceptionRecoverySemantics:
     @pytest.mark.asyncio
     async def test_emits_terminal_error_when_exception_happens_after_meaningful_output(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -467,7 +467,7 @@ class TestStreamExceptionRecoverySemantics:
     @pytest.mark.asyncio
     async def test_tool_call_delta_is_meaningful_and_disables_retry_on_exception(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -542,7 +542,7 @@ class TestStreamExceptionRecoverySemantics:
     @pytest.mark.asyncio
     async def test_reasoning_counts_as_meaningful_when_client_support_flag_enabled(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,

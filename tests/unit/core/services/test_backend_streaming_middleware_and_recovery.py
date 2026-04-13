@@ -21,14 +21,14 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.session_key import SessionKey
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
-from src.core.interfaces.backend_request_manager_components import (
-    IStreamingBackendResponseHandler,
-)
 from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     ProcessedChunkContent,
     ProcessedResponse,
+)
+from src.core.services.backend_request_manager.streaming_response_handler import (
+    BackendStreamingResponseHandler,
 )
 
 from tests.unit.core.services.backend_streaming_test_helpers import async_chunk_iterator
@@ -40,7 +40,7 @@ class TestMiddlewareWrapping:
     @pytest.mark.asyncio
     async def test_wraps_stream_with_response_processor(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
@@ -120,7 +120,7 @@ class TestMiddlewareWrapping:
     @pytest.mark.asyncio
     async def test_preserves_envelope_properties(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
@@ -168,7 +168,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_retries_empty_stream_with_recovery_prompt(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -238,7 +238,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_retries_reasoning_only_stream(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -307,7 +307,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_retries_reasoning_only_sse_stream(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -375,7 +375,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_retries_openai_reasoning_content_delta_dict(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -450,7 +450,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_qwen_oauth_reasoning_content_counts_as_meaningful_output(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -533,7 +533,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_zai_coding_plan_reasoning_content_counts_as_meaningful_output(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -616,7 +616,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_zai_coding_plan_with_model_suffix_counts_reasoning_as_meaningful(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -686,7 +686,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_reasoning_only_sse_does_not_trigger_empty_retry_when_client_opt_in(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -764,7 +764,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_openai_sse_content_prevents_retry(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -819,7 +819,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_done_only_stream_triggers_retry(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -881,7 +881,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_treats_thinking_delta_as_empty_for_retry(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -1200,7 +1200,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_treats_reasoning_metadata_as_empty_for_retry(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -1265,7 +1265,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_terminal_chunk_skips_empty_stream_retry(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -1336,7 +1336,7 @@ class TestEmptyStreamRecovery:
     @pytest.mark.asyncio
     async def test_emits_terminal_error_chunk_when_empty_stream_retry_limit_exceeded(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,

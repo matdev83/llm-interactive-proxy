@@ -1,6 +1,8 @@
 """Unit tests: fail-open behavior and terminal error semantics (BackendStreamingResponseHandler).
 
-Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.3, 7.2, 8.1
+Requirements (see ``.kiro/specs/archive/unification-of-request-processing/requirements.md``):
+2.3 (error contract), 5.1 (retry/dedup/cancellation), 5.2 (empty/tool/loop safeguards),
+5.4 (quality-verifier equivalence), 5.8 (streaming completion classification).
 """
 
 from __future__ import annotations
@@ -15,12 +17,12 @@ from src.core.domain.backend_request_manager.context_models import (
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.interfaces.backend_request_manager_components import (
-    IStreamingBackendResponseHandler,
-)
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
+)
+from src.core.services.backend_request_manager.streaming_response_handler import (
+    BackendStreamingResponseHandler,
 )
 
 from tests.unit.core.services.backend_streaming_test_helpers import async_chunk_iterator
@@ -32,8 +34,9 @@ class TestFailOpenBehavior:
     @pytest.mark.asyncio
     async def test_continues_stream_when_middleware_fails(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -44,6 +47,10 @@ class TestFailOpenBehavior:
         input_stream = async_chunk_iterator(chunks)
         stream_envelope = StreamingResponseEnvelope(content=input_stream)
 
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
         # Middleware raises exception
         async def failing_stream() -> AsyncIterator[ProcessedResponse]:
             raise Exception("Middleware failed")
@@ -52,8 +59,7 @@ class TestFailOpenBehavior:
             failing_stream()
         )
 
-        # Act & Assert - Should not raise, but handle gracefully
-        # The handler should log and continue with original stream
+        # Act - Should not raise; handler falls back to the original backend stream
         result = await handler.handle(
             stream=stream_envelope,
             request=base_request,
@@ -61,13 +67,20 @@ class TestFailOpenBehavior:
             processing_context=processing_context,
         )
 
-        # Handler should still return a result (fail-open)
         assert result is not None
+        assert result.content is not None
+        result_chunks: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            result_chunks.append(chunk)
+        assert len(result_chunks) == 1
+        assert result_chunks[0].content == "Hello"
+        # Pass-through chunk from the original stream; handler attaches session metadata.
+        assert result_chunks[0].metadata.get("session_id") == "test-session-123"
 
     @pytest.mark.asyncio
     async def test_continues_stream_when_loop_detection_fails(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         base_request: ChatRequest,
@@ -115,7 +128,7 @@ class TestTerminalErrorSemantics:
     @pytest.mark.asyncio
     async def test_does_not_retry_when_first_chunk_is_terminal_error(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -174,7 +187,7 @@ class TestTerminalErrorSemantics:
     @pytest.mark.asyncio
     async def test_empty_stream_retry_stops_on_terminal_error_retry_stream(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -236,7 +249,7 @@ class TestTerminalErrorSemantics:
     @pytest.mark.asyncio
     async def test_continues_stream_when_angel_verification_fails(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,

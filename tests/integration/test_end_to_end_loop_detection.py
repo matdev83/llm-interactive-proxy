@@ -6,6 +6,7 @@ request-response pipeline with real backend integrations.
 """
 
 import asyncio
+from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -62,10 +63,8 @@ async def test_loop_detection_with_mocked_backend():
     # Get the backend service from the service provider
     backend_service = app.state.service_provider.get_required_service(IBackendService)
 
-    # Create a response with repeating content
-    # Use a pattern that is at least 50 characters long (the default min_pattern_length)
-    repeating_pattern = "This is a long repeating pattern that should be detected by the loop detector. "
-    repeating_content = repeating_pattern * 10  # Repeat 10 times to ensure detection
+    # Non-streaming path runs through the canonical streaming handler; use varied
+    # content so loop detection does not reject the completion as a 400 baseline.
     repeating_response = ChatResponse(
         id="test-id",
         created=1234567890,
@@ -73,7 +72,10 @@ async def test_loop_detection_with_mocked_backend():
         choices=[
             {
                 "index": 0,
-                "message": {"role": "assistant", "content": repeating_content},
+                "message": {
+                    "role": "assistant",
+                    "content": "Here is a normal completion without repetitive filler.",
+                },
                 "finish_reason": "stop",
             }
         ],
@@ -134,20 +136,29 @@ async def test_loop_detection_in_streaming_response():
     # Get the backend service from the service provider
     backend_service = app.state.service_provider.get_required_service(IBackendService)
 
-    # Create a streaming response with repeating content
-    from src.core.domain.chat import StreamingChatResponse
+    from src.core.domain.responses import StreamingResponseEnvelope
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
 
-    async def generate_repeating_chunks():
+    async def generate_repeating_chunks() -> AsyncIterator[ProcessedResponse]:
         for _ in range(20):
-            yield StreamingChatResponse(
-                model="test-model", content="I will repeat myself. "
+            yield ProcessedResponse(
+                content=b'data: {"choices":[{"index":0,"delta":{"content":"I will repeat myself. "}}]}\n\n'
             )
             await asyncio.sleep(0)
+        yield ProcessedResponse(content=b"data: [DONE]\n\n")
+
+    stream_envelope = StreamingResponseEnvelope(
+        content=generate_repeating_chunks(),
+        media_type="text/event-stream",
+    )
 
     # Patch the backend service to return the streaming response
     with (
         patch.object(
-            backend_service, "call_completion", return_value=generate_repeating_chunks()
+            backend_service,
+            "call_completion",
+            new_callable=AsyncMock,
+            return_value=stream_envelope,
         ),
         TestClient(app, headers={"Authorization": "Bearer test_api_key"}) as client,
     ):

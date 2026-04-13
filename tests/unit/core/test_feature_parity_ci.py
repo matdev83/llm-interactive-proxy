@@ -124,26 +124,17 @@ class TestFeatureParityCI:
             if not issubclass(cls, IResponseFeature) or cls is IResponseFeature:
                 continue
 
-            # Check for required abstract methods
-            assert hasattr(
-                cls, "process_streaming"
-            ), f"{full_name} missing process_streaming method"
-            assert hasattr(
-                cls, "process_non_streaming"
-            ), f"{full_name} missing process_non_streaming method"
+            assert hasattr(cls, "process_chunk"), (
+                f"{full_name} missing process_chunk method "
+                "(canonical IResponseFeature path)"
+            )
 
-            # Verify methods are not abstract (i.e., implemented)
             if inspect.isabstract(cls):
-                # Allow abstract base classes
                 continue
 
-            # Check that the methods are callable
             assert callable(
-                cls.process_streaming
-            ), f"{full_name}.process_streaming should be callable"
-            assert callable(
-                cls.process_non_streaming
-            ), f"{full_name}.process_non_streaming should be callable"
+                cls.process_chunk
+            ), f"{full_name}.process_chunk should be callable"
 
     @pytest.mark.quality
     def test_middleware_have_capability_attribute(self, middleware_classes_cache):
@@ -163,73 +154,26 @@ class TestFeatureParityCI:
             ), f"{full_name} should have 'capability' property"
 
     @pytest.mark.quality
-    def test_registry_integration_at_startup(self):
-        """Test that the parity registry is populated at startup."""
-        from src.core.interfaces.feature_parity import (
-            get_global_registry,
-            reset_global_registry,
+    def test_typed_feature_lifecycle_context_carries_stream_metadata(self) -> None:
+        """Canonical feature path relies on typed lifecycle context (not startup registry)."""
+        from src.core.domain.feature_lifecycle_context import FeatureLifecycleContext
+
+        ctx = FeatureLifecycleContext(
+            is_streaming=True,
+            is_terminal_chunk=True,
+            finish_reason="stop",
+            session_id="sess-1",
+            stream_id="str-9",
+            request_id="req-2",
+            backend_name="openai",
+            model_name="gpt-test",
+            non_streaming_single_chunk=False,
         )
-
-        # Reset to ensure clean state
-        reset_global_registry()
-
-        # Trigger DI initialization which should populate the registry
-        try:
-            import src.core.di.services
-            from src.core.di.services import get_or_build_service_provider
-
-            # Force re-initialization by resetting the global provider
-            src.core.di.services._service_provider = None
-
-            get_or_build_service_provider()
-
-            # Give the registry a moment to populate
-            registry = get_global_registry()
-            features = registry.get_all_features()
-
-            # We should have some features registered
-            assert (
-                len(features) > 0
-            ), "Feature parity registry should be populated at startup"
-
-        finally:
-            # Clean up
-            reset_global_registry()
-
-    @pytest.mark.quality
-    def test_no_critical_parity_violations(self):
-        """Test that there are no critical parity violations.
-
-        This test verifies that all registered features that claim to support
-        'both' streaming and non-streaming actually have implementations.
-        """
-        from src.core.interfaces.feature_parity import (
-            get_global_registry,
-            reset_global_registry,
-        )
-
-        reset_global_registry()
-
-        try:
-            # Initialize registry via DI
-            from src.core.di.services import get_or_build_service_provider
-
-            get_or_build_service_provider()
-
-            registry = get_global_registry()
-            violations = registry.verify_parity()
-
-            # Filter for error-level violations only
-            error_violations = [v for v in violations if v.severity == "error"]
-
-            if error_violations:
-                violation_details = "\n".join(
-                    f"  - {v.feature_name}: {v.description}" for v in error_violations
-                )
-                pytest.fail(
-                    f"Found {len(error_violations)} critical parity violations:\n"
-                    f"{violation_details}"
-                )
-
-        finally:
-            reset_global_registry()
+        assert ctx.is_streaming is True
+        assert ctx.is_terminal_chunk is True
+        assert ctx.finish_reason == "stop"
+        assert ctx.session_id == "sess-1"
+        assert ctx.stream_id == "str-9"
+        assert ctx.request_id == "req-2"
+        assert ctx.backend_name == "openai"
+        assert ctx.model_name == "gpt-test"

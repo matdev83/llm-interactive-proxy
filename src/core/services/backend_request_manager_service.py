@@ -13,7 +13,14 @@ import math
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, cast
 
-from src.core.common.exceptions import BackendError, DuplicateRequestError
+from src.core.common.exceptions import (
+    BackendError,
+    DuplicateRequestError,
+    LLMProxyError,
+)
+from src.core.domain.backend_request_manager.canonical_post_backend_response import (
+    select_post_backend_processing_mode,
+)
 from src.core.domain.backend_request_manager.context_models import (
     ResponseProcessingContext,
     StructuredOutputContext,
@@ -25,8 +32,6 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     IBackendRequestPreparation,
-    INonStreamingBackendResponseHandler,
-    IStreamingBackendResponseHandler,
 )
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.configuration_interface import IConfig
@@ -39,7 +44,14 @@ from src.core.interfaces.request_deduplication_interface import (
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
 )
+from src.core.services.envelope_compatibility_adapter import (
+    EnvelopeCompatibilityAdapter,
+)
 from src.core.services.history_compaction_service import HistoryCompactionService
+from src.core.services.migration_gate_service import MigrationGateService
+from src.core.services.post_backend_response_coordinator import (
+    PostBackendResponseCoordinator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,12 +65,13 @@ class BackendRequestManager(IBackendRequestManager):
         response_processor: IResponseProcessor,
         quality_verifier_service_factory: IQualityVerifierServiceFactory | None,
         request_preparation: IBackendRequestPreparation,
-        non_streaming_handler: INonStreamingBackendResponseHandler,
-        streaming_handler: IStreamingBackendResponseHandler,
+        post_backend_response_coordinator: PostBackendResponseCoordinator,
         wire_capture: Any | None = None,
         history_compaction_service: HistoryCompactionService | None = None,
         config: IConfig | None = None,
         dedup_service: IRequestDeduplicationService | None = None,
+        migration_gate_service: MigrationGateService | None = None,
+        envelope_compatibility_adapter: EnvelopeCompatibilityAdapter | None = None,
     ) -> None:
         """Initialize the backend request manager.
 
@@ -67,12 +80,13 @@ class BackendRequestManager(IBackendRequestManager):
             response_processor: The response processor
             quality_verifier_service_factory: Factory for modifying schemas
             request_preparation: Service for preparing backend requests
-            non_streaming_handler: Handler for non-streaming responses
-            streaming_handler: Handler for streaming responses
+            post_backend_response_coordinator: Canonical post-backend pipeline
             wire_capture: Optional wire capture service
             history_compaction_service: Optional service for compacting history (kept for backward compatibility)
             config: Optional application configuration (kept for backward compatibility)
             dedup_service: Optional request deduplication service
+            migration_gate_service: Optional migration gate policy service
+            envelope_compatibility_adapter: Optional canonical-handle envelope adapter
         """
         self._backend_processor = backend_processor
         if quality_verifier_service_factory is None:
@@ -80,11 +94,16 @@ class BackendRequestManager(IBackendRequestManager):
         self._response_processor = response_processor
         self._quality_verifier_service_factory = quality_verifier_service_factory
         self._request_preparation = request_preparation
-        self._non_streaming_handler = non_streaming_handler
-        self._streaming_handler = streaming_handler
         self._history_compaction_service = history_compaction_service
         self._config = config
         self._dedup_service = dedup_service
+        self._migration_gate_service = migration_gate_service or MigrationGateService(
+            config=config
+        )
+        self._post_backend_response_coordinator = post_backend_response_coordinator
+        self._envelope_compatibility_adapter = (
+            envelope_compatibility_adapter or EnvelopeCompatibilityAdapter()
+        )
         # wire_capture is currently applied at BackendService level to avoid
         # duplicating backend resolution logic; accepted here for future use.
 
@@ -390,235 +409,213 @@ class BackendRequestManager(IBackendRequestManager):
             backend_request, session_id, context
         )
 
+        gate_decision = self._migration_gate_service.select_core_path(
+            requested_stream=bool(backend_request.stream),
+            backend_name=processing_context.backend_name,
+        )
+        self._migration_gate_service.apply_diagnostics(
+            context,
+            decision=gate_decision,
+            requested_stream=bool(backend_request.stream),
+        )
+        effective_backend_request = (
+            backend_request.model_copy(update={"stream": True})
+            if gate_decision.forced_backend_stream
+            else backend_request
+        )
+
         try:
             # Execute backend request
             backend_response = await self._backend_processor.process_backend_request(
-                request=backend_request, session_id=session_id, context=context
+                request=effective_backend_request,
+                session_id=session_id,
+                context=context,
             )
 
-            # Route to appropriate handler based on stream flag
+            if not isinstance(
+                backend_response,
+                ResponseEnvelope | StreamingResponseEnvelope,
+            ):
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Backend processor returned a non-envelope value; "
+                        "cannot run canonical post-backend pipeline.",
+                    )
+                msg = (
+                    "Backend processor must return ResponseEnvelope or "
+                    "StreamingResponseEnvelope for canonical post-backend processing"
+                )
+                raise LLMProxyError(msg, status_code=500)
+
+            post_backend_mode = select_post_backend_processing_mode(
+                bool(backend_request.stream),
+                backend_response,
+            )
+            canonical_handle = (
+                await self._post_backend_response_coordinator.from_backend_response(
+                    backend_response,
+                    request=backend_request,
+                    context=context,
+                    processing_context=processing_context,
+                    processing_mode=post_backend_mode,
+                )
+            )
+            canonical_converted: ResponseEnvelope | StreamingResponseEnvelope
             if backend_request.stream:
-                if isinstance(backend_response, StreamingResponseEnvelope):
-                    try:
-                        streaming_result = await self._streaming_handler.handle(
-                            stream=backend_response,
-                            request=backend_request,
-                            context=context,
-                            processing_context=processing_context,
-                        )
-                        # CRITICAL: Streaming completion must be marked when the stream
-                        # is actually consumed/terminated (client disconnects, errors, or [DONE]),
-                        # not when the StreamingResponseEnvelope is constructed.
-                        if self._dedup_service and content_hash:
-                            dedup_service = self._dedup_service
-                            assert dedup_service is not None
-                            original_iter = streaming_result.content
-
-                            async def _wrapped_stream() -> AsyncIterator[Any]:
-                                client_disconnected = False
-                                last_status_code: int | None = None
-                                saw_done_sentinel = False
-                                saw_terminal_finish = False
-                                saw_terminal_error = False
-                                terminal_status_code: int | None = None
-
-                                def _item_contains_done_sentinel(item: Any) -> bool:
-                                    payload = getattr(item, "content", None)
-                                    if isinstance(payload, bytes):
-                                        return b"data: [DONE]" in payload
-                                    if isinstance(payload, str):
-                                        return payload.strip() == "data: [DONE]"
-                                    return False
-
-                                def _try_extract_terminal_status(item: Any) -> None:
-                                    nonlocal saw_terminal_finish, saw_terminal_error
-                                    nonlocal terminal_status_code
-
-                                    if saw_terminal_finish:
-                                        return
-
-                                    payload = getattr(item, "content", None)
-                                    if not isinstance(payload, bytes):
-                                        return
-
-                                    if b'"finish_reason"' not in payload:
-                                        return
-
-                                    # Best-effort parse of an OpenAI-style SSE payload:
-                                    # `data: {json}\n\n`
-                                    try:
-                                        text = payload.decode("utf-8", errors="ignore")
-                                    except Exception:
-                                        return
-
-                                    # Handle potentially batched events.
-                                    for block in text.replace("\r\n", "\n").split(
-                                        "\n\n"
-                                    ):
-                                        stripped = block.strip()
-                                        if not stripped.startswith("data:"):
-                                            continue
-                                        data_part = stripped[5:].strip()
-                                        if not data_part or data_part == "[DONE]":
-                                            continue
-                                        try:
-                                            obj = json.loads(data_part)
-                                        except Exception:
-                                            continue
-                                        if not isinstance(obj, dict):
-                                            continue
-                                        choices = obj.get("choices")
-                                        if not isinstance(choices, list) or not choices:
-                                            continue
-                                        first = choices[0]
-                                        if not isinstance(first, dict):
-                                            continue
-                                        finish = first.get("finish_reason")
-                                        if isinstance(finish, str) and finish:
-                                            saw_terminal_finish = True
-                                            if finish == "error":
-                                                saw_terminal_error = True
-                                                err = obj.get("error")
-                                                if isinstance(err, dict):
-                                                    status = err.get("status_code")
-                                                    if isinstance(status, int):
-                                                        terminal_status_code = status
-                                                    elif (
-                                                        isinstance(status, float)
-                                                        and status.is_integer()
-                                                    ):
-                                                        terminal_status_code = int(
-                                                            status
-                                                        )
-                                                if terminal_status_code is None:
-                                                    terminal_status_code = 500
-                                            return
-
-                                try:
-                                    if original_iter is None:
-                                        return
-                                    async for item in original_iter:
-                                        if _item_contains_done_sentinel(item):
-                                            saw_done_sentinel = True
-                                        _try_extract_terminal_status(item)
-                                        yield item
-                                    last_status_code = 200
-                                except BackendError as e:
-                                    last_status_code = e.status_code
-                                    raise
-                                except (GeneratorExit, asyncio.CancelledError):
-                                    client_disconnected = True
-                                    raise
-                                except Exception:
-                                    last_status_code = 500
-                                    raise
-                                finally:
-                                    # If the client closes the connection immediately after receiving the
-                                    # terminal [DONE] sentinel, the downstream iterator may be cancelled
-                                    # before the stream naturally exhausts. Treat this as a success to
-                                    # avoid misclassifying completions as disconnects.
-                                    if client_disconnected and (
-                                        saw_done_sentinel or saw_terminal_finish
-                                    ):
-                                        client_disconnected = False
-                                        if saw_terminal_error:
-                                            last_status_code = (
-                                                terminal_status_code or 500
-                                            )
-                                        else:
-                                            last_status_code = 200
-
-                                    if saw_terminal_error:
-                                        last_status_code = (
-                                            terminal_status_code
-                                            or last_status_code
-                                            or 500
-                                        )
-                                    try:
-                                        await dedup_service.mark_request_complete(
-                                            content_hash,
-                                            session_id,
-                                            status_code=last_status_code,
-                                            client_disconnected=client_disconnected,
-                                        )
-                                    except Exception:
-                                        # Fail-open: never break streaming cleanup because of dedup tracking.
-                                        if logger.isEnabledFor(logging.DEBUG):
-                                            logger.debug(
-                                                "Failed to mark streaming request completion for dedup tracking",
-                                                exc_info=True,
-                                            )
-
-                            streaming_result.content = _wrapped_stream()
-
-                        return streaming_result
-                    except BackendError as e:
-                        # Mark as retriable or non-retriable based on status code
-                        if self._dedup_service and content_hash:
-                            await self._dedup_service.mark_request_complete(
-                                content_hash, session_id, status_code=e.status_code
-                            )
-                        # Re-raise BackendError from streaming handler to preserve error details
-                        # (Req 1.4, Task 6.2: empty-stream retry exhaustion raises BackendError with reason and session_id)
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "BackendError from streaming handler: %s (session_id=%s)",
-                                e.message,
-                                processing_context.session_id,
-                            )
-                        raise
-                else:
-                    # This case should ideally not be reached if the logic is correct
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Expected a StreamingResponseEnvelope but got a ResponseEnvelope for a streaming request."
-                        )
-                    if self._dedup_service and content_hash:
-                        await self._dedup_service.mark_request_complete(
-                            content_hash, session_id, status_code=200
-                        )
-                    return backend_response
+                canonical_converted = (
+                    await self._envelope_compatibility_adapter.to_streaming(
+                        canonical_handle, context
+                    )
+                )
             else:
-                if isinstance(backend_response, ResponseEnvelope):
-                    try:
-                        non_streaming_result = await self._non_streaming_handler.handle(
-                            response=backend_response,
-                            request=backend_request,
-                            context=context,
-                            processing_context=processing_context,
-                        )
-                        # Mark as success
-                        if self._dedup_service and content_hash:
-                            await self._dedup_service.mark_request_complete(
-                                content_hash, session_id, status_code=200
-                            )
-                        return non_streaming_result
-                    except BackendError as e:
-                        # Mark as retriable or non-retriable based on status code
-                        if self._dedup_service and content_hash:
-                            await self._dedup_service.mark_request_complete(
-                                content_hash, session_id, status_code=e.status_code
-                            )
-                        # Re-raise BackendError from non-streaming handler to preserve error details
-                        # (Req 1.4: empty-response retry exhaustion raises BackendError with reason and session_id)
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "BackendError from non-streaming handler: %s (session_id=%s)",
-                                e.message,
-                                processing_context.session_id,
-                            )
-                        raise
-                else:
-                    # This case should ideally not be reached if the logic is correct
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Expected a ResponseEnvelope but got a StreamingResponseEnvelope for a non-streaming request."
-                        )
-                    if self._dedup_service and content_hash:
-                        await self._dedup_service.mark_request_complete(
-                            content_hash, session_id, status_code=200
-                        )
-                    return backend_response
+                canonical_converted = (
+                    await self._envelope_compatibility_adapter.to_non_streaming(
+                        canonical_handle, context
+                    )
+                )
+
+            if isinstance(canonical_converted, StreamingResponseEnvelope):
+                streaming_result = canonical_converted
+                if self._dedup_service and content_hash:
+                    dedup_service = self._dedup_service
+                    assert dedup_service is not None
+                    original_iter = streaming_result.content
+
+                    async def _wrapped_stream() -> AsyncIterator[Any]:
+                        client_disconnected = False
+                        last_status_code: int | None = None
+                        saw_done_sentinel = False
+                        saw_terminal_finish = False
+                        saw_terminal_error = False
+                        terminal_status_code: int | None = None
+
+                        def _item_contains_done_sentinel(item: Any) -> bool:
+                            payload = getattr(item, "content", None)
+                            if isinstance(payload, bytes):
+                                return b"data: [DONE]" in payload
+                            if isinstance(payload, str):
+                                return payload.strip() == "data: [DONE]"
+                            return False
+
+                        def _try_extract_terminal_status(item: Any) -> None:
+                            nonlocal saw_terminal_finish, saw_terminal_error
+                            nonlocal terminal_status_code
+
+                            if saw_terminal_finish:
+                                return
+
+                            payload = getattr(item, "content", None)
+                            if not isinstance(payload, bytes):
+                                return
+
+                            if b'"finish_reason"' not in payload:
+                                return
+
+                            # Best-effort parse of an OpenAI-style SSE payload:
+                            # `data: {json}\n\n`
+                            try:
+                                text = payload.decode("utf-8", errors="ignore")
+                            except Exception:
+                                return
+
+                            # Handle potentially batched events.
+                            for block in text.replace("\r\n", "\n").split("\n\n"):
+                                stripped = block.strip()
+                                if not stripped.startswith("data:"):
+                                    continue
+                                data_part = stripped[5:].strip()
+                                if not data_part or data_part == "[DONE]":
+                                    continue
+                                try:
+                                    obj = json.loads(data_part)
+                                except Exception:
+                                    continue
+                                if not isinstance(obj, dict):
+                                    continue
+                                choices = obj.get("choices")
+                                if not isinstance(choices, list) or not choices:
+                                    continue
+                                first = choices[0]
+                                if not isinstance(first, dict):
+                                    continue
+                                finish = first.get("finish_reason")
+                                if isinstance(finish, str) and finish:
+                                    saw_terminal_finish = True
+                                    if finish == "error":
+                                        saw_terminal_error = True
+                                        err = obj.get("error")
+                                        if isinstance(err, dict):
+                                            status = err.get("status_code")
+                                            if isinstance(status, int):
+                                                terminal_status_code = status
+                                            elif (
+                                                isinstance(status, float)
+                                                and status.is_integer()
+                                            ):
+                                                terminal_status_code = int(status)
+                                        if terminal_status_code is None:
+                                            terminal_status_code = 500
+                                    return
+
+                        try:
+                            if original_iter is None:
+                                return
+                            async for item in original_iter:
+                                if _item_contains_done_sentinel(item):
+                                    saw_done_sentinel = True
+                                _try_extract_terminal_status(item)
+                                yield item
+                            last_status_code = 200
+                        except BackendError as e:
+                            last_status_code = e.status_code
+                            raise
+                        except (GeneratorExit, asyncio.CancelledError):
+                            client_disconnected = True
+                            raise
+                        except Exception:
+                            last_status_code = 500
+                            raise
+                        finally:
+                            # If the client closes the connection immediately after receiving the
+                            # terminal [DONE] sentinel, the downstream iterator may be cancelled
+                            # before the stream naturally exhausts. Treat this as a success to
+                            # avoid misclassifying completions as disconnects.
+                            if client_disconnected and (
+                                saw_done_sentinel or saw_terminal_finish
+                            ):
+                                client_disconnected = False
+                                if saw_terminal_error:
+                                    last_status_code = terminal_status_code or 500
+                                else:
+                                    last_status_code = 200
+
+                            if saw_terminal_error:
+                                last_status_code = (
+                                    terminal_status_code or last_status_code or 500
+                                )
+                            try:
+                                await dedup_service.mark_request_complete(
+                                    content_hash,
+                                    session_id,
+                                    status_code=last_status_code,
+                                    client_disconnected=client_disconnected,
+                                )
+                            except Exception:
+                                # Fail-open: never break streaming cleanup because of dedup tracking.
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Failed to mark streaming request completion for dedup tracking",
+                                        exc_info=True,
+                                    )
+
+                    streaming_result.content = _wrapped_stream()
+
+                return streaming_result
+            if self._dedup_service and content_hash:
+                await self._dedup_service.mark_request_complete(
+                    content_hash, session_id, status_code=200
+                )
+            return canonical_converted
 
         except asyncio.CancelledError:
             # Client disconnected before completion - mark as zombie pattern

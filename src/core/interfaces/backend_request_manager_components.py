@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.core.domain.backend_request_manager.context_models import (
-        ResponseProcessingContext,
         StreamingContext,
         StructuredOutputContext,
         ToolCallRetryState,
@@ -54,70 +53,6 @@ class IBackendRequestPreparation(ABC):
         Postconditions:
             - Returned request uses new message list when modified
             - Original request instance is not mutated
-        """
-        ...
-
-
-class INonStreamingBackendResponseHandler(ABC):
-    """Interface for processing non-streaming backend responses."""
-
-    @abstractmethod
-    async def handle(
-        self,
-        response: ResponseEnvelope,
-        request: ChatRequest,
-        context: RequestContext,
-        processing_context: ResponseProcessingContext,
-    ) -> ResponseEnvelope:
-        """Return a processed non-streaming response envelope.
-
-        Args:
-            response: The backend response envelope
-            request: The original backend request
-            context: Request context
-            processing_context: Typed processing context
-
-        Returns:
-            A processed response envelope with normalized content and metadata
-
-        Preconditions:
-            - response.content is available for non-streaming requests
-
-        Postconditions:
-            - Response content and metadata are normalized and safe to serialize
-            - No additional backend calls beyond retry policy
-        """
-        ...
-
-
-class IStreamingBackendResponseHandler(ABC):
-    """Interface for handling streaming backend responses."""
-
-    @abstractmethod
-    async def handle(
-        self,
-        stream: StreamingResponseEnvelope,
-        request: ChatRequest,
-        context: RequestContext,
-        processing_context: ResponseProcessingContext,
-    ) -> StreamingResponseEnvelope:
-        """Return a processed streaming response envelope.
-
-        Args:
-            stream: The streaming response envelope
-            request: The original backend request
-            context: Request context
-            processing_context: Typed processing context
-
-        Returns:
-            A processed streaming response envelope with middleware applied
-
-        Preconditions:
-            - Input is a streaming request and a streaming envelope
-
-        Postconditions:
-            - Stream yields processed chunks with required metadata
-            - Preserve media_type, headers, and cancel_callback
         """
         ...
 

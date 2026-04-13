@@ -142,31 +142,22 @@ class FeatureCapability:
 
 
 class IResponseFeature(ABC):
-    """Interface for response feature middleware with enforced parity.
+    """Interface for response feature middleware with a single canonical path.
 
-    This interface enforces explicit implementation of both streaming and
-    non-streaming code paths through separate abstract methods. This ensures
-    feature parity by design - developers MUST implement both paths.
+    Features implement :meth:`process_chunk` once; :meth:`process` forwards to it
+    with the requested streaming flag. Mode-specific behavior uses
+    ``is_streaming`` and typed lifecycle data attached to ``context`` (see
+    ``FEATURE_LIFECYCLE_CONTEXT_KEY`` in ``feature_lifecycle_context``).
 
-    Use this interface for features that should work identically across
-    streaming and non-streaming responses. For middleware that legitimately
-    differs between paths, use IResponseMiddleware instead.
-
-    The template method pattern is used: the process() method delegates to
-    the appropriate path method based on is_streaming flag.
+    Use this interface for features in the unified response pipeline. For
+    components that only expose the legacy shape, use :class:`IResponseMiddleware`.
 
     Example:
         class MyFeature(IResponseFeature):
-            async def process_non_streaming(self, response, session_id, context):
-                # Non-streaming implementation
-                return self._apply_feature(response)
+            async def process_chunk(self, payload, session_id, context, *, is_streaming: bool):
+                return self._apply_feature(payload)
 
-            async def process_streaming(self, chunk, session_id, context):
-                # Streaming implementation - must provide equivalent feature
-                return self._apply_feature(chunk)
-
-            def _apply_feature(self, data):
-                # Shared logic for both paths
+            def _apply_feature(self, data: Any) -> Any:
                 ...
     """
 
@@ -196,52 +187,33 @@ class IResponseFeature(ABC):
     def capability(self) -> str:
         """Get the feature capability.
 
-        Returns FeatureCapability.BOTH by default since this interface
-        enforces dual-path implementation. Override only if the feature
-        intentionally provides no-op for one path.
+        Returns FeatureCapability.BOTH by default. Override when the feature
+        intentionally no-ops for one mode (see :class:`FeatureCapability`).
         """
         return FeatureCapability.BOTH
 
     @abstractmethod
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
         context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Process a non-streaming response.
+        """Process one response unit (full non-streaming response or streaming chunk).
 
-        This method MUST be implemented to handle complete responses.
-        It should provide equivalent functionality to process_streaming.
+        Sole required implementation path. Use ``is_streaming`` and lifecycle
+        fields in ``context`` for mode-sensitive logic.
 
         Args:
-            response: The complete response to process
-            session_id: The session ID associated with this request
-            context: Additional context for processing (JSON-serializable values)
+            payload: Response or chunk to process
+            session_id: Session identifier for this request
+            context: Processing context (may include ``stop_event`` from :meth:`process`)
+            is_streaming: True when invoked on the streaming chunk path
 
         Returns:
-            The processed response
-        """
-
-    @abstractmethod
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, object],
-    ) -> Any:
-        """Process a streaming chunk.
-
-        This method MUST be implemented to handle streaming chunks.
-        It should provide equivalent functionality to process_non_streaming.
-
-        Args:
-            chunk: The streaming chunk to process
-            session_id: The session ID associated with this request
-            context: Additional context for processing (JSON-serializable values)
-
-        Returns:
-            The processed chunk
+            Processed payload
         """
 
     async def process(
@@ -252,11 +224,7 @@ class IResponseFeature(ABC):
         is_streaming: bool = False,
         stop_event: Any = None,
     ) -> Any:
-        """Process a response using the appropriate path.
-
-        This is the template method that delegates to the correct
-        implementation based on the streaming flag. Do not override
-        this method - implement process_streaming and process_non_streaming.
+        """Forward to :meth:`process_chunk` (do not override in subclasses).
 
         Args:
             response: The response or chunk to process
@@ -268,6 +236,12 @@ class IResponseFeature(ABC):
         Returns:
             The processed response or chunk
         """
-        if is_streaming:
-            return await self.process_streaming(response, session_id, context)
-        return await self.process_non_streaming(response, session_id, context)
+        effective_context = (
+            {**context, "stop_event": stop_event} if stop_event is not None else context
+        )
+        return await self.process_chunk(
+            response,
+            session_id,
+            effective_context,
+            is_streaming=is_streaming,
+        )

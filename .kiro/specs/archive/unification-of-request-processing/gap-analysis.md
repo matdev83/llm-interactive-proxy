@@ -33,8 +33,10 @@
 
 **Representative existing verification surface**
 - `tests/unit/core/services/test_backend_request_manager_deduplication.py`
-- `tests/unit/core/services/test_backend_non_streaming_response_handler.py`
-- `tests/unit/core/services/test_backend_streaming_response_handler.py`
+- `tests/unit/core/services/test_canonical_post_backend_response_pipeline.py`
+- `tests/unit/core/services/test_post_backend_single_stream_runtime.py`
+- `tests/unit/core/services/test_backend_streaming_failopen_terminal.py`
+- `tests/unit/core/services/test_backend_streaming_middleware_and_recovery.py`
 - `tests/unit/core/services/test_quality_verifier_stream_verifier.py`
 - `tests/unit/core/services/test_response_processor_quality_verifier.py`
 - `tests/integration/test_backend_request_manager_e2e.py`

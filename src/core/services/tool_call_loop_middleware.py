@@ -12,7 +12,7 @@ import json
 import logging
 import threading
 from collections.abc import MutableMapping
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from cachetools import TTLCache
@@ -126,8 +126,9 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
             resolved_session_id = str(resolved_session_id)
             context.setdefault("_tool_call_loop_session_id", resolved_session_id)
 
-        # Both streaming and non-streaming: clear lifecycle for fresh detection
-        # This ensures parity - each response/chunk is evaluated independently
+        # Non-streaming: reset lifecycle so each discrete response is evaluated on a
+        # clean slate. Streaming: keep lifecycle across chunks so in-flight dedup and
+        # windowed repeat detection remain coherent for the same stream/session.
         if not is_streaming:
             await self._lifecycle.clear_stream(resolved_session_id)
 
@@ -196,26 +197,20 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
 
         return response
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Process non-streaming response for tool call loops."""
+        """Process one response unit for tool call loops."""
         return await self._process_response(
-            response, session_id, context, is_streaming=False
-        )
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Process streaming chunk for tool call loops."""
-        return await self._process_response(
-            chunk, session_id, context, is_streaming=True
+            payload,
+            session_id,
+            cast(dict[str, Any], context),
+            is_streaming=is_streaming,
         )
 
     def reset_session(self, session_id: str) -> None:

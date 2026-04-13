@@ -4,11 +4,10 @@ Backend request handling component registrations.
 Registers:
 - StructuredOutputEnforcer / IStructuredOutputEnforcer
 - ToolCallRetryCoordinator / IToolCallRetryCoordinator
-- BackendNonStreamingResponseHandler / INonStreamingBackendResponseHandler
 - BackendRequestPreparationService / IBackendRequestPreparation
 - LoopDetectorFactory / ILoopDetectorFactory
 - QualityVerifierStreamVerifier / IQualityVerifierStreamVerifier
-- BackendStreamingResponseHandler / IStreamingBackendResponseHandler
+- BackendStreamingResponseHandler (concrete; no legacy split-handler interface key)
 - LoopDetector / ILoopDetector (HybridLoopDetector)
 """
 
@@ -17,7 +16,6 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple, cast
 
-from src.core.common.exceptions import ServiceResolutionError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
@@ -43,7 +41,6 @@ def register_backend_component_services(services: ServiceCollection) -> None:
     """Register backend request handling components."""
     _register_structured_output_enforcer(services)
     _register_tool_call_retry_coordinator(services)
-    _register_backend_non_streaming_response_handler(services)
     _register_backend_request_preparation_service(services)
     _register_loop_detector_factory(services)
     _register_quality_verifier_stream_verifier(services)
@@ -138,101 +135,6 @@ def _register_tool_call_retry_coordinator(services: ServiceCollection) -> None:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 f"Failed to register IToolCallRetryCoordinator interface: {e}",
-                exc_info=True,
-            )
-
-
-def _register_backend_non_streaming_response_handler(
-    services: ServiceCollection,
-) -> None:
-    """Register BackendNonStreamingResponseHandler and INonStreamingBackendResponseHandler."""
-    from src.core.di.registrations._shared import register_singleton_if_absent
-    from src.core.interfaces.backend_processor_interface import IBackendProcessor
-    from src.core.interfaces.backend_request_manager_components import (
-        INonStreamingBackendResponseHandler,
-        IStructuredOutputEnforcer,
-        IToolCallRetryCoordinator,
-    )
-    from src.core.interfaces.response_processor_interface import IResponseProcessor
-    from src.core.services.backend_non_streaming_response_handler import (
-        BackendNonStreamingResponseHandler,
-    )
-
-    def _backend_non_streaming_response_handler_factory(
-        provider: IServiceProvider,
-    ) -> BackendNonStreamingResponseHandler:
-        from src.core.interfaces.application_state_interface import IApplicationState
-
-        response_processor: IResponseProcessor = provider.get_required_service(
-            cast(type, IResponseProcessor)  # type: ignore[type-abstract]
-        )
-        structured_output_enforcer: (
-            IStructuredOutputEnforcer
-        ) = provider.get_required_service(
-            cast(type, IStructuredOutputEnforcer)  # type: ignore[type-abstract]
-        )
-        tool_call_retry_coordinator: (
-            IToolCallRetryCoordinator
-        ) = provider.get_required_service(
-            cast(type, IToolCallRetryCoordinator)  # type: ignore[type-abstract]
-        )
-        backend_processor: IBackendProcessor = provider.get_required_service(
-            cast(type, IBackendProcessor)  # type: ignore[type-abstract]
-        )
-        app_state: IApplicationState = provider.get_required_service(
-            cast(type, IApplicationState)  # type: ignore[type-abstract]
-        )
-
-        # Get cancellation coordinator (optional, registered in streaming phase)
-        cancellation_coordinator = None
-        try:
-            from src.core.interfaces.session_cancellation_coordinator_interface import (
-                ISessionCancellationCoordinator,
-            )
-
-            cancellation_coordinator = provider.get_service(
-                cast(type, ISessionCancellationCoordinator)
-            )
-        except (
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-            ServiceResolutionError,
-        ):
-            # Cancellation coordinator not available (optional dependency)
-            # Log unexpected errors during service lookup to aid debugging
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to get ISessionCancellationCoordinator during "
-                    "BackendNonStreamingResponseHandler registration (optional dependency)",
-                    exc_info=True,
-                )
-
-        return BackendNonStreamingResponseHandler(
-            response_processor=response_processor,
-            structured_output_enforcer=structured_output_enforcer,
-            tool_call_retry_coordinator=tool_call_retry_coordinator,
-            backend_processor=backend_processor,
-            app_state=app_state,
-            cancellation_coordinator=cancellation_coordinator,
-        )
-
-    register_singleton_if_absent(
-        services,
-        BackendNonStreamingResponseHandler,
-        implementation_factory=_backend_non_streaming_response_handler_factory,
-    )
-    try:
-        register_singleton_if_absent(
-            services,
-            cast(type, INonStreamingBackendResponseHandler),
-            implementation_factory=_backend_non_streaming_response_handler_factory,  # type: ignore[type-abstract]
-        )
-    except Exception as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                f"Failed to register INonStreamingBackendResponseHandler interface: {e}",
                 exc_info=True,
             )
 
@@ -393,13 +295,13 @@ def _register_quality_verifier_stream_verifier(services: ServiceCollection) -> N
 def _register_backend_streaming_response_handler(
     services: ServiceCollection,
 ) -> None:
-    """Register BackendStreamingResponseHandler and IStreamingBackendResponseHandler."""
+    """Register BackendStreamingResponseHandler singleton."""
     from src.core.di.registrations._shared import register_singleton_if_absent
     from src.core.interfaces.backend_processor_interface import IBackendProcessor
     from src.core.interfaces.backend_request_manager_components import (
         ILoopDetectorFactory,
         IQualityVerifierStreamVerifier,
-        IStreamingBackendResponseHandler,
+        IStructuredOutputEnforcer,
         IToolCallRetryCoordinator,
     )
     from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
@@ -414,6 +316,10 @@ def _register_backend_streaming_response_handler(
     def _backend_streaming_response_handler_factory(
         provider: IServiceProvider,
     ) -> BackendStreamingResponseHandler:
+        from src.core.config.models.request_processing_unification import (
+            RequestProcessingUnificationConfig,
+        )
+
         response_processor: IResponseProcessor = provider.get_required_service(
             cast(type, IResponseProcessor)  # type: ignore[type-abstract]
         )
@@ -433,6 +339,26 @@ def _register_backend_streaming_response_handler(
             cast(type, ISessionCancellationCoordinator)
         )
         backend_work_guard = provider.get_service(cast(type, IBackendWorkGuard))
+        structured_output_enforcer = provider.get_service(
+            cast(type, IStructuredOutputEnforcer)  # type: ignore[type-abstract]
+        )
+
+        # Extract empty stream recovery config (optional, with defaults)
+        empty_stream_recovery_prompt: str | None = None
+        max_empty_stream_retries: int | None = None
+        try:
+            app_config = provider.get_service(AppConfig)
+            if app_config is not None:
+                rpu_config = getattr(app_config, "request_processing_unification", None)
+                if isinstance(rpu_config, RequestProcessingUnificationConfig):
+                    empty_stream_recovery_prompt = (
+                        rpu_config.empty_stream_recovery_prompt
+                    )
+                    max_empty_stream_retries = rpu_config.max_empty_stream_retries
+        except Exception:
+            # Fail-open: use defaults if config lookup fails
+            pass
+
         return BackendStreamingResponseHandler(
             response_processor=response_processor,
             loop_detector_factory=loop_detector_factory,
@@ -441,6 +367,9 @@ def _register_backend_streaming_response_handler(
             backend_processor=backend_processor,
             cancellation_coordinator=cancellation_coordinator,
             backend_work_guard=backend_work_guard,
+            structured_output_enforcer=structured_output_enforcer,
+            empty_stream_recovery_prompt=empty_stream_recovery_prompt,
+            max_empty_stream_retries=max_empty_stream_retries,
         )
 
     register_singleton_if_absent(
@@ -448,18 +377,6 @@ def _register_backend_streaming_response_handler(
         BackendStreamingResponseHandler,
         implementation_factory=_backend_streaming_response_handler_factory,
     )
-    try:
-        register_singleton_if_absent(
-            services,
-            cast(type, IStreamingBackendResponseHandler),
-            implementation_factory=_backend_streaming_response_handler_factory,  # type: ignore[type-abstract]
-        )
-    except Exception as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                f"Failed to register IStreamingBackendResponseHandler interface: {e}",
-                exc_info=True,
-            )
 
 
 def _should_use_noop_detector(config: AppConfig | None) -> bool:

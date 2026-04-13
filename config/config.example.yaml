@@ -238,6 +238,7 @@ dynamic_compression:
   disable_categories: []        # e.g. ["search"]
   disable_methods: []           # e.g. ["line_dedupe"]
   disable_tools: []             # e.g. ["shell"]
+  disable_tool_name_substrings: []  # e.g. ["fff", "mcp_"] matches anywhere in tool name
   disable_command_prefixes: []  # e.g. ["git diff --stat"]
   # Listing/search/read strategy tuning
   noise_directories: ["node_modules", ".git", "target", "__pycache__", ".venv", "vendor"]
@@ -262,9 +263,9 @@ dynamic_compression:
   diff_max_lines_per_hunk: 100
   diff_max_total_lines: 500
 
-# Request-processing unification migration gates (all default-off)
+# Request-processing unification (canonical path is always used at runtime)
 request_processing_unification:
-  enable_core_canonical_path: false
+  enable_core_canonical_path: true
   enable_canonical_features: false
   connector_stream_first: {}
   retire_legacy_dual_path: false

@@ -14,10 +14,12 @@ from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     ILoopDetectorFactory,
     IQualityVerifierStreamVerifier,
-    IStreamingBackendResponseHandler,
     IToolCallRetryCoordinator,
 )
 from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.services.backend_request_manager.streaming_response_handler import (
+    BackendStreamingResponseHandler,
+)
 
 
 @pytest.fixture
@@ -39,7 +41,7 @@ def mock_quality_verifier_stream_verifier() -> IQualityVerifierStreamVerifier:
     """Create a mock Angel stream verifier."""
     mock = AsyncMock(spec=IQualityVerifierStreamVerifier)
 
-    async def passthrough(request, stream, context):
+    async def passthrough(request, stream, context, **_kwargs):
         async for chunk in stream:
             yield chunk
 
@@ -68,12 +70,8 @@ def handler(
     mock_quality_verifier_stream_verifier: IQualityVerifierStreamVerifier,
     mock_tool_call_retry_coordinator: IToolCallRetryCoordinator,
     mock_backend_processor: IBackendProcessor,
-) -> IStreamingBackendResponseHandler:
+) -> BackendStreamingResponseHandler:
     """Create a BackendStreamingResponseHandler instance."""
-    from src.core.services.backend_request_manager.streaming_response_handler import (
-        BackendStreamingResponseHandler,
-    )
-
     return BackendStreamingResponseHandler(
         response_processor=mock_response_processor,
         loop_detector_factory=mock_loop_detector_factory,

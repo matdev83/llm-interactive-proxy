@@ -600,7 +600,9 @@ class TestToolCallLoopDetection:
         # Configure the mock backend to return tool calls for most requests
         # and an error response for the final request
         # Total requests: 1 (set command) + 3 (loop) + 1 (re-enable command) + 1 + 1 = 7
-        responses = [create_mock_response(tool_calls)] * 6 + [error_response]
+        # Pad tool-call successes: canonical streaming path may hit the backend more
+        # often per client request than the legacy split-handler path.
+        responses = [create_mock_response(tool_calls)] * 24 + [error_response]
         mock_backend.side_effect = responses
 
         # First, set tool loop detection to disabled for the session

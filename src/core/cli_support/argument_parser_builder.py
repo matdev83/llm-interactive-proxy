@@ -807,6 +807,12 @@ class ArgumentParserBuilder:
             metavar="CSV",
             help="Comma-separated command prefixes to bypass",
         )
+        dynamic_group.add_argument(
+            "--dynamic-compression-disable-tool-name-substrings",
+            dest="dynamic_compression_disable_tool_name_substrings",
+            metavar="CSV",
+            help="Comma-separated substrings to match against tool names",
+        )
 
     def _add_planning_phase_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add planning phase arguments."""

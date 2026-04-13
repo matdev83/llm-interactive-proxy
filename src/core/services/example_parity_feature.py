@@ -10,7 +10,7 @@ These examples can serve as templates for migrating existing middleware.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from src.core.interfaces.response_processor_interface import (
     FeatureCapability,
@@ -90,55 +90,30 @@ class ContentTransformFeature(IResponseFeature):
             return result
         return new_content
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Process complete response with transformation.
+        """Transform content (full response or chunk-aware streaming)."""
+        ctx = cast(dict[str, Any], context)
+        if not is_streaming:
+            content = self._extract_content(payload)
+            transformed = self._transform_content(content)
+            return self._apply_content(payload, transformed)
 
-        For non-streaming, we apply the full transformation including
-        both prefix and suffix.
-        """
-        content = self._extract_content(response)
-        transformed = self._transform_content(content)
-        return self._apply_content(response, transformed)
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Process streaming chunk with transformation.
-
-        For streaming, we need to handle chunk boundaries:
-        - First chunk gets the prefix
-        - Last chunk gets the suffix
-        - Middle chunks pass through
-
-        This shows how streaming can be equivalent in EFFECT even if
-        the application differs due to chunk boundaries.
-        """
-        # Track chunk position using context
-        chunk_index = context.get("_chunk_index", 0)
-        is_last = context.get("is_done", False)
-
-        content = self._extract_content(chunk)
-
-        # First chunk gets prefix
+        chunk_index = ctx.get("_chunk_index", 0)
+        is_last = ctx.get("is_done", False)
+        content = self._extract_content(payload)
         if chunk_index == 0 and self._prefix:
             content = self._prefix + content
-
-        # Last chunk gets suffix
         if is_last and self._suffix:
             content = content + self._suffix
-
-        # Update chunk index for next call
-        context["_chunk_index"] = chunk_index + 1
-
-        return self._apply_content(chunk, content)
+        ctx["_chunk_index"] = chunk_index + 1
+        return self._apply_content(payload, content)
 
 
 class ResponseLoggingFeature(IResponseFeature):
@@ -188,25 +163,22 @@ class ResponseLoggingFeature(IResponseFeature):
             usage_info,
         )
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Log non-streaming response."""
-        self._log_response(response, session_id, context, is_streaming=False)
-        return response
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Log streaming chunk."""
-        self._log_response(chunk, session_id, context, is_streaming=True)
-        return chunk
+        """Log one response unit."""
+        self._log_response(
+            payload,
+            session_id,
+            cast(dict[str, Any], context),
+            is_streaming=is_streaming,
+        )
+        return payload
 
 
 class ContentFilterFeature(IResponseFeature):
@@ -273,35 +245,25 @@ class ContentFilterFeature(IResponseFeature):
         except AttributeError:
             return ProcessedResponse(content=filtered)
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Filter non-streaming response."""
-        return self._apply_filter(response)
+        """Filter content (first streaming chunk only for prefix)."""
+        ctx = cast(dict[str, Any], context)
+        if not is_streaming:
+            return self._apply_filter(payload)
 
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Filter streaming chunk.
-
-        Note: For streaming, we only filter the prefix from the first chunk
-        since the prefix won't appear in subsequent chunks.
-        """
-        chunk_index = context.get("_filter_chunk_index", 0)
-
-        # Only check for prefix in first chunk
+        chunk_index = ctx.get("_filter_chunk_index", 0)
         if chunk_index == 0:
-            result = self._apply_filter(chunk)
+            result = self._apply_filter(payload)
         else:
-            result = chunk
-
-        context["_filter_chunk_index"] = chunk_index + 1
+            result = payload
+        ctx["_filter_chunk_index"] = chunk_index + 1
         return result
 
 
@@ -322,28 +284,21 @@ class StreamingOnlyMetricsFeature(IResponseFeature):
         super().__init__(priority)
         self._chunk_counts: dict[str, int] = {}
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """No-op for non-streaming - metrics don't apply."""
-        # Explicitly documented no-op
-        return response
+        """Track metrics on streaming path only."""
+        ctx = cast(dict[str, Any], context)
+        if not is_streaming:
+            return payload
 
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Track streaming metrics."""
         self._chunk_counts[session_id] = self._chunk_counts.get(session_id, 0) + 1
-
-        # Add metrics to context for downstream use
-        context["streaming_metrics"] = {
+        ctx["streaming_metrics"] = {
             "chunk_count": self._chunk_counts[session_id],
         }
-
-        return chunk
+        return payload

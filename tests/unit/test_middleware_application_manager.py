@@ -2,11 +2,34 @@ from typing import Any  # Added this import
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.interfaces.response_processor_interface import IResponseMiddleware
+from src.core.interfaces.response_processor_interface import (
+    IResponseFeature,
+    IResponseMiddleware,
+    ProcessedResponse,
+)
 from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
+
+
+class _RecordingResponseFeature(IResponseFeature):
+    """Minimal feature to assert manager uses ``process`` -> ``process_chunk``."""
+
+    def __init__(self) -> None:
+        super().__init__(priority=0)
+        self.calls: list[tuple[bool, Any]] = []
+
+    async def process_chunk(
+        self,
+        payload: Any,
+        session_id: str,
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
+    ) -> Any:
+        self.calls.append((is_streaming, payload))
+        return payload
 
 
 class MockMiddleware(IResponseMiddleware):
@@ -181,3 +204,29 @@ async def test_apply_middleware_with_stop_event_streaming(manager):
     assert len(chunks) == 0
     # Verification of stop_event in streaming middleware would require more intricate mocking of the async generator.
     # For now, relying on the non-streaming test for stop_event passing.
+
+
+@pytest.mark.asyncio
+async def test_apply_middleware_feature_uses_single_path_process() -> None:
+    """IResponseFeature is driven only through ``process`` / ``process_chunk``."""
+    feature = _RecordingResponseFeature()
+    manager = MiddlewareApplicationManager([feature])
+
+    await manager.apply_middleware(
+        "body", [feature], is_streaming=False, session_id="sess-1"
+    )
+    assert len(feature.calls) == 1
+    assert feature.calls[0][0] is False
+    assert isinstance(feature.calls[0][1], ProcessedResponse)
+
+    async def generate_chunks():
+        yield StreamingContent(content="c1", is_done=True)
+
+    processed_iterator = await manager.apply_middleware(
+        generate_chunks(), [feature], is_streaming=True, session_id="sess-1"
+    )
+    async for _ in processed_iterator:
+        pass
+
+    assert len(feature.calls) == 2
+    assert feature.calls[1][0] is True

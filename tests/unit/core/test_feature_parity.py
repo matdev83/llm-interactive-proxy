@@ -6,6 +6,12 @@ This module tests:
 2. FeatureParityRegistry for tracking feature support
 3. Adapters for bridging middleware/feature interfaces
 4. Parity verification and violation detection
+
+Scope note: :meth:`FeatureParityRegistry.verify_parity` is declaration-focused for
+``IResponseFeature`` (capability vs. ``process_chunk`` presence) and emits
+informational notices for legacy ``IResponseMiddleware``. It does **not** prove
+streaming vs. non-streaming semantic equivalence for legacy middleware; that
+requires runtime checks (see ``TestParityVerification`` and adapter tests below).
 """
 
 from __future__ import annotations
@@ -43,37 +49,25 @@ class ConcreteFeatureWithParity(IResponseFeature):
         self._streaming_calls: list[Any] = []
         self._non_streaming_calls: list[Any] = []
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Non-streaming implementation - applies same transform as streaming."""
-        self._non_streaming_calls.append(response)
-        if isinstance(response, ProcessedResponse):
+        if is_streaming:
+            self._streaming_calls.append(payload)
+        else:
+            self._non_streaming_calls.append(payload)
+        if isinstance(payload, ProcessedResponse):
             return ProcessedResponse(
-                content=self._transform_fn(response.content),
-                usage=response.usage,
-                metadata=response.metadata,
+                content=self._transform_fn(payload.content),
+                usage=payload.usage,
+                metadata=payload.metadata,
             )
-        return self._transform_fn(response)
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Streaming implementation - applies same transform as non-streaming."""
-        self._streaming_calls.append(chunk)
-        if isinstance(chunk, ProcessedResponse):
-            return ProcessedResponse(
-                content=self._transform_fn(chunk.content),
-                usage=chunk.usage,
-                metadata=chunk.metadata,
-            )
-        return self._transform_fn(chunk)
+        return self._transform_fn(payload)
 
 
 class StreamingOnlyFeature(IResponseFeature):
@@ -83,29 +77,23 @@ class StreamingOnlyFeature(IResponseFeature):
     def capability(self) -> str:
         return FeatureCapability.STREAMING
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """No-op for non-streaming - just passes through."""
-        return response
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Actual streaming implementation."""
-        if isinstance(chunk, ProcessedResponse):
+        if not is_streaming:
+            return payload
+        if isinstance(payload, ProcessedResponse):
             return ProcessedResponse(
-                content=f"[STREAM] {chunk.content}",
-                usage=chunk.usage,
-                metadata=chunk.metadata,
+                content=f"[STREAM] {payload.content}",
+                usage=payload.usage,
+                metadata=payload.metadata,
             )
-        return f"[STREAM] {chunk}"
+        return f"[STREAM] {payload}"
 
 
 class NonStreamingOnlyFeature(IResponseFeature):
@@ -115,29 +103,23 @@ class NonStreamingOnlyFeature(IResponseFeature):
     def capability(self) -> str:
         return FeatureCapability.NON_STREAMING
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Actual non-streaming implementation."""
-        if isinstance(response, ProcessedResponse):
+        if is_streaming:
+            return payload
+        if isinstance(payload, ProcessedResponse):
             return ProcessedResponse(
-                content=f"[COMPLETE] {response.content}",
-                usage=response.usage,
-                metadata=response.metadata,
+                content=f"[COMPLETE] {payload.content}",
+                usage=payload.usage,
+                metadata=payload.metadata,
             )
-        return f"[COMPLETE] {response}"
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """No-op for streaming - just passes through."""
-        return chunk
+        return f"[COMPLETE] {payload}"
 
 
 class LegacyMiddleware(IResponseMiddleware):
@@ -202,7 +184,7 @@ class TestIResponseFeature:
 
     @pytest.mark.asyncio
     async def test_template_method_delegates_to_streaming(self):
-        """Test that process() delegates to process_streaming when is_streaming=True."""
+        """Test that process() hits process_chunk with is_streaming=True."""
         feature = ConcreteFeatureWithParity(lambda x: f"TRANSFORMED:{x}")
         response = ProcessedResponse(content="test")
 
@@ -214,7 +196,7 @@ class TestIResponseFeature:
 
     @pytest.mark.asyncio
     async def test_template_method_delegates_to_non_streaming(self):
-        """Test that process() delegates to process_non_streaming when is_streaming=False."""
+        """Test that process() hits process_chunk with is_streaming=False."""
         feature = ConcreteFeatureWithParity(lambda x: f"TRANSFORMED:{x}")
         response = ProcessedResponse(content="test")
 
@@ -308,24 +290,59 @@ class TestFeatureParityRegistry:
         registry.register_feature(ConcreteFeatureWithParity())
         registry.register_feature(StreamingOnlyFeature())
         registry.register_feature(NonStreamingOnlyFeature())
+        registry.register_middleware(
+            LegacyMiddleware(),
+            declared_capability="non_streaming",
+            name="MwDeclaredNonStreamingOnly",
+        )
 
         streaming = registry.get_features_by_capability("streaming")
         names = [f.name for f in streaming]
 
         assert "ConcreteFeatureWithParity" in names
         assert "StreamingOnlyFeature" in names
-        # NonStreamingOnlyFeature should NOT be in streaming list
-        # Note: It declares NON_STREAMING capability
+        assert "NonStreamingOnlyFeature" in names
+        assert "MwDeclaredNonStreamingOnly" not in names
 
     def test_get_features_by_capability_both(self, registry):
         """Test filtering features with both capabilities."""
         registry.register_feature(ConcreteFeatureWithParity())
         registry.register_feature(StreamingOnlyFeature())
+        registry.register_middleware(
+            LegacyMiddleware(),
+            declared_capability="streaming",
+            name="MwDeclaredStreamingOnly",
+        )
+        registry.register_middleware(
+            LegacyMiddleware(),
+            declared_capability="non_streaming",
+            name="MwDeclaredNonStreamingOnly2",
+        )
 
         both = registry.get_features_by_capability("both")
         names = [f.name for f in both]
 
         assert "ConcreteFeatureWithParity" in names
+        assert "StreamingOnlyFeature" in names
+        assert "MwDeclaredStreamingOnly" not in names
+        assert "MwDeclaredNonStreamingOnly2" not in names
+
+    def test_get_features_by_capability_non_streaming(self, registry):
+        """Legacy middleware declared streaming-only is excluded from non-streaming filter."""
+        registry.register_feature(ConcreteFeatureWithParity())
+        registry.register_feature(StreamingOnlyFeature())
+        registry.register_middleware(
+            LegacyMiddleware(),
+            declared_capability="streaming",
+            name="MwDeclaredStreamingOnlyForNonStreamTest",
+        )
+
+        non_streaming = registry.get_features_by_capability("non_streaming")
+        names = [f.name for f in non_streaming]
+
+        assert "ConcreteFeatureWithParity" in names
+        assert "StreamingOnlyFeature" in names
+        assert "MwDeclaredStreamingOnlyForNonStreamTest" not in names
 
     def test_verify_parity_no_violations(self, registry):
         """Test that properly implemented features have no violations."""
@@ -345,6 +362,22 @@ class TestFeatureParityRegistry:
 
         assert len(info_violations) == 1
         assert "legacy IResponseMiddleware" in info_violations[0].description
+
+    def test_verify_parity_divergent_legacy_middleware_stays_declaration_only(
+        self, registry
+    ):
+        """Divergent legacy middleware still only triggers registry declaration checks."""
+        registry.register_middleware(
+            DivergentLegacyMiddleware(),
+            declared_capability="both",
+            name="DivergentLegacyForRegistry",
+        )
+
+        violations = registry.verify_parity()
+        assert len(violations) == 1
+        assert violations[0].severity == "info"
+        assert "legacy" in violations[0].description.lower()
+        assert not any(v.severity in ("error", "warning") for v in violations)
 
     def test_parity_report_generation(self, registry):
         """Test that parity report is generated correctly."""
@@ -417,8 +450,8 @@ class TestMiddlewareToFeatureAdapter:
         middleware = LegacyMiddleware()
         adapter = MiddlewareToFeatureAdapter(middleware)
 
-        result = await adapter.process_streaming(
-            ProcessedResponse(content="test"), "session1", {}
+        result = await adapter.process_chunk(
+            ProcessedResponse(content="test"), "session1", {}, is_streaming=True
         )
 
         assert len(middleware._calls) == 1
@@ -431,8 +464,8 @@ class TestMiddlewareToFeatureAdapter:
         middleware = LegacyMiddleware()
         adapter = MiddlewareToFeatureAdapter(middleware)
 
-        result = await adapter.process_non_streaming(
-            ProcessedResponse(content="test"), "session1", {}
+        result = await adapter.process_chunk(
+            ProcessedResponse(content="test"), "session1", {}, is_streaming=False
         )
 
         assert len(middleware._calls) == 1
@@ -585,11 +618,17 @@ class TestParityVerification:
         # Same input
         input_content = "test content"
 
-        streaming_result = await feature.process_streaming(
-            ProcessedResponse(content=input_content), "session", {}
+        streaming_result = await feature.process_chunk(
+            ProcessedResponse(content=input_content),
+            "session",
+            {},
+            is_streaming=True,
         )
-        non_streaming_result = await feature.process_non_streaming(
-            ProcessedResponse(content=input_content), "session", {}
+        non_streaming_result = await feature.process_chunk(
+            ProcessedResponse(content=input_content),
+            "session",
+            {},
+            is_streaming=False,
         )
 
         # Results should be equivalent
@@ -604,11 +643,17 @@ class TestParityVerification:
 
         input_content = "test content"
 
-        streaming_result = await adapter.process_streaming(
-            ProcessedResponse(content=input_content), "session", {}
+        streaming_result = await adapter.process_chunk(
+            ProcessedResponse(content=input_content),
+            "session",
+            {},
+            is_streaming=True,
         )
-        non_streaming_result = await adapter.process_non_streaming(
-            ProcessedResponse(content=input_content), "session", {}
+        non_streaming_result = await adapter.process_chunk(
+            ProcessedResponse(content=input_content),
+            "session",
+            {},
+            is_streaming=False,
         )
 
         # Results should be DIFFERENT (divergent behavior)
@@ -654,9 +699,8 @@ class TestIntegrationWithMiddlewarePipeline:
         legacy = LegacyMiddleware()
         adapted = MiddlewareToFeatureAdapter(legacy)
 
-        # Now we can call the feature-style methods
-        result = await adapted.process_streaming(
-            ProcessedResponse(content="test"), "session", {}
+        result = await adapted.process_chunk(
+            ProcessedResponse(content="test"), "session", {}, is_streaming=True
         )
 
         assert "[LEGACY:True]" in result.content

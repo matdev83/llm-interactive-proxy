@@ -1519,3 +1519,149 @@ async def test_git_diff_stat_explicit_format_is_not_matched_by_default_rules() -
     result = await service.compress_messages(messages=messages, config=cfg)
 
     assert result.messages[1].content == stat_out
+
+
+@pytest.mark.asyncio
+async def test_service_skips_tool_matching_tool_name_substring() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    messages = _build_messages_for_tool(
+        tool_name="fff_grep",
+        arguments='{"pattern":"target","path":"src"}',
+        output="src/a.py:10:def target()\n" * 100,
+    )
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        disable_tool_name_substrings=["fff"],
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(tool_category="search"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.records[0].applied is False, (
+        f"Expected applied=False, got {result.records[0].applied}. "
+        f"Identity: {result.records[0].identity}"
+    )
+    assert "tool_name_substring_disabled" in result.records[0].warnings
+
+
+@pytest.mark.asyncio
+async def test_service_skips_tool_matching_substring_anywhere_in_name() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    messages = _build_messages_for_tool(
+        tool_name="turbo_fff_grep",
+        arguments='{"pattern":"target","path":"src"}',
+        output="src/a.py:10:def target()\n" * 100,
+    )
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        disable_tool_name_substrings=["fff"],
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(tool_category="search"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.records[0].applied is False
+    assert "tool_name_substring_disabled" in result.records[0].warnings
+
+
+@pytest.mark.asyncio
+async def test_service_does_not_skip_tool_not_matching_substring() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    messages = _build_messages_for_tool(
+        tool_name="grep_tool",
+        arguments='{"pattern":"target","path":"src"}',
+        output="src/a.py:10:def target()\n" * 100,
+    )
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        disable_tool_name_substrings=["fff"],
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(tool_category="search"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.records[0].applied is True
+
+
+@pytest.mark.asyncio
+async def test_tool_name_substring_is_case_insensitive() -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("half_trim", _HalfTrimStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    messages = _build_messages_for_tool(
+        tool_name="FFF_FIND_FILES",
+        arguments='{"path":"src"}',
+        output="src/a.py\nsrc/b.py\n" * 100,
+    )
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        methods={"half_trim": True},
+        disable_tool_name_substrings=["fff"],
+        rules=[
+            CompressionRule(
+                name="default",
+                priority=1,
+                when=CompressionRulePredicate(tool_category="list_dir"),
+                pipeline=["half_trim"],
+            )
+        ],
+    )
+
+    result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert result.records[0].applied is False
+    assert "tool_name_substring_disabled" in result.records[0].warnings

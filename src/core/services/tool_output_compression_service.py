@@ -77,6 +77,7 @@ _NOISY_NOOP_DECISION_REASONS = frozenset(
         "below_min_bytes",
         "category_disabled",
         "tool_disabled",
+        "tool_name_substring_disabled",
         "command_prefix_disabled",
         "no_matching_rule",
         "no_enabled_pipeline_methods",
@@ -310,6 +311,33 @@ class ToolOutputCompressionService:
                     declared_pipeline=declared_pipeline,
                     enabled_pipeline=enabled_pipeline,
                     decision_reason="tool_disabled",
+                    output_started_at=output_started_at,
+                    per_output_evaluation_log_level=per_output_log_level,
+                )
+                batch_alerts.extend(
+                    self._record_metrics_and_alerts(
+                        record=record,
+                        effective_config=effective_config,
+                    )
+                )
+                continue
+            tool_name_lower = context.identity.tool_name.lower()
+            if any(
+                substring in tool_name_lower
+                for substring in effective_config.disable_tool_name_substrings
+            ):
+                updated_messages.append(message)
+                self._finalize_record_fields(
+                    record=record,
+                    final_content=message.content,
+                    output_started_at=output_started_at,
+                )
+                self._log_output_evaluation(
+                    record=record,
+                    selected_rule_name=selected_rule_name,
+                    declared_pipeline=declared_pipeline,
+                    enabled_pipeline=enabled_pipeline,
+                    decision_reason="tool_name_substring_disabled",
                     output_started_at=output_started_at,
                     per_output_evaluation_log_level=per_output_log_level,
                 )
@@ -708,6 +736,14 @@ class ToolOutputCompressionService:
             control = f"dynamic_compression.disable_tools.{tool_name}"
             active_controls.add(control)
             reasons[control] = "Operator tool opt-out control active."
+
+        for substring in sorted(effective_config.disable_tool_name_substrings):
+            control = (
+                "dynamic_compression.disable_tool_name_substrings."
+                f"{substring.lower()}"
+            )
+            active_controls.add(control)
+            reasons[control] = "Operator tool-name-substring opt-out control active."
 
         for command_prefix in sorted(effective_config.disable_command_prefixes):
             control = (

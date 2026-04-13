@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.common.exceptions import DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.quality_verifier_service_interface import (
@@ -90,9 +90,9 @@ class TestBackendRequestManagerDeduplication:
         # Mock dedup service to return "not a duplicate"
         mock_dedup_service.check_and_register.return_value = (False, "hash123")
 
-        # Mock backend processing
+        # Mock backend processing (canonical path requires a real envelope type)
         mock_backend_processor.process_backend_request = AsyncMock(
-            return_value=MagicMock()
+            return_value=ResponseEnvelope(content={"ok": True}, status_code=200)
         )
 
         # Execute
@@ -398,7 +398,7 @@ class TestBackendRequestManagerDeduplication:
         ) -> StreamingResponseEnvelope:
             return stream
 
-        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+        cast(Any, backend_request_manager._post_backend_response_coordinator)._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
 
         result = await backend_request_manager.process_backend_request(
             request, session_id, context
@@ -464,7 +464,7 @@ class TestBackendRequestManagerDeduplication:
         ) -> StreamingResponseEnvelope:
             return stream
 
-        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+        cast(Any, backend_request_manager._post_backend_response_coordinator)._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
 
         result = await backend_request_manager.process_backend_request(
             request, session_id, context
@@ -528,7 +528,7 @@ class TestBackendRequestManagerDeduplication:
         ) -> StreamingResponseEnvelope:
             return stream
 
-        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+        cast(Any, backend_request_manager._post_backend_response_coordinator)._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
 
         result = await backend_request_manager.process_backend_request(
             request, session_id, context
@@ -595,7 +595,7 @@ class TestBackendRequestManagerDeduplication:
         ) -> StreamingResponseEnvelope:
             return stream
 
-        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+        cast(Any, backend_request_manager._post_backend_response_coordinator)._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
 
         result = await backend_request_manager.process_backend_request(
             request, session_id, context
@@ -659,7 +659,7 @@ class TestBackendRequestManagerDeduplication:
         ) -> StreamingResponseEnvelope:
             return stream
 
-        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+        cast(Any, backend_request_manager._post_backend_response_coordinator)._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
 
         result = await backend_request_manager.process_backend_request(
             request, session_id, context

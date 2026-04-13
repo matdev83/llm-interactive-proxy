@@ -59,7 +59,7 @@ The proxy includes built-in resilience features for production use:
 - **Streaming protection** - Avoids retry after output has started, preventing corruption
 - **Health monitoring** - Tracks backend availability and performance
 
-Configure via the `resilience` section in `config.yaml` or see the [Failure Handling Guide](docs/user_guide/features/failure-handling.md).
+Configure via the `resilience` section in `config.yaml` or see the [Failure Handling Guide](docs/user_guide/features/failure-handling.md). Request processing now runs through a single canonical manager path with no legacy split-handler fallback. `request_processing_unification` remains for operational controls such as per-backend `connector_stream_first` hints, optional `emit_path_selection_metadata`, and `promotion_requirements` reporting. When path diagnostics are enabled, `promotion_guardrails` uses strict missing-evidence semantics (absent measurements do not read as promotion-ready).
 
 ## Quick Start
 

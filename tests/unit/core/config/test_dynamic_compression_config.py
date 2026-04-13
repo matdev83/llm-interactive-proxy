@@ -191,6 +191,27 @@ def test_disable_command_prefixes_are_case_insensitive_and_deterministic() -> No
     ]
 
 
+def test_disable_tool_name_substrings_are_case_insensitive_and_deterministic() -> None:
+    cfg = DynamicCompressionConfig(
+        disable_tool_name_substrings=[
+            "Fff",
+            "fff",
+            " FFF ",
+            "MCP_HELPER",
+        ]
+    )
+
+    assert cfg.disable_tool_name_substrings == [
+        "fff",
+        "mcp_helper",
+    ]
+
+
+def test_disable_tool_name_substrings_defaults_to_empty() -> None:
+    cfg = DynamicCompressionConfig()
+    assert cfg.disable_tool_name_substrings == []
+
+
 def test_default_sensitive_rules_require_text_and_non_explicit_format() -> None:
     cfg = DynamicCompressionConfig()
     rules_by_name = {rule.name: rule for rule in cfg.rules}
@@ -266,6 +287,7 @@ def test_app_config_accepts_dynamic_compression_block() -> None:
                 "disable_categories": ["search"],
                 "disable_methods": ["line_dedupe"],
                 "disable_tools": ["shell"],
+                "disable_tool_name_substrings": ["fff"],
                 "disable_command_prefixes": ["git diff --stat"],
             }
         }
@@ -281,6 +303,7 @@ def test_app_config_accepts_dynamic_compression_block() -> None:
     assert dc.disable_categories == ["search"]
     assert dc.disable_methods == ["line_dedupe"]
     assert dc.disable_tools == ["shell"]
+    assert dc.disable_tool_name_substrings == ["fff"]
     assert dc.disable_command_prefixes == ["git diff --stat"]
 
 

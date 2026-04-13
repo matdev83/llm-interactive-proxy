@@ -15,12 +15,12 @@ from src.core.domain.backend_request_manager.context_models import (
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.interfaces.backend_request_manager_components import (
-    IStreamingBackendResponseHandler,
-)
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
+)
+from src.core.services.backend_request_manager.streaming_response_handler import (
+    BackendStreamingResponseHandler,
 )
 from src.loop_detection.event import LoopDetectionEvent
 
@@ -33,7 +33,7 @@ class TestLoopDetectionCancellation:
     @pytest.mark.asyncio
     async def test_emits_cancellation_chunk_when_loop_detected(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
@@ -101,7 +101,7 @@ class TestLoopDetectionCancellation:
     @pytest.mark.asyncio
     async def test_invokes_cancel_callback_when_loop_detected(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
@@ -172,7 +172,7 @@ class TestAngelVerification:
     @pytest.mark.asyncio
     async def test_passes_through_original_stream_when_verification_disabled(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -225,7 +225,7 @@ class TestAngelVerification:
     @pytest.mark.asyncio
     async def test_returns_corrected_output_when_steering_decision_occurs(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
         mock_loop_detector_factory: MagicMock,
@@ -291,7 +291,7 @@ class TestMetadataAttachment:
     @pytest.mark.asyncio
     async def test_attaches_session_id_to_chunks(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
@@ -342,7 +342,7 @@ class TestMetadataAttachment:
     @pytest.mark.asyncio
     async def test_attaches_original_request_to_chunks(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
@@ -393,7 +393,7 @@ class TestMetadataAttachment:
     @pytest.mark.asyncio
     async def test_attaches_client_os_to_chunks(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         mock_quality_verifier_stream_verifier: AsyncMock,
@@ -447,7 +447,7 @@ class TestMetadataAttachment:
     @pytest.mark.asyncio
     async def test_resolves_client_reasoning_policy_once_per_stream(
         self,
-        handler: IStreamingBackendResponseHandler,
+        handler: BackendStreamingResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         mock_quality_verifier_stream_verifier: AsyncMock,

@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, cast
 
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.response_processor_interface import (
@@ -366,23 +366,21 @@ class EditPrecisionFeature(IResponseFeature):
                         "Error logging edit-precision trigger: %s", e, exc_info=True
                     )
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Process non-streaming response for edit failures."""
-        return self._process_response(response, session_id, context, is_streaming=False)
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Process streaming chunk for edit failures."""
-        return self._process_response(chunk, session_id, context, is_streaming=True)
+        """Process one response unit for edit failures."""
+        return self._process_response(
+            payload,
+            session_id,
+            cast(dict[str, Any], context),
+            is_streaming=is_streaming,
+        )
 
     def _update_stream_tracking(
         self,

@@ -45,6 +45,23 @@ class OrderCheckingMiddleware(IResponseMiddleware):
         return response
 
 
+class ContextCaptureMiddleware(IResponseMiddleware):
+    def __init__(self):
+        super().__init__(priority=0)
+        self.captured_context: dict | None = None
+
+    async def process(
+        self,
+        response: ProcessedResponse,
+        session_id: str,
+        context: dict,
+        is_streaming: bool = False,
+        stop_event=None,
+    ) -> ProcessedResponse:
+        self.captured_context = dict(context)
+        return response
+
+
 @pytest.fixture
 def middleware_application_processor():
     return MiddlewareApplicationProcessor([])
@@ -179,3 +196,26 @@ async def test_middleware_application_processor_metadata_and_usage_pass_through(
     assert processed_content.metadata.get("MW1") is True
     assert processed_content.usage == initial_usage
     assert processed_content.raw_data == initial_raw_data
+
+
+@pytest.mark.asyncio
+async def test_middleware_application_processor_exposes_legacy_stream_terminal_flags():
+    capture_mw = ContextCaptureMiddleware()
+    processor = MiddlewareApplicationProcessor([capture_mw])
+    initial_content = StreamingContent(
+        content="chunk",
+        is_done=True,
+        metadata={
+            "session_id": "test_session",
+            "backend_name": "openai",
+            "model_name": "gpt-4o-mini",
+            "finish_reason": "stop",
+        },
+    )
+
+    await processor.process(initial_content)
+
+    assert capture_mw.captured_context is not None
+    assert capture_mw.captured_context.get("is_final_chunk") is True
+    assert capture_mw.captured_context.get("done") is True
+    assert capture_mw.captured_context.get("finish_reason") == "stop"

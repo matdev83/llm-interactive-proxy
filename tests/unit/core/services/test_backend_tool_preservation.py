@@ -14,6 +14,9 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
+from src.core.services.post_backend_response_coordinator import (
+    PostBackendResponseCoordinator,
+)
 
 from tests.helpers.quality_verifier_factory_stub import QualityVerifierFactoryStub
 
@@ -28,19 +31,17 @@ def _create_backend_request_manager(
 
     request_preparation = BackendRequestPreparationService(angel_factory)
 
-    non_streaming_handler = MagicMock()
-    non_streaming_handler.handle = AsyncMock()
-
     streaming_handler = MagicMock()
     streaming_handler.handle = AsyncMock()
+
+    coordinator = PostBackendResponseCoordinator(streaming_handler=streaming_handler)
 
     return BackendRequestManager(
         backend_processor=backend_processor,
         response_processor=response_processor,
         quality_verifier_service_factory=angel_factory,
         request_preparation=request_preparation,
-        non_streaming_handler=non_streaming_handler,
-        streaming_handler=streaming_handler,
+        post_backend_response_coordinator=coordinator,
     )
 
 

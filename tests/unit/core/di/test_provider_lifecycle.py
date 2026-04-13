@@ -86,10 +86,10 @@ class TestProviderLifecycle:
 
         # Call post-build hooks
         with patch(
-            "src.core.di.registration_helpers.post_build_actions.initialize_feature_parity_registry"
-        ) as mock_init:
+            "src.core.di.registration_helpers.post_build_actions.register_tool_call_handlers"
+        ) as mock_register:
             provider_lifecycle.post_build_hooks(provider)
-            mock_init.assert_called_once_with(provider)
+            mock_register.assert_called_once_with(provider)
 
     def test_set_service_provider_updates_global(self) -> None:
         """Test that set_service_provider updates the global provider."""

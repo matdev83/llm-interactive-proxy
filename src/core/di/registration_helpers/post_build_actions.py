@@ -17,7 +17,12 @@ logger = logging.getLogger(__name__)
 
 
 def initialize_feature_parity_registry(provider: IServiceProvider) -> None:
-    """Initialize feature parity registry with all registered middleware.
+    """Populate the global feature parity registry (optional / test-focused).
+
+    .. deprecated::
+        Startup no longer calls this; use for tests, local diagnostics, or
+        explicit parity audits. Canonical-path migration relies on typed
+        feature contracts and targeted equivalence tests instead.
 
     This registers all middleware and features with the parity registry
     for tracking streaming/non-streaming support.

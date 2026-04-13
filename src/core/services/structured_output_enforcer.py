@@ -133,11 +133,11 @@ class StructuredOutputEnforcer(IStructuredOutputEnforcer):
                     "strict_schema_validation": strict_validation,
                 }
 
-                # Call feature's process_non_streaming method
-                result = await feature.process_non_streaming(
+                result = await feature.process(
                     response=response,
                     session_id=context.request_id,
                     context=feature_context,
+                    is_streaming=False,
                 )
 
                 # Ensure result is ProcessedResponse

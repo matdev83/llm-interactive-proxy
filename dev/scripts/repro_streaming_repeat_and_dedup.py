@@ -33,18 +33,21 @@ from src.core.domain.cbor_capture import CaptureDirection
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     IBackendRequestPreparation,
-    INonStreamingBackendResponseHandler,
-    IStreamingBackendResponseHandler,
+)
+from src.core.interfaces.quality_verifier_service_interface import (
+    IQualityVerifierServiceFactory,
 )
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
 from src.core.services.backend_request_manager_service import BackendRequestManager
+from src.core.services.post_backend_response_coordinator import (
+    PostBackendResponseCoordinator,
+)
 from src.core.services.request_deduplication_service import RequestDeduplicationService
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
@@ -490,7 +493,7 @@ async def _cmd_summarize_streams(args: argparse.Namespace) -> int:
     return 0
 
 
-class _NoopAngelFactory(IAngelServiceFactory):
+class _NoopAngelFactory(IQualityVerifierServiceFactory):
     def create(self, *args: Any, **kwargs: Any) -> Any:  # pragma: no cover
         raise RuntimeError("AngelServiceFactory not used in this repro")
 
@@ -522,18 +525,7 @@ class _NoopRequestPreparation(IBackendRequestPreparation):
         return request_data
 
 
-class _NoopNonStreamingHandler(INonStreamingBackendResponseHandler):
-    async def handle(
-        self,
-        response: Any,
-        request: ChatRequest,
-        context: RequestContext,
-        processing_context: Any,
-    ) -> Any:  # pragma: no cover
-        return response
-
-
-class _PassthroughStreamingHandler(IStreamingBackendResponseHandler):
+class _PassthroughStreamingHandler:
     async def handle(
         self,
         stream: StreamingResponseEnvelope,
@@ -595,10 +587,11 @@ async def _cmd_dedup_storm(args: argparse.Namespace) -> int:
     manager = BackendRequestManager(
         backend_processor=backend,
         response_processor=_NoopResponseProcessor(),
-        angel_service_factory=_NoopAngelFactory(),
+        quality_verifier_service_factory=_NoopAngelFactory(),
         request_preparation=_NoopRequestPreparation(),
-        non_streaming_handler=_NoopNonStreamingHandler(),
-        streaming_handler=_PassthroughStreamingHandler(),
+        post_backend_response_coordinator=PostBackendResponseCoordinator(
+            streaming_handler=_PassthroughStreamingHandler(),
+        ),
         dedup_service=dedup,
     )
 

@@ -24,6 +24,9 @@ from src.core.config.models.misc import (
 )
 from src.core.config.models.non_forwardable_config import NonForwardableTaggingConfig
 from src.core.config.models.notification import NotificationConfig
+from src.core.config.models.request_processing_unification import (
+    RequestProcessingUnificationConfig,
+)
 from src.core.config.models.rewriting import (
     EditPrecisionConfig,
     ModelAliasRule,
@@ -116,6 +119,9 @@ class AppConfigModel(DomainModel, IConfig):
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     auxiliary_routing: AuxiliaryRoutingConfig = Field(
         default_factory=AuxiliaryRoutingConfig
+    )
+    request_processing_unification: RequestProcessingUnificationConfig = Field(
+        default_factory=RequestProcessingUnificationConfig
     )
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     dynamic_compression: DynamicCompressionConfig = Field(

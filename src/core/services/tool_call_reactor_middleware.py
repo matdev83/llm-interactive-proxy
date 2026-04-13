@@ -7,7 +7,7 @@ It detects tool calls in LLM responses and passes them through registered handle
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from src.core.common.logging_utils import get_logger
 from src.core.interfaces.response_processor_interface import (
@@ -109,26 +109,20 @@ class ToolCallReactorFeature(IResponseFeature):
 
         return result
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Process non-streaming response for tool calls."""
+        """Process one response unit for tool calls."""
         return await self._process_response(
-            response, session_id, context, is_streaming=False
-        )
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Process streaming chunk for tool calls."""
-        return await self._process_response(
-            chunk, session_id, context, is_streaming=True
+            payload,
+            session_id,
+            cast(dict[str, Any], context),
+            is_streaming=is_streaming,
         )
 
     def get_registered_handlers(self) -> list[str]:

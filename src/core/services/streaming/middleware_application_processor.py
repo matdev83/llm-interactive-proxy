@@ -1,5 +1,9 @@
 import logging
 
+from src.core.domain.feature_lifecycle_context import (
+    attach_feature_lifecycle_context,
+    build_feature_lifecycle_context_from_streaming_content,
+)
 from src.core.domain.streaming_response_processor import (
     IStreamProcessor,
     StreamingContent,
@@ -92,6 +96,20 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
             )
             context["stream_context_state"] = stream_state
             context["tool_call_buffer_state"] = stream_state.tool_calls
+
+        lifecycle = build_feature_lifecycle_context_from_streaming_content(
+            content=content,
+            response_type=response_type,
+            session_id=session_id_str,
+            stream_id=stream_id,
+        )
+        attach_feature_lifecycle_context(context, lifecycle)
+        # Backward-compatibility bridge: migrated features still consume legacy
+        # terminal keys from plain dict context.
+        context["is_final_chunk"] = lifecycle.is_terminal_chunk
+        context["done"] = lifecycle.is_terminal_chunk
+        if lifecycle.finish_reason is not None:
+            context["finish_reason"] = lifecycle.finish_reason
 
         for mw in self._middleware:
             result = await mw.process(

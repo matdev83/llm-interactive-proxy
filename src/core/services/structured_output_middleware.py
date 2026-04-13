@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import MutableMapping
-from typing import Any
+from typing import Any, cast
 
 from cachetools import TTLCache
 from pydantic.types import JsonValue
@@ -216,10 +216,28 @@ class StructuredOutputFeature(IResponseFeature):
             "structured_output_validated": False,
         }
 
-        if (
-            hasattr(response, "metadata") and response.metadata is not None
-        ) or isinstance(response, ProcessedResponse):
-            response.metadata.update(error_info)
+        if isinstance(response, ProcessedResponse):
+            merged = dict(response.metadata or {})
+            merged.update(error_info)
+            response.metadata = merged
+            return
+
+        if hasattr(response, "metadata"):
+            md = getattr(response, "metadata", None)
+            if isinstance(md, dict):
+                md.update(error_info)
+            else:
+                response.metadata = dict(error_info)
+            return
+
+        try:
+            response.metadata = dict(error_info)
+        except (AttributeError, TypeError):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Could not attach structured output error metadata to %s",
+                    type(response).__name__,
+                )
 
     def _is_stream_end(self, context: dict[str, Any]) -> bool:
         """Check if this is the end of a stream."""
@@ -229,80 +247,67 @@ class StructuredOutputFeature(IResponseFeature):
             return True
         return bool(context.get("finish_reason"))
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Validate non-streaming response against schema."""
-        schema = context.get("response_schema")
+        """Validate against schema (accumulate until stream end when streaming)."""
+        ctx = cast(dict[str, Any], context)
+        if not is_streaming:
+            schema = ctx.get("response_schema")
+            if not schema:
+                return payload
+
+            content = self._extract_content(payload)
+            if not content:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("No content to validate in session %s", session_id)
+                return payload
+
+            strict_validation = ctx.get("strict_schema_validation", True)
+            return self._validate_content(
+                content, schema, session_id, strict_validation, payload
+            )
+
+        schema = ctx.get("response_schema")
         if not schema:
-            return response
+            return payload
 
-        content = self._extract_content(response)
-        if not content:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("No content to validate in session %s", session_id)
-            return response
+        stream_key = self._get_stream_key(session_id, ctx)
 
-        strict_validation = context.get("strict_schema_validation", True)
-        return self._validate_content(
-            content, schema, session_id, strict_validation, response
-        )
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Accumulate streaming content and validate at stream end.
-
-        For streaming, we accumulate content across chunks and validate
-        the complete response when we detect the end of the stream.
-        """
-        schema = context.get("response_schema")
-        if not schema:
-            return chunk
-
-        stream_key = self._get_stream_key(session_id, context)
-
-        # Store schema for this stream
         if stream_key not in self._stream_schemas:
             self._stream_schemas[stream_key] = schema
 
-        # Accumulate content
-        content = self._extract_content(chunk)
+        content = self._extract_content(payload)
         if content:
             if stream_key not in self._stream_content:
                 self._stream_content[stream_key] = ""
             self._stream_content[stream_key] += content
 
-        # Check if this is the end of the stream
-        if self._is_stream_end(context):
+        if self._is_stream_end(ctx):
             accumulated_content = self._stream_content.pop(stream_key, "")
             stream_schema = self._stream_schemas.pop(stream_key, schema)
 
             if accumulated_content:
-                strict_validation = context.get("strict_schema_validation", True)
-
-                # Validate the accumulated content
+                strict_validation = ctx.get("strict_schema_validation", True)
                 return self._validate_content(
                     accumulated_content,
                     stream_schema,
                     session_id,
                     strict_validation,
-                    chunk,
+                    payload,
                 )
-            else:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "No accumulated content to validate at stream end for %s",
-                        session_id,
-                    )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "No accumulated content to validate at stream end for %s",
+                    session_id,
+                )
 
-        return chunk
+        return payload
 
     def reset_session(self, session_id: str) -> None:
         """Reset streaming state for a session."""

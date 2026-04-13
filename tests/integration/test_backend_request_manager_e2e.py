@@ -35,9 +35,6 @@ from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
 )
-from src.core.services.backend_non_streaming_response_handler import (
-    BackendNonStreamingResponseHandler,
-)
 from src.core.services.backend_request_manager.streaming_response_handler import (
     BackendStreamingResponseHandler,
 )
@@ -220,33 +217,6 @@ def request_preparation() -> BackendRequestPreparationService:
 
 
 @pytest.fixture
-def non_streaming_handler(
-    mock_response_processor: MockResponseProcessor,
-    mock_backend_processor: MockBackendProcessor,
-    app_config: AppConfig,
-) -> BackendNonStreamingResponseHandler:
-    """Create non-streaming response handler."""
-    from src.core.interfaces.application_state_interface import IApplicationState
-    from src.core.services.structured_output_enforcer import StructuredOutputEnforcer
-    from src.core.services.tool_call_retry_coordinator import ToolCallRetryCoordinator
-
-    # Create mocks for dependencies
-    retry_coordinator = ToolCallRetryCoordinator(
-        backend_processor=mock_backend_processor,
-    )
-    structured_output_enforcer = StructuredOutputEnforcer(provider=MagicMock())
-    mock_app_state = MagicMock(spec=IApplicationState)
-
-    return BackendNonStreamingResponseHandler(
-        response_processor=mock_response_processor,
-        structured_output_enforcer=structured_output_enforcer,
-        tool_call_retry_coordinator=retry_coordinator,
-        backend_processor=mock_backend_processor,
-        app_state=mock_app_state,
-    )
-
-
-@pytest.fixture
 def streaming_handler(
     mock_response_processor: MockResponseProcessor,
     mock_backend_processor: MockBackendProcessor,
@@ -288,17 +258,20 @@ def backend_request_manager(
     mock_backend_processor: MockBackendProcessor,
     mock_response_processor: MockResponseProcessor,
     request_preparation: BackendRequestPreparationService,
-    non_streaming_handler: BackendNonStreamingResponseHandler,
     streaming_handler: BackendStreamingResponseHandler,
 ) -> BackendRequestManager:
     """Create BackendRequestManager with all components."""
+    from src.core.services.post_backend_response_coordinator import (
+        PostBackendResponseCoordinator,
+    )
+
+    coordinator = PostBackendResponseCoordinator(streaming_handler=streaming_handler)
     return BackendRequestManager(
         backend_processor=mock_backend_processor,
         response_processor=mock_response_processor,
         quality_verifier_service_factory=QualityVerifierFactoryStub(),
         request_preparation=request_preparation,
-        non_streaming_handler=non_streaming_handler,
-        streaming_handler=streaming_handler,
+        post_backend_response_coordinator=coordinator,
     )
 
 

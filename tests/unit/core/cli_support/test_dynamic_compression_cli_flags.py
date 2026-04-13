@@ -24,4 +24,5 @@ def test_dynamic_compression_flags_are_registered() -> None:
     assert "--dynamic-compression-disable-categories" in flags
     assert "--dynamic-compression-disable-methods" in flags
     assert "--dynamic-compression-disable-tools" in flags
+    assert "--dynamic-compression-disable-tool-name-substrings" in flags
     assert "--dynamic-compression-disable-command-prefixes" in flags

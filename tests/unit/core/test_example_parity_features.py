@@ -31,7 +31,7 @@ class TestContentTransformFeature:
         feature = ContentTransformFeature(prefix="[START]", suffix="[END]")
         response = ProcessedResponse(content="hello")
 
-        result = await feature.process_non_streaming(response, "session1", {})
+        result = await feature.process(response, "session1", {}, is_streaming=False)
 
         assert result.content == "[START]hello[END]"
 
@@ -43,12 +43,12 @@ class TestContentTransformFeature:
 
         # First chunk
         chunk1 = ProcessedResponse(content="hello ")
-        result1 = await feature.process_streaming(chunk1, "session1", context)
+        result1 = await feature.process(chunk1, "session1", context, is_streaming=True)
         assert result1.content == "[START]hello "
 
         # Second chunk (no prefix)
         chunk2 = ProcessedResponse(content="world")
-        result2 = await feature.process_streaming(chunk2, "session1", context)
+        result2 = await feature.process(chunk2, "session1", context, is_streaming=True)
         assert result2.content == "world"
 
     @pytest.mark.asyncio
@@ -59,7 +59,7 @@ class TestContentTransformFeature:
 
         # Final chunk
         chunk = ProcessedResponse(content="end")
-        result = await feature.process_streaming(chunk, "session1", context)
+        result = await feature.process(chunk, "session1", context, is_streaming=True)
 
         assert result.content == "[START]end[END]"
 
@@ -69,18 +69,18 @@ class TestContentTransformFeature:
         feature = ContentTransformFeature(prefix="[", suffix="]")
 
         # Non-streaming: single response
-        non_streaming_result = await feature.process_non_streaming(
-            ProcessedResponse(content="AB"), "session1", {}
+        non_streaming_result = await feature.process(
+            ProcessedResponse(content="AB"), "session1", {}, is_streaming=False
         )
 
         # Streaming: two chunks
         context: dict[str, Any] = {}
-        chunk1 = await feature.process_streaming(
-            ProcessedResponse(content="A"), "session1", context
+        chunk1 = await feature.process(
+            ProcessedResponse(content="A"), "session1", context, is_streaming=True
         )
         context["is_done"] = True
-        chunk2 = await feature.process_streaming(
-            ProcessedResponse(content="B"), "session1", context
+        chunk2 = await feature.process(
+            ProcessedResponse(content="B"), "session1", context, is_streaming=True
         )
 
         # Combined streaming result should equal non-streaming
@@ -97,7 +97,7 @@ class TestResponseLoggingFeature:
         feature = ResponseLoggingFeature()
         response = ProcessedResponse(content="test", usage={"tokens": 100})
 
-        result = await feature.process_non_streaming(response, "session1", {})
+        result = await feature.process(response, "session1", {}, is_streaming=False)
 
         # Should return same object unchanged
         assert result is response
@@ -108,7 +108,7 @@ class TestResponseLoggingFeature:
         feature = ResponseLoggingFeature()
         chunk = ProcessedResponse(content="chunk", usage={"tokens": 10})
 
-        result = await feature.process_streaming(chunk, "session1", {})
+        result = await feature.process(chunk, "session1", {}, is_streaming=True)
 
         # Should return same object unchanged
         assert result is chunk
@@ -119,8 +119,8 @@ class TestResponseLoggingFeature:
         feature = ResponseLoggingFeature()
         response = ProcessedResponse(content="test")
 
-        non_streaming = await feature.process_non_streaming(response, "s", {})
-        streaming = await feature.process_streaming(response, "s", {})
+        non_streaming = await feature.process(response, "s", {}, is_streaming=False)
+        streaming = await feature.process(response, "s", {}, is_streaming=True)
 
         # Both should return the same object
         assert non_streaming is response
@@ -136,7 +136,7 @@ class TestContentFilterFeature:
         feature = ContentFilterFeature(filter_prefix="PREFIX: ")
         response = ProcessedResponse(content="PREFIX: actual content")
 
-        result = await feature.process_non_streaming(response, "session1", {})
+        result = await feature.process(response, "session1", {}, is_streaming=False)
 
         assert result.content == "actual content"
 
@@ -146,7 +146,7 @@ class TestContentFilterFeature:
         feature = ContentFilterFeature(filter_prefix="PREFIX: ")
         response = ProcessedResponse(content="no prefix here")
 
-        result = await feature.process_non_streaming(response, "session1", {})
+        result = await feature.process(response, "session1", {}, is_streaming=False)
 
         assert result.content == "no prefix here"
 
@@ -158,12 +158,12 @@ class TestContentFilterFeature:
 
         # First chunk has prefix
         chunk1 = ProcessedResponse(content="HI: hello ")
-        result1 = await feature.process_streaming(chunk1, "session1", context)
+        result1 = await feature.process(chunk1, "session1", context, is_streaming=True)
         assert result1.content == "hello "
 
         # Second chunk - prefix filtering shouldn't apply
         chunk2 = ProcessedResponse(content="HI: world")  # Even if content has prefix
-        result2 = await feature.process_streaming(chunk2, "session1", context)
+        result2 = await feature.process(chunk2, "session1", context, is_streaming=True)
         # Second chunk passed through as-is (correct behavior for streaming)
         assert result2.content == "HI: world"
 
@@ -174,9 +174,9 @@ class TestContentFilterFeature:
 
         response = ProcessedResponse(content="X: content")
 
-        non_streaming = await feature.process_non_streaming(response, "s", {})
-        streaming = await feature.process_streaming(
-            ProcessedResponse(content="X: content"), "s", {}
+        non_streaming = await feature.process(response, "s", {}, is_streaming=False)
+        streaming = await feature.process(
+            ProcessedResponse(content="X: content"), "s", {}, is_streaming=True
         )
 
         # Both should produce same result for single chunk
@@ -197,7 +197,7 @@ class TestStreamingOnlyMetricsFeature:
         feature = StreamingOnlyMetricsFeature()
         response = ProcessedResponse(content="test")
 
-        result = await feature.process_non_streaming(response, "session1", {})
+        result = await feature.process(response, "session1", {}, is_streaming=False)
 
         # Should return same object unchanged
         assert result is response
@@ -211,7 +211,7 @@ class TestStreamingOnlyMetricsFeature:
         # Process multiple chunks
         for i in range(3):
             chunk = ProcessedResponse(content=f"chunk{i}")
-            await feature.process_streaming(chunk, "session1", context)
+            await feature.process(chunk, "session1", context, is_streaming=True)
 
         # Verify metrics
         assert "streaming_metrics" in context
@@ -234,8 +234,8 @@ class TestParityVerification:
         feature = ContentTransformFeature(prefix=prefix, suffix=suffix)
 
         # Non-streaming
-        non_streaming = await feature.process_non_streaming(
-            ProcessedResponse(content=content), "s", {}
+        non_streaming = await feature.process(
+            ProcessedResponse(content=content), "s", {}, is_streaming=False
         )
 
         # Streaming simulation (3 chunks: A, B, C)
@@ -244,8 +244,8 @@ class TestParityVerification:
         for i, char in enumerate(content):
             if i == len(content) - 1:
                 context["is_done"] = True
-            chunk = await feature.process_streaming(
-                ProcessedResponse(content=char), "s", context
+            chunk = await feature.process(
+                ProcessedResponse(content=char), "s", context, is_streaming=True
             )
             results.append(chunk.content)
 
@@ -257,8 +257,8 @@ class TestParityVerification:
         assert streaming_combined == expected
 
     @pytest.mark.asyncio
-    async def test_all_features_implement_both_methods(self):
-        """Meta-test: verify all example features implement both methods."""
+    async def test_all_features_use_single_canonical_path(self):
+        """Meta-test: verify example features expose process_chunk and process."""
         features = [
             ContentTransformFeature(),
             ResponseLoggingFeature(),
@@ -267,15 +267,12 @@ class TestParityVerification:
         ]
 
         for feature in features:
-            # Both methods should be callable
-            assert callable(feature.process_streaming)
-            assert callable(feature.process_non_streaming)
+            assert callable(feature.process_chunk)
+            assert callable(feature.process)
 
-            # Both should be async
             response = ProcessedResponse(content="test")
-            result1 = await feature.process_streaming(response, "s", {})
-            result2 = await feature.process_non_streaming(response, "s", {})
+            result1 = await feature.process(response, "s", {}, is_streaming=True)
+            result2 = await feature.process(response, "s", {}, is_streaming=False)
 
-            # Both should return something
             assert result1 is not None
             assert result2 is not None

@@ -271,55 +271,61 @@ class EmptyResponseFeature(IResponseFeature):
             return True
         return bool(context.get("finish_reason"))
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Check non-streaming response for empty content and trigger retry if needed."""
+        """Detect empty responses (non-streaming retries; streaming end-of-stream flag)."""
+        ctx: dict[str, Any] = dict(context or {})
         if not self._enabled:
-            return response
+            return payload
 
-        context = context or {}
-        original_request = context.get("original_request")
+        if not is_streaming:
+            original_request = ctx.get("original_request")
 
-        processed_response = self._ensure_processed_response(response, context)
+            processed_response = self._ensure_processed_response(payload, ctx)
 
-        if original_request is None and isinstance(processed_response.metadata, dict):
-            original_request = processed_response.metadata.pop("original_request", None)
-        elif isinstance(processed_response.metadata, dict):
-            processed_response.metadata.pop("original_request", None)
+            if original_request is None and isinstance(
+                processed_response.metadata, dict
+            ):
+                original_request = processed_response.metadata.pop(
+                    "original_request", None
+                )
+            elif isinstance(processed_response.metadata, dict):
+                processed_response.metadata.pop("original_request", None)
 
-        if self._is_empty_response(processed_response, context):
-            retry_count = self._retry_counts.get(session_id, 0)
+            if self._is_empty_response(processed_response, ctx):
+                retry_count = self._retry_counts.get(session_id, 0)
 
-            if retry_count < self._max_retries:
-                if original_request is None:
-                    logger.warning(
-                        "Empty response detected but no original_request in context; "
-                        "skipping retry"
+                if retry_count < self._max_retries:
+                    if original_request is None:
+                        logger.warning(
+                            "Empty response detected but no original_request in context; "
+                            "skipping retry"
+                        )
+                        return payload
+
+                    recovery_prompt = await self._load_recovery_prompt()
+                    next_retry_count = retry_count + 1
+                    self._retry_counts[session_id] = next_retry_count
+
+                    logger.info(
+                        "Empty response detected for session %s, attempt %s/%s",
+                        session_id,
+                        next_retry_count,
+                        self._max_retries,
                     )
-                    return response
 
-                recovery_prompt = await self._load_recovery_prompt()
-                next_retry_count = retry_count + 1
-                self._retry_counts[session_id] = next_retry_count
-
-                logger.info(
-                    "Empty response detected for session %s, attempt %s/%s",
-                    session_id,
-                    next_retry_count,
-                    self._max_retries,
-                )
-
-                raise EmptyResponseRetryError(
-                    recovery_prompt=recovery_prompt,
-                    session_id=session_id,
-                    retry_count=next_retry_count,
-                    original_request=original_request,
-                )
-            else:
+                    raise EmptyResponseRetryError(
+                        recovery_prompt=recovery_prompt,
+                        session_id=session_id,
+                        retry_count=next_retry_count,
+                        original_request=original_request,
+                    )
                 self._retry_counts.pop(session_id, None)
                 logger.error(
                     "Max retries exceeded for empty response in session %s", session_id
@@ -334,39 +340,20 @@ class EmptyResponseFeature(IResponseFeature):
                         "error_type": "empty_response_max_retries_exceeded",
                     },
                 )
-        else:
             self._retry_counts.pop(session_id, None)
 
-        return response
+            return payload
 
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Check streaming chunk for content and track activity.
+        processed_response = self._ensure_processed_response(payload, ctx)
 
-        For streaming, we accumulate evidence of activity (content, tool calls)
-        across chunks. At stream end, we mark if the entire stream was empty.
-        """
-        if not self._enabled:
-            return chunk
-
-        context = context or {}
-        processed_response = self._ensure_processed_response(chunk, context)
-
-        # Remove original_request from metadata to prevent leaking
         if isinstance(processed_response.metadata, dict):
             processed_response.metadata.pop("original_request", None)
 
-        stream_key = self._get_stream_key(session_id, context)
+        stream_key = self._get_stream_key(session_id, ctx)
 
-        # Track activity
-        self._track_stream_activity(stream_key, processed_response, context)
+        self._track_stream_activity(stream_key, processed_response, ctx)
 
-        # Check if this is the end of the stream
-        if self._is_stream_end(context):
+        if self._is_stream_end(ctx):
             activity = self._stream_activity.pop(stream_key, None)
             if activity:
                 is_empty = (
@@ -376,15 +363,10 @@ class EmptyResponseFeature(IResponseFeature):
                     logger.warning(
                         "Empty streaming response detected for session %s", session_id
                     )
-                    # Mark the response as empty for downstream handling
                     if processed_response.metadata is None:
                         processed_response.metadata = {}
                     if isinstance(processed_response.metadata, dict):
                         processed_response.metadata["empty_stream_detected"] = True
-
-                    # Note: For streaming, we can't easily retry since chunks have
-                    # already been sent. The downstream handler should check this
-                    # flag and potentially trigger a follow-up request.
 
         return processed_response
 

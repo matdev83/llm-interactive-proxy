@@ -1,9 +1,9 @@
 """
-Tests for post-build hooks and feature parity initialization.
+Tests for post-build hooks.
 
 These tests verify that:
 - Post-build hooks run correctly after provider build
-- Feature parity registry is initialized with middleware from MiddlewareApplicationManager
+- Tool-call handler registration runs during post-build
 - MiddlewareApplicationManager can be resolved after streaming registrar runs
 - Validation-only provider build skips post-build hooks
 """
@@ -17,7 +17,6 @@ from src.core.di.container import ServiceCollection
 from src.core.di.provider_lifecycle import post_build_hooks
 from src.core.di.registrations import core, streaming
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.feature_parity import get_global_registry
 from src.core.services.middleware_application_manager import (
     MiddlewareApplicationManager,
 )
@@ -45,30 +44,22 @@ class TestPostBuildHooks:
         manager = provider.get_service(MiddlewareApplicationManager)
         assert manager is not None
 
-    def test_feature_parity_registry_initialized(self) -> None:
-        """Verify feature parity registry is initialized with middleware."""
+    def test_register_tool_call_handlers_invoked_from_post_build_hooks(self) -> None:
+        """Post-build hooks must invoke tool-call handler registration."""
         services = ServiceCollection()
         config = AppConfig()
 
-        # Register all services
         core.register(services, config)
         streaming.register(services, config)
 
-        # Build provider
         provider = services.build_service_provider()
 
-        # Run post-build hooks
-        post_build_hooks(provider)
+        with patch(
+            "src.core.di.registration_helpers.post_build_actions.register_tool_call_handlers"
+        ) as mock_register:
+            post_build_hooks(provider)
 
-        # Verify feature parity registry has been initialized
-        registry = get_global_registry()
-        assert registry is not None
-
-        # Verify middleware from MiddlewareApplicationManager are registered
-        # (The exact count depends on configuration, but should be > 0)
-        registry.get_all_features()
-        # At minimum, we should have some features registered
-        # (exact count depends on config, but registry should be initialized)
+        mock_register.assert_called_once_with(provider)
 
     def test_middleware_application_manager_resolved_in_post_build(self) -> None:
         """Verify MiddlewareApplicationManager can be resolved during post-build hooks."""
@@ -177,9 +168,6 @@ class TestPostBuildHooks:
 
         with (
             patch(
-                "src.core.di.registration_helpers.post_build_actions.initialize_feature_parity_registry"
-            ),
-            patch(
                 "src.core.di.registration_helpers.post_build_actions.register_tool_call_handlers"
             ),
             patch(
@@ -205,9 +193,6 @@ class TestPostBuildHooks:
             raise RuntimeError("hook failed")
 
         with (
-            patch(
-                "src.core.di.registration_helpers.post_build_actions.initialize_feature_parity_registry"
-            ),
             patch(
                 "src.core.di.registration_helpers.post_build_actions.register_tool_call_handlers"
             ),

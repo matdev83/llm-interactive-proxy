@@ -45,12 +45,12 @@ from src.core.domain.backend_request_manager.context_models import (
 )
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     ILoopDetectorFactory,
     IQualityVerifierStreamVerifier,
-    IStreamingBackendResponseHandler,
+    IStructuredOutputEnforcer,
     IToolCallRetryCoordinator,
 )
 from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
@@ -63,6 +63,9 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
+from src.core.services.post_backend_response_coordinator import (
+    response_envelope_as_single_chunk_stream,
+)
 from src.core.services.quality_verifier_service import QualityVerifierService
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
@@ -74,9 +77,9 @@ from src.core.services.streaming.stream_recovery_budget import (
 
 logger = logging.getLogger(__name__)
 
-# Constants matching BackendRequestManager
-_STREAM_RECOVERY_PROMPT = "The previous response was empty, please try again."
-_MAX_EMPTY_STREAM_RETRIES = 1
+# Default constants (used when config is not provided for backward compatibility)
+_DEFAULT_STREAM_RECOVERY_PROMPT = "The previous response was empty, please try again."
+_DEFAULT_MAX_EMPTY_STREAM_RETRIES = 1
 
 
 _MEANINGFUL_FINISH_REASONS: frozenset[str] = frozenset(
@@ -111,7 +114,7 @@ class QualityVerifierConfig:
     skip_verification: bool
 
 
-class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
+class BackendStreamingResponseHandler:
     """Service for handling streaming backend responses."""
 
     def __init__(
@@ -123,6 +126,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         backend_processor: IBackendProcessor,
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
         backend_work_guard: IBackendWorkGuard | None = None,
+        structured_output_enforcer: IStructuredOutputEnforcer | None = None,
+        empty_stream_recovery_prompt: str | None = None,
+        max_empty_stream_retries: int | None = None,
     ) -> None:
         """Initialize the streaming response handler.
 
@@ -133,6 +139,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             tool_call_retry_coordinator: Coordinator for tool-call retries
             backend_processor: Backend processor for empty-stream retries
             cancellation_coordinator: Coordinator for session cancellation checks
+            backend_work_guard: Guard for backend work scope tracking
+            structured_output_enforcer: Enforcer for structured output validation
+            empty_stream_recovery_prompt: Recovery prompt for empty stream retries
+            max_empty_stream_retries: Maximum number of empty stream retry attempts
         """
         self._response_processor = response_processor
         self._loop_detector_factory = loop_detector_factory
@@ -141,6 +151,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         self._backend_processor = backend_processor
         self._cancellation_coordinator = cancellation_coordinator
         self._backend_work_guard = backend_work_guard
+        self._structured_output_enforcer = structured_output_enforcer
+
+        # Configurable empty stream recovery settings (with backward-compatible defaults)
+        self._empty_stream_recovery_prompt = (
+            empty_stream_recovery_prompt
+            if empty_stream_recovery_prompt is not None
+            else _DEFAULT_STREAM_RECOVERY_PROMPT
+        )
+        self._max_empty_stream_retries = (
+            max_empty_stream_retries
+            if max_empty_stream_retries is not None
+            else _DEFAULT_MAX_EMPTY_STREAM_RETRIES
+        )
 
     @staticmethod
     def _coerce_processed_chunk(raw_chunk: Any) -> ProcessedResponse:
@@ -865,6 +888,92 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 )
             return original_stream
 
+    async def _preprocess_synthetic_blocking_stream(
+        self,
+        original_stream: AsyncIterator[ProcessedResponse],
+        processing_context: ResponseProcessingContext,
+        request_context: RequestContext,
+    ) -> AsyncIterator[ProcessedResponse]:
+        """Apply non-streaming ``process_response`` semantics to a single synthetic chunk.
+
+        Coordinator wraps blocking ``ResponseEnvelope`` values as one-chunk streams so
+        all business logic runs through this handler; that must still invoke the same
+        ``IResponseProcessor.process_response`` entrypoint as the retired non-streaming
+        handler so middleware (tool-call steering, etc.) observes identical inputs.
+        """
+
+        chunks: list[ProcessedResponse] = []
+        async for raw in original_stream:
+            chunks.append(self._coerce_processed_chunk(raw))
+
+        async def _replay_many() -> AsyncIterator[ProcessedResponse]:
+            for item in chunks:
+                yield item
+
+        if len(chunks) != 1:
+            return _replay_many()
+
+        chunk = chunks[0]
+        original_request = (
+            processing_context.original_request or request_context.original_request
+        )
+        enriched_context = RequestContext(
+            headers=request_context.headers,
+            cookies=request_context.cookies,
+            state=request_context.state,
+            app_state=request_context.app_state,
+            client_host=request_context.client_host,
+            session_id=processing_context.session_id or request_context.session_id,
+            request_id=request_context.request_id,
+            agent=request_context.agent,
+            original_request=original_request,
+            processing_context=request_context.processing_context,
+            domain_request=request_context.domain_request,
+            raw_body=request_context.raw_body,
+            backend=processing_context.backend_name,
+            effective_model=processing_context.model_name,
+            extensions=request_context.extensions,
+            original_domain_request=request_context.original_domain_request,
+        )
+
+        processed_any = await self._response_processor.process_response(
+            chunk.content,
+            processing_context.session_id or "",
+            enriched_context,
+        )
+        processed = (
+            processed_any
+            if isinstance(processed_any, ProcessedResponse)
+            else self._coerce_processed_chunk(processed_any)
+        )
+
+        retry_metadata_keys = (
+            "dangerous_command_retry_count",
+            "tool_call_reactor_retry_count",
+            "steering_retry_occurred",
+            "tool_call_reactor_retry_failed",
+        )
+        for key, value in (chunk.metadata or {}).items():
+            if key in retry_metadata_keys or key not in processed.metadata:
+                processed.metadata[key] = value
+
+        metadata = processed.metadata or {}
+        if (
+            self._structured_output_enforcer is not None
+            and processing_context.structured_output is not None
+            and not metadata.get("structured_output_validated", False)
+            and not metadata.get("schema_validation_attempted", False)
+        ):
+            processed = await self._structured_output_enforcer.enforce(
+                response=processed,
+                context=processing_context.structured_output,
+            )
+
+        async def _one() -> AsyncIterator[ProcessedResponse]:
+            yield processed
+
+        return _one()
+
     def _create_loop_detector(self, session_id: str) -> ILoopDetector | None:
         """Create loop detector with fail-open behavior."""
         try:
@@ -974,7 +1083,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         retry_state = self._extract_retry_state(request)
 
         # Skip retry if marker is present and limit not exceeded (prevents infinite loops)
-        if retry_state.reactor_retry_active and retry_state.current_retry_count < 3:
+        if (
+            request.stream
+            and retry_state.reactor_retry_active
+            and retry_state.current_retry_count < 3
+        ):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Streaming: Skipping tool-call retry (marker present, count=%d) for session %s",
@@ -984,7 +1097,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             return None
 
         # Check if limit exceeded
-        if retry_state.reactor_retry_active and retry_state.current_retry_count >= 3:
+        if (
+            request.stream
+            and retry_state.reactor_retry_active
+            and retry_state.current_retry_count >= 3
+        ):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Streaming: Tool call retry limit exceeded for session %s",
@@ -1017,7 +1134,6 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             from src.core.domain.backend_request_manager.context_models import (
                 ToolCallRetryState,
             )
-            from src.core.domain.responses import ResponseEnvelope
 
             response_envelope = ResponseEnvelope(
                 content=chunk.content,
@@ -1028,31 +1144,70 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 retry_count=retry_state.current_retry_count,
                 max_retries=3,
                 steering_message=None,
-                is_streaming=True,
+                is_streaming=bool(request.stream),
             )
 
-            retry_result = await self._tool_call_retry_coordinator.handle_streaming(
-                request=request,
-                response=response_envelope,
-                context=context,
-                retry_state=tool_call_retry_state,
-            )
+            retry_result: ResponseEnvelope | StreamingResponseEnvelope | None
+            if request.stream:
+                retry_result = await self._tool_call_retry_coordinator.handle_streaming(
+                    request=request,
+                    response=response_envelope,
+                    context=context,
+                    retry_state=tool_call_retry_state,
+                )
+            else:
+                retry_result = (
+                    await self._tool_call_retry_coordinator.handle_non_streaming(
+                        request=request,
+                        response=response_envelope,
+                        context=context,
+                        retry_state=tool_call_retry_state,
+                    )
+                )
 
-            if retry_result is not None and retry_result.content is not None:
+            if retry_result is not None:
+                if isinstance(retry_result, ResponseEnvelope):
+                    retry_stream_env = response_envelope_as_single_chunk_stream(
+                        retry_result
+                    )
+                    retry_stream_body = retry_stream_env.content
+                    if retry_stream_body is None:
+                        return None
 
-                async def retry_chunks() -> AsyncIterator[ProcessedResponse]:
-                    if retry_result.content is None:
-                        return
-                    async for retry_chunk in retry_result.content:
-                        retry_meta = dict(retry_chunk.metadata or {})
-                        retry_meta["_steering_replacement"] = True
-                        yield ProcessedResponse(
-                            content=retry_chunk.content,
-                            metadata=retry_meta,
-                            usage=retry_chunk.usage,
+                    async def retry_blocking_chunks() -> (
+                        AsyncIterator[ProcessedResponse]
+                    ):
+                        restream = await self._preprocess_synthetic_blocking_stream(
+                            retry_stream_body,
+                            processing_context,
+                            context,
                         )
+                        async for retry_chunk in restream:
+                            retry_meta = dict(retry_chunk.metadata or {})
+                            retry_meta["_steering_replacement"] = True
+                            yield ProcessedResponse(
+                                content=retry_chunk.content,
+                                metadata=retry_meta,
+                                usage=retry_chunk.usage,
+                            )
 
-                return retry_chunks()
+                    return retry_blocking_chunks()
+
+                if retry_result.content is not None:
+
+                    async def retry_chunks() -> AsyncIterator[ProcessedResponse]:
+                        if retry_result.content is None:
+                            return
+                        async for retry_chunk in retry_result.content:
+                            retry_meta = dict(retry_chunk.metadata or {})
+                            retry_meta["_steering_replacement"] = True
+                            yield ProcessedResponse(
+                                content=retry_chunk.content,
+                                metadata=retry_meta,
+                                usage=retry_chunk.usage,
+                            )
+
+                    return retry_chunks()
         except (TypeError, AttributeError, RuntimeError, asyncio.CancelledError) as err:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
@@ -1100,29 +1255,108 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         quality_verifier_frequency = quality_verifier_config.frequency
         quality_verifier_max_history = quality_verifier_config.max_history
 
-        # Wrap stream with response processor middleware
-        processed_stream = self._wrap_with_middleware(
-            original_stream, processing_context, context
-        )
+        stream_meta = stream.metadata or {}
+        synthetic_blocking = bool(stream_meta.get("_synthetic_blocking_envelope"))
+        if synthetic_blocking:
+            try:
+                original_stream = await self._preprocess_synthetic_blocking_stream(
+                    original_stream, processing_context, context
+                )
+            except EmptyResponseRetryError as exc:
+                # Preserve historical non-streaming retry contract: middleware may
+                # signal empty blocking bodies via ``EmptyResponseRetryError`` before any
+                # streaming empty-recovery runs.
+                session_key = resolve_session_key_from_request_context(context)
+                if (
+                    self._cancellation_coordinator is not None
+                    and session_key is not None
+                ):
+                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-        # Create loop detector
-        loop_detector = self._create_loop_detector(processing_context.session_id)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Empty blocking response for session %s, retrying with recovery prompt",
+                        exc.session_id,
+                        exc_info=True,
+                    )
 
-        # Wrap with Quality Verifier if enabled
-        verified_stream = await self._apply_quality_verifier_verification(
-            request,
-            processed_stream,
-            processing_context,
-            context,
-            quality_verifier_model_spec,
-            quality_verifier_frequency,
-            quality_verifier_max_history,
-            quality_verifier_config.max_consecutive_failures,
-            quality_verifier_config.cooldown_seconds,
-            quality_verifier_config.ttft_timeout_seconds,
-            quality_verifier_config.eligible_turn_count,
-            quality_verifier_config.skip_verification,
-        )
+                base_request = exc.original_request or request
+                if exc.recovery_prompt:
+                    retry_request = await self._create_retry_request(
+                        base_request, exc.recovery_prompt
+                    )
+                else:
+                    retry_request = base_request
+
+                try:
+                    retry_response = (
+                        await self._backend_processor.process_backend_request(
+                            request=retry_request,
+                            session_id=processing_context.session_id,
+                            context=context,
+                        )
+                    )
+                except SessionCancelledError:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Retry backend request cancelled for session %s",
+                            processing_context.session_id,
+                        )
+                    raise
+
+                if isinstance(retry_response, ResponseEnvelope):
+                    return await self.handle(
+                        stream=response_envelope_as_single_chunk_stream(retry_response),
+                        request=retry_request,
+                        context=context,
+                        processing_context=processing_context,
+                        retry_depth=retry_depth,
+                    )
+
+                return await self.handle(
+                    stream=retry_response,
+                    request=retry_request,
+                    context=context,
+                    processing_context=processing_context,
+                    retry_depth=retry_depth,
+                )
+
+        if synthetic_blocking:
+            # Synthetic blocking payloads already went through process_response() in
+            # _preprocess_synthetic_blocking_stream(); avoid re-running stream wrappers
+            # (which can turn canonical single payloads into terminal-only markers).
+            processed_stream = original_stream
+            loop_detector = None
+            verified_stream = processed_stream
+        else:
+            # Wrap stream with response processor middleware
+            processed_stream = self._wrap_with_middleware(
+                original_stream, processing_context, context
+            )
+
+            # Create loop detector
+            loop_detector = self._create_loop_detector(processing_context.session_id)
+
+            # Wrap with Quality Verifier if enabled (outer pass only). Nested tool-retry
+            # ``handle()`` recursion replays a fresh synthetic stream; running the QV
+            # wrapper again here can yield an empty iterator and break non-streaming recall.
+            if retry_depth > 0:
+                verified_stream = processed_stream
+            else:
+                verified_stream = await self._apply_quality_verifier_verification(
+                    request,
+                    processed_stream,
+                    processing_context,
+                    context,
+                    quality_verifier_model_spec,
+                    quality_verifier_frequency,
+                    quality_verifier_max_history,
+                    quality_verifier_config.max_consecutive_failures,
+                    quality_verifier_config.cooldown_seconds,
+                    quality_verifier_config.ttft_timeout_seconds,
+                    quality_verifier_config.eligible_turn_count,
+                    quality_verifier_config.skip_verification,
+                )
 
         # Process stream with loop detection, tool-call retry, and empty-stream recovery
         async def monitored_stream() -> AsyncIterator[ProcessedResponse]:
@@ -1143,7 +1377,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
 
                     # Skip retry if marker is present and limit not exceeded (prevents infinite loops)
                     if (
-                        retry_state.reactor_retry_active
+                        request.stream
+                        and retry_state.reactor_retry_active
                         and retry_state.current_retry_count < 3
                     ):
                         # Retry marker present but below limit - skip retry to prevent loops
@@ -1159,7 +1394,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
 
                     # Check if limit exceeded before delegating
                     if (
-                        retry_state.reactor_retry_active
+                        request.stream
+                        and retry_state.reactor_retry_active
                         and retry_state.current_retry_count >= 3
                     ):  # MAX_DANGEROUS_COMMAND_RETRIES
                         if logger.isEnabledFor(logging.WARNING):
@@ -1194,7 +1430,6 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         from src.core.domain.backend_request_manager.context_models import (
                             ToolCallRetryState,
                         )
-                        from src.core.domain.responses import ResponseEnvelope
 
                         # Create a response envelope for coordinator
                         response_envelope = ResponseEnvelope(
@@ -1206,23 +1441,81 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                             retry_count=retry_state.current_retry_count,
                             max_retries=3,
                             steering_message=None,
-                            is_streaming=True,
+                            is_streaming=bool(request.stream),
                         )
 
-                        retry_result = (
-                            await self._tool_call_retry_coordinator.handle_streaming(
+                        retry_result: (
+                            ResponseEnvelope | StreamingResponseEnvelope | None
+                        )
+                        if request.stream:
+                            retry_result = await self._tool_call_retry_coordinator.handle_streaming(
                                 request=request,
                                 response=response_envelope,
                                 context=context,
                                 retry_state=tool_call_retry_state,
                             )
-                        )
+                        else:
+                            retry_result = await self._tool_call_retry_coordinator.handle_non_streaming(
+                                request=request,
+                                response=response_envelope,
+                                context=context,
+                                retry_state=tool_call_retry_state,
+                            )
 
                         if retry_result is not None:
-                            # Yield retried stream chunks
+                            if isinstance(retry_result, ResponseEnvelope):
+                                retry_md = retry_result.metadata or {}
+                                updated_extra_body = dict(
+                                    getattr(request, "extra_body", None) or {}
+                                )
+                                tcr_val = retry_md.get(
+                                    "tool_call_reactor_retry_count",
+                                    tool_call_retry_state.retry_count,
+                                )
+                                updated_extra_body["_tool_call_reactor_retry_count"] = (
+                                    int(tcr_val)
+                                    if isinstance(tcr_val, int | float | str)
+                                    else tool_call_retry_state.retry_count
+                                )
+                                dcc_val = retry_md.get(
+                                    "dangerous_command_retry_count",
+                                    tool_call_retry_state.retry_count,
+                                )
+                                updated_extra_body["_dangerous_command_retry_count"] = (
+                                    int(dcc_val)
+                                    if isinstance(dcc_val, int | float | str)
+                                    else tool_call_retry_state.retry_count
+                                )
+                                updated_extra_body["_tool_call_reactor_retry"] = True
+                                updated_request = request.model_copy(
+                                    update={"extra_body": updated_extra_body}
+                                )
+
+                                nested_in = response_envelope_as_single_chunk_stream(
+                                    retry_result
+                                )
+                                nested_out = await self.handle(
+                                    stream=nested_in,
+                                    request=updated_request,
+                                    context=context,
+                                    processing_context=processing_context,
+                                    retry_depth=retry_depth + 1,
+                                )
+                                if nested_out.content is not None:
+                                    async for retry_chunk in nested_out.content:
+                                        retry_meta = dict(retry_chunk.metadata or {})
+                                        retry_meta.setdefault(
+                                            "_steering_replacement", True
+                                        )
+                                        yield ProcessedResponse(
+                                            content=retry_chunk.content,
+                                            metadata=retry_meta,
+                                            usage=retry_chunk.usage,
+                                        )
+                                return
+                            # Streaming retry envelope
                             if retry_result.content is not None:
                                 async for retry_chunk in retry_result.content:
-                                    # Attach steering replacement marker if present
                                     retry_meta = dict(retry_chunk.metadata or {})
                                     retry_meta["_steering_replacement"] = True
                                     yield ProcessedResponse(
@@ -1539,7 +1832,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 # Use retry_depth + 1 to match middleware's retry_count tracking
                 # (retry_count starts at 1 for first retry)
                 raise EmptyResponseRetryError(
-                    recovery_prompt=_STREAM_RECOVERY_PROMPT,
+                    recovery_prompt=self._empty_stream_recovery_prompt,
                     session_id=processing_context.session_id,
                     retry_count=retry_depth + 1,
                     original_request=request,
@@ -1556,7 +1849,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     yield chunk
             except EmptyResponseRetryError as exc:
                 # Check retry_count from exception (starts at 1, so > means exceeded)
-                if exc.retry_count > _MAX_EMPTY_STREAM_RETRIES:
+                if exc.retry_count > self._max_empty_stream_retries:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             "Maximum empty stream recovery attempts reached for session %s",
@@ -1711,7 +2004,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     metadata=getattr(retry_response, "metadata", {}),
                 )
 
-        if os.getenv("LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY", "").lower() in (
+        if synthetic_blocking or os.getenv(
+            "LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY", ""
+        ).lower() in (
             "1",
             "true",
             "yes",

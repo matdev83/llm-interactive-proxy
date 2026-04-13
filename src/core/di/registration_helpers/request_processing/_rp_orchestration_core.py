@@ -3,6 +3,7 @@ Core request processing orchestration registrations.
 
 Registers:
 - Response handlers (non-streaming, streaming)
+- PostBackendResponseCoordinator (canonical post-backend pipeline)
 - BackendProcessor / IBackendProcessor
 - AgentResponseFormatter / IAgentResponseFormatter
 - ResponseManager / IResponseManager
@@ -36,6 +37,8 @@ def register_orchestration_core_services(services: ServiceCollection) -> None:
     _register_response_manager(services)
     _register_quality_verifier_service_factory(services)
     _register_response_processor(services)
+    _register_post_backend_response_coordinator(services)
+    _register_migration_gate_service(services)
     _register_backend_request_manager(services)
     _register_request_processor(services)
     _register_quality_verifier_turn_ledger(services)
@@ -354,14 +357,51 @@ def _create_deduplication_service(
     )
 
 
+def _register_migration_gate_service(services: ServiceCollection) -> None:
+    """Register MigrationGateService as a shared singleton (additive registration)."""
+    from src.core.di.registrations._shared import register_singleton_if_absent
+    from src.core.services.migration_gate_service import MigrationGateService
+
+    def _migration_gate_factory(provider: IServiceProvider) -> MigrationGateService:
+        config = provider.get_required_service(AppConfig)
+        return MigrationGateService(config=config)
+
+    register_singleton_if_absent(
+        services,
+        MigrationGateService,
+        implementation_factory=_migration_gate_factory,
+    )
+
+
+def _register_post_backend_response_coordinator(services: ServiceCollection) -> None:
+    """Register PostBackendResponseCoordinator (canonical post-backend pipeline)."""
+    from src.core.di.registrations._shared import register_singleton_if_absent
+    from src.core.services.backend_request_manager.streaming_response_handler import (
+        BackendStreamingResponseHandler,
+    )
+    from src.core.services.post_backend_response_coordinator import (
+        PostBackendResponseCoordinator,
+    )
+
+    def _coordinator_factory(
+        provider: IServiceProvider,
+    ) -> PostBackendResponseCoordinator:
+        streaming = provider.get_required_service(BackendStreamingResponseHandler)
+        return PostBackendResponseCoordinator(streaming_handler=streaming)
+
+    register_singleton_if_absent(
+        services,
+        PostBackendResponseCoordinator,
+        implementation_factory=_coordinator_factory,
+    )
+
+
 def _register_backend_request_manager(services: ServiceCollection) -> None:
     """Register BackendRequestManager and IBackendRequestManager."""
     from src.core.di.registrations._shared import register_singleton_if_absent
     from src.core.interfaces.backend_processor_interface import IBackendProcessor
     from src.core.interfaces.backend_request_manager_components import (
         IBackendRequestPreparation,
-        INonStreamingBackendResponseHandler,
-        IStreamingBackendResponseHandler,
     )
     from src.core.interfaces.backend_request_manager_interface import (
         IBackendRequestManager,
@@ -372,6 +412,10 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
     from src.core.interfaces.response_processor_interface import IResponseProcessor
     from src.core.interfaces.wire_capture_interface import IWireCapture
     from src.core.services.backend_request_manager_service import BackendRequestManager
+    from src.core.services.migration_gate_service import MigrationGateService
+    from src.core.services.post_backend_response_coordinator import (
+        PostBackendResponseCoordinator,
+    )
 
     def _backend_request_manager_factory(
         provider: IServiceProvider,
@@ -402,13 +446,8 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
         request_preparation: IBackendRequestPreparation = provider.get_required_service(
             cast(type, IBackendRequestPreparation)
         )
-        non_streaming_handler: INonStreamingBackendResponseHandler = (
-            provider.get_required_service(
-                cast(type, INonStreamingBackendResponseHandler)
-            )
-        )
-        streaming_handler: IStreamingBackendResponseHandler = (
-            provider.get_required_service(cast(type, IStreamingBackendResponseHandler))
+        post_backend_response_coordinator: PostBackendResponseCoordinator = (
+            provider.get_required_service(PostBackendResponseCoordinator)
         )
 
         # Optional collaborators (kept for backward compatibility)
@@ -419,18 +458,19 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
         dedup_service: RequestDeduplicationService | None = (
             _create_deduplication_service(provider, config)
         )
+        migration_gate_service = provider.get_required_service(MigrationGateService)
 
         return BackendRequestManager(
             backend_processor,
             response_processor,
             quality_verifier_service_factory,
             request_preparation,
-            non_streaming_handler,
-            streaming_handler,
+            post_backend_response_coordinator,
             wire_capture,
             history_compaction_service=history_compaction_service,
             config=config,
             dedup_service=dedup_service,
+            migration_gate_service=migration_gate_service,
         )
 
     register_singleton_if_absent(

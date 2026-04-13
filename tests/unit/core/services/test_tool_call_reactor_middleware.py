@@ -754,7 +754,9 @@ class TestVTCToolCallBypass:
         mock_orchestrator.handle.return_value = response
 
         # Process through the feature
-        result = await feature.process_non_streaming(response, "test-session", context)
+        result = await feature.process(
+            response, "test-session", context, is_streaming=False
+        )
 
         # Should return unchanged response (bypassed)
         assert result is response
@@ -786,7 +788,7 @@ class TestVTCToolCallBypass:
         context: dict[str, Any] = {"session_id": "test-session"}
 
         # Process through the feature
-        await feature.process_non_streaming(response, "test-session", context)
+        await feature.process(response, "test-session", context, is_streaming=False)
 
         # Orchestrator SHOULD be called (non-VTC flow)
         mock_orchestrator.handle.assert_called_once()
@@ -845,7 +847,9 @@ class TestVTCToolCallBypass:
         )
         context: dict[str, Any] = {"session_id": "test-session"}
 
-        result = await feature.process_non_streaming(response, "test-session", context)
+        result = await feature.process(
+            response, "test-session", context, is_streaming=False
+        )
 
         # Metadata should be preserved
         assert result.metadata.get("vtc_tool_calls_swallowed") is True

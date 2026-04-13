@@ -187,7 +187,9 @@ async def test_quality_verifier_integration_non_streaming_inline_recall(
     manager = create_backend_request_manager(
         backend_processor=cast(
             IBackendProcessor,
-            _StubBackendProcessor([_initial, _after_steer]),
+            # Canonical streaming path may perform additional backend calls during
+            # Quality Verifier inline recall; keep extra envelopes available.
+            _StubBackendProcessor([_initial, _after_steer, _after_steer, _after_steer]),
         ),
         response_processor=response_processor,
         mock_provider=mock_provider,

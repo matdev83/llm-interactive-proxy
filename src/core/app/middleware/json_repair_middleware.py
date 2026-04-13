@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 import src.core.services.metrics_service as metrics
 from src.core.common.exceptions import JSONParsingError, ValidationError
@@ -196,68 +196,56 @@ class JsonRepairFeature(IResponseFeature):
             return True
         return bool(context.get("finish_reason"))
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Repair JSON in non-streaming response."""
+        """Repair JSON for one response unit (accumulate until stream end when streaming)."""
+        ctx = cast(dict[str, Any], context)
         if not self.config.session.json_repair_enabled:
-            return response
+            return payload
 
-        content = self._extract_content(response)
-        if not content:
-            return response
+        if not is_streaming:
+            content = self._extract_content(payload)
+            if not content:
+                return payload
 
-        strict = self._determine_strict_mode(response, context)
-        repair_result, exception_to_raise = self._apply_repair(
-            content, strict, "non_streaming"
-        )
-
-        if exception_to_raise is not None:
-            raise exception_to_raise
-
-        if repair_result and repair_result.success:
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("JSON detected and repaired for session %s", session_id)
-            return self._update_response_content(
-                response, json.dumps(repair_result.content), session_id
+            strict = self._determine_strict_mode(payload, ctx)
+            repair_result, exception_to_raise = self._apply_repair(
+                content, strict, "non_streaming"
             )
 
-        return response
+            if exception_to_raise is not None:
+                raise exception_to_raise
 
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Accumulate streaming content and repair at stream end.
+            if repair_result and repair_result.success:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("JSON detected and repaired for session %s", session_id)
+                return self._update_response_content(
+                    payload, json.dumps(repair_result.content), session_id
+                )
 
-        For streaming, we accumulate content across chunks and repair
-        the complete JSON when we detect the end of the stream.
-        """
-        if not self.config.session.json_repair_enabled:
-            return chunk
+            return payload
 
-        stream_key = self._get_stream_key(session_id, context)
+        stream_key = self._get_stream_key(session_id, ctx)
 
-        # Accumulate content (protected by lock)
-        content = self._extract_content(chunk)
+        content = self._extract_content(payload)
         if content:
             async with self._lock:
                 if stream_key not in self._stream_content:
                     self._stream_content[stream_key] = ""
                 self._stream_content[stream_key] += content
 
-        # Check if this is the end of the stream
-        if self._is_stream_end(context):
+        if self._is_stream_end(ctx):
             async with self._lock:
                 accumulated_content = self._stream_content.pop(stream_key, "")
 
             if accumulated_content:
-                strict = self._determine_strict_mode(chunk, context)
+                strict = self._determine_strict_mode(payload, ctx)
                 repair_result, exception_to_raise = self._apply_repair(
                     accumulated_content, strict, "streaming"
                 )
@@ -272,10 +260,10 @@ class JsonRepairFeature(IResponseFeature):
                             session_id,
                         )
                     return self._update_response_content(
-                        chunk, json.dumps(repair_result.content), session_id
+                        payload, json.dumps(repair_result.content), session_id
                     )
 
-        return chunk
+        return payload
 
     async def reset_session(self, session_id: str) -> None:
         """Reset streaming state for a session."""
@@ -304,7 +292,7 @@ class JsonRepairMiddleware(IResponseMiddleware):
     def __init__(
         self, config: AppConfig, json_repair_service: JsonRepairService
     ) -> None:
-        logger.error(
+        logger.warning(
             "DEPRECATED: JsonRepairMiddleware instantiated. "
             "Use JsonRepairFeature instead for proper streaming/non-streaming parity."
         )

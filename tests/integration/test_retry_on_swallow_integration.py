@@ -310,6 +310,7 @@ async def test_retry_on_swallow_streaming(
     request = ChatRequest(
         messages=[ChatMessage(role="user", content="Run: rm -rf /")],
         model="test-model",
+        stream=True,
     )
 
     # Process request

@@ -101,7 +101,44 @@ class ThinkTagsFixFeature(IResponseFeature):
             config = self._per_model_config[model]
             return bool(config.get("enabled", False))
 
+        if backend in self._per_model_config:
+            config = self._per_model_config[backend]
+            return bool(config.get("enabled", False))
+
         return self._enabled
+
+    def _resolve_backend_and_model(
+        self, context: dict[str, Any] | None
+    ) -> tuple[str | None, str | None]:
+        """Resolve backend/model from canonical and legacy context keys."""
+        if not context:
+            return None, None
+        backend = context.get("backend_name") or context.get("backend")
+        model = context.get("model_name") or context.get("model")
+        return (
+            backend if isinstance(backend, str) and backend.strip() else None,
+            model if isinstance(model, str) and model.strip() else None,
+        )
+
+    def _get_buffer_size_for_model(self, backend: str | None, model: str | None) -> int:
+        """Streaming buffer size with backend/model/backend-only overrides (legacy parity)."""
+        if not backend or not model:
+            return self._streaming_buffer_size
+
+        backend_model_key = f"{backend}:{model}"
+        if backend_model_key in self._per_model_config:
+            config = self._per_model_config[backend_model_key]
+            return int(config.get("streaming_buffer_size", self._streaming_buffer_size))
+
+        if model in self._per_model_config:
+            config = self._per_model_config[model]
+            return int(config.get("streaming_buffer_size", self._streaming_buffer_size))
+
+        if backend in self._per_model_config:
+            config = self._per_model_config[backend]
+            return int(config.get("streaming_buffer_size", self._streaming_buffer_size))
+
+        return self._streaming_buffer_size
 
     def _resolve_session_id(
         self,
@@ -193,22 +230,51 @@ class ThinkTagsFixFeature(IResponseFeature):
         return str(content) if content else ""
 
     def _fix_think_tags(self, content: str) -> ThinkTagFixResult:
-        """Fix think tags in content (non-streaming)."""
+        """Fix think tags in content (non-streaming; matches legacy middleware semantics)."""
         if not content:
             return ThinkTagFixResult(response_content=content, reasoning_content=None)
 
+        if not self._THINK_OPENING_PATTERN.match(content):
+            return ThinkTagFixResult(response_content=content, reasoning_content=None)
+
         match = self._THINK_TAG_PATTERN.match(content)
-        if match:
-            leading_ws = match.group(1)
-            reasoning = match.group(2).strip()
-            middle_ws = match.group(3)
-            remaining = match.group(4).strip()
-            fixed_content = f"{leading_ws}{middle_ws}{remaining}".strip()
-            return ThinkTagFixResult(
-                response_content=fixed_content, reasoning_content=reasoning
+        if not match:
+            if content.strip().startswith("<think>"):
+                reasoning_content = content.replace("<think>", "", 1).strip()
+                if reasoning_content.endswith("</think>"):
+                    reasoning_content = reasoning_content[:-8].strip()
+
+                if self._logger.isEnabledFor(logging.INFO):
+                    self._logger.info(
+                        "Fixed incomplete think tags - treating as pure reasoning"
+                    )
+                return ThinkTagFixResult(
+                    response_content="", reasoning_content=reasoning_content
+                )
+            return ThinkTagFixResult(response_content=content, reasoning_content=None)
+
+        leading_space, reasoning_content, middle_space, remaining_content = (
+            match.groups()
+        )
+
+        reasoning_content = reasoning_content.strip() if reasoning_content else ""
+
+        response_content = (
+            f"{leading_space}{middle_space}{remaining_content}"
+            if remaining_content is not None
+            else f"{leading_space}{middle_space}"
+        )
+
+        if self._logger.isEnabledFor(logging.INFO):
+            self._logger.info(
+                "Fixed improperly formatted think tags - extracted %d chars of reasoning, %d chars of content",
+                len(reasoning_content),
+                len(response_content),
             )
 
-        return ThinkTagFixResult(response_content=content, reasoning_content=None)
+        return ThinkTagFixResult(
+            response_content=response_content, reasoning_content=reasoning_content
+        )
 
     def _process_streaming_chunk(
         self,
@@ -267,7 +333,9 @@ class ThinkTagsFixFeature(IResponseFeature):
 
                 return after_close.strip(), reasoning_metadata
 
-            if len(current_buffer) > self._streaming_buffer_size:
+            backend, model = self._resolve_backend_and_model(context)
+            buffer_size = self._get_buffer_size_for_model(backend, model)
+            if len(current_buffer) > buffer_size:
                 self._stream_states[session_id] = "pass_through"
                 result = current_buffer
                 self._streaming_buffers[session_id] = ""
@@ -295,6 +363,12 @@ class ThinkTagsFixFeature(IResponseFeature):
         else:
             reasoning_content = reasoning
 
+        reasoning_content = (
+            reasoning_content
+            if isinstance(reasoning_content, str)
+            else str(reasoning_content or "")
+        )
+
         original_metadata = {}
         if hasattr(original_response, "metadata"):
             raw_metadata = original_response.metadata
@@ -305,7 +379,11 @@ class ThinkTagsFixFeature(IResponseFeature):
             **original_metadata,
             "reasoning": reasoning_content,
             "reasoning_content": reasoning_content,
-            "think_tags_extracted": True,
+            "reasoning_format": "extracted_from_think_tags",
+            "think_tags_fixed": True,
+            "original_content_length": len(str(original_response)),
+            "fixed_content_length": len(content),
+            "reasoning_length": len(reasoning_content),
         }
 
         return ProcessedResponse(
@@ -322,8 +400,7 @@ class ThinkTagsFixFeature(IResponseFeature):
         is_streaming: bool,
     ) -> Any:
         """Shared processing logic."""
-        backend = context.get("backend")
-        model = context.get("model")
+        backend, model = self._resolve_backend_and_model(context)
 
         if not self._should_process_for_model(backend, model):
             return response
@@ -377,25 +454,22 @@ class ThinkTagsFixFeature(IResponseFeature):
 
         return response
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Process non-streaming response for think tags."""
+        """Process one response unit for think tags."""
         async with self._lock:
-            return self._process_response(response, session_id, context, is_streaming=False)
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Process streaming chunk for think tags."""
-        async with self._lock:
-            return self._process_response(chunk, session_id, context, is_streaming=True)
+            return self._process_response(
+                payload,
+                session_id,
+                cast(dict[str, Any], context),
+                is_streaming=is_streaming,
+            )
 
     async def reset_session(self, session_id: str) -> None:
         """Reset streaming state for a session."""
@@ -408,7 +482,9 @@ class ThinkTagsFixFeature(IResponseFeature):
             self._reasoning_extracted.pop(session_id, None)
 
             if self._logger.isEnabledFor(logging.DEBUG):
-                self._logger.debug("Reset think tags fix state for session %s", session_id)
+                self._logger.debug(
+                    "Reset think tags fix state for session %s", session_id
+                )
 
     def get_session_reasoning(self, session_id: str) -> dict[str, Any] | None:
         """Get extracted reasoning for a session."""

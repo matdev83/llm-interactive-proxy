@@ -6,6 +6,9 @@ from typing import Any
 from cachetools import TTLCache
 
 from src.core.common.exceptions import LoopDetectionError
+from src.core.domain.feature_lifecycle_context import (
+    feature_lifecycle_context_from_dict,
+)
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     IResponseFeature,
@@ -44,6 +47,9 @@ class ResponseLoggingFeature(IResponseFeature):
         if not logger.isEnabledFor(logging.DEBUG):
             return
 
+        lc = feature_lifecycle_context_from_dict(
+            context, is_streaming=is_streaming, session_id_fallback=session_id
+        )
         response_type = context.get(
             "response_type", "streaming" if is_streaming else "complete"
         )
@@ -61,32 +67,33 @@ class ResponseLoggingFeature(IResponseFeature):
             content_length = 0
 
         logger.debug(
-            "Response processed for session %s (%s): content_len=%s, usage=%s",
+            "Response processed for session %s (%s): content_len=%s, usage=%s "
+            "streaming_mode=%s terminal_chunk=%s finish_reason=%s request_id=%s "
+            "backend=%s model=%s non_streaming_single_chunk=%s",
             session_id,
             response_type,
             content_length,
             usage_info,
+            lc.is_streaming,
+            lc.is_terminal_chunk,
+            lc.finish_reason,
+            lc.request_id,
+            lc.backend_name,
+            lc.model_name,
+            lc.non_streaming_single_chunk,
         )
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Log non-streaming response."""
-        self._log_response(response, session_id, context, is_streaming=False)
-        return response
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Log streaming chunk."""
-        self._log_response(chunk, session_id, context, is_streaming=True)
-        return chunk
+        """Log one response unit (streaming chunk or complete response)."""
+        self._log_response(payload, session_id, context, is_streaming=is_streaming)
+        return payload
 
 
 class ContentFilterFeature(IResponseFeature):
@@ -159,27 +166,41 @@ class ContentFilterFeature(IResponseFeature):
                 metadata=metadata,
             )
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Filter non-streaming response."""
-        return self._apply_filter(response)
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Filter streaming chunk.
-
-        Note: For streaming, we filter every chunk since the prefix
-        could appear at the start of any chunk boundary.
-        """
-        return self._apply_filter(chunk)
+        """Filter content for streaming and non-streaming (prefix may span chunk edges)."""
+        result = self._apply_filter(payload)
+        if logger.isEnabledFor(logging.DEBUG) and result is not payload:
+            lc = feature_lifecycle_context_from_dict(
+                context,
+                is_streaming=is_streaming,
+                session_id_fallback=session_id,
+            )
+            if is_streaming:
+                logger.debug(
+                    "ContentFilterFeature filtered streaming chunk session=%s "
+                    "terminal_chunk=%s finish_reason=%s stream_id=%s",
+                    session_id,
+                    lc.is_terminal_chunk,
+                    lc.finish_reason,
+                    lc.stream_id,
+                )
+            else:
+                logger.debug(
+                    "ContentFilterFeature filtered non-streaming response session=%s "
+                    "terminal_chunk=%s finish_reason=%s request_id=%s",
+                    session_id,
+                    lc.is_terminal_chunk,
+                    lc.finish_reason,
+                    lc.request_id,
+                )
+        return result
 
 
 class LoopDetectionFeature(IResponseFeature):
@@ -238,23 +259,17 @@ class LoopDetectionFeature(IResponseFeature):
 
         return response
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Check non-streaming response for loops."""
-        return await self._check_and_accumulate(response, session_id)
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Check streaming chunk for loops (accumulates across chunks)."""
-        return await self._check_and_accumulate(chunk, session_id)
+        """Check one unit for loops (accumulates across streaming chunks per session)."""
+        _ = is_streaming  # same accumulation path for both modes
+        return await self._check_and_accumulate(payload, session_id)
 
     def reset_session(self, session_id: str) -> None:
         """Reset the accumulated content for a session."""

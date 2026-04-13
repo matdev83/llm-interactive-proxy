@@ -1096,6 +1096,7 @@ class DynamicCompressionConfig(ValueObject):
     disable_categories: list[str] = Field(default_factory=list)
     disable_methods: list[str] = Field(default_factory=list)
     disable_tools: list[str] = Field(default_factory=list)
+    disable_tool_name_substrings: list[str] = Field(default_factory=list)
     disable_command_prefixes: list[str] = Field(default_factory=list)
     rules: list[CompressionRule] = Field(default_factory=_default_compression_rules)
     output_pattern_rules: list[OutputPatternRuleConfig] = Field(default_factory=list)
@@ -1124,6 +1125,7 @@ class DynamicCompressionConfig(ValueObject):
         "disable_categories",
         "disable_methods",
         "disable_tools",
+        "disable_tool_name_substrings",
         "disable_command_prefixes",
         "sensitive_projection_skip_prefixes",
         "declarative_rule_files",
@@ -1158,6 +1160,11 @@ class DynamicCompressionConfig(ValueObject):
     @field_validator("disable_command_prefixes")
     @classmethod
     def _normalize_disable_command_prefixes(cls, value: list[str]) -> list[str]:
+        return _dedupe_lower_preserve_order(value)
+
+    @field_validator("disable_tool_name_substrings")
+    @classmethod
+    def _normalize_disable_tool_name_substrings(cls, value: list[str]) -> list[str]:
         return _dedupe_lower_preserve_order(value)
 
     @field_validator("declarative_rules", mode="before")

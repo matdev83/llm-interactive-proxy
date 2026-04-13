@@ -30,13 +30,12 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from src.core.interfaces.response_processor_interface import (
-        IResponseFeature,
-        IResponseMiddleware,
-    )
+from src.core.interfaces.response_processor_interface import (
+    IResponseFeature,
+    IResponseMiddleware,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -121,17 +120,13 @@ class FeatureParityRegistry:
     ) -> None:
         """Register a feature with enforced parity.
 
-        Features registered through this method are expected to implement
-        both streaming and non-streaming paths via IResponseFeature interface.
+        Features registered through this method implement the canonical
+        ``process_chunk`` contract (see :class:`IResponseFeature`).
 
         Args:
             feature: The feature instance to register
             override_capability: Optional override for the capability declaration
         """
-        from src.core.interfaces.response_processor_interface import (
-            IResponseFeature,
-        )
-
         if not isinstance(feature, IResponseFeature):
             raise TypeError(
                 f"Expected IResponseFeature instance, got {type(feature).__name__}. "
@@ -141,13 +136,19 @@ class FeatureParityRegistry:
         name = feature.feature_name
         capability = override_capability or feature.capability
 
-        # Check for implementation quality (not just abstract method presence)
-        has_streaming = self._has_meaningful_implementation(
-            feature, "process_streaming"
-        )
-        has_non_streaming = self._has_meaningful_implementation(
-            feature, "process_non_streaming"
-        )
+        has_chunk = self._has_meaningful_implementation(feature, "process_chunk")
+        if capability in ("both",):
+            has_streaming = has_chunk
+            has_non_streaming = has_chunk
+        elif capability in ("streaming",):
+            has_streaming = has_chunk
+            has_non_streaming = True
+        elif capability in ("non_streaming",):
+            has_streaming = True
+            has_non_streaming = has_chunk
+        else:
+            has_streaming = has_chunk
+            has_non_streaming = has_chunk
 
         registration = FeatureRegistration(
             name=name,
@@ -185,10 +186,6 @@ class FeatureParityRegistry:
             declared_capability: Declared capability (streaming, non_streaming, both)
             name: Optional name override (defaults to class name)
         """
-        from src.core.interfaces.response_processor_interface import (
-            IResponseMiddleware,
-        )
-
         if not isinstance(middleware, IResponseMiddleware):
             raise TypeError(
                 f"Expected IResponseMiddleware instance, got {type(middleware).__name__}"
@@ -231,24 +228,25 @@ class FeatureParityRegistry:
             declared_capability: Declared capability
             name: Optional name override
         """
-        from src.core.interfaces.response_processor_interface import (
-            IResponseFeature,
-            IResponseMiddleware,
-        )
-
         feature_name = name or feature_class.__name__
 
         is_feature = issubclass(feature_class, IResponseFeature)
         is_middleware = issubclass(feature_class, IResponseMiddleware)
 
         if is_feature:
-            # Check for abstract method implementations
-            has_streaming = self._class_has_method_impl(
-                feature_class, "process_streaming"
-            )
-            has_non_streaming = self._class_has_method_impl(
-                feature_class, "process_non_streaming"
-            )
+            has_chunk = self._class_has_method_impl(feature_class, "process_chunk")
+            if declared_capability in ("both",):
+                has_streaming = has_chunk
+                has_non_streaming = has_chunk
+            elif declared_capability in ("streaming",):
+                has_streaming = has_chunk
+                has_non_streaming = True
+            elif declared_capability in ("non_streaming",):
+                has_streaming = True
+                has_non_streaming = has_chunk
+            else:
+                has_streaming = has_chunk
+                has_non_streaming = has_chunk
         else:
             has_streaming = declared_capability in ("streaming", "both")
             has_non_streaming = declared_capability in ("non_streaming", "both")
@@ -310,7 +308,8 @@ class FeatureParityRegistry:
                         violation_type="missing_streaming",
                         description=(
                             f"Feature '{name}' declares 'both' capability but "
-                            "process_streaming appears to be a pass-through or not implemented"
+                            "process_chunk appears missing or not meaningfully implemented "
+                            "for streaming coverage"
                         ),
                         severity="warning",
                     )
@@ -322,7 +321,8 @@ class FeatureParityRegistry:
                         violation_type="missing_non_streaming",
                         description=(
                             f"Feature '{name}' declares 'both' capability but "
-                            "process_non_streaming appears to be a pass-through or not implemented"
+                            "process_chunk appears missing or not meaningfully implemented "
+                            "for non-streaming coverage"
                         ),
                         severity="warning",
                     )
@@ -517,29 +517,21 @@ class ParityViolationError(Exception):
         super().__init__("Feature parity violations detected:\n" + "\n".join(messages))
 
 
-class MiddlewareToFeatureAdapter:
-    """Adapter that bridges IResponseMiddleware to IResponseFeature interface.
+class MiddlewareToFeatureAdapter(IResponseFeature):
+    """Adapter that bridges IResponseMiddleware to IResponseFeature.
 
-    This adapter allows existing IResponseMiddleware implementations to be used
-    in contexts that expect IResponseFeature interface. It wraps the middleware
-    and delegates to its process() method with appropriate streaming flags.
-
-    Use this adapter for:
-    1. Gradual migration from IResponseMiddleware to IResponseFeature
-    2. Using legacy middleware in new feature-based pipelines
-    3. Testing parity of existing middleware
+    Delegates through :meth:`process_chunk` to the wrapped middleware's
+    :meth:`IResponseMiddleware.process` (see base :meth:`IResponseFeature.process`).
 
     Example:
-        legacy_middleware = SomeLegacyMiddleware()
-        adapter = MiddlewareToFeatureAdapter(legacy_middleware)
-
-        # Now adapter can be used as IResponseFeature
-        result = await adapter.process_streaming(chunk, session_id, context)
+        adapter = MiddlewareToFeatureAdapter(SomeLegacyMiddleware())
+        result = await adapter.process_chunk(
+            chunk, session_id, context, is_streaming=True
+        )
 
     Note:
-        This adapter does NOT enforce parity - the underlying middleware
-        may still have divergent behavior. Use this as a migration aid,
-        not as a permanent solution.
+        This adapter does not enforce behavioral parity across modes; it is a
+        migration aid only.
     """
 
     def __init__(
@@ -549,30 +541,23 @@ class MiddlewareToFeatureAdapter:
         declared_capability: str = "both",
         feature_name: str | None = None,
     ) -> None:
-        """Initialize the adapter with a middleware instance.
-
-        Args:
-            middleware: The IResponseMiddleware instance to wrap
-            declared_capability: Declared capability for registry tracking
-            feature_name: Optional custom name (defaults to middleware class name)
-        """
-        from src.core.interfaces.response_processor_interface import (
-            IResponseMiddleware,
-        )
-
+        """Initialize the adapter with a middleware instance."""
         if not isinstance(middleware, IResponseMiddleware):
             raise TypeError(
                 f"Expected IResponseMiddleware instance, got {type(middleware).__name__}"
             )
 
+        priority = 0
+        try:
+            raw = middleware.priority
+            priority = raw if isinstance(raw, int) else 0
+        except (TypeError, AttributeError):
+            priority = 0
+
+        super().__init__(priority=priority)
         self._middleware = middleware
         self._declared_capability = declared_capability
         self._feature_name = feature_name or middleware.__class__.__name__
-
-    @property
-    def priority(self) -> int:
-        """Get the middleware priority."""
-        return self._middleware.priority
 
     @property
     def feature_name(self) -> str:
@@ -589,84 +574,22 @@ class MiddlewareToFeatureAdapter:
         """Get the underlying middleware instance."""
         return self._middleware
 
-    async def process_non_streaming(
+    async def process_chunk(
         self,
-        response: Any,
+        payload: Any,
         session_id: str,
-        context: dict[str, Any],
+        context: dict[str, object],
+        *,
+        is_streaming: bool,
     ) -> Any:
-        """Process a non-streaming response by delegating to wrapped middleware.
-
-        Args:
-            response: The complete response to process
-            session_id: The session ID associated with this request
-            context: Additional context for processing
-
-        Returns:
-            The processed response
-        """
+        """Thin bridge: one canonical entrypoint to legacy ``process``."""
         return await self._middleware.process(
-            response=response,
+            response=payload,
             session_id=session_id,
             context=context,
-            is_streaming=False,
+            is_streaming=is_streaming,
             stop_event=context.get("stop_event"),
         )
-
-    async def process_streaming(
-        self,
-        chunk: Any,
-        session_id: str,
-        context: dict[str, Any],
-    ) -> Any:
-        """Process a streaming chunk by delegating to wrapped middleware.
-
-        Args:
-            chunk: The streaming chunk to process
-            session_id: The session ID associated with this request
-            context: Additional context for processing
-
-        Returns:
-            The processed chunk
-        """
-        return await self._middleware.process(
-            response=chunk,
-            session_id=session_id,
-            context=context,
-            is_streaming=True,
-            stop_event=context.get("stop_event"),
-        )
-
-    async def process(
-        self,
-        response: Any,
-        session_id: str,
-        context: dict[str, Any],
-        is_streaming: bool = False,
-        stop_event: Any = None,
-    ) -> Any:
-        """Process using the appropriate path based on streaming flag.
-
-        This method provides IResponseFeature-compatible interface while
-        delegating to the wrapped middleware.
-
-        Args:
-            response: The response or chunk to process
-            session_id: The session ID
-            context: Processing context
-            is_streaming: Whether this is a streaming chunk
-            stop_event: Optional stop event
-
-        Returns:
-            The processed response or chunk
-        """
-        # Ensure stop_event is in context for downstream use
-        if stop_event is not None:
-            context = {**context, "stop_event": stop_event}
-
-        if is_streaming:
-            return await self.process_streaming(response, session_id, context)
-        return await self.process_non_streaming(response, session_id, context)
 
 
 class FeatureToMiddlewareAdapter:
@@ -689,10 +612,6 @@ class FeatureToMiddlewareAdapter:
         Args:
             feature: The IResponseFeature instance to wrap
         """
-        from src.core.interfaces.response_processor_interface import (
-            IResponseFeature,
-        )
-
         if not isinstance(feature, IResponseFeature):
             raise TypeError(
                 f"Expected IResponseFeature instance, got {type(feature).__name__}"
@@ -721,8 +640,7 @@ class FeatureToMiddlewareAdapter:
     ) -> Any:
         """Process using the wrapped feature's appropriate method.
 
-        This method delegates to process_streaming or process_non_streaming
-        based on the is_streaming flag.
+        This method delegates to the wrapped feature's :meth:`IResponseFeature.process`.
 
         Args:
             response: The response or chunk to process

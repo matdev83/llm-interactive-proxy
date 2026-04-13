@@ -51,7 +51,6 @@ async def test_streaming_tool_call_in_first_chunk():
     """
     Tests that a tool call in the first chunk of a streaming response is correctly handled.
     """
-    print("DEBUG: Test started")
     # 1. Mock a backend that returns a streaming response with a tool call in the first chunk
     mock_backend_processor = MagicMock(spec=IBackendProcessor)
 
@@ -59,7 +58,7 @@ async def test_streaming_tool_call_in_first_chunk():
     async def get_streaming_response():
         return await _create_streaming_response(
             [
-                'data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1761032732, "model": "code-assist-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": null, "tool_calls": [{"index": 0, "id": "call_123", "function": {"arguments": "{"file_path": "README.md"}", "name": "read_file"}, "type": "function"}]}}]}',
+                'data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1761032732, "model": "code-assist-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": null, "tool_calls": [{"index": 0, "id": "call_123", "function": {"arguments": "{\\"file_path\\": \\"README.md\\"}", "name": "read_file"}, "type": "function"}]}}]}',
                 'data: {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1761032732, "model": "code-assist-model", "choices": [{"index": 0, "delta": {"role": "assistant", "content": " some content"}}]}',
             ]
         )
@@ -149,13 +148,17 @@ async def test_streaming_tool_call_in_first_chunk():
     session_enricher.enrich.return_value = (
         MagicMock(),
         ChatRequest(
-            model="test_model", messages=[ChatMessage(role="user", content="test")]
+            model="test_model",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
         ),
     )
 
     request_side_effects = AsyncMock(spec=IRequestSideEffects)
     request_side_effects.apply.return_value = ChatRequest(
-        model="test_model", messages=[ChatMessage(role="user", content="test")]
+        model="test_model",
+        messages=[ChatMessage(role="user", content="test")],
+        stream=True,
     )
 
     command_handler = AsyncMock(spec=ICommandHandler)
@@ -199,7 +202,6 @@ async def test_streaming_tool_call_in_first_chunk():
         # Append command results (tool messages) if present
         if command_result.command_results:
             messages = list(messages) + command_result.command_results
-        print(f"DEBUG: backend_preparer creating request with {len(messages)} messages")
         return ChatRequest(
             model=request_data.model,
             messages=messages,
