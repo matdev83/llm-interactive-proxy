@@ -564,7 +564,22 @@ class TestResponsesAPIFrontendIntegration:
 
         response_text = body.decode("utf-8")
         assert "b'" not in response_text
-        assert "Hello" in response_text
+        payloads: list[dict] = []
+        for line in response_text.splitlines():
+            if not line.startswith("data: "):
+                continue
+            raw = line[len("data: ") :].strip()
+            if raw == "[DONE]":
+                continue
+            payloads.append(json.loads(raw))
+        assert payloads, response_text
+        assert all(p.get("object") != "response.chunk" for p in payloads)
+        text_deltas = [
+            p["delta"]
+            for p in payloads
+            if p.get("type") == "response.output_text.delta"
+        ]
+        assert "".join(text_deltas) == "Hello"
 
     def test_responses_api_streaming_propagates_tool_calls(
         self, client: TestClient
@@ -619,15 +634,39 @@ class TestResponsesAPIFrontendIntegration:
 
             assert response.status_code == 200
             body = response.content.decode("utf-8")
-            data_lines = [
-                line for line in body.splitlines() if line.startswith("data:")
-            ]
-            assert data_lines, body
-            first_payload = json.loads(data_lines[0].split("data: ", 1)[1])
-            tool_delta = first_payload["choices"][0]["delta"].get("tool_calls")
-            assert tool_delta, first_payload
-            assert tool_delta[0]["function"]["name"] == "fetch_data"
-            assert tool_delta[0]["function"]["arguments"] == '{"query": "status"}'
+            payloads: list[dict] = []
+            for line in body.splitlines():
+                if not line.startswith("data: "):
+                    continue
+                raw = line[len("data: ") :].strip()
+                if raw == "[DONE]":
+                    continue
+                payloads.append(json.loads(raw))
+            assert payloads, body
+            assert all(p.get("object") != "response.chunk" for p in payloads)
+
+            event_types = [p.get("type") for p in payloads]
+            assert "response.function_call_arguments.delta" in event_types
+            assert "response.function_call_arguments.done" in event_types
+            assert "response.output_item.done" in event_types
+            assert event_types[-1] == "response.completed"
+
+            delta_event = next(
+                p
+                for p in payloads
+                if p.get("type") == "response.function_call_arguments.delta"
+            )
+            assert delta_event["delta"] == '{"query": "status"}'
+
+            done_item_event = next(
+                p
+                for p in payloads
+                if p.get("type") == "response.output_item.done"
+                and isinstance(p.get("item"), dict)
+                and p["item"].get("type") == "function_call"
+            )
+            assert done_item_event["item"]["name"] == "fetch_data"
+            assert done_item_event["item"]["arguments"] == '{"query": "status"}'
 
     def test_responses_api_streaming_normalizes_content(
         self, client: TestClient
@@ -690,14 +729,23 @@ class TestResponsesAPIFrontendIntegration:
 
             assert response.status_code == 200
             body = response.content.decode("utf-8")
-            data_lines = [
-                line for line in body.splitlines() if line.startswith("data:")
+            payloads: list[dict] = []
+            for line in body.splitlines():
+                if not line.startswith("data: "):
+                    continue
+                raw = line[len("data: ") :].strip()
+                if raw == "[DONE]":
+                    continue
+                payloads.append(json.loads(raw))
+            assert payloads, body
+            assert payloads[0].get("type") == "response.created"
+            assert all(p.get("object") != "response.chunk" for p in payloads)
+            text_deltas = [
+                p["delta"]
+                for p in payloads
+                if p.get("type") == "response.output_text.delta"
             ]
-            assert data_lines, body
-            first_payload = json.loads(data_lines[0].split("data: ", 1)[1])
-            delta = first_payload["choices"][0]["delta"]
-            assert delta["content"] == "Hello world"
-            assert delta.get("role") == "assistant"
+            assert "".join(text_deltas) == "Hello world"
 
     def test_responses_api_non_streaming_functionality(
         self, client: TestClient

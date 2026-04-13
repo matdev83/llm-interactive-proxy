@@ -34,7 +34,7 @@ It is a compatibility layer, a security layer, a traffic control plane, a debugg
 
 Beyond basic forwarding, the proxy adds cross-protocol translation, tool safety, routing and failover, session-oriented features (including B2BUA-style handling), boundary-level CBOR captures, usage tracking, and built-in token-saving controls. Longer narratives, use-case lists, and feature tours live in the [User Guide](docs/user_guide/index.md).
 
-- **One endpoint, many clients** - Keep existing OpenAI-, Anthropic-, and Gemini-style clients while changing routing behind the proxy.
+- **One endpoint, many clients** - Keep existing OpenAI-, Anthropic-, and Gemini-style clients while changing routing behind the proxy. `/v1/responses` streaming emits official OpenAI Responses events (no legacy `response.chunk` fallback shape).
 - **Token-saving that actually matters** - Shrink bloated sessions with stale-history compaction and content-aware tool-output compression.
 - **Production-minded resilience** - Use retries, failover, health tracking, and safeguards that respect streaming semantics.
 - **Operational visibility** - Inspect wire captures, diagnostics, and usage data instead of debugging blind.

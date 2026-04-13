@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -59,6 +60,38 @@ async def _make_stream() -> AsyncIterator[ProcessedResponse]:
     )
 
 
+async def _make_tool_stream() -> AsyncIterator[ProcessedResponse]:
+    yield ProcessedResponse(
+        content="",
+        metadata={
+            "id": "resp_tool",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "fetch_data",
+                        "arguments": '{"query":"status"}',
+                    },
+                }
+            ],
+        },
+    )
+    yield ProcessedResponse(content="", metadata={"id": "resp_tool", "is_done": True})
+
+
+def _decode_sse_payloads(blob: str) -> list[dict]:
+    payloads: list[dict] = []
+    for line in blob.splitlines():
+        if not line.startswith("data: "):
+            continue
+        raw = line[len("data: ") :].strip()
+        if raw == "[DONE]":
+            continue
+        payloads.append(json.loads(raw))
+    return payloads
+
+
 @pytest.mark.asyncio
 async def test_streaming_disconnect_triggers_backend_cancel() -> None:
     controller = ResponsesController(
@@ -90,10 +123,53 @@ async def test_streaming_disconnect_triggers_backend_cancel() -> None:
         request_id="req-test",
     )
 
-    first_chunk = await stream.__anext__()
-    assert "hello" in first_chunk
-
-    with pytest.raises(StopAsyncIteration):
-        await stream.__anext__()
+    parts: list[str] = []
+    while True:
+        try:
+            parts.append(await stream.__anext__())
+        except StopAsyncIteration:
+            break
+    blob = "".join(parts)
+    assert "hello" in blob
+    assert "response.output_text.delta" in blob
+    assert "response.chunk" not in blob
 
     await asyncio.wait_for(cancel_called.wait(), timeout=0.1)
+
+
+@pytest.mark.asyncio
+async def test_streaming_tool_calls_emit_wire_events_only() -> None:
+    controller = ResponsesController(
+        request_processor=MagicMock(),
+        translation_service=MagicMock(),
+    )
+
+    envelope = StreamingResponseEnvelope(content=_make_tool_stream())
+    request = _FakeRequest(disconnect_sequence=[False, False, False])
+    domain_request = ChatRequest(
+        model="gpt-4o",
+        messages=[ChatMessage(role="user", content="tool")],
+        stream=True,
+    )
+
+    stream = controller._stream_response_envelope(
+        request=request,
+        domain_request=domain_request,
+        response=envelope,
+        request_id="req-tool",
+    )
+
+    parts: list[str] = []
+    while True:
+        try:
+            parts.append(await stream.__anext__())
+        except StopAsyncIteration:
+            break
+    payloads = _decode_sse_payloads("".join(parts))
+    assert payloads
+    assert all(payload.get("object") != "response.chunk" for payload in payloads)
+    types = [payload.get("type") for payload in payloads]
+    assert "response.function_call_arguments.delta" in types
+    assert "response.function_call_arguments.done" in types
+    assert "response.output_item.done" in types
+    assert types[-1] == "response.completed"

@@ -16,6 +16,7 @@ from fastapi import HTTPException, Request, Response, WebSocket, WebSocketDiscon
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
+from src.core.app.controllers.responses_stream_legacy import coerce_stream_chunk_payload
 from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
@@ -32,6 +33,9 @@ from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.responses_api import (
     ResponsesRequest,
     enforce_json_schema_limits,
+)
+from src.core.domain.translators.responses.wire_stream_emitter import (
+    ResponsesWireStreamEmitter,
 )
 from src.core.interfaces.client_end_of_session_service_interface import (
     IClientEndOfSessionService,
@@ -965,8 +969,10 @@ class ResponsesController:
 
             response_id = f"resp_{int(time.time())}_{id(response)}"
             created_timestamp = int(time.time())
-            last_chunk_model = getattr(domain_request, "model", "unknown")
             stream_terminated = False
+            wire_emitter: ResponsesWireStreamEmitter | None = None
+            native_wire_passthrough = False
+            last_domain_chunk: dict[str, Any] | None = None
 
             cancel_lock = asyncio.Lock()
             cancel_state = {"called": False}
@@ -1113,171 +1119,40 @@ class ResponsesController:
                         break
 
                     try:
-                        chunk_content: Any = ""
-                        chunk_metadata: dict[str, Any] = {}
-                        chunk_payload: dict[str, Any] | None = None
-
-                        if isinstance(chunk, ProcessedResponse):
-                            chunk_content = chunk.content or ""
-                            chunk_metadata = chunk.metadata or {}
-                            if isinstance(chunk.content, dict):
-                                chunk_payload = chunk.content
-                        elif isinstance(chunk, dict):
-                            chunk_content = str(chunk.get("content", ""))
-                            chunk_metadata = chunk.get("metadata", {}) or {}
-                            chunk_payload = chunk
-                        elif hasattr(chunk, "content"):
-                            chunk_content = getattr(chunk, "content", "") or ""
-                            chunk_metadata = getattr(chunk, "metadata", {}) or {}
-                            if isinstance(chunk_content, dict):
-                                chunk_payload = chunk_content
-                        elif isinstance(chunk, str):
-                            chunk_content = chunk
-                        elif isinstance(chunk, bytes):
-                            chunk_content = chunk.decode("utf-8", errors="ignore")
-                        else:
-                            chunk_content = str(chunk)
-
-                        chunk_id = chunk_metadata.get("id") or response_id
-                        chunk_model = chunk_metadata.get("model") or getattr(
-                            domain_request, "model", "unknown"
-                        )
-                        chunk_created = (
-                            chunk_metadata.get("created") or created_timestamp
+                        chunk_payload = coerce_stream_chunk_payload(
+                            chunk, default_response_id=response_id
                         )
 
-                        finish_reason = chunk_metadata.get("finish_reason")
-                        delta: dict[str, Any] = {}
-
-                        if chunk_payload:
-                            chunk_id = chunk_payload.get("id", chunk_id)
-                            chunk_model = chunk_payload.get("model", chunk_model)
-                            chunk_created = chunk_payload.get("created", chunk_created)
-
-                            choices = chunk_payload.get("choices")
-                            if isinstance(choices, list) and choices:
-                                primary_choice = choices[0] or {}
-                                delta_payload = primary_choice.get("delta") or {}
-                                if isinstance(delta_payload, dict):
-                                    delta = dict(delta_payload)
-                                finish_reason = (
-                                    primary_choice.get("finish_reason") or finish_reason
-                                )
-
-                        if not delta and chunk_content:
-                            delta["content"] = chunk_content
-
-                        content_value = delta.get("content")
-                        if content_value is not None and not isinstance(
-                            content_value, str
-                        ):
-                            # Use dict() for dict types to safely handle StopChunkWithUsage
-                            safe_value = (
-                                dict(content_value)
-                                if isinstance(content_value, dict)
-                                else content_value
-                            )
-                            delta["content"] = json.dumps(safe_value)
-
-                        tool_calls = delta.get("tool_calls") or chunk_metadata.get(
-                            "tool_calls"
-                        )
-                        if tool_calls:
-                            normalized_calls: list[dict[str, Any]] = []
-                            for tool_call in tool_calls:
-                                if hasattr(tool_call, "model_dump"):
-                                    call_data = tool_call.model_dump()
-                                elif isinstance(tool_call, dict):
-                                    call_data = dict(tool_call)
-                                else:
-                                    function = getattr(tool_call, "function", None)
-                                    call_data = {
-                                        "id": getattr(tool_call, "id", ""),
-                                        "type": getattr(tool_call, "type", "function"),
-                                        "function": {
-                                            "name": getattr(function, "name", ""),
-                                            "arguments": getattr(
-                                                function, "arguments", "{}"
-                                            ),
-                                        },
-                                    }
-
-                                function_payload = call_data.get("function")
-                                if isinstance(function_payload, dict):
-                                    arguments = function_payload.get("arguments")
-                                    if isinstance(arguments, dict | list):
-                                        function_payload["arguments"] = json.dumps(
-                                            arguments
-                                        )
-                                    elif arguments is None:
-                                        function_payload["arguments"] = "{}"
-
-                                normalized_calls.append(call_data)
-
-                            delta["tool_calls"] = normalized_calls
+                        if not isinstance(chunk_payload, dict):
                             if logger.isEnabledFor(logging.DEBUG):
                                 logger.debug(
-                                    "ResponsesController normalized streaming tool_calls: %s",
-                                    normalized_calls,
+                                    "Skipping non-object Responses stream chunk type=%s",
+                                    type(chunk).__name__,
+                                    extra={"request_id": request_id},
                                 )
+                            continue
 
-                        if not delta:
-                            delta["content"] = ""
+                        last_domain_chunk = chunk_payload
 
-                        choice_payload: dict[str, Any] = {
-                            "index": 0,
-                            "delta": delta,
-                        }
-                        if finish_reason:
-                            choice_payload["finish_reason"] = finish_reason
+                        ot_raw = chunk_payload.get("type")
+                        if (
+                            isinstance(ot_raw, str)
+                            and ot_raw.startswith("response.")
+                            and ot_raw != "response.chunk"
+                        ):
+                            native_wire_passthrough = True
+                            yield f"data: {json.dumps(chunk_payload)}\n\n"
+                            continue
 
-                        streaming_chunk = {
-                            "id": chunk_id,
-                            "object": "response.chunk",
-                            "created": chunk_created,
-                            "model": chunk_model,
-                            "choices": [choice_payload],
-                        }
-
-                        last_chunk_model = chunk_model
-
-                        # OPTIMIZATION: Use fast path for simple content chunks to avoid expensive json.dumps
-                        # This avoids serializing the full dict structure for every token in high-volume streams
-                        choices_list = streaming_chunk.get("choices")
-                        is_simple_chunk = (
-                            len(streaming_chunk) == 5
-                            and "choices" in streaming_chunk
-                            and isinstance(choices_list, list)
-                            and len(choices_list) == 1
-                            and isinstance(choices_list[0], dict)
-                            and "delta" in choices_list[0]
-                            and len(choices_list[0]) == 2  # index and delta only
-                            and isinstance(choices_list[0].get("delta"), dict)
-                            and len(choices_list[0].get("delta", {})) == 1
-                            and "content" in choices_list[0].get("delta", {})
-                            and isinstance(
-                                choices_list[0].get("delta", {}).get("content"), str
+                        if wire_emitter is None:
+                            wire_emitter = ResponsesWireStreamEmitter(
+                                model=str(
+                                    getattr(domain_request, "model", None) or "unknown"
+                                ),
+                                created_at=float(created_timestamp),
                             )
-                        )
-
-                        if is_simple_chunk:
-                            # Fast string construction for simple chunks
-                            # Use json.dumps only for the content string to ensure safe escaping
-                            c = cast(dict[str, Any], streaming_chunk)
-                            choices = cast(list[dict[str, Any]], c["choices"])
-                            choice = choices[0]
-                            delta = cast(dict[str, Any], choice["delta"])
-
-                            content_json = json.dumps(delta["content"])
-                            idx = choice["index"]
-
-                            json_str = (
-                                f'{{"id": "{c["id"]}", "object": "{c["object"]}", "created": {c["created"]}, '
-                                f'"model": "{c["model"]}", "choices": [{{"index": {idx}, "delta": {{"content": {content_json}}}}}]}}'
-                            )
-                            yield f"data: {json_str}\n\n"
-                        else:
-                            yield f"data: {json.dumps(streaming_chunk)}\n\n"
+                        for wire_evt in wire_emitter.feed(chunk_payload):
+                            yield f"data: {json.dumps(wire_evt)}\n\n"
 
                     except Exception as exc:
                         if logger.isEnabledFor(logging.WARNING):
@@ -1290,20 +1165,24 @@ class ResponsesController:
                         continue
 
                 if not stream_terminated:
-                    final_chunk = {
-                        "id": response_id,
-                        "object": "response.chunk",
-                        "created": created_timestamp,
-                        "model": last_chunk_model,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "finish_reason": "stop",
-                                "delta": {},
-                            }
-                        ],
-                    }
-                    yield f"data: {json.dumps(final_chunk)}\n\n"
+                    if native_wire_passthrough:
+                        pass
+                    elif wire_emitter is not None and not wire_emitter.is_finished():
+                        for wire_evt in wire_emitter.finalize(
+                            tail_domain_chunk=last_domain_chunk
+                        ):
+                            yield f"data: {json.dumps(wire_evt)}\n\n"
+                    elif wire_emitter is None and not native_wire_passthrough:
+                        empty_wire = ResponsesWireStreamEmitter(
+                            model=str(
+                                getattr(domain_request, "model", None) or "unknown"
+                            ),
+                            created_at=float(created_timestamp),
+                        )
+                        for wire_evt in empty_wire.finalize(
+                            tail_domain_chunk=last_domain_chunk
+                        ):
+                            yield f"data: {json.dumps(wire_evt)}\n\n"
                     yield "data: [DONE]\n\n"
 
             except GeneratorExit:
