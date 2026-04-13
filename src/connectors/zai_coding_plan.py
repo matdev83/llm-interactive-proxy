@@ -505,29 +505,11 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 provider_details["retry_after_seconds"] = float(retry_after_seconds)
         return provider_details
 
-    def _should_retry_with_legacy(
-        self, exc: HTTPException, attempted_model: str
-    ) -> bool:
-        """Determine if we should retry the request with the legacy Claude model."""
-        if attempted_model == self._LEGACY_MODEL:
-            return False
-        provider_models: set[str] = getattr(self, "_provider_models", set())
-        if self._LEGACY_MODEL not in provider_models:
-            return False
-        if exc.status_code != 429:
-            return False
-        detail_text = self._detail_to_text(exc.detail)
-        return (
-            "Insufficient balance" in detail_text
-            or "resource package" in detail_text
-            or "1113" in detail_text
-        )
-
     async def chat_completions(  # type: ignore[override]
         self,
         request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Route chat completions, retrying with legacy Claude when balance errors occur.
+        """Route chat completions with canonical request processing only.
 
         Implements :class:`ICanonicalChatCompletionsBackend` using
         :class:`ConnectorChatCompletionsRequest` only.
@@ -540,19 +522,6 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         try:
             return await self._chat_completions_canonical(request)
         except HTTPException as exc:
-            if self._should_retry_with_legacy(exc, selected_model):
-                legacy_model = self._LEGACY_MODEL
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "ZAI Coding Plan request with model '%s' failed (%s); retrying with legacy model '%s'",
-                        selected_model,
-                        self._detail_to_text(exc.detail),
-                        legacy_model,
-                        exc_info=True,
-                    )
-                legacy_request = replace(request, effective_model=legacy_model)
-                return await self._chat_completions_canonical(legacy_request)
-
             detail_text = self._detail_to_text(exc.detail)
             provider_details = {
                 "provider_error": exc.detail,

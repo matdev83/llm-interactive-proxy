@@ -13,8 +13,12 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from src.core.common.exceptions import LLMProxyError
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.transport.fastapi.exception_adapters import (
+    map_domain_exception_to_http_exception,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +81,8 @@ class StreamingResponseAccumulator:
             if isinstance(detail, dict):
                 error_data = dict(detail)
                 error_data.setdefault("code", exc.status_code)
+                if not isinstance(error_data.get("code"), int):
+                    error_data["code"] = exc.status_code
                 if "message" not in error_data:
                     if isinstance(error_data.get("error"), str):
                         error_data["message"] = error_data["error"]
@@ -87,6 +93,30 @@ class StreamingResponseAccumulator:
                     "message": str(detail),
                     "type": "backend_error",
                     "code": exc.status_code,
+                }
+
+            return self._build_error_response(
+                error_data, streaming_response.headers or {}
+            )
+
+        except LLMProxyError as exc:
+            http_exc = map_domain_exception_to_http_exception(exc)
+            detail = http_exc.detail
+            if isinstance(detail, dict):
+                error_data = dict(detail)
+                error_data.setdefault("code", http_exc.status_code)
+                if not isinstance(error_data.get("code"), int):
+                    error_data["code"] = http_exc.status_code
+                if "message" not in error_data:
+                    if isinstance(error_data.get("error"), str):
+                        error_data["message"] = error_data["error"]
+                    else:
+                        error_data["message"] = str(detail)
+            else:
+                error_data = {
+                    "message": str(detail),
+                    "type": "backend_error",
+                    "code": http_exc.status_code,
                 }
 
             return self._build_error_response(

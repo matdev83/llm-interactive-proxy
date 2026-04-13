@@ -39,14 +39,7 @@ class OpenAIResponsesConnector(OpenAIConnector):
             request.cancellation_coordinator.ensure_not_cancelled(
                 request.cancellation_token
             )
-        options = dict(request.options) if request.options else {}
-        return await self.responses(
-            request.request,
-            list(request.processed_messages),
-            request.effective_model,
-            request.identity,
-            **options,
-        )
+        return await self.responses(request)
 
 
 # Register the OpenAI Responses API backend

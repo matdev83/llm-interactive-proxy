@@ -37,7 +37,6 @@ class UnifiedSteeringHandler(IToolCallHandler):
         enabled: bool = True,
         priority_overrides: dict[str, int] | None = None,
         monotonic: Callable[[], float] | None = None,
-        emit_legacy_log_enabled: bool = False,
     ) -> None:
         """Initialize the unified steering handler.
 
@@ -50,7 +49,6 @@ class UnifiedSteeringHandler(IToolCallHandler):
         self._enabled = enabled
         self._monotonic = monotonic or time.monotonic
         self._priority_overrides = priority_overrides or {}
-        self._emit_legacy_log_enabled = emit_legacy_log_enabled
 
         # Sort policies by priority (highest first), taking overrides into account
         def get_priority(policy: ISteeringPolicy) -> int:
@@ -150,7 +148,6 @@ class UnifiedSteeringHandler(IToolCallHandler):
             matched_policy=matched_policy,
             result=result,
             elapsed=elapsed,
-            emit_legacy_log=self._emit_legacy_log_enabled,
         )
 
         # Return result if matched
@@ -182,7 +179,6 @@ class UnifiedSteeringHandler(IToolCallHandler):
         matched_policy: str | None,
         result: SteeringResult | None,
         elapsed: float,
-        emit_legacy_log: bool = False,  # New parameter for legacy logging
     ) -> None:
         """Emit structured telemetry for this evaluation.
 
@@ -193,7 +189,6 @@ class UnifiedSteeringHandler(IToolCallHandler):
             matched_policy: The name of the policy that matched (if any).
             result: The SteeringResult if a policy matched, otherwise None.
             elapsed: The time taken for evaluation in seconds.
-            emit_legacy_log: If True, also emit a legacy-formatted log message.
         """
         if not logger.isEnabledFor(logging.INFO):
             return
@@ -212,22 +207,7 @@ class UnifiedSteeringHandler(IToolCallHandler):
             log_data["severity"] = result.severity
             log_data["should_block"] = result.should_block
 
-            if (
-                emit_legacy_log
-                and result.should_block
-                and matched_policy
-                and logger.isEnabledFor(logging.INFO)
-            ):
-                # Emit legacy-formatted log for compatibility
-                logger.info(
-                    "Steering via rule '%s' for tool '%s' in session %s",
-                    matched_policy,
-                    context.tool_name,
-                    context.session_id,
-                )
-
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Unified steering evaluation: %s", log_data)
+        logger.info("Unified steering evaluation: %s", log_data)
 
 
 __all__ = ["UnifiedSteeringHandler"]

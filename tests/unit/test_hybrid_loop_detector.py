@@ -4,6 +4,8 @@ Tests for HybridLoopDetector.
 Tests both short pattern detection (gemini-cli) and long pattern detection (rolling hash).
 """
 
+import logging
+
 import pytest
 from src.loop_detection.hybrid_detector import HybridLoopDetector
 
@@ -51,6 +53,27 @@ class TestHybridLoopDetector:
             detection_event is not None
         ), "Long pattern should be detected by rolling hash component"
         assert detection_event.repetition_count >= 3
+
+    def test_long_pattern_detection_emits_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Long-pattern branch must log WARNING before returning (not after unreachable return)."""
+        caplog.set_level(logging.WARNING, logger="src.loop_detection.hybrid_detector")
+        detector = HybridLoopDetector()
+        detector.reset()
+
+        long_pattern = """This is a longer pattern that contains unique content and should be detected by the rolling hash algorithm when repeated multiple times. """
+
+        detection_event = None
+        for _i in range(5):
+            detection_event = detector.process_chunk(long_pattern)
+            if detection_event:
+                break
+
+        assert detection_event is not None
+        assert any(
+            "Long pattern loop detected" in record.message for record in caplog.records
+        ), caplog.records
 
     def test_original_bug_pattern_detection(self):
         """Test that the original bug pattern is now detected by the hybrid approach."""

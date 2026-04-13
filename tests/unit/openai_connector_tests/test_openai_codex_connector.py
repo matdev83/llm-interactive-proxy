@@ -1,9 +1,9 @@
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
+from src.core.common.exceptions import InvalidRequestError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
@@ -28,7 +28,9 @@ async def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
         return True
 
     mock_codex_call = AsyncMock(
-        side_effect=HTTPException(status_code=401, detail="invalid token")
+        side_effect=InvalidRequestError(
+            message="invalid token", status_code=401, details={}
+        )
     )
 
     monkeypatch.setattr(
@@ -41,7 +43,7 @@ async def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
         OpenAICodexConnector, "_call_codex_responses_api", mock_codex_call
     )
 
-    with pytest.raises(HTTPException):
+    with pytest.raises(InvalidRequestError):
         request = CanonicalChatRequest(
             model="gpt-5.4-mini",
             messages=[ChatMessage(role="user", content="test")],

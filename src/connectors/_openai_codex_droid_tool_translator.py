@@ -333,14 +333,6 @@ class DroidToolTranslator:
             },
         )
 
-        # For edits, we pass through as-is since the diff format
-        # is complex to reverse-engineer
-        return "Edit", {
-            "file_path": file_path,
-            "old_str": "",  # Placeholder - actual diff handling needed
-            "new_str": codex_args.get("content", ""),
-        }
-
     def _translate_read(self, arguments: dict[str, Any]) -> TranslationResult:
         """Translate Read tool to read_file.
 

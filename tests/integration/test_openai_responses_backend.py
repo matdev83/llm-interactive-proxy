@@ -4,6 +4,8 @@ from unittest.mock import AsyncMock, Mock
 
 import httpx
 import pytest
+from pydantic.types import JsonValue
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_responses import OpenAIResponsesConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
@@ -12,11 +14,39 @@ from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
 
-def _configure_non_streaming_http_mocks(mock_client: AsyncMock, mock_response: Mock) -> None:
+def _configure_non_streaming_http_mocks(
+    mock_client: AsyncMock, mock_response: Mock
+) -> None:
     """Wire mocks for CaptureAwareAsyncClient path (build_request + send + aread)."""
     mock_response.aread = AsyncMock()
     mock_client.build_request = Mock(return_value=Mock(spec=httpx.Request))
     mock_client.send = AsyncMock(return_value=mock_response)
+
+
+def _build_connector_request(
+    connector: OpenAIResponsesConnector,
+    request_data: CanonicalChatRequest | dict[str, object],
+    *,
+    processed_messages: list[ChatMessage] | None = None,
+    effective_model: str = "gpt-4",
+    options: dict[str, JsonValue] | None = None,
+) -> ConnectorChatCompletionsRequest:
+    if isinstance(request_data, CanonicalChatRequest):
+        domain_request = request_data
+    else:
+        domain_request = connector.translation_service.to_domain_request(
+            request_data, "responses"
+        )
+    return ConnectorChatCompletionsRequest(
+        request=domain_request,
+        processed_messages=processed_messages or [],
+        effective_model=effective_model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options=options or {},
+    )
 
 
 class TestOpenAIResponsesBackendIntegration:
@@ -125,7 +155,7 @@ class TestOpenAIResponsesBackendIntegration:
 
         # Execute the request
         result = await connector.responses(
-            request_data=request_data, processed_messages=[], effective_model="gpt-4"
+            _build_connector_request(connector, request_data)
         )
 
         # Verify the result
@@ -236,7 +266,7 @@ class TestOpenAIResponsesBackendIntegration:
 
         # Execute the request
         result = await connector.responses(
-            request_data=backend_request, processed_messages=[], effective_model="gpt-4"
+            _build_connector_request(connector, backend_request)
         )
 
         # Verify the result
@@ -293,7 +323,7 @@ class TestOpenAIResponsesBackendIntegration:
 
         # Execute streaming request
         result = await connector.responses(
-            request_data=request_data, processed_messages=[], effective_model="gpt-4"
+            _build_connector_request(connector, request_data)
         )
 
         # Verify streaming response
@@ -341,11 +371,7 @@ class TestOpenAIResponsesBackendIntegration:
         from src.core.common.exceptions import BackendError
 
         with pytest.raises(BackendError) as exc_info:
-            await connector.responses(
-                request_data=request_data,
-                processed_messages=[],
-                effective_model="gpt-4",
-            )
+            await connector.responses(_build_connector_request(connector, request_data))
 
         assert exc_info.value.status_code == 400
 
@@ -359,11 +385,7 @@ class TestOpenAIResponsesBackendIntegration:
         _configure_non_streaming_http_mocks(mock_client, mock_response_401)
 
         with pytest.raises(BackendError) as exc_info:
-            await connector.responses(
-                request_data=request_data,
-                processed_messages=[],
-                effective_model="gpt-4",
-            )
+            await connector.responses(_build_connector_request(connector, request_data))
 
         assert exc_info.value.status_code == 401
 
@@ -419,9 +441,11 @@ class TestOpenAIResponsesBackendIntegration:
 
         # Execute request
         result = await connector.responses(
-            request_data=request_data,
-            processed_messages=processed_messages,
-            effective_model="gpt-4",
+            _build_connector_request(
+                connector,
+                request_data,
+                processed_messages=processed_messages,
+            )
         )
 
         # Verify the result

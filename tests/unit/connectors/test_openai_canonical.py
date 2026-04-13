@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from fastapi import HTTPException
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
@@ -17,6 +16,7 @@ from src.connectors.openai import (
     _LLM_PROXY_STREAM_URL_KEY,
     OpenAIConnector,
 )
+from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -384,8 +384,8 @@ class TestOpenAICanonicalAPI:
             "_handle_non_streaming_response",
             new_callable=AsyncMock,
         ) as mock_handler:
-            mock_handler.side_effect = HTTPException(
-                status_code=500, detail="Test error"
+            mock_handler.side_effect = BackendError(
+                message="Test error", status_code=500
             )
 
             # Capture log messages

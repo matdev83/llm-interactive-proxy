@@ -86,8 +86,6 @@ REPLACEMENTS = [
     ("IAngelStreamVerifier", "IQualityVerifierStreamVerifier"),
     ("AngelPromptLoader", "QualityVerifierPromptLoader"),
     ("AngelPromptInfo", "QualityVerifierPromptInfo"),
-    ("AngelVerificationRequest", "QualityVerifierRequest"),
-    ("AngelVerificationResult", "QualityVerifierResult"),
     ("AngelDecision", "QualityVerifierDecision"),
     ("AngelService", "QualityVerifierService"),
     ("angel_prompt.md", "quality_verifier_prompt.md"),

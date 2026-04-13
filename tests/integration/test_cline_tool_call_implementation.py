@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from src.core.app.stages.test_stages import CustomTestStage
 from src.core.app.test_builder import ApplicationTestBuilder
 from src.core.config.app_config import AppConfig
+from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.backend_service_interface import IBackendService
 
@@ -68,39 +69,43 @@ def client(app: FastAPI) -> TestClient:
 
 def create_tool_call_response(
     tool_name: str, arguments: dict[str, Any]
-) -> dict[str, Any]:
+) -> ResponseEnvelope:
     """Helper function to create a tool call response."""
-    return {
-        "id": "chatcmpl-mock",
-        "object": "chat.completion",
-        "created": 1677858242,
-        "model": "gpt-4",
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": "call_mock_id",
-                            "type": "function",
-                            "function": {
-                                "name": tool_name,
-                                "arguments": json.dumps(arguments),
-                            },
-                        }
-                    ],
-                },
-                "finish_reason": "tool_calls",
-            }
-        ],
-        "usage": {
-            "prompt_tokens": 10,
-            "completion_tokens": 10,
-            "total_tokens": 20,
+    return ResponseEnvelope(
+        content={
+            "id": "chatcmpl-mock",
+            "object": "chat.completion",
+            "created": 1677858242,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_mock_id",
+                                "type": "function",
+                                "function": {
+                                    "name": tool_name,
+                                    "arguments": json.dumps(arguments),
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 10,
+                "total_tokens": 20,
+            },
         },
-    }
+        status_code=200,
+        headers={"content-type": "application/json"},
+    )
 
 
 @pytest.mark.asyncio
@@ -189,25 +194,33 @@ async def test_xml_from_backend_is_converted_to_tool_calls_for_cline(
     assert args["result"] == "some content"
 
 
-def create_regular_response() -> dict[str, Any]:
+def create_regular_response() -> ResponseEnvelope:
     """Helper function to create a regular response."""
-    return {
-        "id": "chatcmpl-regular",
-        "object": "chat.completion",
-        "created": 1677858242,
-        "model": "gpt-4",
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": "Regular content from test backend.",
-                },
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-    }
+    return ResponseEnvelope(
+        content={
+            "id": "chatcmpl-regular",
+            "object": "chat.completion",
+            "created": 1677858242,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Regular content from test backend.",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 10,
+                "total_tokens": 20,
+            },
+        },
+        status_code=200,
+        headers={"content-type": "application/json"},
+    )
 
 
 @pytest.mark.asyncio

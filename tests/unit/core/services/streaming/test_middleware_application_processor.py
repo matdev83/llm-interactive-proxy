@@ -22,7 +22,11 @@ class MockMiddleware(IResponseMiddleware):
         is_streaming: bool = False,
         stop_event=None,
     ) -> ProcessedResponse:
-        response.content = f"{response.content}[{self.name}]"
+        if isinstance(response.content, bytes):
+            content_text = response.content.decode("utf-8", errors="ignore")
+        else:
+            content_text = str(response.content)
+        response.content = f"{content_text}[{self.name}]"
         response.metadata[self.name] = True
         return response
 
@@ -199,7 +203,7 @@ async def test_middleware_application_processor_metadata_and_usage_pass_through(
 
 
 @pytest.mark.asyncio
-async def test_middleware_application_processor_exposes_legacy_stream_terminal_flags():
+async def test_middleware_application_processor_attaches_lifecycle_context():
     capture_mw = ContextCaptureMiddleware()
     processor = MiddlewareApplicationProcessor([capture_mw])
     initial_content = StreamingContent(
@@ -216,6 +220,7 @@ async def test_middleware_application_processor_exposes_legacy_stream_terminal_f
     await processor.process(initial_content)
 
     assert capture_mw.captured_context is not None
-    assert capture_mw.captured_context.get("is_final_chunk") is True
-    assert capture_mw.captured_context.get("done") is True
-    assert capture_mw.captured_context.get("finish_reason") == "stop"
+    lifecycle = capture_mw.captured_context.get("feature_lifecycle")
+    assert lifecycle is not None
+    assert lifecycle.is_terminal_chunk is True
+    assert lifecycle.finish_reason == "stop"

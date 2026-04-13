@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from src.core.domain.chat import ChatResponse
+from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.services.response_processor_service import ResponseProcessor
 from src.loop_detection.hybrid_detector import HybridLoopDetector
@@ -85,7 +86,11 @@ async def test_loop_detection_with_mocked_backend():
     with patch.object(
         backend_service, "call_completion", new_callable=AsyncMock
     ) as mock_call:
-        mock_call.return_value = repeating_response
+        mock_call.return_value = ResponseEnvelope(
+            content=repeating_response.model_dump(),
+            status_code=200,
+            headers={"content-type": "application/json"},
+        )
 
         # Create a test client
         with TestClient(

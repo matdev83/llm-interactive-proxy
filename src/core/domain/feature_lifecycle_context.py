@@ -216,15 +216,7 @@ def feature_lifecycle_context_from_dict(
     is_streaming: bool | None = None,
     session_id_fallback: str = "",
 ) -> FeatureLifecycleContext:
-    """Compatibility bridge: typed view from a legacy context dict.
-
-    If ``FEATURE_LIFECYCLE_CONTEXT_KEY`` is present and is a
-    ``FeatureLifecycleContext``, it is returned (caller should still pass a
-    fully-populated dict from producers).
-
-    Otherwise a best-effort snapshot is synthesized from known keys so older
-    callers remain supported.
-    """
+    """Build a typed lifecycle snapshot from middleware context data."""
     ctx = dict(context or {})
     embedded = ctx.get(FEATURE_LIFECYCLE_CONTEXT_KEY)
     if isinstance(embedded, FeatureLifecycleContext):

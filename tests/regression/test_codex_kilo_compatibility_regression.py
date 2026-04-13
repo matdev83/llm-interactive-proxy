@@ -17,6 +17,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
@@ -82,13 +83,14 @@ class TestCanonicalInstructionProtection:
         instructions must be preserved byte-for-byte. Any modification causes Codex
         to reject the request with HTTP 400.
         """
-        from src.core.domain.chat import ChatMessage, ChatRequest
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 
         request = ChatRequest(
             model="gpt-5-codex",
             messages=[ChatMessage(role="user", content="Hello")],
             max_tokens=50,
         )
+        canonical = CanonicalChatRequest.model_validate(request.model_dump())
 
         # Mock _call_codex_responses_api to simulate Codex rejection
         with patch.object(
@@ -109,9 +111,16 @@ class TestCanonicalInstructionProtection:
             # This test verifies that 400 errors from Codex are properly handled
             with pytest.raises(HTTPException) as exc_info:
                 await codex_connector.chat_completions(
-                    request_data=request,
-                    processed_messages=[ChatMessage(role="user", content="Hello")],
-                    effective_model="gpt-5-codex",
+                    ConnectorChatCompletionsRequest(
+                        request=canonical,
+                        processed_messages=[ChatMessage(role="user", content="Hello")],
+                        effective_model="gpt-5-codex",
+                        identity=None,
+                        cancellation_token=None,
+                        cancellation_coordinator=None,
+                        context=None,
+                        options={},
+                    )
                 )
 
             # Verify it's a 400-level error

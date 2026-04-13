@@ -79,7 +79,7 @@ async def test_streaming_with_fake_clock_deterministic_timing() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.016)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.003)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -157,7 +157,7 @@ async def test_streaming_chunk_sequence_deterministic() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=8),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.016)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.003)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -173,8 +173,8 @@ async def test_streaming_chunk_sequence_deterministic() -> None:
         headers = {"x-goog-api-key": "test-key"}
 
         # Run the test twice to verify determinism
-        results_run1 = []
-        results_run2 = []
+        results_run1: list[tuple[str, float]] = []
+        results_run2: list[tuple[str, float]] = []
 
         for run_results in [results_run1, results_run2]:
             fake_clock.reset()  # Reset clock for each run
@@ -226,7 +226,7 @@ async def test_streaming_contract_validation_deterministic() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.016)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.003)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, cast
 
 from pydantic import ConfigDict, Field, field_validator, model_serializer
@@ -339,7 +338,3 @@ class BackendSettings(DomainModel):
 
         backend_name, _ = model_id.split(":", 1)
         return backend_name in self.functional_backends
-
-
-def normalize_credentials_path(path: str) -> str:
-    return str(Path(path).resolve())

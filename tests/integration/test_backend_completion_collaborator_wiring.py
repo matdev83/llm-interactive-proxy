@@ -20,13 +20,13 @@ from src.core.interfaces.domain_entities_interface import ISession
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_session_resolver_returns_typed_session(
-    app_config_legacy_log_disabled,
+    app_config_integration_default,
 ):
     """Test that ICompletionSessionResolver returns ISession | None."""
     from src.core.app.application_builder import ApplicationBuilder
 
     builder = ApplicationBuilder().add_default_stages()
-    app = await builder.build(app_config_legacy_log_disabled)
+    app = await builder.build(app_config_integration_default)
     service_provider = app.state.service_provider
 
     session_resolver = service_provider.get_required_service(ICompletionSessionResolver)
@@ -99,13 +99,13 @@ async def test_backend_request_preparer_accepts_typed_session(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_wire_capture_orchestrator_accepts_typed_session(
-    app_config_legacy_log_disabled,
+    app_config_integration_default,
 ):
     """Test that IWireCaptureOrchestrator accepts ISession | None."""
     from src.core.app.application_builder import ApplicationBuilder
 
     builder = ApplicationBuilder().add_default_stages()
-    app = await builder.build(app_config_legacy_log_disabled)
+    app = await builder.build(app_config_integration_default)
     service_provider = app.state.service_provider
 
     wire_capture_orchestrator = service_provider.get_required_service(
@@ -123,14 +123,14 @@ async def test_wire_capture_orchestrator_accepts_typed_session(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_usage_accounting_orchestrator_accepts_typed_session(
-    app_config_legacy_log_disabled,
+    app_config_integration_default,
 ):
     """Test that IUsageAccountingOrchestrator accepts ISession | None."""
     from src.core.app.application_builder import ApplicationBuilder
     from src.core.domain.chat import ChatRequest
 
     builder = ApplicationBuilder().add_default_stages()
-    app = await builder.build(app_config_legacy_log_disabled)
+    app = await builder.build(app_config_integration_default)
     service_provider = app.state.service_provider
 
     usage_accounting = service_provider.get_required_service(
@@ -234,7 +234,7 @@ async def test_backend_work_guard_wiring_resolves_key_services(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_response_envelope_metadata_json_serializable(
-    app_config_legacy_log_disabled,
+    app_config_integration_default,
 ):
     """Test that ResponseEnvelope metadata is JSON-serializable."""
     import json
@@ -268,7 +268,7 @@ async def test_response_envelope_metadata_json_serializable(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_streaming_response_envelope_metadata_json_serializable(
-    app_config_legacy_log_disabled,
+    app_config_integration_default,
 ):
     """Test that StreamingResponseEnvelope metadata is JSON-serializable."""
     import json

@@ -25,7 +25,7 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -62,10 +62,6 @@ from src.connectors.openai_codex.credentials import (
     OpenAICredentialsFileHandler,
 )
 from src.connectors.openai_codex.executor import ResponseExecutor
-from src.connectors.openai_codex.interfaces import (
-    IKiloToolTranslator,
-    ISessionDetector,
-)
 from src.connectors.openai_codex.managed_oauth_constants import DEFAULT_STORAGE_PATH
 from src.connectors.openai_codex.managed_oauth_models import ManagedOAuthConfig
 from src.connectors.openai_codex.payload import PayloadBuilder
@@ -79,6 +75,7 @@ from src.connectors.openai_codex.utils import build_codex_user_agent, message_to
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
+    InvalidRequestError,
     ServiceResolutionError,
 )
 from src.core.config.app_config import AppConfig
@@ -274,12 +271,8 @@ class OpenAICodexConnector(OpenAIConnector):
             self._dependencies.compatibility_layer
             if self._dependencies and self._dependencies.compatibility_layer is not None
             else CompatibilityLayer(
-                session_detector=cast(
-                    "ISessionDetector | None", self._session_detector
-                ),
-                kilo_translator=cast(
-                    "IKiloToolTranslator | None", self._kilo_tool_translator
-                ),
+                session_detector=cast(Any, self._session_detector),
+                kilo_translator=cast(Any, self._kilo_tool_translator),
                 tool_execution_service=self._tool_execution_service,
             )
         )
@@ -950,8 +943,6 @@ class OpenAICodexConnector(OpenAIConnector):
             for tool in tools
         ]
 
-        return []
-
     def _resolve_capabilities(
         self, request_data: Any, metadata: dict[str, Any] | None = None
     ) -> CodexClientCapabilities:
@@ -1338,6 +1329,8 @@ class OpenAICodexConnector(OpenAIConnector):
         processed_messages: list[Any],
         effective_model: str,
         domain_request: Any,
+        *,
+        options_metadata: Mapping[str, Any] | None = None,
     ) -> Any:
         """Call the Codex-specific Responses API endpoint."""
         capabilities = self._resolve_capabilities(request_data)
@@ -1357,6 +1350,14 @@ class OpenAICodexConnector(OpenAIConnector):
             metadata = domain_request.metadata
         elif hasattr(request_data, "metadata"):
             metadata = request_data.metadata
+
+        if isinstance(options_metadata, Mapping) and options_metadata:
+            merged: dict[str, Any] = (
+                dict(metadata) if isinstance(metadata, dict) else {}
+            )
+            for k, v in options_metadata.items():
+                merged[k] = v
+            metadata = merged or None
 
         is_kilocode = False
         tool_results: list[Any] = []
@@ -2002,16 +2003,20 @@ class OpenAICodexConnector(OpenAIConnector):
                         processed_messages=processed_messages,
                         effective_model=effective_model,
                         domain_request=request_data,
+                        options_metadata=(
+                            cast(Mapping[str, Any], md_raw)
+                            if isinstance((md_raw := kwargs.get("metadata")), Mapping)
+                            else None
+                        ),
                     ),
                 )
                 if not self.is_functional:
                     self._recover()
                 return result
             except Exception as exc:
-                if (
-                    isinstance(exc, AuthenticationError | HTTPException)
-                    and hasattr(exc, "status_code")
-                    and exc.status_code in (401, 403)
+                status = getattr(exc, "status_code", None)
+                if status in (401, 403) and isinstance(
+                    exc, AuthenticationError | HTTPException | InvalidRequestError
                 ):
                     self._degrade([f"Authentication failed: {exc!s}"])
                 raise

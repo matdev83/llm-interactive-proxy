@@ -7,8 +7,6 @@ properties:
     type: boolean
   unified_steering_enabled:
     type: boolean
-  emit_legacy_steering_log:
-    type: boolean
   steering_policy_priorities:
     type: ["object", "null"]
   steering_session_ttl_seconds:

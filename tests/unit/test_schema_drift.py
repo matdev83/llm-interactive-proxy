@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 import yaml
+from src.core.common.exceptions import ConfigurationError
 from src.core.config.models.logging import LogLevel
 from src.core.config.models.misc import UsageTrackingConfig
 from src.core.config.models.session import ToolCallReactorConfig
@@ -153,7 +154,6 @@ logging:
         test_config = """
 enabled: true
 unified_steering_enabled: true
-emit_legacy_steering_log: true
 steering_policy_priorities:
   default: 100
 steering_session_ttl_seconds: 1800
@@ -238,6 +238,31 @@ identity:
             raise AssertionError(
                 f"Identity config with override mode failed validation: {e}"
             )
+        finally:
+            test_file.unlink()
+
+    def test_dynamic_compression_methods_reject_non_boolean_in_schema(self):
+        """YAML must not advertise string method toggles the Python model cannot load."""
+        import tempfile
+
+        schema_path = Path("config/schemas/app_config.schema.yaml")
+        test_config = """
+dynamic_compression:
+  methods:
+    pytest_failure_focus: inherit_legacy
+"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(test_config)
+            test_file = Path(f.name)
+
+        try:
+            with pytest.raises(ConfigurationError) as exc_info:
+                validate_yaml_against_schema(test_file, schema_path)
+            details = exc_info.value.details or {}
+            errors = details.get("errors") or []
+            joined = " ".join(str(e) for e in errors)
+            assert "boolean" in joined.lower()
         finally:
             test_file.unlink()
 

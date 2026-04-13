@@ -31,9 +31,6 @@ class ToolCallReactorConfig(DomainModel):
     Legacy steering handlers have been removed.
     """
 
-    emit_legacy_steering_log: bool = True
-    """Whether to emit a legacy-formatted steering log for compatibility."""
-
     steering_policy_priorities: dict[str, int] | None = None
     """Overrides for steering policy priorities. Map of policy name to priority integer."""
 

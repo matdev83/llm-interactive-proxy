@@ -108,8 +108,11 @@ class ICanonicalChatCompletionsBackend(Protocol):
             StreamingResponseEnvelope for streaming requests.
 
         Raises:
-            Backend-specific exceptions that will be mapped to LLMProxyError
-            by core orchestration.
+            :class:`LLMProxyError` subclasses only (for example :class:`BackendError`,
+            :class:`InvalidRequestError`, :class:`RateLimitExceededError`,
+            :class:`AuthenticationError`). Implementations must not raise framework
+            HTTP types (for example Starlette/FastAPI ``HTTPException``); transport
+            adapters map domain errors to HTTP responses.
         """
         ...
 

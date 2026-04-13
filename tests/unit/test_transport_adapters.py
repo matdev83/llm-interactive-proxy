@@ -5,6 +5,7 @@ Tests for the transport adapters.
 import asyncio
 import contextlib
 import json
+from collections.abc import AsyncIterator
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -244,6 +245,28 @@ class TestResponseAdapters:
             assert chunk.startswith(
                 b"data: "
             ), f"Chunk should be SSE formatted: {chunk}"
+
+    @pytest.mark.asyncio
+    async def test_to_fastapi_streaming_response_null_content_emits_no_bytes(self):
+        """When envelope content is None, the raw byte stream must be empty."""
+
+        domain_response = StreamingResponseEnvelope(
+            content=None,
+            headers={},
+            media_type="text/event-stream",
+        )
+        fastapi_response = to_fastapi_streaming_response(domain_response)
+        assert isinstance(fastapi_response, StreamingResponse)
+
+        chunks: list[bytes] = []
+        async for chunk in fastapi_response.body_iterator:
+            chunks.append(chunk)
+        assert chunks == []
+
+        fastapi_fresh = to_fastapi_streaming_response(domain_response)
+        body_it = cast(AsyncIterator[bytes], fastapi_fresh.body_iterator)
+        with pytest.raises(StopAsyncIteration):
+            await body_it.__anext__()
 
     def test_domain_response_to_fastapi(self):
         """Test the generic converter function."""

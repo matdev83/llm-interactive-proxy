@@ -23,24 +23,11 @@ def _configure_logging_for_tests() -> Generator[None, None, None]:
 
 
 @pytest.fixture
-def app_config_legacy_log_disabled():
-    """
-    Provides an AppConfig instance with emit_legacy_steering_log set to False.
-
-    Note: Legacy steering handlers have been removed. Unified steering is now
-    the only implementation, so no need to explicitly configure handler toggles.
-    """
+def app_config_integration_default():
+    """Minimal AppConfig for integration tests that need default session/backends."""
     from src.core.config.app_config import AppConfig
 
-    return AppConfig.model_validate(
-        {
-            "session": {
-                "tool_call_reactor": {
-                    "emit_legacy_steering_log": False,
-                },
-            }
-        }
-    )
+    return AppConfig.model_validate({})
 
 
 @pytest.fixture
@@ -55,35 +42,9 @@ def app_config_with_openai_backend():
 
     return AppConfig.model_validate(
         {
-            "session": {
-                "tool_call_reactor": {
-                    "emit_legacy_steering_log": False,
-                },
-            },
             "backends": {
                 "default_backend": "openai",
                 "openai": {"api_key": "test-key-for-routing"},
             },
-        }
-    )
-
-
-@pytest.fixture
-def app_config_legacy_log_enabled():
-    """
-    Provides an AppConfig instance with emit_legacy_steering_log set to True.
-
-    This enables both the structured log and the legacy-formatted log for
-    backward compatibility with existing monitoring dashboards.
-    """
-    from src.core.config.app_config import AppConfig
-
-    return AppConfig.model_validate(
-        {
-            "session": {
-                "tool_call_reactor": {
-                    "emit_legacy_steering_log": True,
-                },
-            }
         }
     )

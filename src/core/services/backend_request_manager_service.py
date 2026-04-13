@@ -64,7 +64,6 @@ class BackendRequestManager(IBackendRequestManager):
         quality_verifier_service_factory: IQualityVerifierServiceFactory | None,
         request_preparation: IBackendRequestPreparation,
         post_backend_response_coordinator: PostBackendResponseCoordinator,
-        wire_capture: Any | None = None,
         history_compaction_service: HistoryCompactionService | None = None,
         config: IConfig | None = None,
         dedup_service: IRequestDeduplicationService | None = None,
@@ -78,7 +77,6 @@ class BackendRequestManager(IBackendRequestManager):
             quality_verifier_service_factory: Factory for modifying schemas
             request_preparation: Service for preparing backend requests
             post_backend_response_coordinator: Canonical post-backend pipeline
-            wire_capture: Optional wire capture service
             history_compaction_service: Optional service for compacting history (kept for backward compatibility)
             config: Optional application configuration (kept for backward compatibility)
             dedup_service: Optional request deduplication service
@@ -97,8 +95,6 @@ class BackendRequestManager(IBackendRequestManager):
         self._envelope_compatibility_adapter = (
             envelope_compatibility_adapter or EnvelopeCompatibilityAdapter()
         )
-        # wire_capture is currently applied at BackendService level to avoid
-        # duplicating backend resolution logic; accepted here for future use.
 
     def _preflight_tool_call_retry_limit(
         self, request: ChatRequest, session_id: str
@@ -126,13 +122,13 @@ class BackendRequestManager(IBackendRequestManager):
             if not isinstance(dangerous_retry_key, str):
                 dangerous_retry_key = "dangerous_retry_count"
             if not isinstance(legacy_retry_key, str):
-                legacy_retry_key = "dangerous_retry_count_legacy"
+                legacy_retry_key = "_dangerous_command_retry_count"
             retry_count = extra_body.get(dangerous_retry_key, 0)
-            legacy = extra_body.get(legacy_retry_key, 0)
-            if isinstance(legacy, int) and legacy > retry_count:
-                retry_count = legacy
             if not isinstance(retry_count, int):
                 retry_count = 0
+            legacy_retry_count = extra_body.get(legacy_retry_key, 0)
+            if isinstance(legacy_retry_count, int) and legacy_retry_count > retry_count:
+                retry_count = legacy_retry_count
 
             # If already at max, terminate immediately (no backend call)
             max_retries = getattr(
@@ -170,7 +166,7 @@ class BackendRequestManager(IBackendRequestManager):
         self,
         request: ChatRequest,
         session_id: str,
-        context: RequestContext,
+        context: RequestContext | dict[str, Any],
     ) -> ResponseProcessingContext:
         """Build ResponseProcessingContext from request and context.
 
@@ -184,29 +180,27 @@ class BackendRequestManager(IBackendRequestManager):
         """
         # Extract backend_name.
         # Prefer the routed backend from RequestContext (set by routing/registry).
-        backend_name: str | None = (
-            context.backend
-            if isinstance(context.backend, str) and context.backend
-            else None
-        )
+        backend_name: str | None = None
+        if isinstance(context, dict):
+            b_raw = context.get("backend")
+            if isinstance(b_raw, str) and b_raw:
+                backend_name = b_raw
+        elif isinstance(context.backend, str) and context.backend:
+            backend_name = context.backend
         extra_body = getattr(request, "extra_body", None)
         if backend_name is None and isinstance(extra_body, dict):
             raw_backend_type = extra_body.get("backend_type")
             if isinstance(raw_backend_type, str):
                 backend_name = raw_backend_type
 
-        # Last-resort fallback for legacy flows that smuggle backend into model.
-        if backend_name is None:
-            raw_model = getattr(request, "model", None)
-            if isinstance(raw_model, str) and raw_model:
-                backend_name = raw_model
-
         # Extract model_name.
-        model_name: str | None = (
-            context.effective_model
-            if isinstance(context.effective_model, str) and context.effective_model
-            else None
-        )
+        model_name: str | None = None
+        if isinstance(context, dict):
+            m_raw = context.get("effective_model")
+            if isinstance(m_raw, str) and m_raw:
+                model_name = m_raw
+        elif isinstance(context.effective_model, str) and context.effective_model:
+            model_name = context.effective_model
         if model_name is None:
             raw_model = getattr(request, "model", None)
             if isinstance(raw_model, str):
@@ -214,16 +208,21 @@ class BackendRequestManager(IBackendRequestManager):
 
         # Extract client_os from processing_context if available
         client_os: str | None = None
-        if context.processing_context is not None:
-            processing_values = context.processing_context.values
+        proc_ctx = (
+            None
+            if isinstance(context, dict)
+            else getattr(context, "processing_context", None)
+        )
+        if proc_ctx is not None:
+            processing_values = proc_ctx.values
             raw_client_os = processing_values.get("client_os")
             if isinstance(raw_client_os, str):
                 client_os = raw_client_os
 
         # Build structured output context if schema is present
         structured_output: StructuredOutputContext | None = None
-        if context.processing_context is not None:
-            processing_values = context.processing_context.values
+        if proc_ctx is not None:
+            processing_values = proc_ctx.values
             response_schema = processing_values.get("response_schema")
             if response_schema is not None:
                 schema_name = processing_values.get("schema_name", "unnamed")
@@ -251,8 +250,7 @@ class BackendRequestManager(IBackendRequestManager):
         Deduplication is now enabled for both streaming and non-streaming requests
         with status-aware tracking that allows legitimate retries after 429/503 errors.
 
-        Bypass is only allowed via explicit header for compatibility with legacy
-        clients that implement their own deduplication.
+        Bypass is only allowed via explicit header.
         """
         # InternLM and Kimi streaming are handled by connectors where clients may replay
         # identical requests (e.g. reconnects or immediate retry after upstream validation
@@ -293,11 +291,9 @@ class BackendRequestManager(IBackendRequestManager):
         context: RequestContext | dict[str, Any] | None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process backend request with retry handling."""
-        # Backward-compat: some call sites/tests still pass a plain dict.
         if context is None:
             context = RequestContext(headers={}, cookies={}, state=None, app_state=None)
         elif isinstance(context, dict):
-            # Fail-open coercion: best-effort mapping for legacy callers
             context = RequestContext(
                 headers=context.get("headers", {}),
                 cookies=context.get("cookies", {}),
@@ -402,12 +398,10 @@ class BackendRequestManager(IBackendRequestManager):
             backend_request, session_id, context
         )
 
-        effective_backend_request = backend_request.model_copy(update={"stream": True})
-
         try:
             # Execute backend request
             backend_response = await self._backend_processor.process_backend_request(
-                request=effective_backend_request,
+                request=backend_request,
                 session_id=session_id,
                 context=context,
             )

@@ -5,7 +5,13 @@ import pytest
 import pytest_asyncio
 from pytest_httpx import HTTPXMock
 from src.connectors.gemini import GeminiBackend
-from src.core.domain.chat import ChatMessage, ChatRequest, MessageContentPartText
+from src.core.domain.chat import (
+    ChatMessage,
+    ChatRequest,
+    ImageURL,
+    MessageContentPartImage,
+    MessageContentPartText,
+)
 
 from tests.unit.gemini_connector_tests.helpers import gemini_connector_request
 
@@ -22,6 +28,19 @@ async def gemini_backend_fixture():
         yield GeminiBackend(
             client=client, config=config, translation_service=TranslationService()
         )
+
+
+@pytest.mark.asyncio
+async def test_convert_part_data_url_returns_inline_data_only(
+    gemini_backend: GeminiBackend,
+) -> None:
+    """Data URL images must map to inlineData only (no fileData fallback)."""
+    part = MessageContentPartImage(
+        image_url=ImageURL(url="data:image/jpeg;base64,QUJD", detail=None)
+    )
+    result = gemini_backend._convert_part_for_gemini(part)
+    assert result == {"inlineData": {"mimeType": "image/jpeg", "data": "QUJD"}}
+    assert "fileData" not in result
 
 
 @pytest.mark.asyncio

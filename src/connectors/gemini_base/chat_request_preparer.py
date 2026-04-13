@@ -629,9 +629,6 @@ class ChatRequestPreparer:
             return f"{session_id}|{signature_namespace}"
         return session_id
 
-    def _has_tool_calls_missing_thought_signature(self, canonical_request: Any) -> bool:
-        return self._count_tool_calls_missing_thought_signature(canonical_request) > 0
-
     def _count_tool_calls(self, canonical_request: Any) -> int:
         messages = getattr(canonical_request, "messages", None)
         if not isinstance(messages, list) or not messages:

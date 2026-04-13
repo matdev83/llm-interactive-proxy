@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 import pytest_asyncio
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
@@ -345,9 +346,16 @@ async def test_compatibility_isolation_from_base_path(
 
     # Execute request
     result = await codex_connector.chat_completions(
-        request_data=request,
-        processed_messages=[],
-        effective_model="gpt-5.1-codex",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=[],
+            effective_model="gpt-5.1-codex",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
     )
 
     # Verify base path works correctly (compatibility shouldn't interfere)
@@ -410,9 +418,16 @@ async def test_streaming_chunk_translation_with_compatibility(
 
     # Execute request
     result = await codex_connector.chat_completions(
-        request_data=request,
-        processed_messages=[],
-        effective_model="gpt-5-codex",
+        ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=[],
+            effective_model="gpt-5-codex",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
     )
 
     assert isinstance(result, StreamingResponseEnvelope)

@@ -104,12 +104,6 @@ class MiddlewareApplicationProcessor(IStreamProcessor):
             stream_id=stream_id,
         )
         attach_feature_lifecycle_context(context, lifecycle)
-        # Backward-compatibility bridge: migrated features still consume legacy
-        # terminal keys from plain dict context.
-        context["is_final_chunk"] = lifecycle.is_terminal_chunk
-        context["done"] = lifecycle.is_terminal_chunk
-        if lifecycle.finish_reason is not None:
-            context["finish_reason"] = lifecycle.finish_reason
 
         for mw in self._middleware:
             result = await mw.process(

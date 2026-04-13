@@ -364,17 +364,14 @@ class HybridLoopDetector(ILoopDetector):
                 buffer_content=self.long_detector.content[-200:],  # Last 200 chars
                 timestamp=time.time(),
             )
-            self._loop_events.append(event)
-            self._truncate_event_history_if_needed()
-            return event
-
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Long pattern loop detected: %d repetitions of %d-char pattern",
                     repetitions,
                     pattern_length,
                 )
-
+            self._loop_events.append(event)
+            self._truncate_event_history_if_needed()
             return event
 
         return None

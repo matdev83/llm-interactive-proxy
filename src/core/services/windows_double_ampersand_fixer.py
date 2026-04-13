@@ -321,50 +321,6 @@ class WindowsDoubleAmpersandFixer:
         )
         return CommandFixResult(fixed_command=fixed_cmd_str, was_modified=False)
 
-        command_str, key_path = self._extract_command_string(tool_arguments)
-        if not command_str:
-            return tool_arguments, False
-
-        fixed_command, was_modified = self.fix_command_string(command_str)
-        if not was_modified:
-            return tool_arguments, False
-
-        if logger.isEnabledFor(logging.INFO):
-            orig_preview = (
-                command_str[:200] + "..." if len(command_str) > 200 else command_str
-            )
-            fixed_preview = (
-                fixed_command[:200] + "..."
-                if len(fixed_command) > 200
-                else fixed_command
-            )
-            logger.info(
-                "Fixed double-ampersand in command for Windows client: "
-                "tool=%s, original='%s', fixed='%s'",
-                tool_name,
-                orig_preview,
-                fixed_preview,
-            )
-
-        if key_path is None:
-            return fixed_command, True
-
-        if isinstance(tool_arguments, str):
-            try:
-                parsed = json.loads(tool_arguments)
-                if isinstance(parsed, dict):
-                    self._set_nested_value(parsed, key_path, fixed_command)
-                    return json.dumps(parsed), True
-            except json.JSONDecodeError:
-                return fixed_command, True
-
-        if isinstance(tool_arguments, dict):
-            result = dict(tool_arguments)
-            self._set_nested_value(result, key_path, fixed_command)
-            return result, True
-
-        return tool_arguments, False
-
     @staticmethod
     def _set_nested_value(d: dict[str, Any], key_path: str, value: Any) -> None:
         """Set a value in a nested dict using a dot-separated key path."""

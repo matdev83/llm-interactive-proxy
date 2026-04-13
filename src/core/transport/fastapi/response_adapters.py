@@ -44,6 +44,7 @@ from src.core.transport.fastapi.adapters.response.other_response_builder import 
 )
 from src.core.transport.fastapi.adapters.response.streaming_response_builder import (
     StreamingResponseBuilder,
+    _never_emit_stream_bytes,
 )
 from src.core.transport.fastapi.adapters.streaming.content_converter import (
     StreamingContentConverter,
@@ -885,11 +886,10 @@ def to_fastapi_streaming_response(
     if content_iter is None:
         # Create empty iterator if content is None
         async def _empty_streamer() -> AsyncIterator[bytes]:
-            # Empty async generator - the return statement with the iterator
-            # return type annotation makes this a valid async generator
-            return
-            # The yield is unreachable but required for type inference
-            yield b""  # pragma: no cover
+            # Async generator that emits no bytes; guarded yield keeps this a generator
+            # without a `return` + dead `yield` pattern (static analyzers, vulture).
+            if _never_emit_stream_bytes():
+                yield b""  # pragma: no cover
 
         # Inject canonical usage headers if available (Requirement 5.5)
         # Note: StreamingResponseEnvelope doesn't have a usage field, only canonical_usage

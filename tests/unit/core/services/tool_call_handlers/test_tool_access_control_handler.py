@@ -155,6 +155,47 @@ class TestToolAccessControlHandler:
         assert result.metadata["tool_name"] == "read_file"
 
     @pytest.mark.asyncio
+    async def test_handle_increments_telemetry_allowed_and_blocked(
+        self, policy_config_block_dangerous
+    ):
+        """Reactor telemetry hooks fire on allow vs block paths."""
+        policy_service = ToolAccessPolicyService(policy_config_block_dangerous)
+        reactor = Mock()
+        reactor.increment_tool_calls_allowed = Mock()
+        reactor.increment_tool_calls_blocked = Mock()
+        handler = ToolAccessControlHandler(
+            policy_service, priority=90, reactor_service=reactor
+        )
+
+        allowed_ctx = ToolCallContext(
+            session_id="telemetry_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="read_file",
+            tool_arguments={"path": "test.txt"},
+        )
+        allowed_result = await handler.handle(allowed_ctx)
+        assert allowed_result.should_swallow is False
+        reactor.increment_tool_calls_allowed.assert_called_once()
+        reactor.increment_tool_calls_blocked.assert_not_called()
+
+        reactor.reset_mock()
+
+        blocked_ctx = ToolCallContext(
+            session_id="telemetry_session",
+            backend_name="test_backend",
+            model_name="test_model",
+            full_response='{"content": "test"}',
+            tool_name="delete_file",
+            tool_arguments={"path": "test.txt"},
+        )
+        blocked_result = await handler.handle(blocked_ctx)
+        assert blocked_result.should_swallow is True
+        reactor.increment_tool_calls_blocked.assert_called_once()
+        reactor.increment_tool_calls_allowed.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_handle_blocks_dangerous_tool(self, policy_config_block_dangerous):
         """Test that handler blocks dangerous tools."""
         policy_service = ToolAccessPolicyService(policy_config_block_dangerous)

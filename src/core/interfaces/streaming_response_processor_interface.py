@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
-from typing import Any, Protocol, TypeAlias
+from typing import TypeAlias
 
 from src.core.domain.streaming_response_processor import (
     StreamingContent,
@@ -40,11 +40,3 @@ class IStreamNormalizer(ABC):
     @abstractmethod
     def reset(self) -> None:
         """Reset any processor state before handling a new stream."""
-
-
-class ILoopDetectionProcessor(Protocol):
-    async def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
-
-
-class IContentAccumulationProcessor(Protocol):
-    async def __call__(self, *args: Any, **kwargs: Any) -> Any: ...

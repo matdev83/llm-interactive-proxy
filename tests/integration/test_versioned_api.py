@@ -249,8 +249,14 @@ def test_versioned_endpoint_with_backend_service(
         # Mock the call_completion method
         original_call_completion = backend_service.call_completion
 
+        from src.core.domain.responses import ResponseEnvelope
+
         async def mock_call_completion(*args, **kwargs):
-            return mock_response
+            return ResponseEnvelope(
+                content=mock_response.model_dump(),
+                status_code=200,
+                headers={"content-type": "application/json"},
+            )
 
         # Apply the mock
         backend_service.call_completion = mock_call_completion

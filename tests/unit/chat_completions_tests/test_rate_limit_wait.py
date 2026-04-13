@@ -3,8 +3,9 @@ import time
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi.responses import StreamingResponse
 from src.core.domain.chat import ChatRequest
+from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
 def test_wait_for_rate_limited_backends(monkeypatch: Any, client: Any) -> None:
@@ -52,19 +53,22 @@ def test_wait_for_rate_limited_backends(monkeypatch: Any, client: Any) -> None:
         stream: bool = False,
         allow_failover: bool = True,
         context: Any = None,
-    ) -> StreamingResponse:
+    ) -> StreamingResponseEnvelope:
         # Simulate two backoffs that would normally be driven by 429 Retry-After headers
         await asyncio.sleep(0.1)
         await asyncio.sleep(0.3)
 
-        # Success path: return SSE-like text in a simple JSON envelope expected by compat layer
-        from fastapi.responses import StreamingResponse
+        async def gen() -> AsyncGenerator[ProcessedResponse, None]:
+            yield ProcessedResponse(
+                content=b'data: {"choices": [{"delta": {"content": "ok"}}]}\n\n'
+            )
+            yield ProcessedResponse(content=b"data: [DONE]\n\n")
 
-        async def gen() -> AsyncGenerator[bytes, None]:
-            yield b'data: {"choices": [{"delta": {"content": "ok"}}]\n\n'
-            yield b"data: [DONE]\n\n"
-
-        return StreamingResponse(gen(), media_type="text/plain")
+        return StreamingResponseEnvelope(
+            content=gen(),
+            media_type="text/event-stream",
+            headers={"content-type": "text/event-stream"},
+        )
 
     monkeypatch.setattr(backend_service, "call_completion", fake_call_completion)
 

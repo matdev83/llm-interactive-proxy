@@ -268,7 +268,7 @@ class ChatMessage(DomainModel):
 
     @staticmethod
     def _serialize_content(
-        content: str | Sequence[MessageContentPart] | None,
+        content: str | Sequence[MessageContentPart] | DomainModel | None,
     ) -> Any:
         """Normalize message content so downstream callers receive plain data structures."""
 
@@ -283,8 +283,6 @@ class ChatMessage(DomainModel):
 
         # content is Sequence[MessageContentPart]
         return [part.model_dump() for part in content]
-
-        return content
 
 
 class ChatRequest(ValueObject):

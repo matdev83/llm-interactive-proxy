@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
 from src.core.config.app_config import AppConfig
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 from src.core.domain.configuration.dynamic_compression_config import (
@@ -41,6 +43,14 @@ def _tool_output_context(
             },
         }
     )
+
+
+def test_dynamic_compression_methods_values_must_be_boolean() -> None:
+    """Per-method toggles are dict[str, bool]; string sentinels are rejected."""
+    with pytest.raises(ValidationError):
+        DynamicCompressionConfig.model_validate(
+            {"methods": {"pytest_failure_focus": "inherit_legacy"}}
+        )
 
 
 def test_dynamic_compression_defaults_are_safe() -> None:

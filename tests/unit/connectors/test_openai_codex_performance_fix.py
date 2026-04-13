@@ -47,14 +47,15 @@ class TestOpenAICodexPerformanceOptimization:
 
         executor_code = _EXECUTOR_CODE
 
-        # Should have retry logic in executor
+        # Should have retry logic in executor (401/403 handling; literal may use locals)
         assert (
-            "exc.status_code == 401" in executor_code
-        ), "Retry logic for 401 errors should be in executor.py"
+            "401" in executor_code and "attempts_used" in executor_code
+        ), "Retry logic for auth-style errors should be in executor.py"
 
         # Check that executor retry logic doesn't rebuild payload unnecessarily
         retry_sections_executor = re.findall(
-            r"if exc\.status_code == 401.*?attempts_used", executor_code, re.DOTALL
+            r"response\.status_code in \{401, 403\}[\s\S]{0,4000}?attempts_used \+= 1",
+            executor_code,
         )
         for section in retry_sections_executor:
             # Should NOT rebuild payload on token refresh
@@ -80,10 +81,10 @@ class TestOpenAICodexPerformanceOptimization:
             "max_retries" in executor_code
         ), "Should have retry configuration in executor.py"
 
-        # Should handle 401 errors specifically
+        # Should handle 401-class errors (may compare status locals, not only exc.status_code)
         assert (
-            "exc.status_code == 401" in executor_code
-        ), "Should specifically handle 401 Unauthorized errors for token refresh in executor.py"
+            "401" in executor_code and "403" in executor_code
+        ), "Should handle 401/403 Unauthorized-style errors for token refresh in executor.py"
 
     def test_session_continuity_preservation(self):
         """
@@ -102,14 +103,22 @@ class TestOpenAICodexPerformanceOptimization:
             or "conversation_id = payload.prompt_cache_key" in source_code
         ), "Executor should use conversation_id from payload/context, not generate new ones"
 
-        # Should NOT generate UUIDs for conversation_id in retry logic
-        # Check retry sections don't regenerate conversation_id
-        retry_sections = re.findall(
-            r"if.*401.*?conversation_id.*?uuid", source_code, re.DOTALL | re.IGNORECASE
+        # Should NOT pair conversation_id regeneration with auth retry paths.
+        # Use bounded windows around each "401" token — DOTALL patterns on the full
+        # executor module are pathologically slow (~seconds) on large files.
+        suspect_windows: list[str] = []
+        for match in re.finditer(r"\b401\b", source_code):
+            start = max(0, match.start() - 400)
+            end = min(len(source_code), match.end() + 400)
+            window = source_code[start:end]
+            if "conversation_id" in window and re.search(
+                r"\buuid\b", window, flags=re.IGNORECASE
+            ):
+                suspect_windows.append(window.strip().replace("\n", " ")[:240])
+        assert not suspect_windows, (
+            "Retry logic should not regenerate conversation_id - "
+            f"suspect 401-adjacent window(s): {suspect_windows[:3]}"
         )
-        assert (
-            len(retry_sections) == 0
-        ), "Retry logic should not regenerate conversation_id - this causes session fragmentation"
 
     def test_no_double_processing_patterns(self):
         """

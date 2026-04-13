@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry
@@ -77,13 +77,16 @@ class CaptureReplayEmulator(StreamingEmulatorBase):
 
     def _get_response_entries(self) -> list[CaptureEntry]:
         """Get response entries with data for timing."""
-        return [
-            entry
-            for entry in self._session.entries
-            if entry.direction == self._direction_filter
-            and entry.data
-            and not entry.metadata.is_stream_start
-        ]
+        return cast(
+            list[CaptureEntry],
+            [
+                entry
+                for entry in self._session.entries
+                if entry.direction == self._direction_filter
+                and entry.data
+                and not entry.metadata.is_stream_start
+            ],
+        )
 
     @classmethod
     def from_capture_file(
@@ -109,7 +112,7 @@ class CaptureReplayEmulator(StreamingEmulatorBase):
             config=config,
         )
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],

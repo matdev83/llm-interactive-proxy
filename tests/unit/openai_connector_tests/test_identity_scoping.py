@@ -182,16 +182,31 @@ async def test_responses_clears_identity_between_calls(
     )
 
     identity = DummyIdentity({"X-Test": "one"})
-    request_payload: dict[str, Any] = {
-        "model": "gpt-4",
-        "messages": [
-            {"role": "user", "content": "hello"},
-        ],
-        "stream": False,
-    }
-
-    await connector.responses(request_payload, [], "gpt-4", identity=identity)
-    await connector.responses(request_payload, [], "gpt-4", identity=None)
+    domain_req = _build_request()
+    await connector.responses(
+        ConnectorChatCompletionsRequest(
+            request=domain_req,
+            processed_messages=[],
+            effective_model="gpt-4",
+            identity=identity,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
+    )
+    await connector.responses(
+        ConnectorChatCompletionsRequest(
+            request=domain_req,
+            processed_messages=[],
+            effective_model="gpt-4",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
+    )
 
     assert observed_headers[0] is not None
     assert observed_headers[1] is not None

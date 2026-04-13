@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import httpx
 import pytest
+from pydantic.types import JsonValue
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_responses import OpenAIResponsesConnector
 from src.core.config.app_config import AppConfig
@@ -44,6 +45,32 @@ class TestOpenAIResponsesConnector:
         connector.api_base_url = "https://api.openai.com/v1"
         connector.disable_health_check()
         return connector
+
+    def _make_connector_request(
+        self,
+        connector: OpenAIResponsesConnector,
+        request_data: CanonicalChatRequest | dict[str, object],
+        *,
+        processed_messages: list[ChatMessage] | None = None,
+        effective_model: str = "gpt-4",
+        options: dict[str, JsonValue] | None = None,
+    ) -> ConnectorChatCompletionsRequest:
+        if isinstance(request_data, CanonicalChatRequest):
+            domain_request = request_data
+        else:
+            domain_request = connector.translation_service.to_domain_request(
+                request_data, "responses"
+            )
+        return ConnectorChatCompletionsRequest(
+            request=domain_request,
+            processed_messages=processed_messages or [],
+            effective_model=effective_model,
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options=options or {},
+        )
 
     @pytest.mark.asyncio
     async def test_responses_non_streaming(self, connector, mock_client):
@@ -92,7 +119,7 @@ class TestOpenAIResponsesConnector:
 
         # Call the responses method
         result = await connector.responses(
-            request_data=request_data, processed_messages=[], effective_model="gpt-4"
+            self._make_connector_request(connector, request_data)
         )
 
         # Verify the result
@@ -150,7 +177,7 @@ class TestOpenAIResponsesConnector:
 
         # Call the responses method
         result = await connector.responses(
-            request_data=request_data, processed_messages=[], effective_model="gpt-4"
+            self._make_connector_request(connector, request_data)
         )
 
         # Verify it returns a streaming response
@@ -209,9 +236,11 @@ class TestOpenAIResponsesConnector:
 
         # Call the responses method
         result = await connector.responses(
-            request_data=request_data,
-            processed_messages=processed_messages,
-            effective_model="gpt-4",
+            self._make_connector_request(
+                connector,
+                request_data,
+                processed_messages=processed_messages,
+            )
         )
 
         # Verify the result
@@ -270,10 +299,11 @@ class TestOpenAIResponsesConnector:
         headers_override = {"X-Test": "123"}
 
         result = await connector.responses(
-            request_data=request_data,
-            processed_messages=[],
-            effective_model="gpt-4",
-            headers_override=headers_override,
+            self._make_connector_request(
+                connector,
+                request_data,
+                options={"headers_override": headers_override},
+            )
         )
 
         assert isinstance(result, ResponseEnvelope)
@@ -324,9 +354,7 @@ class TestOpenAIResponsesConnector:
 
         with pytest.raises(BackendError) as exc_info:
             await connector.responses(
-                request_data=request_data,
-                processed_messages=[],
-                effective_model="gpt-4",
+                self._make_connector_request(connector, request_data)
             )
 
         assert exc_info.value.status_code == 400
@@ -356,12 +384,7 @@ class TestOpenAIResponsesConnector:
 
             await connector.chat_completions(connector_req)
 
-            mock_responses.assert_called_once_with(
-                connector_req.request,
-                list(connector_req.processed_messages),
-                connector_req.effective_model,
-                None,
-            )
+            mock_responses.assert_called_once_with(connector_req)
 
     def test_backend_type(self, connector):
         """Test that the backend type is correctly set."""

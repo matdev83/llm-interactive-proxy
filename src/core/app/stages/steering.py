@@ -268,15 +268,11 @@ class SteeringStage(InitializationStage):
             priority_overrides = getattr(
                 reactor_config, "steering_policy_priorities", None
             )
-            emit_legacy_log_enabled = getattr(
-                reactor_config, "emit_legacy_steering_log", False
-            )
 
             return UnifiedSteeringHandler(
                 policies=policies,
                 enabled=True,
                 priority_overrides=priority_overrides,
-                emit_legacy_log_enabled=emit_legacy_log_enabled,
             )
 
         services.add_singleton(

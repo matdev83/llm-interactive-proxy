@@ -17,6 +17,12 @@ from src.core.transport.fastapi.adapters.usage.header_injector import (
 )
 
 
+def _never_emit_stream_bytes() -> bool:
+    """Always false; keeps empty-stream generators vulture-clean vs `if False`."""
+
+    return False
+
+
 class StreamingResponseBuilder:
     """Build FastAPI StreamingResponse from StreamingResponseEnvelope.
 
@@ -52,11 +58,10 @@ class StreamingResponseBuilder:
         if envelope_content is None:
 
             async def empty_gen() -> AsyncIterator[bytes]:
-                # Empty async generator - the return statement with the iterator
-                # return type annotation makes this a valid async generator
-                return
-                # The yield is unreachable but required for type inference
-                yield b""  # pragma: no cover
+                # Async generator that emits no bytes; guarded yield keeps this a generator
+                # without a `return` + dead `yield` pattern (static analyzers, vulture).
+                if _never_emit_stream_bytes():
+                    yield b""  # pragma: no cover
 
             content: AsyncIterator[bytes] = empty_gen()
         else:

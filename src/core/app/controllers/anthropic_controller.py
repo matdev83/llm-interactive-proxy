@@ -122,6 +122,14 @@ class AnthropicController:
             response_dict = response_data
         response_bytes = json.dumps(response_dict).encode("utf-8")
 
+        # Drop upstream content-type (e.g. SSE from canonical coordinator) so the
+        # explicit JSON media_type below wins for non-streaming Anthropic payloads.
+        headers = {
+            k: v
+            for k, v in headers.items()
+            if str(k).lower() != "content-type"
+        }
+
         if self._wire_capture and self._wire_capture.enabled():
             session_id = ctx.session_id or ""
             await self._wire_capture.capture_outbound_response(

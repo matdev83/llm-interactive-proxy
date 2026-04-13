@@ -298,7 +298,6 @@ properties:
         properties:
           enabled: { type: boolean }
           unified_steering_enabled: { type: boolean }
-          emit_legacy_steering_log: { type: boolean }
           steering_policy_priorities: { type: ["object", "null"] }
           steering_session_ttl_seconds: { type: integer, minimum: 0 }
           steering_max_sessions: { type: integer, minimum: 1 }
@@ -646,13 +645,6 @@ properties:
         minimum: 0
         maximum: 5
         description: "Maximum number of empty stream retry attempts before failing"
-        properties:
-          require_characterization_tests: { type: boolean }
-          require_equivalence_tests: { type: boolean }
-          max_non_stream_p95_latency_delta_pct: { type: number, minimum: 0 }
-          max_stream_ttft_delta_pct: { type: number, minimum: 0 }
-          max_memory_delta_pct: { type: number, minimum: 0 }
-          require_cleanup_checks: { type: boolean }
   usage_tracking:
     type: object
     additionalProperties: false
@@ -798,10 +790,7 @@ properties:
         additionalProperties: { type: boolean }
       methods:
         type: object
-        additionalProperties:
-          anyOf:
-            - { type: boolean }
-            - { type: string, enum: [inherit_legacy] }
+        additionalProperties: { type: boolean }
       noise_directories:
         type: array
         items: { type: string }

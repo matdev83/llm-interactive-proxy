@@ -14,10 +14,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 import pytest_asyncio
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.connectors.openai_codex.interfaces import IResponseExecutor
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
 
 
@@ -67,7 +68,7 @@ async def test_executor_called_for_codex_model_requests(auth_dir: Path):
             # Create Codex model request
             request = CanonicalChatRequest(
                 model="openai-codex:gpt-5.1-codex",
-                messages=[{"role": "user", "content": "Hello"}],
+                messages=[ChatMessage(role="user", content="Hello")],
                 stream=False,
             )
 
@@ -80,9 +81,16 @@ async def test_executor_called_for_codex_model_requests(auth_dir: Path):
             )
 
             await connector.chat_completions(
-                request_data=request,
-                processed_messages=[],
-                effective_model="openai-codex:gpt-5.1-codex",
+                ConnectorChatCompletionsRequest(
+                    request=request,
+                    processed_messages=[],
+                    effective_model="openai-codex:gpt-5.1-codex",
+                    identity=None,
+                    cancellation_token=None,
+                    cancellation_coordinator=None,
+                    context=None,
+                    options={},
+                )
             )
 
             # Verify executor was called
@@ -137,7 +145,7 @@ async def test_executor_called_for_streaming_codex_requests(auth_dir: Path):
             # Create streaming Codex model request
             request = CanonicalChatRequest(
                 model="openai-codex:gpt-5.1-codex",
-                messages=[{"role": "user", "content": "Hello"}],
+                messages=[ChatMessage(role="user", content="Hello")],
                 stream=True,
             )
 
@@ -158,9 +166,16 @@ async def test_executor_called_for_streaming_codex_requests(auth_dir: Path):
             )
 
             await connector.chat_completions(
-                request_data=request,
-                processed_messages=[],
-                effective_model="openai-codex:gpt-5.1-codex",
+                ConnectorChatCompletionsRequest(
+                    request=request,
+                    processed_messages=[],
+                    effective_model="openai-codex:gpt-5.1-codex",
+                    identity=None,
+                    cancellation_token=None,
+                    cancellation_coordinator=None,
+                    context=None,
+                    options={},
+                )
             )
 
             # Verify executor was called
@@ -211,7 +226,7 @@ async def test_non_codex_models_bypass_executor(auth_dir: Path):
             # Create non-Codex model request
             request = CanonicalChatRequest(
                 model="gpt-4",
-                messages=[{"role": "user", "content": "Hello"}],
+                messages=[ChatMessage(role="user", content="Hello")],
                 stream=False,
             )
 
@@ -239,9 +254,16 @@ async def test_non_codex_models_bypass_executor(auth_dir: Path):
                 contextlib.suppress(Exception),
             ):  # May fail due to mocking, but we're just checking call paths
                 await connector.chat_completions(
-                    request_data=request,
-                    processed_messages=[],
-                    effective_model="gpt-4",
+                    ConnectorChatCompletionsRequest(
+                        request=request,
+                        processed_messages=[],
+                        effective_model="gpt-4",
+                        identity=None,
+                        cancellation_token=None,
+                        cancellation_coordinator=None,
+                        context=None,
+                        options={},
+                    )
                 )
 
             # Executor should NOT be called for non-Codex models

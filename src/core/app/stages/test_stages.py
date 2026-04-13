@@ -201,11 +201,16 @@ class MockBackendStage(BaseTestBackendStage):
             *args: Any, **kwargs: Any
         ) -> ResponseEnvelope | StreamingResponseEnvelope:
             """Mock chat completions that returns a standard response."""
-            request = (
+            from src.connectors.contracts import ConnectorChatCompletionsRequest
+
+            raw_request = (
                 kwargs.get("request")
                 or kwargs.get("request_data")
                 or (args[0] if args else None)
             )
+            request = raw_request
+            if isinstance(raw_request, ConnectorChatCompletionsRequest):
+                request = raw_request.request
 
             # Check if we should delegate to a real (but patched) backend
             try:
@@ -425,11 +430,15 @@ class MockBackendStage(BaseTestBackendStage):
                 },
             }
 
-            # Handle streaming requests
-            stream_value = getattr(request, "stream", False) if request else False
-            # Also check stream parameter directly from kwargs
-            if not stream_value and "stream" in kwargs:
-                stream_value = kwargs.get("stream", False)
+            # Handle streaming requests (ChatRequest.stream may be None; honor explicit
+            # ``stream`` kwarg from BackendProcessor.call_completion in that case).
+            req_stream = getattr(request, "stream", None) if request else None
+            if req_stream is not None:
+                stream_value = bool(req_stream)
+            elif "stream" in kwargs:
+                stream_value = bool(kwargs.get("stream", False))
+            else:
+                stream_value = False
             if stream_value:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
@@ -523,18 +532,33 @@ class MockBackendStage(BaseTestBackendStage):
                     # Manually translate messages, as this is normally done by RequestProcessorService.
                     # Use the injected translation service.
 
-                    processed_messages = []
-                    if request and hasattr(request, "messages") and request.messages:
-                        domain_request = translation_service.to_domain_request(
-                            request, backend_type
-                        )
-                        processed_messages = domain_request.messages
+                    from src.connectors.contracts import ConnectorChatCompletionsRequest
+                    from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 
-                    # Call the (potentially patched) chat_completions method
+                    domain_request = translation_service.to_domain_request(
+                        request, backend_type
+                    )
+                    processed_messages = list(domain_request.messages)
+                    if isinstance(request, ChatRequest):
+                        canonical_request = CanonicalChatRequest.model_validate(
+                            request.model_dump()
+                        )
+                    else:
+                        canonical_request = CanonicalChatRequest.model_validate(
+                            domain_request.model_dump()
+                        )
+
                     return await real_backend.chat_completions(
-                        request_data=request,
-                        processed_messages=processed_messages,
-                        effective_model=effective_model,
+                        ConnectorChatCompletionsRequest(
+                            request=canonical_request,
+                            processed_messages=processed_messages,
+                            effective_model=effective_model or "",
+                            identity=None,
+                            cancellation_token=None,
+                            cancellation_coordinator=None,
+                            context=None,
+                            options={},
+                        )
                     )
                 else:
                     # If backend type is not supported for delegation, fall back to mock

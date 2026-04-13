@@ -393,7 +393,6 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
         IQualityVerifierServiceFactory,
     )
     from src.core.interfaces.response_processor_interface import IResponseProcessor
-    from src.core.interfaces.wire_capture_interface import IWireCapture
     from src.core.services.backend_request_manager_service import BackendRequestManager
     from src.core.services.post_backend_response_coordinator import (
         PostBackendResponseCoordinator,
@@ -413,7 +412,7 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
             cast(type, IResponseProcessor)  # type: ignore[type-abstract]
         )
 
-        # IQualityVerifierServiceFactory and IWireCapture are optional - create mocks if not available
+        # IQualityVerifierServiceFactory is optional - create mocks if not available
         quality_verifier_service_factory = provider.get_service(cast(type, IQualityVerifierServiceFactory))  # type: ignore[type-abstract]
         if quality_verifier_service_factory is None:
             from unittest.mock import MagicMock
@@ -421,8 +420,6 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
             quality_verifier_service_factory = MagicMock(
                 spec=IQualityVerifierServiceFactory
             )
-
-        wire_capture = provider.get_service(cast(type, IWireCapture))  # type: ignore[type-abstract]
 
         # Resolve component dependencies
         request_preparation: IBackendRequestPreparation = provider.get_required_service(
@@ -447,7 +444,6 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
             quality_verifier_service_factory,
             request_preparation,
             post_backend_response_coordinator,
-            wire_capture,
             history_compaction_service=history_compaction_service,
             config=config,
             dedup_service=dedup_service,

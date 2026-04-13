@@ -61,6 +61,19 @@ from src.core.transport.session_key_resolver import (
 logger = logging.getLogger(__name__)
 
 
+def _never_emit_stream_chunks() -> bool:
+    """Always false; keeps empty-stream generators vulture-clean vs `if False`."""
+
+    return False
+
+
+async def _empty_responses_chunk_iterator() -> AsyncIterator[Any]:
+    """Upstream chunk stream that emits no items (typed empty async iterator)."""
+
+    if _never_emit_stream_chunks():
+        yield b""  # pragma: no cover
+
+
 class ResponsesController:
     """Controller for Responses API endpoints."""
 
@@ -1081,14 +1094,10 @@ class ResponsesController:
                         )
                     return False
 
-            async def _empty_chunk_iterator() -> AsyncIterator[Any]:
-                return
-                yield  # type: ignore[unreachable]
-
             chunk_iterator: AsyncIterator[Any] = (
                 response.content
                 if response.content is not None
-                else _empty_chunk_iterator()
+                else _empty_responses_chunk_iterator()
             )
 
             try:

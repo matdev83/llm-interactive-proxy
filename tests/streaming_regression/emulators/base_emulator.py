@@ -26,6 +26,9 @@ class StreamingEmulatorBase(LLMBackend):
     """
 
     backend_type: str = "emulator"
+    # When chunk_delay is 0, tests still need a small gap between yields so
+    # get_timing_stats() can distinguish incremental delivery from buffering.
+    _DEFAULT_INTER_CHUNK_SLEEP = 0.003
 
     def __init__(
         self,
@@ -50,7 +53,7 @@ class StreamingEmulatorBase(LLMBackend):
         self.chunk_timestamps: list[float] = []
         self.chunks_sent = 0
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],
@@ -76,7 +79,11 @@ class StreamingEmulatorBase(LLMBackend):
                 # Add delay before each chunk (except the first) to simulate realistic streaming
                 # This delay ensures chunks are produced incrementally, not all at once
                 if i > 0:
-                    delay = self.chunk_delay if self.chunk_delay > 0 else 0.02
+                    delay = (
+                        self.chunk_delay
+                        if self.chunk_delay > 0
+                        else self._DEFAULT_INTER_CHUNK_SLEEP
+                    )
                     await asyncio.sleep(delay)
 
                 # Record timestamp right before yielding to track when chunk is actually produced
@@ -136,12 +143,19 @@ class StreamingEmulatorBase(LLMBackend):
             for i in range(len(self.chunk_timestamps) - 1)
         ]
 
+        configured = (
+            self.chunk_delay
+            if self.chunk_delay > 0
+            else self._DEFAULT_INTER_CHUNK_SLEEP
+        )
+        # Buffered flushes arrive with near-zero gaps vs configured inter-chunk sleep.
+        buffering_threshold = max(configured * 0.3, 1e-6)
+
         return {
             "chunks_sent": self.chunks_sent,
             "timestamps": self.chunk_timestamps,
             "min_delay": min(delays),
             "max_delay": max(delays),
             "avg_delay": sum(delays) / len(delays),
-            "all_at_once": max(delays)
-            < 0.01,  # All within 10ms = buffered (accounts for asyncio.sleep(0) overhead)
+            "all_at_once": max(delays) < buffering_threshold,
         }

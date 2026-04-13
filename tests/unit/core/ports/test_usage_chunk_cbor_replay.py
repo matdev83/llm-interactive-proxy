@@ -62,6 +62,12 @@ def load_cbor_entries(capture_file: Path) -> list[dict[str, Any]]:
     return objects
 
 
+def _stop_chunks_for_capture_file(capture_file: Path) -> list[dict[str, Any]]:
+    """Decode one capture file and extract stop+usage chunks (worker for parallel I/O)."""
+
+    return extract_stop_chunks_with_usage(load_cbor_entries(capture_file))
+
+
 def extract_stop_chunks_with_usage(
     objects: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -207,26 +213,25 @@ class TestStopChunkWithUsageProtection:
         assert parsed["usage"]["prompt_tokens"] == 100
 
 
+@pytest.fixture(scope="session")
+def cbor_stop_chunks() -> list[dict[str, Any]]:
+    """Load stop chunks from available CBOR captures (once per pytest worker)."""
+    capture_files = get_cbor_capture_files()
+    if not capture_files:
+        pytest.skip("No CBOR capture files available for replay testing")
+
+    all_chunks: list[dict[str, Any]] = []
+    for capture_file in capture_files:
+        all_chunks.extend(_stop_chunks_for_capture_file(capture_file))
+
+    if not all_chunks:
+        pytest.skip("No stop chunks with usage found in captures")
+
+    return all_chunks
+
+
 class TestUsageChunkSerializationWithCBORData:
     """Regression tests using real captured CBOR data."""
-
-    @pytest.fixture(scope="class")
-    def cbor_stop_chunks(self) -> list[dict[str, Any]]:
-        """Load stop chunks from available CBOR captures."""
-        capture_files = get_cbor_capture_files()
-        if not capture_files:
-            pytest.skip("No CBOR capture files available for replay testing")
-
-        all_chunks: list[dict[str, Any]] = []
-        for capture_file in capture_files:
-            objects = load_cbor_entries(capture_file)
-            chunks = extract_stop_chunks_with_usage(objects)
-            all_chunks.extend(chunks)
-
-        if not all_chunks:
-            pytest.skip("No stop chunks with usage found in captures")
-
-        return all_chunks
 
     def test_stop_chunks_serialize_without_leak(
         self, cbor_stop_chunks: list[dict[str, Any]]

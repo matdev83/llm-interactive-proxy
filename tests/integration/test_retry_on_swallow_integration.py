@@ -197,8 +197,13 @@ async def test_retry_on_swallow_metadata_contract(
             response = await super().process_backend_request(
                 request, session_id, context
             )
-            if self._call_count == 1 and isinstance(response, ResponseEnvelope):
-                captured_metadata.update(response.metadata or {})
+            md = getattr(response, "metadata", None)
+            if (
+                self._call_count == 1
+                and isinstance(md, dict)
+                and md.get("tool_call_swallowed") is True
+            ):
+                captured_metadata.update(md)
             return response
 
     processor = MetadataCapturingProcessor(swallow_first=True)

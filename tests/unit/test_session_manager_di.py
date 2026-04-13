@@ -14,6 +14,11 @@ from src.core.interfaces.session_service_interface import ISessionService
 from tests.utils.test_di_utils import get_required_service_from_app
 
 
+@pytest.fixture(autouse=True)
+def _configure_logging_for_tests() -> None:
+    """Skip expensive logging init; this module only exercises session DI."""
+
+
 @pytest.fixture
 def app() -> FastAPI:
     """Create a minimal test app for testing."""

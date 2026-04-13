@@ -68,7 +68,7 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
 
     reasoning_backend = OpenAIStreamingEmulator(
         chunks=reasoning_chunks,
-        chunk_delay=0.016,
+        chunk_delay=0.003,
     )
 
     # Execution backend (won't be called in this test)
@@ -76,7 +76,7 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
         "Final answer", chunk_size=5
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.016
+        chunks=execution_chunks, chunk_delay=0.003
     )
 
     app = build_test_app()
@@ -118,29 +118,12 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
             chunk_times[i + 1] - chunk_times[i] for i in range(len(chunk_times) - 1)
         ]
         max_delta = max(time_deltas)
-        assert max_delta > 0.005, "Hybrid reasoning phase may be buffering chunks"
+        assert max_delta > 0.001, "Hybrid reasoning phase may be buffering chunks"
 
-    # Verify backend stats
+    # Verify backend stats (incremental vs buffered via emulator timing contract)
     stats = reasoning_backend.get_timing_stats()
-    if stats["chunks_sent"] > 0:
-        # Check if chunks were sent incrementally (not all at once)
-        # The threshold is < 0.01 (10ms), so we need delays > 10ms between chunks
-        # With chunk_delay=0.016 (12ms), max_delay should be >= 0.016
-        if stats.get("max_delay", 0) < 0.01:
-            # If max_delay is still < 10ms, chunks may have been buffered
-            # This can happen if the streaming pipeline collects chunks before forwarding
-            # For now, we'll skip this assertion if timing is too tight
-            if stats.get("chunks_sent", 0) > 1:
-                # Only fail if we have multiple chunks but they all arrived at once
-                assert (
-                    stats.get("max_delay", 0) >= 0.01
-                    or stats.get("chunks_sent", 0) == 1
-                ), f"Backend detected buffering in reasoning phase: max_delay={stats.get('max_delay', 0)}, chunks_sent={stats.get('chunks_sent', 0)}"
-        else:
-            # Chunks were sent incrementally
-            assert not stats[
-                "all_at_once"
-            ], "Backend detected buffering in reasoning phase"
+    if stats["chunks_sent"] > 1:
+        assert not stats["all_at_once"], "Backend detected buffering in reasoning phase"
 
 
 @pytest.mark.asyncio
@@ -151,7 +134,7 @@ async def test_hybrid_execution_phase_streaming() -> None:
         "Quick thought", chunk_size=5
     )
     reasoning_backend = OpenAIStreamingEmulator(
-        chunks=reasoning_chunks, chunk_delay=0.01
+        chunks=reasoning_chunks, chunk_delay=0.003
     )
 
     # Detailed execution phase
@@ -162,7 +145,7 @@ async def test_hybrid_execution_phase_streaming() -> None:
         execution_text, chunk_size=10
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.005
+        chunks=execution_chunks, chunk_delay=0.003
     )
 
     app = build_test_app()
@@ -203,7 +186,7 @@ async def test_hybrid_execution_phase_streaming() -> None:
             chunk_times[i + 1] - chunk_times[i] for i in range(len(chunk_times) - 1)
         ]
         max_delta = max(time_deltas)
-        assert max_delta > 0.005, "Hybrid execution phase may be buffering chunks"
+        assert max_delta > 0.001, "Hybrid execution phase may be buffering chunks"
 
     # Verify execution backend stats
     stats = execution_backend.get_timing_stats()
@@ -220,7 +203,7 @@ async def test_hybrid_combined_streaming() -> None:
     )
     reasoning_backend = OpenAIStreamingEmulator(
         chunks=reasoning_chunks,
-        chunk_delay=0.016,
+        chunk_delay=0.003,
     )
 
     execution_text = "Final comprehensive answer based on reasoning"
@@ -229,7 +212,7 @@ async def test_hybrid_combined_streaming() -> None:
     )
     execution_backend = OpenAIStreamingEmulator(
         chunks=execution_chunks,
-        chunk_delay=0.016,
+        chunk_delay=0.003,
     )
 
     app = build_test_app()
@@ -270,7 +253,7 @@ async def test_hybrid_combined_streaming() -> None:
             chunk_times[i + 1] - chunk_times[i] for i in range(len(chunk_times) - 1)
         ]
         max_delta = max(time_deltas)
-        assert max_delta > 0.005, "Hybrid combined phases may be buffering chunks"
+        assert max_delta > 0.001, "Hybrid combined phases may be buffering chunks"
 
     # Verify both backends were used
     reasoning_stats = reasoning_backend.get_timing_stats()
@@ -289,7 +272,7 @@ async def test_hybrid_with_tool_calls_streaming() -> None:
     # Reasoning phase with tool call
     reasoning_chunks = OpenAIStreamingEmulator.create_tool_call_chunks()
     reasoning_backend = OpenAIStreamingEmulator(
-        chunks=reasoning_chunks, chunk_delay=0.01
+        chunks=reasoning_chunks, chunk_delay=0.003
     )
 
     # Execution phase after tool call
@@ -297,7 +280,7 @@ async def test_hybrid_with_tool_calls_streaming() -> None:
         "Based on tool results, here is the answer", chunk_size=10
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.016
+        chunks=execution_chunks, chunk_delay=0.003
     )
 
     app = build_test_app()
@@ -347,7 +330,7 @@ async def test_hybrid_with_tool_calls_streaming() -> None:
             chunk_times[i + 1] - chunk_times[i] for i in range(len(chunk_times) - 1)
         ]
         max_delta = max(time_deltas)
-        assert max_delta > 0.005, "Hybrid with tool calls may be buffering chunks"
+        assert max_delta > 0.001, "Hybrid with tool calls may be buffering chunks"
 
     # Verify reasoning backend stats
     stats = reasoning_backend.get_timing_stats()

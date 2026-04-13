@@ -143,41 +143,17 @@ async def test_policy_error_handling(context, caplog):
 
 
 @pytest.mark.asyncio
-async def test_telemetry_with_legacy_log_emission(context, caplog):
-    """Test that both structured and legacy telemetry logs are emitted when enabled."""
+async def test_telemetry_structured_log_on_steering(context, caplog):
+    """Structured unified steering telemetry is logged on a steering outcome."""
     p1 = MockPolicy("match_policy", 50, trigger=True, result=SteeringResult("steered"))
 
-    handler = UnifiedSteeringHandler(policies=[p1], emit_legacy_log_enabled=True)
+    handler = UnifiedSteeringHandler(policies=[p1])
 
     with caplog.at_level(logging.INFO):
         await handler.handle(context)
 
-    # Assert structured log is present
     assert "Unified steering evaluation" in caplog.text
     assert "'matched_policy': 'match_policy'" in caplog.text
-
-    # Assert legacy log is present
-    assert (
-        "Steering via rule 'match_policy' for tool 'shell' in session test_session"
-        in caplog.text
-    )
-
-
-@pytest.mark.asyncio
-async def test_telemetry_without_legacy_log_emission(context, caplog):
-    """Test that only structured telemetry log is emitted when legacy is disabled."""
-    p1 = MockPolicy("match_policy", 50, trigger=True, result=SteeringResult("steered"))
-
-    handler = UnifiedSteeringHandler(policies=[p1], emit_legacy_log_enabled=False)
-
-    with caplog.at_level(logging.INFO):
-        await handler.handle(context)
-
-    # Assert structured log is present
-    assert "Unified steering evaluation" in caplog.text
-    assert "'matched_policy': 'match_policy'" in caplog.text
-
-    # Assert legacy log is NOT present
     assert (
         "Steering via rule 'match_policy' for tool 'shell' in session test_session"
         not in caplog.text

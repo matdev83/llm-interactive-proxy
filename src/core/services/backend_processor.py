@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, cast
 
 from src.core.common.exceptions import LLMProxyError
@@ -28,71 +27,13 @@ def _coerce_call_completion_to_envelope(
     *,
     stream_requested: bool,
 ) -> ResponseEnvelope | StreamingResponseEnvelope:
-    """Normalize legacy/raw backend payloads to domain envelopes before the manager.
+    """Validate backend service response shape.
 
-    ``IBackendService.call_completion`` is typed to return envelopes, but tests and
-    older shims may still return plain dicts, Pydantic chat payloads, or Starlette
-    ``StreamingResponse`` objects.
+    ``IBackendService.call_completion`` must return domain envelope objects.
     """
+    del stream_requested
     if isinstance(raw, ResponseEnvelope | StreamingResponseEnvelope):
         return raw
-
-    body_iterator = getattr(raw, "body_iterator", None)
-    if body_iterator is not None and stream_requested:
-        from src.core.interfaces.response_processor_interface import ProcessedResponse
-
-        async def _wrap_starlette_stream() -> AsyncIterator[ProcessedResponse]:
-            async for chunk in body_iterator:
-                if isinstance(chunk, bytes):
-                    yield ProcessedResponse(content=chunk)
-                elif isinstance(chunk, str):
-                    yield ProcessedResponse(content=chunk.encode("utf-8"))
-                else:
-                    yield ProcessedResponse(content=chunk)
-
-        media_type = getattr(raw, "media_type", None) or "text/event-stream"
-        status = getattr(raw, "status_code", None)
-        hdr_obj = getattr(raw, "headers", None)
-        headers: dict[str, str] | None
-        if hdr_obj is not None:
-            try:
-                headers = dict(hdr_obj)
-            except (TypeError, ValueError):
-                headers = None
-        else:
-            headers = None
-        return StreamingResponseEnvelope(
-            content=_wrap_starlette_stream(),
-            media_type=str(media_type),
-            headers=headers,
-            status_code=int(status) if isinstance(status, int) else 200,
-        )
-
-    if isinstance(raw, dict):
-        if stream_requested:
-            msg = (
-                "call_completion returned dict while streaming was requested; "
-                "expected StreamingResponseEnvelope or a Starlette-compatible "
-                "streaming response with body_iterator"
-            )
-            raise LLMProxyError(msg, status_code=500)
-        return ResponseEnvelope(content=raw)
-
-    model_dump = getattr(raw, "model_dump", None)
-    if callable(model_dump) and not isinstance(raw, type):
-        if stream_requested:
-            msg = (
-                "call_completion returned a Pydantic model while streaming was "
-                "requested; expected StreamingResponseEnvelope"
-            )
-            raise LLMProxyError(msg, status_code=500)
-        try:
-            dumped = raw.model_dump(mode="json")
-        except (TypeError, ValueError):
-            dumped = raw.model_dump()
-        if isinstance(dumped, dict):
-            return ResponseEnvelope(content=dumped)
-        return ResponseEnvelope(content={"data": dumped})
 
     msg = (
         "call_completion returned unsupported type "

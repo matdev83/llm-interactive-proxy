@@ -618,6 +618,45 @@ class TestToolCallRetryLimits:
         assert metadata.get("session_id") == "test-session"
 
     @pytest.mark.asyncio
+    async def test_legacy_retry_count_key_enforces_preflight_terminal_response(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_backend_processor: MockBackendProcessor,
+    ):
+        """Legacy retry counter key should still trigger preflight termination at limit."""
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="Run dangerous command")],
+            model="test-model",
+            stream=False,
+            extra_body={
+                "_tool_call_reactor_retry": True,
+                "_dangerous_command_retry_count": 3,  # At limit via legacy key
+            },
+        )
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            session_id="test-session",
+        )
+
+        response = await backend_request_manager.process_backend_request(
+            backend_request=request,
+            session_id="test-session",
+            context=context,
+        )
+
+        assert isinstance(response, ResponseEnvelope)
+        metadata = response.metadata or {}
+        assert metadata.get("dangerous_command_limit_exceeded") is True
+        assert metadata.get("session_terminated") is True
+        assert metadata.get("finish_reason") == "security_limit"
+        # Preflight terminal should bypass backend call entirely.
+        assert mock_backend_processor._call_count == 0
+
+    @pytest.mark.asyncio
     async def test_original_request_removed_from_non_streaming_metadata(
         self,
         backend_request_manager: BackendRequestManager,

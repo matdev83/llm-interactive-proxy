@@ -87,8 +87,8 @@ async def test_openai_streaming_incremental_delivery() -> None:
     )
 
     backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.016
-    )  # Reduced for faster test execution, still above threshold
+        chunks=chunks, chunk_delay=0.003
+    )  # Small delay: emulator stats use configured gap vs near-zero for buffering
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -163,7 +163,7 @@ async def test_anthropic_streaming_incremental_delivery() -> None:
 
     backend = AnthropicStreamingEmulator(
         chunks=chunks,
-        chunk_delay=0.016,
+        chunk_delay=0.003,
     )
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
@@ -224,7 +224,7 @@ async def test_gemini_streaming_incremental_delivery() -> None:
         GeminiStreamingEmulator.create_text_chunks(text, chunk_size=8),
     )
 
-    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.016)
+    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.003)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -281,7 +281,7 @@ async def test_openai_tool_call_streaming() -> None:
     """Test that tool calls stream correctly without buffering."""
     chunks = cast(list[str | bytes], OpenAIStreamingEmulator.create_tool_call_chunks())
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.016)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.003)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -360,7 +360,7 @@ async def test_content_integrity_after_streaming() -> None:
         OpenAIStreamingEmulator.create_text_chunks(expected_text, chunk_size=8),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.01)
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.003)
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -373,7 +373,7 @@ async def test_content_integrity_after_streaming() -> None:
         }
         headers = {"x-goog-api-key": "test-key"}
 
-        assembled_content = []
+        assembled_content: list[str] = []
 
         async with client.stream(
             "POST", "/v1/chat/completions", json=payload, headers=headers

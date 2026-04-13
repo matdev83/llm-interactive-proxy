@@ -65,7 +65,7 @@ class IToolCallRetryCoordinator(ABC):
         self,
         request: ChatRequest,
         response: ResponseEnvelope,
-        context: RequestContext,
+        context: RequestContext | dict[str, Any],
         retry_state: ToolCallRetryState,
     ) -> ResponseEnvelope | None:
         """Return a retried response or None when no retry is needed.
@@ -93,7 +93,7 @@ class IToolCallRetryCoordinator(ABC):
         self,
         request: ChatRequest,
         response: ResponseEnvelope,
-        context: RequestContext,
+        context: RequestContext | dict[str, Any],
         retry_state: ToolCallRetryState,
     ) -> StreamingResponseEnvelope | None:
         """Return a retried stream or terminal stream when needed.

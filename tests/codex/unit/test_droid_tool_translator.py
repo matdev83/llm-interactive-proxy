@@ -338,6 +338,28 @@ class TestDroidToolTranslatorGlob:
 class TestDroidToolTranslatorPatchTools:
     """TDD tests for Edit/Create->apply_patch translation."""
 
+    def test_reverse_translate_apply_patch_returns_result_not_tuple(self):
+        """Codex apply_patch reverse path must return ReverseTranslationResult."""
+        from src.connectors._openai_codex_droid_tool_translator import (
+            DroidToolTranslator,
+            ReverseTranslationResult,
+        )
+
+        translator = DroidToolTranslator()
+        result = translator.translate_codex_to_droid(
+            "apply_patch",
+            {
+                "file_path": "/x.py",
+                "content": "diff",
+                "is_new_file": False,
+            },
+        )
+        assert isinstance(result, ReverseTranslationResult)
+        assert not isinstance(result, tuple)
+        assert result.droid_tool_name == "Edit"
+        assert result.droid_arguments["file_path"] == "/x.py"
+        assert result.droid_arguments["new_str"] == "diff"
+
     def test_translate_edit_to_apply_patch(self):
         """Edit should map to apply_patch with file_path and content."""
         from src.connectors._openai_codex_droid_tool_translator import (

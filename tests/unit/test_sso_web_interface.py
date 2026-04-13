@@ -5,6 +5,7 @@ Tests the FastAPI endpoints for SSO authentication flow.
 """
 
 import re
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -22,6 +23,7 @@ from src.core.auth.sso.config import (
     SSOConfig,
 )
 from src.core.auth.sso.database import DatabaseManager, TokenRepository
+from src.core.auth.sso.models import AuthorizationResult, SSOResult
 from src.core.auth.sso.rate_limit_service import RateLimitService
 from src.core.auth.sso.sso_service import SSOService
 from src.core.auth.sso.token_service import TokenService
@@ -471,3 +473,96 @@ async def test_state_store_cleanup_mechanism(
             response = test_client.get(f"/auth/login?token={login_token2}")
             # The request should still succeed (cleanup happens silently)
             assert response.status_code == 302
+
+
+@pytest.mark.asyncio
+async def test_enterprise_callback_first_auth_store_token_once(
+    sso_config,
+    token_service,
+    database_manager,
+    rate_limit_service,
+):
+    """Enterprise first-time auth persists the token once before success redirect."""
+    authorization_service = AuthorizationService(
+        mode=AuthorizationMode.ENTERPRISE,
+        config=sso_config.authorization,
+        database_manager=database_manager,
+        rate_limit_service=rate_limit_service,
+    )
+    sso_service = SSOService(sso_config)
+
+    app = FastAPI()
+    router = create_sso_router(
+        sso_config=sso_config,
+        sso_service=sso_service,
+        token_service=token_service,
+        authorization_service=authorization_service,
+        database_manager=database_manager,
+        rate_limit_service=rate_limit_service,
+        base_url="http://testserver",
+    )
+    app.include_router(router)
+
+    token_repo = TokenRepository(database_manager.database_path)
+    login_token = await token_repo.create_login_token()
+
+    test_client = TestClient(app, follow_redirects=False)
+
+    login_page = test_client.get(f"/auth/login?token={login_token}")
+    assert login_page.status_code == 200
+    login_session = _extract_login_session(login_page.text)
+
+    original_store = TokenRepository.store_token
+    store_count = [0]
+
+    async def counting_store(self, token_record):
+        store_count[0] += 1
+        return await original_store(self, token_record)
+
+    with (
+        patch(
+            "src.core.auth.sso.web_interface.secrets.token_urlsafe",
+            return_value="fixed_oauth_state",
+        ),
+        patch.object(
+            sso_service,
+            "create_authorization_url",
+            new=AsyncMock(return_value="https://accounts.google.com/o/oauth2/v2/auth"),
+        ),
+        patch.object(
+            sso_service,
+            "handle_callback",
+            new=AsyncMock(
+                return_value=SSOResult(
+                    success=True,
+                    user_id="user-ent-1",
+                    user_email="ent@example.com",
+                )
+            ),
+        ),
+        patch.object(
+            authorization_service,
+            "query_authorization_api",
+            new=AsyncMock(return_value=AuthorizationResult(authorized=True)),
+        ),
+        patch.object(
+            TokenRepository, "find_by_user_id", new=AsyncMock(return_value=None)
+        ),
+        patch.object(TokenRepository, "store_token", new=counting_store),
+    ):
+        post_r = test_client.post(
+            "/auth/login/google",
+            data={"login_session": login_session},
+            follow_redirects=False,
+        )
+        assert post_r.status_code == 302
+
+        cb_r = test_client.get(
+            "/auth/callback?code=fake_auth_code&state=fixed_oauth_state",
+            follow_redirects=False,
+        )
+        assert cb_r.status_code == 302
+        assert "/auth/success" in cb_r.headers["location"]
+        assert "token=" in cb_r.headers["location"]
+
+    assert store_count[0] == 1

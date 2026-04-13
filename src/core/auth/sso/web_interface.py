@@ -694,8 +694,6 @@ def create_sso_router(
                     url=f"/auth/success?token={generated.plaintext}", status_code=302
                 )
 
-                await token_repo.store_token(token_record)
-
             else:
                 raise ValueError(
                     f"Unknown authorization mode: {authorization_service.mode}"

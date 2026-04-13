@@ -7,9 +7,9 @@ from pydantic import BaseModel
 
 from src.core.domain.chat import ToolCall
 from src.core.domain.configuration.dangerous_command_config import (
-    _COMBINED_DANGEROUS_PATTERN,
     DangerousCommandConfig,
     DangerousCommandRule,
+    is_dangerous_command,
 )
 
 _SUBSHELL_GIT_PATTERN = re.compile(r"\$\((?:which|command\s+-v)\s+git\)", re.IGNORECASE)
@@ -211,14 +211,13 @@ class DangerousCommandService:
         # Fast pre-check on the (potentially truncated) command
         normalized_for_detection = self._normalize_for_detection(command_to_check)
 
-        combined_match = _COMBINED_DANGEROUS_PATTERN.search(normalized_for_detection)
-        if not combined_match:
+        if not is_dangerous_command(normalized_for_detection):
             # Try again after stripping leading git options to catch forms like
             # "git --work-tree=. checkout -- ."
             stripped = self._strip_git_leading_options(normalized_for_detection)
             if stripped == normalized_for_detection:
                 return None
-            if not _COMBINED_DANGEROUS_PATTERN.search(stripped):
+            if not is_dangerous_command(stripped):
                 return None
 
         # If there's a potential match, generate candidates to find the specific rule
@@ -258,10 +257,8 @@ class DangerousCommandService:
             command_to_check = command_to_check[: self.config.max_command_length]
 
         normalized_for_detection = self._normalize_for_detection(command_to_check)
-        if _COMBINED_DANGEROUS_PATTERN.search(normalized_for_detection):
+        if is_dangerous_command(normalized_for_detection):
             return True
 
         stripped = self._strip_git_leading_options(normalized_for_detection)
-        return stripped != normalized_for_detection and bool(
-            _COMBINED_DANGEROUS_PATTERN.search(stripped)
-        )
+        return stripped != normalized_for_detection and is_dangerous_command(stripped)

@@ -3,11 +3,11 @@
 import httpx
 import pytest
 import pytest_asyncio
-from fastapi import HTTPException
 from pytest_httpx import HTTPXMock
 from src.connectors.openrouter import OpenRouterBackend
 
 # from starlette.responses import StreamingResponse # F401: Removed
+from src.core.common.exceptions import InvalidRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 from tests.unit.openrouter_connector_tests.helpers import (
@@ -86,7 +86,7 @@ async def test_chat_completions_http_error_non_streaming(
         status_code=402,  # Payment Required
     )
 
-    with pytest.raises(HTTPException) as exc_info:
+    with pytest.raises(InvalidRequestError) as exc_info:
         await openrouter_backend.chat_completions(
             openrouter_connector_chat_request(
                 sample_chat_request_data,
@@ -99,4 +99,5 @@ async def test_chat_completions_http_error_non_streaming(
         )
 
     assert exc_info.value.status_code == 402
-    assert exc_info.value.detail == error_payload
+    assert exc_info.value.details is not None
+    assert "Insufficient credits" in str(exc_info.value.details)

@@ -47,6 +47,27 @@ from src.core.services.non_forwardable_message_enforcer import (
 logger = logging.getLogger(__name__)
 
 
+def _request_context_from_mapping(ctx: dict[str, Any]) -> RequestContext:
+    """Mirror BackendRequestManager dict coercion for bare-dict test / edge callers."""
+    return RequestContext(
+        headers=ctx.get("headers", {}),
+        cookies=ctx.get("cookies", {}),
+        state=ctx.get("state"),
+        app_state=ctx.get("app_state"),
+        client_host=ctx.get("client_host"),
+        session_id=ctx.get("session_id"),
+        request_id=ctx.get("request_id"),
+        agent=ctx.get("agent"),
+        original_request=ctx.get("original_request"),
+        processing_context=ctx.get("processing_context"),
+        domain_request=ctx.get("domain_request"),
+        raw_body=ctx.get("raw_body"),
+        backend=ctx.get("backend"),
+        effective_model=ctx.get("effective_model"),
+        extensions=ctx.get("extensions", {}),
+    )
+
+
 class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
     """Coordinates tool-call retry flows with escalating steering."""
 
@@ -121,7 +142,7 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         self._non_forwardable_registry = non_forwardable_registry
         self._non_forwardable_identity_service = non_forwardable_identity_service
 
-    def _extract_session_id(self, context: RequestContext) -> str:
+    def _extract_session_id(self, context: RequestContext | dict[str, Any]) -> str:
         """Extract session ID from request context.
 
         Args:
@@ -130,6 +151,12 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         Returns:
             Session ID string
         """
+        if isinstance(context, dict):
+            sid = context.get("session_id") or context.get("request_id")
+            if isinstance(sid, str) and sid.strip():
+                return sid
+            return "unknown-session"
+
         # Try context.session_id first
         if context.session_id:
             return context.session_id
@@ -351,7 +378,7 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         self,
         request: ChatRequest,
         response: ResponseEnvelope,
-        context: RequestContext,
+        context: RequestContext | dict[str, Any],
         retry_state: ToolCallRetryState,
     ) -> ResponseEnvelope | None:
         """Return a retried response or None when no retry is needed.
@@ -365,6 +392,9 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         Returns:
             A retried response envelope, or None if no retry is needed
         """
+        if isinstance(context, dict):
+            context = _request_context_from_mapping(context)
+
         # Check if response indicates swallowed tool call
         metadata = response.metadata or {}
         if not metadata.get("tool_call_swallowed"):
@@ -561,7 +591,7 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         self,
         request: ChatRequest,
         response: ResponseEnvelope,
-        context: RequestContext,
+        context: RequestContext | dict[str, Any],
         retry_state: ToolCallRetryState,
     ) -> StreamingResponseEnvelope | None:
         """Return a retried stream or terminal stream when needed.
@@ -575,6 +605,9 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         Returns:
             A retried streaming response envelope, or None if no retry is needed
         """
+        if isinstance(context, dict):
+            context = _request_context_from_mapping(context)
+
         # Check if response indicates swallowed tool call
         metadata = response.metadata or {}
         if not metadata.get("tool_call_swallowed"):

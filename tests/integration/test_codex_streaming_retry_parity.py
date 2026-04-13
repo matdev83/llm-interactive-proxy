@@ -18,6 +18,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from fastapi import HTTPException
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest
@@ -31,6 +32,21 @@ from tests.unit.connectors.openai_codex.test_openai_codex_helpers import (
     create_mock_settings_loader,
 )
 from tests.unit.fixtures.markers import real_time
+
+
+def _codex_conn_req(
+    request: CanonicalChatRequest, *, effective_model: str
+) -> ConnectorChatCompletionsRequest:
+    return ConnectorChatCompletionsRequest(
+        request=request,
+        processed_messages=[],
+        effective_model=effective_model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
+    )
 
 
 @pytest_asyncio.fixture(name="auth_dir")
@@ -206,9 +222,9 @@ async def test_streaming_handshake_auth_failure_retry_success(
                 side_effect=mock_streaming_response,
             ):
                 result = await codex_connector.chat_completions(
-                    request_data=request,
-                    processed_messages=[],
-                    effective_model="openai-codex:gpt-5.1-codex",
+                    _codex_conn_req(
+                        request, effective_model="openai-codex:gpt-5.1-codex"
+                    )
                 )
 
                 assert isinstance(result, StreamingResponseEnvelope)
@@ -298,9 +314,9 @@ async def test_streaming_handshake_auth_failure_retry_exhausted(
             ):
                 with pytest.raises(HTTPException) as exc_info:
                     result = await codex_connector.chat_completions(
-                        request_data=request,
-                        processed_messages=[],
-                        effective_model="openai-codex:gpt-5.1-codex",
+                        _codex_conn_req(
+                            request, effective_model="openai-codex:gpt-5.1-codex"
+                        )
                     )
                     # If we get here, consume the stream to trigger the error
                     if isinstance(result, StreamingResponseEnvelope):
@@ -430,9 +446,9 @@ async def test_streaming_chunk_level_auth_failure_retry(
                 side_effect=mock_streaming_response,
             ):
                 result = await codex_connector.chat_completions(
-                    request_data=request,
-                    processed_messages=[],
-                    effective_model="openai-codex:gpt-5.1-codex",
+                    _codex_conn_req(
+                        request, effective_model="openai-codex:gpt-5.1-codex"
+                    )
                 )
 
                 assert isinstance(result, StreamingResponseEnvelope)
@@ -555,9 +571,9 @@ async def test_streaming_retry_backoff_behavior(
             ):
                 start_time = time.time()
                 result = await codex_connector.chat_completions(
-                    request_data=request,
-                    processed_messages=[],
-                    effective_model="openai-codex:gpt-5.1-codex",
+                    _codex_conn_req(
+                        request, effective_model="openai-codex:gpt-5.1-codex"
+                    )
                 )
 
                 # Consume stream to trigger retry and backoff
@@ -631,9 +647,7 @@ async def test_streaming_refresh_failure_returns_error(
         side_effect=mock_streaming_response,
     ):
         result = await codex_connector.chat_completions(
-            request_data=request,
-            processed_messages=[],
-            effective_model="openai-codex:gpt-5.1-codex",
+            _codex_conn_req(request, effective_model="openai-codex:gpt-5.1-codex")
         )
 
         assert isinstance(result, StreamingResponseEnvelope)
@@ -685,9 +699,7 @@ async def test_streaming_ordering_and_termination_parity(
         side_effect=mock_streaming_response,
     ):
         result = await codex_connector.chat_completions(
-            request_data=request,
-            processed_messages=[],
-            effective_model="openai-codex:gpt-5.1-codex",
+            _codex_conn_req(request, effective_model="openai-codex:gpt-5.1-codex")
         )
 
         assert isinstance(result, StreamingResponseEnvelope)
@@ -792,22 +804,17 @@ async def test_streaming_translation_ordering_with_compatibility(
         "_handle_streaming_response",
         side_effect=mock_streaming_response,
     ):
-        # Mock metadata to include Droid detection
-        original_chat_completions = codex_connector.chat_completions
-
-        async def mock_chat_completions(*args, **kwargs):
-            # Add Droid headers to metadata
-            if "metadata" not in kwargs:
-                kwargs["metadata"] = {}
-            kwargs["metadata"]["headers"] = {"User-Agent": "factory-cli/1.0"}
-            return await original_chat_completions(*args, **kwargs)
-
-        codex_connector.chat_completions = mock_chat_completions
-
         result = await codex_connector.chat_completions(
-            request_data=request,
-            processed_messages=[],
-            effective_model="openai-codex:gpt-5.1-codex",
+            ConnectorChatCompletionsRequest(
+                request=request,
+                processed_messages=[],
+                effective_model="openai-codex:gpt-5.1-codex",
+                identity=None,
+                cancellation_token=None,
+                cancellation_coordinator=None,
+                context=None,
+                options={"metadata": {"headers": {"User-Agent": "factory-cli/1.0"}}},
+            )
         )
 
         assert isinstance(result, StreamingResponseEnvelope)
@@ -911,9 +918,7 @@ async def test_streaming_translation_ordering_preserved_during_retry(
         side_effect=mock_streaming_response,
     ):
         result = await codex_connector.chat_completions(
-            request_data=request,
-            processed_messages=[],
-            effective_model="openai-codex:gpt-5.1-codex",
+            _codex_conn_req(request, effective_model="openai-codex:gpt-5.1-codex")
         )
 
         assert isinstance(result, StreamingResponseEnvelope)

@@ -202,11 +202,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             return {"inlineData": {"mimeType": mime, "data": b64_data}}
         # Otherwise treat as remote file URI
         return {"fileData": {"mimeType": "application/octet-stream", "fileUri": url}}
-        data = part.model_dump(exclude_unset=True)
-        if data.get("type") == "text" and "text" in data:
-            # Text content is already processed by middleware
-            data.pop("type", None)
-        return data
 
     def _prepare_gemini_contents(
         self, processed_messages: list[Any]

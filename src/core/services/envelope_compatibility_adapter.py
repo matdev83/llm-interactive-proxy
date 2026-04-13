@@ -1,9 +1,10 @@
-"""Boundary adapter: canonical handle to legacy streaming / blocking envelopes."""
+"""Boundary adapter: canonical handle to public streaming/blocking envelopes."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any, cast
 
 from pydantic.types import JsonValue
 
@@ -224,6 +225,46 @@ class EnvelopeCompatibilityAdapter:
                 body = b"".join(
                     item for item in meaningful_contents if isinstance(item, bytes)
                 )
+            elif all(isinstance(item, dict) for item in meaningful_contents):
+                # Merge OpenAI-style streaming chunk dicts (delta.content) into one
+                # completion dict. The last chunk is often an empty terminal frame;
+                # using meaningful_contents[-1] alone drops accumulated text.
+                typed_chunks: list[dict[str, Any]] = cast(
+                    list[dict[str, Any]],
+                    [x for x in meaningful_contents if isinstance(x, dict)],
+                )
+                merged_text = ""
+                for raw in typed_chunks:
+                    choices = raw.get("choices")
+                    if not isinstance(choices, list):
+                        continue
+                    for choice in choices:
+                        if not isinstance(choice, dict):
+                            continue
+                        delta = choice.get("delta")
+                        if isinstance(delta, dict):
+                            piece = delta.get("content")
+                            if isinstance(piece, str):
+                                merged_text += piece
+                        message = choice.get("message")
+                        if isinstance(message, dict):
+                            msg_piece = message.get("content")
+                            if isinstance(msg_piece, str):
+                                merged_text = msg_piece or merged_text
+                if merged_text:
+                    body = {
+                        "choices": [
+                            {
+                                "message": {
+                                    "role": "assistant",
+                                    "content": merged_text,
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ]
+                    }
+                else:
+                    body = meaningful_contents[-1]
             else:
                 # Preserve historical behavior for non-text streamed payloads.
                 body = meaningful_contents[-1]
@@ -238,11 +279,16 @@ class EnvelopeCompatibilityAdapter:
             dict(merged_metadata)
         )
 
+        # Canonical non-streaming materialization must not inherit SSE transport
+        # metadata from the internal always-stream coordinator path.
+        out_headers = dict(handle.headers) if handle.headers else {}
+        out_headers.pop("content-type", None)
+
         return ResponseEnvelope(
             content=body,
-            headers=handle.headers,
+            headers=out_headers or None,
             status_code=handle.status_code,
-            media_type=handle.media_type,
+            media_type="application/json",
             usage=usage,
             metadata=filtered_metadata or None,
             canonical_usage=handle.canonical_usage,

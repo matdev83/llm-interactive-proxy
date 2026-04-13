@@ -27,7 +27,7 @@ async def test_non_streaming_client_streaming_backend_adapts_via_canonical_path(
     backend_processor = MagicMock()
 
     async def _proc(*, request: ChatRequest, **__: Any) -> StreamingResponseEnvelope:
-        assert request.stream is True
+        assert request.stream is False
         return StreamingResponseEnvelope(content=_src())
 
     backend_processor.process_backend_request = AsyncMock(side_effect=_proc)
@@ -73,7 +73,7 @@ async def test_non_streaming_client_decodes_streaming_backend_sse_bytes() -> Non
     backend_processor = MagicMock()
 
     async def _proc(*, request: ChatRequest, **__: Any) -> StreamingResponseEnvelope:
-        assert request.stream is True
+        assert request.stream is False
         return StreamingResponseEnvelope(content=_sse_src())
 
     backend_processor.process_backend_request = AsyncMock(side_effect=_proc)
@@ -109,7 +109,7 @@ async def test_non_streaming_client_decodes_streaming_backend_sse_bytes() -> Non
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_client_always_forces_streaming_backend_request() -> None:
+async def test_non_streaming_client_preserves_stream_false_on_backend_request() -> None:
     backend_processor = MagicMock()
     backend_processor.process_backend_request = AsyncMock(
         return_value=ResponseEnvelope(content={"ok": True})
@@ -133,7 +133,7 @@ async def test_non_streaming_client_always_forces_streaming_backend_request() ->
     await manager.process_backend_request(request, "sess", ctx)
     called = backend_processor.process_backend_request.await_args
     assert called is not None
-    assert called.kwargs["request"].stream is True
+    assert called.kwargs["request"].stream is False
 
 
 @pytest.mark.asyncio

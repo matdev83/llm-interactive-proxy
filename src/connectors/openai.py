@@ -5,6 +5,7 @@ import contextlib
 import inspect
 import json
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -14,11 +15,11 @@ from collections.abc import (
     Callable,
     Mapping,
 )
+from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, NoReturn, cast
 
 import httpx
-from fastapi import HTTPException
 
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
@@ -32,6 +33,7 @@ from src.core.common.capture_aware_httpx import (
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
+    InvalidRequestError,
     RateLimitExceededError,
     ServiceUnavailableError,
 )
@@ -44,7 +46,6 @@ from src.core.domain.responses import (
     StreamingResponseHandle,
 )
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
     ProcessedResponse,
@@ -238,6 +239,153 @@ def _attach_http_error_details(
         "message": str(error_detail),
         **response_details,
     }
+
+
+def _message_from_merged_detail(merged: dict[str, Any]) -> str:
+    """Best-effort human message for LLMProxyError subclasses."""
+    msg = merged.get("message")
+    if isinstance(msg, str) and msg.strip():
+        return msg.strip()
+    err = merged.get("error")
+    if isinstance(err, dict):
+        nested = err.get("message")
+        if isinstance(nested, str) and nested.strip():
+            return nested.strip()
+    detail = merged.get("detail")
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()
+    return str(merged.get("message", merged))
+
+
+def _is_quota_exceeded_detail(merged: dict[str, Any]) -> bool:
+    if merged.get("type") == "quota_exceeded":
+        return True
+    err = merged.get("error")
+    if isinstance(err, dict) and err.get("type") == "quota_exceeded":  # noqa: SIM103
+        return True
+    return False
+
+
+def _raise_upstream_http_error(
+    *,
+    status_code: int,
+    error_detail: dict[str, Any] | str,
+    response: httpx.Response,
+    url: str,
+) -> NoReturn:
+    """Map upstream HTTP failures to :class:`LLMProxyError` (never framework HTTP types)."""
+
+    if isinstance(error_detail, dict):
+        wrapped: dict[str, Any] = dict(error_detail)
+    else:
+        wrapped = {
+            "message": str(error_detail),
+            "type": ("openrouter_error" if "openrouter" in url else "openai_error"),
+            "code": status_code,
+        }
+
+    merged_any = _attach_http_error_details(wrapped, response)
+    merged: dict[str, Any]
+    if isinstance(merged_any, dict):
+        merged = merged_any
+    else:
+        merged = {
+            "message": str(merged_any),
+            "type": ("openrouter_error" if "openrouter" in url else "openai_error"),
+            "code": status_code,
+        }
+
+    message = _message_from_merged_detail(merged)
+
+    if status_code == 429:
+        retry_raw: str | None = None
+        hdrs = merged.get("headers")
+        if isinstance(hdrs, dict):
+            retry_raw = hdrs.get("retry-after") or hdrs.get("Retry-After")
+            if retry_raw is not None:
+                retry_raw = str(retry_raw).strip()
+        reset_at: float | None = None
+        if retry_raw:
+            with contextlib.suppress(ValueError, TypeError):
+                reset_at = time.time() + float(retry_raw)
+        details = dict(merged)
+        raise RateLimitExceededError(
+            message=message,
+            details=details,
+            reset_at=int(reset_at) if reset_at is not None else None,
+        )
+
+    if status_code == 503 and _is_quota_exceeded_detail(merged):
+        raise BackendError(
+            message=message,
+            backend_name="openai",
+            status_code=503,
+            details=merged,
+        )
+
+    if 400 <= status_code < 500:
+        raise InvalidRequestError(
+            message=message,
+            details=merged,
+            status_code=status_code,
+        )
+
+    raise BackendError(
+        message=message,
+        backend_name="openai",
+        status_code=status_code,
+        details=merged,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectorChatInvocationContext:
+    """Fields extracted from :class:`ConnectorChatCompletionsRequest` or duck-typed equivalents."""
+
+    domain_request: Any
+    processed_messages: list[Any]
+    effective_model: str
+    identity: IAppIdentityConfig | None
+    cancellation_coordinator: Any
+    cancellation_token: Any
+    context: ConnectorRequestContext | None
+    options: dict[str, Any]
+
+
+def _extract_connector_chat_request(
+    request: ConnectorChatCompletionsRequest | Any,
+) -> ConnectorChatInvocationContext:
+    """Extract connector fields; supports Pydantic models and SimpleNamespace-like wrappers."""
+
+    domain_request = getattr(request, "request", None)
+    if domain_request is None:
+        raise TypeError(
+            "Connector chat completions request missing required 'request' field."
+        )
+
+    processed_messages_source = getattr(request, "processed_messages", None)
+    processed_messages = (
+        list(processed_messages_source) if processed_messages_source is not None else []
+    )
+    effective_model = str(getattr(request, "effective_model", "") or "")
+    identity = getattr(request, "identity", None)
+    cancellation_coordinator = getattr(request, "cancellation_coordinator", None)
+    cancellation_token = getattr(request, "cancellation_token", None)
+    context = getattr(request, "context", None)
+
+    options_obj = getattr(request, "options", None)
+    options = options_obj if isinstance(options_obj, dict) else {}
+
+    return ConnectorChatInvocationContext(
+        domain_request=domain_request,
+        processed_messages=processed_messages,
+        effective_model=effective_model,
+        identity=identity,
+        cancellation_coordinator=cancellation_coordinator,
+        cancellation_token=cancellation_token,
+        context=context,
+        options=options,
+    )
 
 
 def _raise_for_httpx_request_error(
@@ -794,27 +942,17 @@ class OpenAIConnector(LLMBackend):
         Uses request.context for logging correlation identifiers (request_id,
         session_id, client_host) when available.
         """
-        # Extract fields from canonical request.
         # Some OAuth wrapper connectors still pass SimpleNamespace-like request
         # objects that omit optional canonical fields (identity/context/options).
-        # Use defensive getattr defaults to preserve backward compatibility.
-        domain_request = getattr(request, "request", None)
-        if domain_request is None:
-            raise TypeError(
-                "Connector chat completions request missing required 'request' field."
-            )
-
-        processed_messages_source = getattr(request, "processed_messages", None)
-        processed_messages = (
-            list(processed_messages_source)
-            if processed_messages_source is not None
-            else []
-        )
-        effective_model = str(getattr(request, "effective_model", "") or "")
-        identity = getattr(request, "identity", None)
-        cancellation_coordinator = getattr(request, "cancellation_coordinator", None)
-        cancellation_token = getattr(request, "cancellation_token", None)
-        context = getattr(request, "context", None)
+        ctx = _extract_connector_chat_request(request)
+        domain_request = ctx.domain_request
+        processed_messages = ctx.processed_messages
+        effective_model = ctx.effective_model
+        identity = ctx.identity
+        cancellation_coordinator = ctx.cancellation_coordinator
+        cancellation_token = ctx.cancellation_token
+        context = ctx.context
+        options = ctx.options
 
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if cancellation_coordinator is not None and cancellation_token is not None:
@@ -822,10 +960,6 @@ class OpenAIConnector(LLMBackend):
 
         # Prepare context for logging correlation
         log_extra = self._get_log_extra(context)
-
-        # Extract provider-specific options from request.options (JSON-safe)
-        options_obj = getattr(request, "options", None)
-        options = options_obj if isinstance(options_obj, dict) else {}
         openai_url = options.get("openai_url")
         if not isinstance(openai_url, str):
             openai_url = None
@@ -879,54 +1013,51 @@ class OpenAIConnector(LLMBackend):
         if domain_request.stream:
             # Use the new streaming pipeline orchestrator
             # This integrates: Backend → Normalizer → Processors → Assembler
+            stream_extra = dict(domain_request.extra_body or {})
+            stream_extra[_LLM_PROXY_STREAM_URL_KEY] = url
+            if headers:
+                stream_extra[_LLM_PROXY_STREAM_HEADERS_KEY] = dict(headers)
+            streaming_domain_request = domain_request.model_copy(
+                update={"extra_body": stream_extra}
+            )
+            # Get raw stream from backend via StreamProducer protocol
+            raw_stream = self.stream_completion(streaming_domain_request)
+
+            # Calculate prompt tokens for usage tracking
+            prompt_tokens = 0
             try:
-                stream_extra = dict(domain_request.extra_body or {})
-                stream_extra[_LLM_PROXY_STREAM_URL_KEY] = url
-                if headers:
-                    stream_extra[_LLM_PROXY_STREAM_HEADERS_KEY] = dict(headers)
-                streaming_domain_request = domain_request.model_copy(
-                    update={"extra_body": stream_extra}
-                )
-                # Get raw stream from backend via StreamProducer protocol
-                raw_stream = self.stream_completion(streaming_domain_request)
-
-                # Calculate prompt tokens for usage tracking
-                prompt_tokens = 0
-                try:
-                    from src.core.utils.token_count import (
-                        count_tokens,
-                        extract_prompt_text,
-                    )
-
-                    prompt_text = extract_prompt_text(processed_messages)
-                    prompt_tokens = count_tokens(prompt_text, model=effective_model)
-                except (ImportError, AttributeError, TypeError, KeyError, ValueError):
-                    logger.warning(
-                        "Failed to calculate prompt tokens",
-                        exc_info=True,
-                        extra=log_extra if log_extra else None,
-                    )
-
-                # Integrate with streaming pipeline
-                from src.core.ports.streaming_integration import (
-                    integrate_streaming_pipeline,
+                from src.core.utils.token_count import (
+                    count_tokens,
+                    extract_prompt_text,
                 )
 
-                return await integrate_streaming_pipeline(
-                    raw_stream=raw_stream,
-                    provider=self.get_provider_name(),
-                    stream_id=domain_request.session_id,
-                    enable_loop_detection=True,
-                    enable_tool_call_repair=True,
-                    enable_think_tags=True,
-                    prompt_tokens=prompt_tokens,
-                    model_name=effective_model,
-                    vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
-                    yield_interval=self.config.streaming_yield_interval,
-                    headers=headers,
+                prompt_text = extract_prompt_text(processed_messages)
+                prompt_tokens = count_tokens(prompt_text, model=effective_model)
+            except (ImportError, AttributeError, TypeError, KeyError, ValueError):
+                logger.warning(
+                    "Failed to calculate prompt tokens",
+                    exc_info=True,
+                    extra=log_extra if log_extra else None,
                 )
-            except AuthenticationError as e:
-                raise HTTPException(status_code=401, detail=str(e))
+
+            # Integrate with streaming pipeline
+            from src.core.ports.streaming_integration import (
+                integrate_streaming_pipeline,
+            )
+
+            return await integrate_streaming_pipeline(
+                raw_stream=raw_stream,
+                provider=self.get_provider_name(),
+                stream_id=domain_request.session_id,
+                enable_loop_detection=True,
+                enable_tool_call_repair=True,
+                enable_think_tags=True,
+                prompt_tokens=prompt_tokens,
+                model_name=effective_model,
+                vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
+                yield_interval=self.config.streaming_yield_interval,
+                headers=headers,
+            )
         else:
             # Return a domain ResponseEnvelope for non-streaming
             return await self._handle_non_streaming_response(
@@ -1230,8 +1361,6 @@ class OpenAIConnector(LLMBackend):
         self.update_quota_headers(response.headers)
 
         if int(response.status_code) >= 400:
-            # For backwards compatibility with existing error handlers, still use HTTPException here.
-            # This will be replaced in a future update with domain exceptions.
             try:
                 err = response.json()
             except JSONDecodeError as e:
@@ -1252,9 +1381,11 @@ class OpenAIConnector(LLMBackend):
                         extra=log_extra if log_extra else None,
                     )
                 err = response.text
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=_attach_http_error_details(err, response),
+            _raise_upstream_http_error(
+                status_code=int(response.status_code),
+                error_detail=err,
+                response=response,
+                url=url,
             )
 
         decoded_json = self._decode_json_payload(response)
@@ -1366,8 +1497,6 @@ class OpenAIConnector(LLMBackend):
                 extra=log_extra if log_extra else None,
             )
         if status_code >= 400:
-            # For backwards compatibility with existing error handlers, still use HTTPException here.
-            # This will be replaced in a future update with domain exceptions.
             body: str = ""
             try:
                 body_bytes = await response.aread()
@@ -1469,24 +1598,22 @@ class OpenAIConnector(LLMBackend):
                             "code": 503,
                         }
 
-            raise HTTPException(
-                status_code=status_code,
-                detail=_attach_http_error_details(
-                    (
-                        error_detail
-                        if isinstance(error_detail, dict)
-                        else {
-                            "message": str(error_detail),
-                            "type": (
-                                "openrouter_error"
-                                if "openrouter" in url
-                                else "openai_error"
-                            ),
-                            "code": status_code,
-                        }
+            payload_detail: dict[str, Any] | str = (
+                error_detail
+                if isinstance(error_detail, dict)
+                else {
+                    "message": str(error_detail),
+                    "type": (
+                        "openrouter_error" if "openrouter" in url else "openai_error"
                     ),
-                    response,
-                ),
+                    "code": status_code,
+                }
+            )
+            _raise_upstream_http_error(
+                status_code=status_code,
+                error_detail=payload_detail,
+                response=response,
+                url=url,
             )
 
         loop = asyncio.get_running_loop()
@@ -1855,23 +1982,38 @@ class OpenAIConnector(LLMBackend):
 
     async def responses(
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle OpenAI Responses API calls.
 
         This method handles requests to the /v1/responses endpoint, which provides
         structured output generation with JSON schema validation.
         """
+        if not isinstance(request, ConnectorChatCompletionsRequest):
+            raise InvalidRequestError(
+                message=(
+                    "OpenAIConnector.responses requires ConnectorChatCompletionsRequest."
+                ),
+                details={"received_type": type(request).__name__},
+            )
+        if (
+            request.cancellation_coordinator is not None
+            and request.cancellation_token is not None
+        ):
+            request.cancellation_coordinator.ensure_not_cancelled(
+                request.cancellation_token
+            )
+
+        request_data = request.request
+        processed_messages = list(request.processed_messages)
+        effective_model = request.effective_model
+        identity = request.identity
+        kwargs = dict(request.options) if request.options else {}
+
         # Perform health check if enabled
         await self._ensure_healthy()
 
         # Convert to domain request first
-        # Note: The responses() method can be called directly with dicts (e.g., from tests),
-        # unlike chat_completions() which expects ConnectorChatCompletionsRequest from the invoker
         domain_request = self.translation_service.to_domain_request(
             request_data, "responses"
         )
@@ -1920,8 +2062,12 @@ class OpenAIConnector(LLMBackend):
         headers_override = kwargs.pop("headers_override", None)
         resolved_headers: dict[str, str] | None = None
 
-        if headers_override is not None:
-            resolved_headers = dict(headers_override)
+        if isinstance(headers_override, Mapping):
+            resolved_headers = {
+                str(k): str(v)
+                for k, v in headers_override.items()
+                if isinstance(k, str) and isinstance(v, str)
+            }
 
         base_headers: dict[str, str] | None
         try:
@@ -1944,13 +2090,23 @@ class OpenAIConnector(LLMBackend):
         else:
             headers = base_headers
 
-        api_base = kwargs.get("openai_url") or self.api_base_url
+        api_base_candidate = kwargs.get("openai_url")
+        api_base = (
+            api_base_candidate
+            if isinstance(api_base_candidate, str) and api_base_candidate
+            else self.api_base_url
+        )
         url = f"{api_base.rstrip('/')}/responses"
 
         guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
 
         # Check if WebSocket transport is enabled and requested
-        use_websocket = kwargs.get("use_websocket", self._use_websocket)
+        use_websocket_raw = kwargs.get("use_websocket")
+        use_websocket = (
+            use_websocket_raw
+            if isinstance(use_websocket_raw, bool)
+            else self._use_websocket
+        )
         connector_context = kwargs.get("context")
         if not isinstance(connector_context, ConnectorRequestContext):
             connector_context = None
@@ -1965,17 +2121,14 @@ class OpenAIConnector(LLMBackend):
 
         if domain_request.stream:
             # Return a domain-level streaming envelope
-            try:
-                stream_handle = await self._handle_streaming_response(
-                    url,
-                    payload,
-                    guarded_headers,
-                    domain_request.session_id or "",
-                    "openai-responses",
-                    context=connector_context,
-                )
-            except AuthenticationError as e:
-                raise HTTPException(status_code=401, detail=str(e))
+            stream_handle = await self._handle_streaming_response(
+                url,
+                payload,
+                guarded_headers,
+                domain_request.session_id or "",
+                "openai-responses",
+                context=connector_context,
+            )
             return StreamingResponseEnvelope(
                 content=stream_handle.iterator,
                 media_type="text/event-stream",

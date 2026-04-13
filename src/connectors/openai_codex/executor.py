@@ -32,7 +32,11 @@ from src.connectors.openai_codex.interfaces import (
 )
 from src.connectors.openai_codex.utils import build_codex_user_agent
 from src.core.app.constants.logging_constants import TRACE_LEVEL
-from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
+from src.core.common.exceptions import (
+    AuthenticationError,
+    LLMProxyError,
+    ServiceUnavailableError,
+)
 from src.core.common.resilience_retry import AsyncRetryExecutor, RetryPolicy
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -45,6 +49,22 @@ from src.core.services.tool_text_renderer import OverrideRenderer
 
 if TYPE_CHECKING:
     from src.connectors.openai import OpenAIConnector
+
+
+def _codex_initiate_streaming_error_view(
+    exc: HTTPException | LLMProxyError,
+) -> tuple[int, Any]:
+    """Normalize handshake errors from OpenAIConnector for Codex retry logic."""
+
+    if isinstance(exc, HTTPException):
+        return exc.status_code, exc.detail
+    status_code = getattr(exc, "status_code", 500)
+    if not isinstance(status_code, int):
+        status_code = 500
+    det = getattr(exc, "details", None)
+    if isinstance(det, dict) and det:
+        return status_code, det
+    return status_code, {"message": getattr(exc, "message", str(exc))}
 
 
 class _CodexTransportAdapter:
@@ -725,8 +745,9 @@ class ResponseExecutor(IResponseExecutor):
                             )
                         )
                         # Fall through to consume the stream iterator below
-                    except HTTPException as exc:
-                        if exc.status_code == 403 and attempts_used < max_retries:
+                    except (HTTPException, LLMProxyError) as exc:
+                        status_code, detail = _codex_initiate_streaming_error_view(exc)
+                        if status_code == 403 and attempts_used < max_retries:
                             rotated = await self._handle_auth_failure_rotation(
                                 session_id=context.session_id
                             )
@@ -740,7 +761,7 @@ class ResponseExecutor(IResponseExecutor):
                                 )
                                 continue
 
-                        if exc.status_code == 401 or exc.status_code == 403:
+                        if status_code == 401 or status_code == 403:
                             if attempts_used >= max_retries:
                                 # Notify connector of authentication failure for degradation
                                 degrade_method = getattr(
@@ -803,9 +824,9 @@ class ResponseExecutor(IResponseExecutor):
                                 current_headers, conversation_id, context.session_id
                             )
                             continue
-                        if exc.status_code == 429 and attempts_used < max_retries:
+                        if status_code == 429 and attempts_used < max_retries:
                             retry_after_seconds = (
-                                self._extract_retry_after_from_payload(exc.detail)
+                                self._extract_retry_after_from_payload(detail)
                             )
                             rotated = await self._handle_rate_limit_rotation(
                                 retry_after_seconds=retry_after_seconds,
