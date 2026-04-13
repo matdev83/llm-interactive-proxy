@@ -120,8 +120,14 @@ class EnvironmentTaggingFormatter(logging.Formatter):
     ) -> None:
         # Set default format if none provided - compact level, env tag, and PID
         if fmt is None:
-            fmt = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
+            fmt = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] [stream_id=%(stream_id)s] %(name)s:%(lineno)d %(message)s"
         super().__init__(fmt, datefmt, style=style)
+
+    def format(self, record: logging.LogRecord) -> str:
+        """Populate optional logging fields used by the global format."""
+        if not hasattr(record, "stream_id"):
+            record.stream_id = "-"
+        return super().format(record)
 
 
 # Default set of fields to redact
@@ -564,7 +570,7 @@ def configure_logging_with_environment_tagging(
     """
     # Use default format with environment tag if none provided - compact level, env tag, and PID
     if log_format is None:
-        log_format = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
+        log_format = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] [stream_id=%(stream_id)s] %(name)s:%(lineno)d %(message)s"
 
     # Create formatter with environment tag support
     formatter = EnvironmentTaggingFormatter(fmt=log_format)
