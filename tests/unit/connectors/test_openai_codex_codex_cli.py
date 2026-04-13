@@ -10,12 +10,14 @@ import pytest_asyncio
 from fastapi import HTTPException
 from pytest_mock import MockerFixture
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.connectors.openai_codex.contracts import (
     CodexPayload,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import (
+    CanonicalChatRequest,
     ChatMessage,
     ChatRequest,
     FunctionCall,
@@ -32,6 +34,22 @@ from src.core.services.tool_text_renderer import (
     render_tool_call,
     reset_renderer_registry,
 )
+
+
+def _connector_chat_request(
+    chat_request: ChatRequest, *, effective_model: str
+) -> ConnectorChatCompletionsRequest:
+    domain = CanonicalChatRequest.model_validate(chat_request.model_dump())
+    return ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=list(chat_request.messages),
+        effective_model=effective_model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
+    )
 
 
 @asynccontextmanager
@@ -934,7 +952,7 @@ async def test_chat_completions_routes_to_codex_api(
     )
 
     result = await connector.chat_completions(
-        chat_request, chat_request.messages, "gpt-5.1-codex"
+        _connector_chat_request(chat_request, effective_model="gpt-5.1-codex")
     )
 
     assert result == "codex-result"
@@ -972,7 +990,7 @@ async def test_chat_completions_non_codex_falls_back_to_parent(
     )
 
     result = await connector.chat_completions(
-        chat_request, chat_request.messages, "gpt-4.1-mini"
+        _connector_chat_request(chat_request, effective_model="gpt-4.1-mini")
     )
 
     assert result == "openai-result"
@@ -1322,7 +1340,7 @@ async def test_codex_api_http_error_propagation(
         )
 
         result = await connector.chat_completions(
-            chat_request, chat_request.messages, "gpt-5.1-codex"
+            _connector_chat_request(chat_request, effective_model="gpt-5.1-codex")
         )
 
         assert isinstance(result, ResponseEnvelope)

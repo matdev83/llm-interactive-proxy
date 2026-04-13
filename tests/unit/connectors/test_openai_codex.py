@@ -7,12 +7,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi import HTTPException
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex import (
     OpenAICodexConnector,
     OpenAICredentialsFileHandler,
 )
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 
 
 @pytest.mark.asyncio
@@ -41,11 +42,18 @@ async def test_openai_codex_routes_gpt_5_4_mini_through_codex_api(
         ) as codex_call,
         patch.object(OpenAIConnector, "chat_completions", AsyncMock()) as base_call,
     ):
-        result = await openai_codex_backend.chat_completions(
-            request_data=req,
+        domain = CanonicalChatRequest.model_validate(req.model_dump())
+        connector_req = ConnectorChatCompletionsRequest(
+            request=domain,
             processed_messages=[ChatMessage(role="user", content="hi")],
             effective_model="gpt-5.4-mini",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
         )
+        result = await openai_codex_backend.chat_completions(connector_req)
 
     assert result is expected
     codex_call.assert_awaited_once()
@@ -77,11 +85,18 @@ async def test_openai_codex_rejects_unsupported_models_without_openai_fallback(
         patch.object(OpenAIConnector, "chat_completions", AsyncMock()) as base_call,
         pytest.raises(HTTPException) as exc_info,
     ):
-        await openai_codex_backend.chat_completions(
-            request_data=req,
+        domain = CanonicalChatRequest.model_validate(req.model_dump())
+        connector_req = ConnectorChatCompletionsRequest(
+            request=domain,
             processed_messages=[ChatMessage(role="user", content="hi")],
             effective_model="gpt-4o-mini",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
         )
+        await openai_codex_backend.chat_completions(connector_req)
 
     assert exc_info.value.status_code == 400
     detail = exc_info.value.detail

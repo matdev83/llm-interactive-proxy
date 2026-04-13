@@ -18,6 +18,15 @@ _CONNECTOR_CODE = _CONNECTOR_PATH.read_text() if _CONNECTOR_PATH.exists() else "
 _EXECUTOR_CODE = _EXECUTOR_PATH.read_text() if _EXECUTOR_PATH.exists() else ""
 
 
+@pytest.fixture(autouse=True)
+def _configure_logging_for_tests() -> None:
+    """Override the unit-level autouse fixture to skip expensive logging setup.
+
+    This test performs static source-code analysis only; logging setup
+    adds ~1.2s of unnecessary overhead.
+    """
+
+
 class TestOpenAICodexPerformanceOptimization:
     """Test suite for OpenAI Codex performance optimization."""
 

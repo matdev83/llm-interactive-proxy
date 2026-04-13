@@ -54,9 +54,8 @@ class ConnectorRequestContext(InternalDTO):
 class ConnectorChatCompletionsRequest(InternalDTO):
     """Canonical connector-facing request contract.
 
-    Bundles all inputs needed for connector invocation in a single typed contract.
-    This replaces the permissive dict[str, Any] and **kwargs patterns used
-    in the legacy connector API.
+    Bundles all inputs needed for connector invocation in a single typed contract
+    at the connector entry boundary.
 
     Attributes:
         request: Canonical chat request payload
@@ -85,10 +84,7 @@ class ICanonicalChatCompletionsBackend(Protocol):
     Connectors implementing this protocol receive typed contracts and
     return typed response envelopes, eliminating dict/Any leakage at the boundary.
 
-    This protocol defines the canonical connector API that should be used
-    for all new connector implementations. Legacy connectors continue to
-    use LLMBackend.chat_completions() with permissive signatures, but
-    core orchestration will prefer this canonical API when available.
+    Core orchestration invokes backends through this contract.
 
     The protocol is transport-agnostic and does not depend on FastAPI/Starlette types.
     """

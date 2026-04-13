@@ -1611,53 +1611,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             self._health_checked = True
             logger.info("Backend health check completed - ready for use")
 
-    async def chat_completions(  # type: ignore[override]
+    async def chat_completions(
         self,
-        request: ConnectorChatCompletionsRequest | Any = None,
-        *args: Any,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        if isinstance(request, ConnectorChatCompletionsRequest):
-            return await self._chat_completions_canonical(request)
-
-        legacy_request_data = kwargs.pop("request_data", request)
-        legacy_processed_messages = kwargs.pop(
-            "processed_messages", args[0] if args else []
-        )
-        legacy_effective_model = kwargs.pop(
-            "effective_model", args[1] if len(args) > 1 else "unknown"
-        )
-        legacy_context = kwargs.pop("context", None)
-        normalized_effective_model = self._resolve_internal_effective_model(
-            legacy_effective_model
-        )
-
-        stream = getattr(legacy_request_data, "stream", False) or kwargs.get(
-            "stream", False
-        )
-        if stream:
-            return await self._chat_completions_code_assist_streaming(
-                request_data=legacy_request_data,
-                processed_messages=(
-                    list(legacy_processed_messages)
-                    if not isinstance(legacy_processed_messages, list)
-                    else legacy_processed_messages
-                ),
-                effective_model=normalized_effective_model,
-                context=legacy_context,
-                **kwargs,
+        if not isinstance(request, ConnectorChatCompletionsRequest):
+            raise TypeError(
+                "GeminiOAuthBaseConnector.chat_completions() requires a "
+                "ConnectorChatCompletionsRequest instance."
             )
-        return await self._chat_completions_code_assist(
-            request_data=legacy_request_data,
-            processed_messages=(
-                list(legacy_processed_messages)
-                if not isinstance(legacy_processed_messages, list)
-                else legacy_processed_messages
-            ),
-            effective_model=normalized_effective_model,
-            context=legacy_context,
-            **kwargs,
-        )
+        return await self._chat_completions_canonical(request)
 
     def _resolve_internal_effective_model(self, effective_model: str) -> str:
         model_name = effective_model

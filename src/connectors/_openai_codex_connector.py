@@ -1902,132 +1902,15 @@ class OpenAICodexConnector(OpenAIConnector):
             )
         return payload
 
-    def _normalize_chat_completions_request(
-        self, *args: Any, **kwargs: Any
-    ) -> ConnectorChatCompletionsRequest:
-        """Normalize canonical and legacy invocation shapes into one request contract."""
-        if len(args) == 1 and isinstance(args[0], ConnectorChatCompletionsRequest):
-            if kwargs:
-                unexpected = ", ".join(sorted(kwargs))
-                raise TypeError(
-                    "OpenAICodexConnector.chat_completions received unexpected keyword "
-                    f"arguments with canonical request: {unexpected}"
-                )
-            return args[0]
-
-        if len(args) > 1 and isinstance(args[0], ConnectorChatCompletionsRequest):
-            raise TypeError(
-                "OpenAICodexConnector.chat_completions received too many positional "
-                "arguments with canonical request invocation."
-            )
-
-        if (
-            "request" in kwargs
-            and isinstance(kwargs["request"], ConnectorChatCompletionsRequest)
-            and not args
-        ):
-            canonical_request = cast(
-                ConnectorChatCompletionsRequest, kwargs.pop("request")
-            )
-            if kwargs:
-                unexpected = ", ".join(sorted(kwargs))
-                raise TypeError(
-                    "OpenAICodexConnector.chat_completions received unexpected keyword "
-                    f"arguments with canonical request: {unexpected}"
-                )
-            return canonical_request
-
-        legacy_fields = (
-            "request_data",
-            "processed_messages",
-            "effective_model",
-            "identity",
-            "cancellation_token",
-            "cancellation_coordinator",
-            "context",
-        )
-        if len(args) > len(legacy_fields):
-            raise TypeError(
-                "OpenAICodexConnector.chat_completions expected at most "
-                f"{len(legacy_fields)} positional arguments for legacy invocation, "
-                f"got {len(args)}."
-            )
-
-        legacy_values: dict[str, Any] = {}
-        for index, value in enumerate(args):
-            field_name = legacy_fields[index]
-            if field_name in kwargs:
-                raise TypeError(
-                    "OpenAICodexConnector.chat_completions got multiple values for "
-                    f"argument '{field_name}'."
-                )
-            legacy_values[field_name] = value
-
-        for field_name in legacy_fields:
-            if field_name in kwargs:
-                legacy_values[field_name] = kwargs.pop(field_name)
-
-        if "request" in kwargs and "request_data" not in legacy_values:
-            legacy_values["request_data"] = kwargs.pop("request")
-
-        options_value = kwargs.pop("options", None)
-
-        missing = object()
-        request_data = legacy_values.get("request_data", missing)
-        if request_data is missing:
-            raise TypeError(
-                "OpenAICodexConnector.chat_completions missing required argument "
-                "'request_data' (or canonical 'request')."
-            )
-
-        processed_messages = legacy_values.get("processed_messages", missing)
-        if processed_messages is missing or processed_messages is None:
-            request_messages = getattr(request_data, "messages", None)
-            if isinstance(request_messages, list | tuple):
-                processed_messages = list(request_messages)
-            else:
-                processed_messages = []
-
-        effective_model_value = legacy_values.get("effective_model", missing)
-        if isinstance(effective_model_value, str) and effective_model_value:
-            effective_model = effective_model_value
-        else:
-            model_hint = getattr(request_data, "model", None)
-            if isinstance(model_hint, str) and model_hint:
-                effective_model = model_hint
-            elif effective_model_value is missing:
-                raise TypeError(
-                    "OpenAICodexConnector.chat_completions missing required argument "
-                    "'effective_model'."
-                )
-            else:
-                effective_model = str(effective_model_value)
-
-        normalized_options: dict[str, Any] = {}
-        if isinstance(options_value, dict):
-            normalized_options.update(options_value)
-        elif options_value is not None:
-            normalized_options["options"] = options_value
-        if kwargs:
-            normalized_options.update(kwargs)
-
-        return ConnectorChatCompletionsRequest(
-            request=request_data,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=legacy_values.get("identity"),
-            cancellation_token=legacy_values.get("cancellation_token"),
-            cancellation_coordinator=legacy_values.get("cancellation_coordinator"),
-            context=legacy_values.get("context"),
-            options=normalized_options,
-        )
-
-    async def chat_completions(  # type: ignore[override]
+    async def chat_completions(
         self,
-        *args: Any,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        request = self._normalize_chat_completions_request(*args, **kwargs)
+        if not isinstance(request, ConnectorChatCompletionsRequest):
+            raise TypeError(
+                "OpenAICodexConnector.chat_completions() requires a "
+                "ConnectorChatCompletionsRequest instance."
+            )
 
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if (

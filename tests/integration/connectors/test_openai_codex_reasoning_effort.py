@@ -13,9 +13,10 @@ import httpx
 import pytest
 import pytest_asyncio
 from httpx import Response
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.model_utils import parse_model_with_params
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import BackendRegistry
@@ -310,11 +311,18 @@ class TestOpenAICodexURIReasoningEffortIntegration:
             backend._auth_credentials = {  # type: ignore[attr-defined]
                 "tokens": {"access_token": "test"}
             }
-            await backend.chat_completions(
-                request_data=sample_request,
-                processed_messages=sample_request.messages,
+            domain = CanonicalChatRequest.model_validate(sample_request.model_dump())
+            connector_req = ConnectorChatCompletionsRequest(
+                request=domain,
+                processed_messages=list(domain.messages),
                 effective_model="openai-codex:gpt-5.1-codex?reasoning_effort=high",
+                identity=None,
+                cancellation_token=None,
+                cancellation_coordinator=None,
+                context=None,
+                options={},
             )
+            await backend.chat_completions(connector_req)
 
         # Verify the request has the resolved reasoning effort
         assert captured_request is not None
@@ -365,11 +373,20 @@ class TestOpenAICodexURIReasoningEffortIntegration:
             backend._auth_credentials = {  # type: ignore[attr-defined]
                 "tokens": {"access_token": "test"}
             }
-            await backend.chat_completions(
-                request_data=request_with_xhigh,
-                processed_messages=request_with_xhigh.messages,
-                effective_model="gpt-5.1-codex",
+            domain = CanonicalChatRequest.model_validate(
+                request_with_xhigh.model_dump()
             )
+            connector_req = ConnectorChatCompletionsRequest(
+                request=domain,
+                processed_messages=list(domain.messages),
+                effective_model="gpt-5.1-codex",
+                identity=None,
+                cancellation_token=None,
+                cancellation_coordinator=None,
+                context=None,
+                options={},
+            )
+            await backend.chat_completions(connector_req)
 
         assert captured_request is not None
         assert captured_request._codex_resolved_reasoning_effort == "xhigh"

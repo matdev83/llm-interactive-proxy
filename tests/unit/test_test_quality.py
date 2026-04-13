@@ -19,6 +19,16 @@ import pytest
 logger = logging.getLogger(__name__)
 
 
+@pytest.fixture(autouse=True)
+def _configure_logging_for_tests() -> None:
+    """Override the unit-level autouse fixture to skip expensive logging setup.
+
+    All quality tests in this module perform external tool invocation or
+    static source-code analysis; logging setup adds ~1.2s of unnecessary
+    overhead for every test.
+    """
+
+
 @pytest.fixture(scope="session")
 def architectural_linter_cache() -> dict[str, Any]:
     """Session-scoped cache for architectural linter results."""

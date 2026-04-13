@@ -256,16 +256,9 @@ class LLMBackend(abc.ABC, IHealthAware):
         Forwards a chat completion request to the LLM backend.
 
         Args:
-            request_data: The request payload as a domain `ChatRequest`.
-            processed_messages: The list of messages after command processing.
-            effective_model: The model name to be used after considering any overrides.
-            identity: Application identity configuration for authentication.
-            cancellation_token: Optional session key for cancellation scoping.
-                If provided, enables cancellation gating and work registration.
-            cancellation_coordinator: Optional cancellation coordinator for structural enforcement.
-                If provided along with cancellation_token, enables connector-level cancellation checks
-                immediately before HTTP request transmission.
-            **kwargs: Additional keyword arguments for the backend.
+            request: Canonical connector request containing the domain chat payload,
+                processed messages, effective model, optional identity and cancellation
+                fields, connector-facing context, and JSON-safe provider options.
 
         Returns:
             Either a ResponseEnvelope for non-streaming requests or

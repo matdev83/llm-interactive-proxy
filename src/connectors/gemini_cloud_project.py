@@ -53,7 +53,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import google.auth
 import google.auth.transport.requests
@@ -1292,125 +1292,17 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Health check passed - backend is ready for use")
 
-    _LEGACY_CHAT_COMPLETIONS_PARAM_ORDER: tuple[str, ...] = (
-        "request_data",
-        "processed_messages",
-        "effective_model",
-        "identity",
-        "cancellation_token",
-        "cancellation_coordinator",
-        "context",
-        "options",
-    )
-
-    def _normalize_chat_completions_request(
+    async def chat_completions(
         self,
-        request: ConnectorChatCompletionsRequest | None,
-        args: tuple[Any, ...],
-        kwargs: dict[str, Any],
-    ) -> ConnectorChatCompletionsRequest:
-        """Normalize canonical and legacy invocation shapes into one request object."""
-        if isinstance(request, ConnectorChatCompletionsRequest):
-            if args or kwargs:
-                raise TypeError(
-                    "GeminiCloudProjectConnector.chat_completions() canonical invocation accepts only "
-                    "the `request` argument."
-                )
-            return request
-
-        legacy_values: dict[str, Any] = {}
-        legacy_kwargs = dict(kwargs)
-
-        positional_values: list[Any] = []
-        if request is not None:
-            positional_values.append(request)
-        positional_values.extend(args)
-
-        max_positional = len(self._LEGACY_CHAT_COMPLETIONS_PARAM_ORDER)
-        if len(positional_values) > max_positional:
-            raise TypeError(
-                "GeminiCloudProjectConnector.chat_completions() takes at most "
-                f"{max_positional} legacy positional arguments "
-                f"({len(positional_values)} given)."
-            )
-
-        for index, value in enumerate(positional_values):
-            param_name = self._LEGACY_CHAT_COMPLETIONS_PARAM_ORDER[index]
-            if param_name in legacy_kwargs:
-                raise TypeError(
-                    "GeminiCloudProjectConnector.chat_completions() got multiple values for "
-                    f"argument '{param_name}'."
-                )
-            legacy_values[param_name] = value
-
-        for param_name in self._LEGACY_CHAT_COMPLETIONS_PARAM_ORDER:
-            if param_name in legacy_kwargs:
-                legacy_values[param_name] = legacy_kwargs.pop(param_name)
-
-        required_legacy = self._LEGACY_CHAT_COMPLETIONS_PARAM_ORDER[:3]
-        missing_required = [
-            name for name in required_legacy if name not in legacy_values
-        ]
-        if missing_required:
-            raise TypeError(
-                "GeminiCloudProjectConnector.chat_completions() missing required arguments: "
-                f"{', '.join(missing_required)}. "
-                "Provide canonical `request` or legacy "
-                "`request_data`, `processed_messages`, and `effective_model`."
-            )
-
-        processed_messages_raw = legacy_values["processed_messages"]
-        if processed_messages_raw is None:
-            processed_messages_seq: Sequence[ChatMessage] = ()
-        elif isinstance(processed_messages_raw, Sequence):
-            processed_messages_seq = cast(Sequence[ChatMessage], processed_messages_raw)
-        else:
-            raise TypeError(
-                "GeminiCloudProjectConnector.chat_completions() legacy `processed_messages` "
-                "must be a sequence."
-            )
-
-        effective_model = legacy_values["effective_model"]
-        if not isinstance(effective_model, str):
-            raise TypeError(
-                "GeminiCloudProjectConnector.chat_completions() legacy `effective_model` "
-                "must be a string."
-            )
-
-        options_from_legacy = legacy_values.get("options")
-        if options_from_legacy is None:
-            options: dict[str, Any] = {}
-        elif isinstance(options_from_legacy, dict):
-            options = dict(options_from_legacy)
-        else:
-            raise TypeError(
-                "GeminiCloudProjectConnector.chat_completions() legacy `options` must be a dict."
-            )
-        options.update(legacy_kwargs)
-
-        return ConnectorChatCompletionsRequest(
-            request=legacy_values["request_data"],
-            processed_messages=processed_messages_seq,
-            effective_model=effective_model,
-            identity=legacy_values.get("identity"),
-            cancellation_token=legacy_values.get("cancellation_token"),
-            cancellation_coordinator=legacy_values.get("cancellation_coordinator"),
-            context=legacy_values.get("context"),
-            options=options,
-        )
-
-    async def chat_completions(  # type: ignore[override]
-        self,
-        request: ConnectorChatCompletionsRequest | None = None,
-        *args: Any,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using Google Code Assist API with user's GCP project."""
-        connector_request = self._normalize_chat_completions_request(
-            request=request,
-            args=args,
-            kwargs=kwargs,
-        )
+        if not isinstance(request, ConnectorChatCompletionsRequest):
+            raise TypeError(
+                "GeminiCloudProjectConnector.chat_completions() requires a "
+                "ConnectorChatCompletionsRequest instance."
+            )
+        connector_request = request
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if (
             connector_request.cancellation_coordinator is not None
@@ -1424,8 +1316,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         processed_messages = connector_request.processed_messages
         effective_model = connector_request.effective_model
 
-        # Options not specifically used here but available in request.options if needed
-        # kwargs was previously passed down to _chat_completions_streaming / _chat_completions_standard
+        # Provider-specific options flow through ``ConnectorChatCompletionsRequest.options``.
         kwargs = dict(connector_request.options) if connector_request.options else {}
 
         # Runtime validation with descriptive errors

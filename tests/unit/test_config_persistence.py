@@ -65,48 +65,41 @@ def test_save_and_load_persistent_config(
     monkeypatch.setenv("GEMINI_API_KEY_1", "G")
     monkeypatch.setenv("DEFAULT_BACKEND", "openrouter")
     app_config = load_config(str(cfg_path))
-    app = build_app(config=app_config)
     caplog.set_level("WARNING")
 
-    with TestClient(
-        app
-    ) as client:  # Auth headers not needed if client fixture handles it
-        # Create a modified config with updated values (config is frozen, so we use model_copy)
+    # Create a modified config directly without needing a full app build.
+    # Updated failover routes
+    updated_failover_routes = dict(app_config.failover_routes)
+    updated_failover_routes["r1"] = {
+        "policy": "k",
+        "elements": ["openrouter:model-a"],
+    }
 
-        # Use model_copy to efficiently create updated configuration
-        client_app = client.app  # type: ignore[attr-defined]
-        app_config_state = client_app.state.app_config  # type: ignore[attr-defined]
-        updated_failover_routes = dict(app_config_state.failover_routes)
-        updated_failover_routes["r1"] = {
-            "policy": "k",
-            "elements": ["openrouter:model-a"],
+    updated_config = app_config.model_copy(
+        update={
+            "command_prefix": "$/",
+            "backends": app_config.backends.model_copy(
+                update={"default_backend": functional_backend}
+            ),
+            "auth": app_config.auth.model_copy(
+                update={"redact_api_keys_in_prompts": False}
+            ),
+            "session": app_config.session.model_copy(
+                update={"default_interactive_mode": True}
+            ),
+            "failover_routes": updated_failover_routes,
         }
-
-        updated_config = app_config_state.model_copy(
-            update={
-                "command_prefix": "$/",
-                "backends": app_config_state.backends.model_copy(
-                    update={"default_backend": functional_backend}
-                ),
-                "auth": app_config_state.auth.model_copy(
-                    update={"redact_api_keys_in_prompts": False}
-                ),
-                "session": app_config_state.session.model_copy(
-                    update={"default_interactive_mode": True}
-                ),
-                "failover_routes": updated_failover_routes,
-            }
-        )
-        updated_config.save(cfg_path)  # type: ignore
+    )
+    updated_config.save(cfg_path)  # type: ignore
 
     import yaml
 
     yaml_content = cfg_path.read_text()
-    data = yaml.safe_load(yaml_content)  # Reuse the already read content
+    data = yaml.safe_load(yaml_content)
     assert data["backends"]["default_backend"] == functional_backend
-    assert data["session"]["default_interactive_mode"] is True  # Updated path
+    assert data["session"]["default_interactive_mode"] is True
     assert data["failover_routes"]["r1"]["elements"] == ["openrouter:model-a"]
-    assert data["auth"]["redact_api_keys_in_prompts"] is False  # Updated path
+    assert data["auth"]["redact_api_keys_in_prompts"] is False
     assert data["command_prefix"] == "$/"
 
     # Clear the environment variable that was set earlier to test config file loading
@@ -122,7 +115,6 @@ def test_save_and_load_persistent_config(
         try:
             app2_config = load_config(str(cfg_path))
         except Exception as e:
-            # Print the actual validation error for debugging
             print("YAML content that failed validation:")
             print(yaml_content)
             print(f"Validation error type: {type(e).__name__}")
@@ -139,23 +131,19 @@ def test_save_and_load_persistent_config(
     caplog.clear()
 
     with TestClient(app2) as client2:
-        # Config file should be used since no CLI argument overrides it
         app2_state = client2.app.state  # type: ignore[attr-defined]
         assert app2_state.app_config.backends.default_backend == functional_backend
         assert app2_state.app_config.session.default_interactive_mode is True
 
         expected_elements = ["openrouter:model-a"]
 
-        # The key 'r1' might not exist if all its elements were deemed unavailable.
         if "r1" in app2_state.app_config.failover_routes:
             assert (
                 app2_state.app_config.failover_routes["r1"]["elements"]
                 == expected_elements
             )
         else:
-            assert (
-                not expected_elements
-            )  # If no "r1" route, expected_elements should be empty
+            assert not expected_elements
 
 
 def test_invalid_persisted_backend(

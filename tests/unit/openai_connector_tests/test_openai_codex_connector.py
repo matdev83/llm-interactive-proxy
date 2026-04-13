@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
@@ -45,6 +46,16 @@ async def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
             model="gpt-5.4-mini",
             messages=[ChatMessage(role="user", content="test")],
         )
-        await connector.chat_completions(request, [], "gpt-5.4-mini")
+        connector_req = ConnectorChatCompletionsRequest(
+            request=request,
+            processed_messages=list(request.messages),
+            effective_model="gpt-5.4-mini",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
+        )
+        await connector.chat_completions(connector_req)
 
     assert connector.is_functional is False

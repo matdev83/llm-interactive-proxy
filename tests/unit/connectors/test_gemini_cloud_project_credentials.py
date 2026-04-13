@@ -9,9 +9,10 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 from fastapi import HTTPException
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.gemini_cloud_project import GeminiCloudProjectConnector
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
 
 
@@ -81,17 +82,23 @@ async def test_chat_completions_refreshes_before_validation(monkeypatch):
         connector._ensure_healthy = AsyncMock()
         connector._chat_completions_standard = AsyncMock(return_value="ok-response")
 
-        request = ChatRequest(
+        request = CanonicalChatRequest(
             model="gemini-cli-cloud-project:gemini-pro",
             messages=[ChatMessage(role="user", content="hi")],
             stream=False,
         )
-
-        result = await connector.chat_completions(
-            request_data=request,
+        connector_req = ConnectorChatCompletionsRequest(
+            request=request,
             processed_messages=request.messages,
             effective_model="gemini-pro",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=None,
+            options={},
         )
+
+        result = await connector.chat_completions(connector_req)
 
         assert result == "ok-response"
         assert call_order == ["refresh", "validate"]
@@ -107,18 +114,24 @@ async def test_chat_completions_raises_when_refresh_fails(monkeypatch):
     connector._refresh_token_if_needed = AsyncMock(return_value=False)
     connector._validate_runtime_credentials = AsyncMock(return_value=True)
 
-    request = ChatRequest(
+    request = CanonicalChatRequest(
         model="gemini-cli-cloud-project:gemini-pro",
         messages=[ChatMessage(role="user", content="hi")],
         stream=False,
     )
+    connector_req = ConnectorChatCompletionsRequest(
+        request=request,
+        processed_messages=request.messages,
+        effective_model="gemini-pro",
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+        options={},
+    )
 
     with pytest.raises(HTTPException) as exc:
-        await connector.chat_completions(
-            request_data=request,
-            processed_messages=request.messages,
-            effective_model="gemini-pro",
-        )
+        await connector.chat_completions(connector_req)
 
     assert exc.value.status_code == 502
     connector._validate_runtime_credentials.assert_not_called()
