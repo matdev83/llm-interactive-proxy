@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.core.common.logging_utils import get_environment_tag
+from src.core.common.logging_utils import format_log_pid_short
 
 
 class UvicornEnvironmentTaggingFormatter(logging.Formatter):
-    """Custom formatter for Uvicorn that adds environment tags like the main app.
+    """Custom formatter for Uvicorn aligned with the main app log layout.
 
-    This ensures Uvicorn log messages match the format of the rest of the application:
-    YYYY-MM-DD HH:MM:SS,mmm [LEVEL] [env] [pid=XXX] name:lineno message
+    Format matches :class:`EnvironmentTaggingFormatter` defaults:
+    ``YYYY-MM-DD HH:MM:SS,mmm [LEVEL] [pid=*XXXX] name:lineno message``.
     """
 
     def __init__(
@@ -19,16 +19,14 @@ class UvicornEnvironmentTaggingFormatter(logging.Formatter):
         datefmt: str | None = None,
         use_colors: bool = False,
     ) -> None:
-        # Use project-standard format if none provided - compact level, env tag, and PID
         if fmt is None:
-            fmt = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
+            fmt = "%(asctime)s [%(levelname)s] [pid=%(pid_short)s] %(name)s:%(lineno)d %(message)s"
         super().__init__(fmt, datefmt)
-        self._env_tag = get_environment_tag()
         self._use_colors = use_colors
 
     def format(self, record: logging.LogRecord) -> str:
-        """Add environment tag to the log record before formatting."""
-        record.env_tag = self._env_tag
+        """Set ``pid_short`` and optional Uvicorn access fields before formatting."""
+        record.pid_short = format_log_pid_short(getattr(record, "process", None))
         if not hasattr(record, "client_addr"):
             self._maybe_populate_access_fields(record)
         return super().format(record)
@@ -67,12 +65,9 @@ def get_uvicorn_logging_config(
     Returns:
         Uvicorn logging configuration dictionary.
     """
-    # Use project-standard log format matching EnvironmentTaggingFormatter in logging_utils.py
-    # Compact level (no padding), env tag, and PID
-    standard_fmt = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
-    # For access logs, include client address and request info
+    standard_fmt = "%(asctime)s [%(levelname)s] [pid=%(pid_short)s] %(name)s:%(lineno)d %(message)s"
     access_fmt = (
-        "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d "
+        "%(asctime)s [%(levelname)s] [pid=%(pid_short)s] %(name)s:%(lineno)d "
         '%(client_addr)s - "%(request_line)s" %(status_code)s'
     )
 

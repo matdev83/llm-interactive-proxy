@@ -11,7 +11,9 @@ import structlog
 from src.core.common.logging_utils import (
     CompatibleBoundLogger,
     EnvironmentTaggingFilter,
+    EnvironmentTaggingFormatter,
     LogContext,
+    format_log_pid_short,
     get_logger,
     log_async_call,
     log_call,
@@ -243,6 +245,30 @@ class TestLogging:
 
         assert hasattr(record, "env_tag")
         assert record.env_tag == "test"
+
+    def test_format_log_pid_short(self) -> None:
+        assert format_log_pid_short(440852) == "*0852"
+        assert format_log_pid_short(852) == "*0852"
+        assert format_log_pid_short(5) == "*0005"
+        assert format_log_pid_short(None) == "*----"
+
+    def test_environment_tagging_formatter_default_line(self) -> None:
+        record = logging.LogRecord(
+            name="nm",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=7,
+            msg="hi",
+            args=(),
+            exc_info=None,
+        )
+        record.process = 440852
+        line = EnvironmentTaggingFormatter().format(record)
+        assert "[pid=*0852]" in line
+        assert "[INFO]" in line
+        assert "[prod]" not in line
+        assert "[test]" not in line
+        assert "nm:7 hi" in line
 
     def test_log_context(self) -> None:
         """Test LogContext class."""

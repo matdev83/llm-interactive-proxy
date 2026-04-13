@@ -6,7 +6,7 @@ This module provides utilities for logging, including:
 - Redaction of sensitive information
 - Consistent log level usage
 - Enhanced context information
-- Test/production environment tagging
+- Optional test/production ``env_tag`` on records (for filters and custom formats)
 """
 
 from __future__ import annotations
@@ -86,6 +86,21 @@ def get_environment_tag() -> str:
     return _get_environment_tag()
 
 
+def format_log_pid_short(process: int | None) -> str:
+    """Format a process id for log lines: asterisk plus last four decimal digits.
+
+    Used inside ``[pid=...]``, e.g. process ``440852`` -> ``*0852`` so the tag reads
+    ``[pid=*0852]``.
+    """
+    if process is None:
+        return "*----"
+    try:
+        pid_int = int(process)
+    except (TypeError, ValueError):
+        return "*----"
+    return f"*{pid_int % 10000:04d}"
+
+
 class EnvironmentTaggingFilter(logging.Filter):
     """Logging filter that adds environment tags to log records."""
 
@@ -107,9 +122,10 @@ class EnvironmentTaggingFilter(logging.Filter):
 
 
 class EnvironmentTaggingFormatter(logging.Formatter):
-    """Logging formatter that includes environment tags and PID.
+    """Logging formatter with shortened ``pid`` placeholder for log lines.
 
-    Format: YYYY-MM-DD HH:MM:SS,mmm [LEVEL] [env] [pid=XXX] name:lineno message
+    Default format: ``YYYY-MM-DD HH:MM:SS,mmm [LEVEL] [pid=*XXXX] name:lineno message``
+    where ``*XXXX`` is an asterisk plus the process id modulo 10000 (four digits).
     """
 
     def __init__(
@@ -118,15 +134,13 @@ class EnvironmentTaggingFormatter(logging.Formatter):
         datefmt: str | None = None,
         style: Literal["%", "{", "$"] = "%",
     ) -> None:
-        # Set default format if none provided - compact level, env tag, and PID
         if fmt is None:
-            fmt = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] [stream_id=%(stream_id)s] %(name)s:%(lineno)d %(message)s"
+            fmt = "%(asctime)s [%(levelname)s] [pid=%(pid_short)s] %(name)s:%(lineno)d %(message)s"
         super().__init__(fmt, datefmt, style=style)
 
     def format(self, record: logging.LogRecord) -> str:
-        """Populate optional logging fields used by the global format."""
-        if not hasattr(record, "stream_id"):
-            record.stream_id = "-"
+        """Set ``pid_short`` on the record for the format string."""
+        record.pid_short = format_log_pid_short(getattr(record, "process", None))
         return super().format(record)
 
 
@@ -533,9 +547,8 @@ def install_environment_tagging() -> None:
         for handler in list(root.handlers):
             try:
                 handler.addFilter(filter_instance)
-                # Update formatter to include environment tag
+                # Normalize formatter to EnvironmentTaggingFormatter (pid_short, etc.)
                 if isinstance(handler.formatter, logging.Formatter):
-                    # Use the environment tagging formatter
                     new_formatter = EnvironmentTaggingFormatter(
                         fmt=handler.formatter._fmt, datefmt=handler.formatter.datefmt
                     )
@@ -560,7 +573,7 @@ def configure_logging_with_environment_tagging(
     use_colors: bool = False,
     console_stream: str = "stderr",
 ) -> None:
-    """Configure logging with environment tagging.
+    """Configure root logging, structlog, env-tag filter, and standard formatters.
 
     Args:
         level: Logging level
@@ -568,11 +581,9 @@ def configure_logging_with_environment_tagging(
         log_file: Optional log file path
         use_colors: Whether to enable colored output
     """
-    # Use default format with environment tag if none provided - compact level, env tag, and PID
     if log_format is None:
-        log_format = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] [stream_id=%(stream_id)s] %(name)s:%(lineno)d %(message)s"
+        log_format = "%(asctime)s [%(levelname)s] [pid=%(pid_short)s] %(name)s:%(lineno)d %(message)s"
 
-    # Create formatter with environment tag support
     formatter = EnvironmentTaggingFormatter(fmt=log_format)
 
     # Create handlers
@@ -588,9 +599,8 @@ def configure_logging_with_environment_tagging(
             from rich.logging import RichHandler
 
             # Use RichHandler for colored output
-            # Define a simplified format for Rich that excludes time/level (Rich handles them)
-            # but includes the environment tag and location info
-            rich_fmt = "[%(env_tag)s] %(name)s:%(lineno)d %(message)s"
+            # Simplified format for Rich (time/level come from Rich); keep pid + location
+            rich_fmt = "[pid=%(pid_short)s] %(name)s:%(lineno)d %(message)s"
             rich_formatter = EnvironmentTaggingFormatter(fmt=rich_fmt)
 
             console_handler = RichHandler(
