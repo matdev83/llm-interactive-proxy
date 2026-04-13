@@ -23,6 +23,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import src.core.services.tool_output_compression_service as compression_service_module
 from src.core.config.models.backends import BackendConfig
 from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
 from src.core.domain.compaction_telemetry import (
@@ -722,6 +723,88 @@ class TestDynamicCompressionRequestPathToolOnly:
             ),
             ChatMessage(role="tool", tool_call_id="tc-1", content=tool_content),
         ]
+
+    @pytest.mark.asyncio
+    async def test_emits_applied_compression_log_only_once_for_repeated_history(
+        self,
+        mock_config: IConfig,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        class _TrimOneStrategy:
+            def compress(self, content: str, **_: object) -> str:
+                if len(content) <= 1:
+                    return content
+                return content[:-1]
+
+        class _CaptureLogger:
+            def __init__(self) -> None:
+                self.info_calls: list[tuple[str, dict[str, object]]] = []
+                self.debug_calls: list[tuple[str, dict[str, object]]] = []
+
+            def is_enabled_for(self, level: int) -> bool:
+                return True
+
+            def info(self, event: str, **kwargs: object) -> None:
+                self.info_calls.append((event, kwargs))
+
+            def debug(self, event: str, **kwargs: object) -> None:
+                self.debug_calls.append((event, kwargs))
+
+        registry = CompressionStrategyRegistry()
+        registry.register("trim_one", _TrimOneStrategy())
+        compression_service = ToolOutputCompressionService(
+            strategy_registry=registry,
+            identity_resolver=ToolIdentityResolver(),
+            selector=RuleBasedStrategySelector(),
+        )
+        capture_logger = _CaptureLogger()
+        monkeypatch.setattr(compression_service_module, "logger", capture_logger)
+
+        mock_config.compaction = CompactionConfig(enabled=False)
+        mock_config.dynamic_compression = DynamicCompressionConfig(
+            enabled=True,
+            min_bytes=0,
+            marker=CompressionMarkerConfig(enabled=False),
+            per_output_evaluation_log_level="info",
+            methods={"trim_one": True},
+            rules=[
+                CompressionRule(
+                    name="trim-once-request-path",
+                    priority=1,
+                    when=CompressionRulePredicate(command_signature="git"),
+                    pipeline=["trim_one"],
+                )
+            ],
+        )
+
+        service = BackendRequestPreparationService(
+            history_compaction_service=None,
+            config=mock_config,
+            tool_output_compression_service=compression_service,
+        )
+
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="u"),
+                *self._tool_thread(tool_content="hello"),
+            ],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        first_result = await service.prepare(request, command_result)
+        second_result = await service.prepare(request, command_result)
+
+        assert first_result is not None
+        assert second_result is not None
+        assert len(capture_logger.info_calls) == 1
+        event_name, metadata = capture_logger.info_calls[0]
+        assert event_name == "Tool output compression evaluated"
+        assert metadata.get("decision_reason") == "applied"
 
     @pytest.mark.asyncio
     async def test_preserves_non_tool_messages_when_compression_skips_large_min_bytes(

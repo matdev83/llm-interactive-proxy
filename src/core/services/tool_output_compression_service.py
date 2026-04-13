@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Sequence
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
@@ -69,6 +70,7 @@ _DYNAMIC_CONFIG_RUNTIME_TUNABLE_ATTR = "__dynamic_config_runtime_tunable__"
 _COMPACTED_STUB_MARKER = "[COMPACTED]"
 _COMPRESSED_MARKER_RE = re.compile(r"^\[COMPRESSED[^\]]*\]", re.MULTILINE)
 _SYSTEM_REMINDER_MARKER = "<system-reminder>"
+_EMITTED_APPLIED_LOG_CACHE_LIMIT = 4096
 _NOISY_NOOP_DECISION_REASONS = frozenset(
     {
         "already_processed_output",
@@ -111,6 +113,7 @@ class ToolOutputCompressionService:
         self._declarative_rule_registry = (
             declarative_rule_registry or DeclarativeRuleRegistry()
         )
+        self._emitted_applied_log_keys: OrderedDict[str, None] = OrderedDict()
 
     def prevalidate_config(self, config: DynamicCompressionConfig) -> list[str]:
         """Validate dynamic/declarative config eagerly and return warnings."""
@@ -1537,6 +1540,36 @@ class ToolOutputCompressionService:
             parts.append(f"selected_rule={selected_rule_name}")
         return "; ".join(parts)
 
+    def _build_applied_log_dedupe_key(
+        self,
+        *,
+        record: ToolOutputCompressionRecord,
+        selected_rule_name: str | None,
+    ) -> str | None:
+        if not record.applied or record.failed_open:
+            return None
+        if not record.tool_call_id:
+            return None
+        if not record.original_sha256 or not record.compressed_sha256:
+            return None
+        return "|".join(
+            (
+                record.tool_call_id,
+                record.original_sha256,
+                record.compressed_sha256,
+                selected_rule_name or "",
+            )
+        )
+
+    def _remember_emitted_applied_log(self, key: str) -> bool:
+        if key in self._emitted_applied_log_keys:
+            self._emitted_applied_log_keys.move_to_end(key)
+            return False
+        self._emitted_applied_log_keys[key] = None
+        if len(self._emitted_applied_log_keys) > _EMITTED_APPLIED_LOG_CACHE_LIMIT:
+            self._emitted_applied_log_keys.popitem(last=False)
+        return True
+
     def _log_output_evaluation(
         self,
         *,
@@ -1568,6 +1601,14 @@ class ToolOutputCompressionService:
                 target_level = per_output_evaluation_log_level
                 if target_level not in {"off", "debug", "info"}:
                     target_level = "debug"
+                dedupe_key = self._build_applied_log_dedupe_key(
+                    record=record,
+                    selected_rule_name=selected_rule_name,
+                )
+                if dedupe_key is not None and not self._remember_emitted_applied_log(
+                    dedupe_key
+                ):
+                    return
             if target_level == "off":
                 return
             if target_level == "info":

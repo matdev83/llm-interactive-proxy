@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.core.app.controllers.responses_stream_legacy import (
+from src.core.app.controllers.responses_stream_coercion import (
     coerce_stream_chunk_payload,
 )
 

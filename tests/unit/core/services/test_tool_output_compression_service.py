@@ -1083,6 +1083,91 @@ async def test_service_suppresses_applied_outcome_logs_when_configured_off(
 
 
 @pytest.mark.asyncio
+async def test_service_logs_applied_outcome_only_once_for_same_compression_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("trim_one", _TrimOneStrategy())
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(compression_service_module, "logger", capture_logger)
+    messages = _build_tool_messages("git status", "hello")
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        per_output_evaluation_log_level="info",
+        methods={"trim_one": True},
+        rules=[
+            CompressionRule(
+                name="trim-once",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["trim_one"],
+            )
+        ],
+    )
+
+    first_result = await service.compress_messages(messages=messages, config=cfg)
+    second_result = await service.compress_messages(messages=messages, config=cfg)
+
+    assert first_result.records[0].applied is True
+    assert second_result.records[0].applied is True
+    assert len(capture_logger.info_calls) == 1
+    _, metadata = capture_logger.info_calls[0]
+    assert metadata["decision_reason"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_service_logs_applied_outcome_again_when_compressed_payload_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = CompressionStrategyRegistry()
+    registry.register("replace", _TokenReplaceStrategy("beta", "b"))
+    service = ToolOutputCompressionService(
+        strategy_registry=registry,
+        identity_resolver=ToolIdentityResolver(),
+        selector=RuleBasedStrategySelector(),
+    )
+    capture_logger = _CaptureLogger()
+    monkeypatch.setattr(compression_service_module, "logger", capture_logger)
+    cfg = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+        marker=CompressionMarkerConfig(enabled=False),
+        per_output_evaluation_log_level="info",
+        methods={"replace": True},
+        rules=[
+            CompressionRule(
+                name="replace-dynamic",
+                priority=1,
+                when=CompressionRulePredicate(command_signature="git"),
+                pipeline=["replace"],
+            )
+        ],
+    )
+
+    first_result = await service.compress_messages(
+        messages=_build_tool_messages("git status", "alpha beta"),
+        config=cfg,
+    )
+    second_result = await service.compress_messages(
+        messages=_build_tool_messages("git status", "alpha beta beta"),
+        config=cfg,
+    )
+
+    assert (
+        first_result.records[0].compressed_sha256
+        != second_result.records[0].compressed_sha256
+    )
+    assert len(capture_logger.info_calls) == 2
+
+
+@pytest.mark.asyncio
 async def test_service_suppresses_debug_for_compression_disabled_noop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
