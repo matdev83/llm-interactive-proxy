@@ -634,18 +634,10 @@ properties:
       capability_refresh_backoff_seconds:
         type: number
         minimum: 0
-  request_processing_unification:
+  canonical_request_processing:
     type: object
     additionalProperties: false
     properties:
-      enable_core_canonical_path: { type: boolean }
-      enable_canonical_features: { type: boolean }
-      connector_stream_first:
-        type: object
-        additionalProperties: { type: boolean }
-      retire_legacy_dual_path: { type: boolean }
-      emit_path_selection_metadata: { type: boolean }
-      legacy_streaming_client_blocking_envelope: { type: boolean }
       empty_stream_recovery_prompt:
         type: string
         description: "Recovery prompt appended to retry requests when stream produces no content"
@@ -654,9 +646,6 @@ properties:
         minimum: 0
         maximum: 5
         description: "Maximum number of empty stream retry attempts before failing"
-      promotion_requirements:
-        type: object
-        additionalProperties: false
         properties:
           require_characterization_tests: { type: boolean }
           require_equivalence_tests: { type: boolean }

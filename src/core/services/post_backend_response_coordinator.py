@@ -121,12 +121,7 @@ class PostBackendResponseCoordinator:
             )
             return _canonical_handle_from_streaming_envelope(streaming_envelope)
 
-        if processing_mode is not PostBackendProcessingMode.STREAMING_HANDLER:
-            msg = (
-                "StreamingResponseEnvelope requires "
-                "PostBackendProcessingMode.STREAMING_HANDLER under canonical runtime"
-            )
-            raise TypeError(msg)
+        del processing_mode
         streaming_envelope = await self._streaming_handler.handle(
             stream=backend_response,
             request=request,

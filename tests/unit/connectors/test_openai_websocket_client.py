@@ -44,9 +44,13 @@ async def test_connect_success(ws_client):
 async def test_connect_authentication_error(ws_client):
     """Test connection failure with authentication error."""
     with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
-        from websockets.exceptions import InvalidStatusCode
 
-        mock_connect.side_effect = InvalidStatusCode(401, {})
+        class AuthFailureError(Exception):
+            def __init__(self) -> None:
+                super().__init__("unauthorized")
+                self.status_code = 401
+
+        mock_connect.side_effect = AuthFailureError()
 
         with pytest.raises(AuthenticationError):
             await ws_client.connect()
@@ -266,6 +270,29 @@ async def test_event_to_processed_response_done(ws_client):
     assert result is not None
     assert result.metadata["done"] is True
     assert result.content["id"] == "resp_123"
+
+
+@pytest.mark.asyncio
+async def test_event_to_processed_response_preserves_output_item_done_payload(
+    ws_client,
+):
+    """Tool completion events must preserve full Responses metadata."""
+    event_data = {
+        "type": "response.output_item.done",
+        "output_index": 1,
+        "item": {
+            "id": "fc_123",
+            "type": "function_call",
+            "name": "shell",
+            "arguments": "{}",
+        },
+    }
+
+    result = ws_client._event_to_processed_response(event_data)
+
+    assert result is not None
+    assert result.metadata["event_type"] == "response.output_item.done"
+    assert result.content == event_data
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,9 @@ from src.core.config.models.access_mode import AccessModeConfig
 from src.core.config.models.auth import AuthConfig
 from src.core.config.models.auxiliary_routing import AuxiliaryRoutingConfig
 from src.core.config.models.backends import BackendSettings
+from src.core.config.models.canonical_request_processing import (
+    CanonicalRequestProcessingConfig,
+)
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.config.models.logging import LoggingConfig
 from src.core.config.models.misc import (
@@ -24,9 +27,6 @@ from src.core.config.models.misc import (
 )
 from src.core.config.models.non_forwardable_config import NonForwardableTaggingConfig
 from src.core.config.models.notification import NotificationConfig
-from src.core.config.models.request_processing_unification import (
-    RequestProcessingUnificationConfig,
-)
 from src.core.config.models.rewriting import (
     EditPrecisionConfig,
     ModelAliasRule,
@@ -120,8 +120,8 @@ class AppConfigModel(DomainModel, IConfig):
     auxiliary_routing: AuxiliaryRoutingConfig = Field(
         default_factory=AuxiliaryRoutingConfig
     )
-    request_processing_unification: RequestProcessingUnificationConfig = Field(
-        default_factory=RequestProcessingUnificationConfig
+    canonical_request_processing: CanonicalRequestProcessingConfig = Field(
+        default_factory=CanonicalRequestProcessingConfig
     )
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     dynamic_compression: DynamicCompressionConfig = Field(

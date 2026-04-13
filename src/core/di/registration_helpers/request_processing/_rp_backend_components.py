@@ -316,8 +316,8 @@ def _register_backend_streaming_response_handler(
     def _backend_streaming_response_handler_factory(
         provider: IServiceProvider,
     ) -> BackendStreamingResponseHandler:
-        from src.core.config.models.request_processing_unification import (
-            RequestProcessingUnificationConfig,
+        from src.core.config.models.canonical_request_processing import (
+            CanonicalRequestProcessingConfig,
         )
 
         response_processor: IResponseProcessor = provider.get_required_service(
@@ -349,12 +349,14 @@ def _register_backend_streaming_response_handler(
         try:
             app_config = provider.get_service(AppConfig)
             if app_config is not None:
-                rpu_config = getattr(app_config, "request_processing_unification", None)
-                if isinstance(rpu_config, RequestProcessingUnificationConfig):
+                canonical_config = getattr(
+                    app_config, "canonical_request_processing", None
+                )
+                if isinstance(canonical_config, CanonicalRequestProcessingConfig):
                     empty_stream_recovery_prompt = (
-                        rpu_config.empty_stream_recovery_prompt
+                        canonical_config.empty_stream_recovery_prompt
                     )
-                    max_empty_stream_retries = rpu_config.max_empty_stream_retries
+                    max_empty_stream_retries = canonical_config.max_empty_stream_retries
         except Exception:
             # Fail-open: use defaults if config lookup fails
             pass

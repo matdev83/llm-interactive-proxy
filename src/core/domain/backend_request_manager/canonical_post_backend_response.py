@@ -26,27 +26,17 @@ class PostBackendProcessingMode(str, Enum):
     single path; the client transport shape is chosen only at the boundary via
     :class:`~src.core.services.envelope_compatibility_adapter.EnvelopeCompatibilityAdapter`.
 
-    ``RAW_PASSTHROUGH`` is retained only for backward compatibility with older
-    call sites; the manager always selects ``STREAMING_HANDLER``.
     """
 
     STREAMING_HANDLER = "streaming_handler"
-    RAW_PASSTHROUGH = "raw_passthrough"
 
 
 def select_post_backend_processing_mode(
     requested_stream: bool,
     backend_response: ResponseEnvelope | StreamingResponseEnvelope,
-    *,
-    connector_stream_first_active: bool = False,
 ) -> PostBackendProcessingMode:
-    """Return post-backend mode for the canonical coordinator (always streaming handler).
-
-    Arguments are accepted for a stable API and for callers that still thread
-    migration-era parameters; they do not change the result under canonical-only
-    runtime.
-    """
-    del requested_stream, backend_response, connector_stream_first_active
+    """Return the post-backend mode for the canonical coordinator."""
+    del requested_stream, backend_response
     return PostBackendProcessingMode.STREAMING_HANDLER
 
 

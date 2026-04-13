@@ -11,7 +11,11 @@ from fastapi import HTTPException
 from src.connectors.openai_codex.executor import ResponseExecutor
 from src.connectors.openai_codex.interfaces import ICompatibilityLayer
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.translators.responses.streaming import (
+    reset_active_responses_stream_context,
+)
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.translation_service import TranslationService
 
 
 class TestResponseExecutor:
@@ -359,6 +363,126 @@ class TestResponseExecutor:
         assert len(chunks) == 2
         assert mock_base_connector._handle_streaming_response.await_count == 1
         assert mock_credential_manager.refresh_access_token.await_count == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_normalizes_responses_tool_completion_events(
+        self,
+        executor,
+        mock_base_connector,
+        sample_context,
+        streaming_payload,
+    ):
+        mock_base_connector.translation_service = TranslationService()
+        reset_active_responses_stream_context()
+
+        full_arguments = '{"command":["bash","-lc","git log -1 --oneline"]}'
+
+        async def websocket_style_iterator():
+            yield ProcessedResponse(
+                content={
+                    "type": "response.created",
+                    "response": {"id": "resp_ws_tool", "model": "gpt-5.1-codex"},
+                },
+                metadata={"event_type": "response.created"},
+            )
+            yield ProcessedResponse(
+                content={
+                    "type": "response.function_call_arguments.delta",
+                    "item_id": "fc_ws_tool",
+                    "output_index": 1,
+                    "delta": full_arguments,
+                },
+                metadata={"event_type": "response.function_call_arguments.delta"},
+            )
+            yield ProcessedResponse(
+                content={
+                    "type": "response.output_item.done",
+                    "output_index": 1,
+                    "item": {
+                        "id": "fc_ws_tool",
+                        "type": "function_call",
+                        "name": "shell",
+                        "arguments": "{}",
+                    },
+                },
+                metadata={"event_type": "response.output_item.done"},
+            )
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = websocket_style_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+
+        assert result.content is not None
+        chunks = [chunk async for chunk in result.content]
+
+        tool_chunks = [
+            chunk
+            for chunk in chunks
+            if isinstance(chunk.content, dict)
+            and isinstance(chunk.content.get("choices"), list)
+            and chunk.content["choices"]
+            and isinstance(chunk.content["choices"][0], dict)
+            and isinstance(chunk.content["choices"][0].get("delta"), dict)
+            and chunk.content["choices"][0]["delta"].get("tool_calls")
+        ]
+
+        assert tool_chunks, "expected canonical tool-call chunk from Responses events"
+        tool_call = tool_chunks[-1].content["choices"][0]["delta"]["tool_calls"][0]
+        assert tool_call["function"]["name"] == "bash"
+        assert "git log -1 --oneline" in tool_call["function"]["arguments"]
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_normalizes_response_done_into_stop_chunk(
+        self,
+        executor,
+        mock_base_connector,
+        sample_context,
+        streaming_payload,
+    ):
+        mock_base_connector.translation_service = TranslationService()
+        reset_active_responses_stream_context()
+
+        async def websocket_style_iterator():
+            yield ProcessedResponse(
+                content={
+                    "type": "response.created",
+                    "response": {"id": "resp_ws_done", "model": "gpt-5.1-codex"},
+                },
+                metadata={"event_type": "response.created"},
+            )
+            yield ProcessedResponse(
+                content={
+                    "id": "resp_ws_done",
+                    "output": [],
+                    "usage": {"input_tokens": 7, "output_tokens": 3},
+                },
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = websocket_style_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+
+        assert result.content is not None
+        chunks = [chunk async for chunk in result.content]
+
+        final_chunk = chunks[-1]
+        assert final_chunk.metadata["done"] is True
+        assert isinstance(final_chunk.content, dict)
+        assert final_chunk.content["id"] == "resp_ws_done"
+        assert final_chunk.content["choices"][0]["finish_reason"] == "stop"
 
     @pytest.mark.asyncio
     async def test_execute_streaming_chunk_auth_error_retry_exhausted(

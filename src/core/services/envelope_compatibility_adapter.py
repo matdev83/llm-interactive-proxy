@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
-from typing import cast
 
 from pydantic.types import JsonValue
 
@@ -12,7 +12,10 @@ from src.core.domain.backend_request_manager.canonical_post_backend_response imp
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.response_processor_interface import (
+    ProcessedChunkContent,
+    ProcessedResponse,
+)
 from src.core.services.response_metadata_serialization import (
     filter_json_serializable_client_metadata,
 )
@@ -68,6 +71,71 @@ def _is_terminal_stream_marker(content: object) -> bool:
     return False
 
 
+def _extract_sse_data_payloads(content: object) -> list[ProcessedChunkContent] | None:
+    """Decode SSE ``data:`` events into non-SSE payloads.
+
+    Returns ``None`` if input is not SSE-framed data.
+    """
+    if isinstance(content, bytes):
+        text = content.decode("utf-8", errors="ignore")
+    elif isinstance(content, str):
+        text = content
+    else:
+        return None
+
+    lines = text.splitlines()
+    if not any(line.lstrip().startswith("data:") for line in lines):
+        return None
+
+    payloads: list[ProcessedChunkContent] = []
+    event_data_lines: list[str] = []
+
+    def _append_payload(raw_payload: str) -> None:
+        payload = raw_payload.strip()
+        if payload in {"", "[DONE]", "null"}:
+            return
+
+        try:
+            parsed = json.loads(payload)
+        except json.JSONDecodeError:
+            payloads.append(payload)
+            return
+
+        if isinstance(parsed, dict):
+            payloads.append(parsed)
+            return
+        if isinstance(parsed, str):
+            payloads.append(parsed)
+            return
+
+        payloads.append(json.dumps(parsed, separators=(",", ":")))
+
+    def _flush_event() -> None:
+        if not event_data_lines:
+            return
+        _append_payload("\n".join(event_data_lines))
+        event_data_lines.clear()
+
+    for line in lines:
+        stripped = line.strip("\r")
+        if not stripped:
+            _flush_event()
+            continue
+
+        normalized = stripped.lstrip()
+        if normalized.startswith(":"):
+            continue
+
+        if normalized.startswith("data:"):
+            data_part = normalized[5:]
+            if data_part.startswith(" "):
+                data_part = data_part[1:]
+            event_data_lines.append(data_part)
+
+    _flush_event()
+    return payloads
+
+
 class EnvelopeCompatibilityAdapter:
     """Converts :class:`CanonicalResponseHandle` to public manager envelopes.
 
@@ -116,9 +184,9 @@ class EnvelopeCompatibilityAdapter:
         # Accumulate meaningful chunks so non-streaming clients receive the full
         # payload when canonical backends stream token-by-token.
         chunk_count = 0
-        first_content: object | None = None
-        last_content: object | None = None
-        meaningful_contents: list[object] = []
+        first_content: ProcessedChunkContent = None
+        last_content: ProcessedChunkContent = None
+        meaningful_contents: list[ProcessedChunkContent] = []
 
         async for chunk in handle.stream:
             if chunk.usage is not None:
@@ -131,8 +199,15 @@ class EnvelopeCompatibilityAdapter:
             last_content = chunk.content
             chunk_count += 1
 
+            decoded_sse_payloads = _extract_sse_data_payloads(chunk.content)
+            if decoded_sse_payloads is not None:
+                meaningful_contents.extend(decoded_sse_payloads)
+                continue
+
             if not _is_terminal_stream_marker(chunk.content):
                 meaningful_contents.append(chunk.content)
+
+        body: ProcessedChunkContent
 
         # Body selection priority:
         # 1. Reassembled meaningful stream payload when available
@@ -140,29 +215,24 @@ class EnvelopeCompatibilityAdapter:
         # 3. Last content as fallback
         if meaningful_contents:
             if len(meaningful_contents) == 1:
-                body = cast(
-                    dict[str, JsonValue] | str | bytes | None,
-                    meaningful_contents[0],
-                )
+                body = meaningful_contents[0]
             elif all(isinstance(item, str) for item in meaningful_contents):
-                body = cast(str, "".join(cast(list[str], meaningful_contents)))
+                body = "".join(
+                    item for item in meaningful_contents if isinstance(item, str)
+                )
             elif all(isinstance(item, bytes) for item in meaningful_contents):
-                body = cast(bytes, b"".join(cast(list[bytes], meaningful_contents)))
+                body = b"".join(
+                    item for item in meaningful_contents if isinstance(item, bytes)
+                )
             else:
                 # Preserve historical behavior for non-text streamed payloads.
-                body = cast(
-                    dict[str, JsonValue] | str | bytes | None,
-                    meaningful_contents[-1],
-                )
+                body = meaningful_contents[-1]
         elif chunk_count == 0:
             body = None
         elif chunk_count == 1:
-            body = cast(dict[str, JsonValue] | str | bytes | None, first_content)
+            body = first_content
         else:
-            if isinstance(last_content, dict):
-                body = cast(dict[str, JsonValue], last_content)
-            else:
-                body = cast(str | bytes | None, last_content)
+            body = last_content
 
         filtered_metadata = filter_json_serializable_client_metadata(
             dict(merged_metadata)

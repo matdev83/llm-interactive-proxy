@@ -16,7 +16,6 @@ from typing import Any, cast
 from src.core.common.exceptions import (
     BackendError,
     DuplicateRequestError,
-    LLMProxyError,
 )
 from src.core.domain.backend_request_manager.canonical_post_backend_response import (
     select_post_backend_processing_mode,
@@ -48,7 +47,6 @@ from src.core.services.envelope_compatibility_adapter import (
     EnvelopeCompatibilityAdapter,
 )
 from src.core.services.history_compaction_service import HistoryCompactionService
-from src.core.services.migration_gate_service import MigrationGateService
 from src.core.services.post_backend_response_coordinator import (
     PostBackendResponseCoordinator,
 )
@@ -70,7 +68,6 @@ class BackendRequestManager(IBackendRequestManager):
         history_compaction_service: HistoryCompactionService | None = None,
         config: IConfig | None = None,
         dedup_service: IRequestDeduplicationService | None = None,
-        migration_gate_service: MigrationGateService | None = None,
         envelope_compatibility_adapter: EnvelopeCompatibilityAdapter | None = None,
     ) -> None:
         """Initialize the backend request manager.
@@ -85,7 +82,6 @@ class BackendRequestManager(IBackendRequestManager):
             history_compaction_service: Optional service for compacting history (kept for backward compatibility)
             config: Optional application configuration (kept for backward compatibility)
             dedup_service: Optional request deduplication service
-            migration_gate_service: Optional migration gate policy service
             envelope_compatibility_adapter: Optional canonical-handle envelope adapter
         """
         self._backend_processor = backend_processor
@@ -97,9 +93,6 @@ class BackendRequestManager(IBackendRequestManager):
         self._history_compaction_service = history_compaction_service
         self._config = config
         self._dedup_service = dedup_service
-        self._migration_gate_service = migration_gate_service or MigrationGateService(
-            config=config
-        )
         self._post_backend_response_coordinator = post_backend_response_coordinator
         self._envelope_compatibility_adapter = (
             envelope_compatibility_adapter or EnvelopeCompatibilityAdapter()
@@ -409,20 +402,7 @@ class BackendRequestManager(IBackendRequestManager):
             backend_request, session_id, context
         )
 
-        gate_decision = self._migration_gate_service.select_core_path(
-            requested_stream=bool(backend_request.stream),
-            backend_name=processing_context.backend_name,
-        )
-        self._migration_gate_service.apply_diagnostics(
-            context,
-            decision=gate_decision,
-            requested_stream=bool(backend_request.stream),
-        )
-        effective_backend_request = (
-            backend_request.model_copy(update={"stream": True})
-            if gate_decision.forced_backend_stream
-            else backend_request
-        )
+        effective_backend_request = backend_request.model_copy(update={"stream": True})
 
         try:
             # Execute backend request
@@ -431,21 +411,6 @@ class BackendRequestManager(IBackendRequestManager):
                 session_id=session_id,
                 context=context,
             )
-
-            if not isinstance(
-                backend_response,
-                ResponseEnvelope | StreamingResponseEnvelope,
-            ):
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        "Backend processor returned a non-envelope value; "
-                        "cannot run canonical post-backend pipeline.",
-                    )
-                msg = (
-                    "Backend processor must return ResponseEnvelope or "
-                    "StreamingResponseEnvelope for canonical post-backend processing"
-                )
-                raise LLMProxyError(msg, status_code=500)
 
             post_backend_mode = select_post_backend_processing_mode(
                 bool(backend_request.stream),

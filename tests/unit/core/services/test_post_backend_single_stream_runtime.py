@@ -68,9 +68,7 @@ async def test_response_envelope_as_single_chunk_stream_shape() -> None:
 
 
 @pytest.mark.asyncio
-async def test_coordinator_blocking_envelope_invokes_streaming_handler_even_if_mode_raw() -> (
-    None
-):
+async def test_coordinator_blocking_envelope_invokes_streaming_handler() -> None:
     """Blocking envelopes must always use the streaming processor (single business path)."""
     raw = ResponseEnvelope(content={"p": 1}, status_code=200)
 
@@ -89,7 +87,7 @@ async def test_coordinator_blocking_envelope_invokes_streaming_handler_even_if_m
         ),
         context=RequestContext(headers={}, cookies={}, state=None, app_state=None),
         processing_context=_proc_ctx(),
-        processing_mode=PostBackendProcessingMode.RAW_PASSTHROUGH,
+        processing_mode=PostBackendProcessingMode.STREAMING_HANDLER,
     )
     streaming.handle.assert_awaited_once()
     out_chunks = [c async for c in handle.stream]

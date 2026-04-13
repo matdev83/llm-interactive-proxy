@@ -846,6 +846,9 @@ class ResponseExecutor(IResponseExecutor):
                     visible_output_emitted = False
                     with OverrideRenderer(renderer_key):
                         async for processed_chunk in stream_handle.iterator:
+                            processed_chunk = self._normalize_processed_stream_chunk(
+                                processed_chunk
+                            )
                             incompatible_tools = self._detect_incompatible_tool_calls(
                                 processed_chunk.content,
                                 context,
@@ -1163,6 +1166,53 @@ class ResponseExecutor(IResponseExecutor):
             context,
         )
         return dict(adapted)
+
+    @staticmethod
+    def _coerce_stream_chunk_content(content: object) -> dict[str, Any] | None:
+        model_dump = getattr(content, "model_dump", None)
+        if callable(model_dump):
+            dumped = model_dump(exclude_none=True)
+            if isinstance(dumped, dict):
+                return cast(dict[str, Any], dumped)
+        if isinstance(content, Mapping):
+            return dict(content)
+        return None
+
+    def _normalize_processed_stream_chunk(
+        self, chunk: ProcessedResponse
+    ) -> ProcessedResponse:
+        metadata = chunk.metadata
+        event_type = metadata.get("event_type")
+        if not isinstance(event_type, str):
+            return chunk
+
+        content_dict = self._coerce_stream_chunk_content(chunk.content)
+        if not content_dict:
+            return chunk
+
+        if event_type == "response.done":
+            content_dict = {"type": "response.completed", "response": content_dict}
+        elif "choices" in content_dict or not str(
+            content_dict.get("type") or ""
+        ).startswith("response."):
+            return chunk
+
+        translation_service = getattr(self._base_connector, "translation_service", None)
+        if translation_service is None:
+            return chunk
+
+        translated = translation_service.to_domain_stream_chunk(
+            content_dict, "responses"
+        )
+        translated_content = self._coerce_stream_chunk_content(translated)
+        if translated_content is None:
+            return chunk
+
+        return ProcessedResponse(
+            content=translated_content,
+            usage=chunk.usage,
+            metadata=dict(metadata),
+        )
 
     @staticmethod
     def _extract_tool_calls(response_like: object) -> list[dict[str, object]]:

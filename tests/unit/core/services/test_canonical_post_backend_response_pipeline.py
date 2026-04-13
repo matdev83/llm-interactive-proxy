@@ -83,11 +83,7 @@ def test_select_post_backend_stream_first_non_stream_client_streaming_envelope()
     None
 ):
     assert (
-        select_post_backend_processing_mode(
-            False,
-            StreamingResponseEnvelope(),
-            connector_stream_first_active=True,
-        )
+        select_post_backend_processing_mode(False, StreamingResponseEnvelope())
         == PostBackendProcessingMode.STREAMING_HANDLER
     )
 
@@ -165,7 +161,9 @@ async def test_coordinator_blocking_envelope_routes_via_streaming_handler() -> N
         processing_mode=PostBackendProcessingMode.STREAMING_HANDLER,
     )
     streaming_handler.handle.assert_awaited_once()
-    call_kw = streaming_handler.handle.await_args.kwargs
+    await_args = streaming_handler.handle.await_args
+    assert await_args is not None
+    call_kw = await_args.kwargs
     synthetic = call_kw["stream"]
     assert isinstance(synthetic, StreamingResponseEnvelope)
     assert synthetic.content is not None
@@ -180,7 +178,9 @@ async def test_coordinator_blocking_envelope_routes_via_streaming_handler() -> N
 
 
 @pytest.mark.asyncio
-async def test_coordinator_streaming_envelope_uses_handler_under_canonical_mode() -> None:
+async def test_coordinator_streaming_envelope_uses_handler_under_canonical_mode() -> (
+    None
+):
     async def _src() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content=b"z")
 
@@ -326,6 +326,41 @@ async def test_adapter_non_streaming_reassembles_multi_chunk_string_payload() ->
 
 
 @pytest.mark.asyncio
+async def test_adapter_non_streaming_decodes_sse_bytes_and_ignores_done_marker() -> (
+    None
+):
+    async def _src() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(
+            content=(
+                b'data: {"choices":[{"message":{"content":"from-sse"}}],'
+                b'"usage":{"total_tokens":7}}\n\n'
+            )
+        )
+        yield ProcessedResponse(content=b"data: [DONE]\n\n")
+
+    handle = CanonicalResponseHandle(
+        stream=_src(),
+        status_code=200,
+        media_type="application/json",
+        headers=None,
+        cancel_callback=None,
+        usage=None,
+        canonical_usage=None,
+        metadata={"top": True},
+    )
+    adapter = EnvelopeCompatibilityAdapter()
+    env = await adapter.to_non_streaming(
+        handle, RequestContext(headers={}, cookies={}, state=None, app_state=None)
+    )
+    assert isinstance(env, ResponseEnvelope)
+    assert env.content == {
+        "choices": [{"message": {"content": "from-sse"}}],
+        "usage": {"total_tokens": 7},
+    }
+    assert env.metadata == {"top": True}
+
+
+@pytest.mark.asyncio
 async def test_adapter_streaming_preserves_canonical_usage_and_cancel() -> None:
     cancel = AsyncMock()
     cu = CanonicalUsageRecord(provider_id="p", model_id="m")
@@ -356,8 +391,6 @@ async def test_adapter_streaming_preserves_canonical_usage_and_cancel() -> None:
 async def test_backend_request_manager_canonical_path_matches_legacy_streaming_result() -> (
     None
 ):
-    from src.core.services.migration_gate_service import MigrationGateService
-
     from tests.helpers.backend_request_manager_fixtures import (
         create_backend_request_manager,
     )
@@ -370,14 +403,8 @@ async def test_backend_request_manager_canonical_path_matches_legacy_streaming_r
         return_value=StreamingResponseEnvelope(content=_src())
     )
     manager = create_backend_request_manager(backend_processor=backend_processor)
-    manager._migration_gate_service = MigrationGateService.from_flags(
-        enable_core_canonical_path=True,
-        emit_path_selection_metadata=False,
-    )
 
-    streaming = cast(
-        Any, cast(Any, manager._post_backend_response_coordinator)._streaming_handler
-    )
+    streaming = cast(Any, manager._post_backend_response_coordinator._streaming_handler)
     streaming.handle = AsyncMock(
         return_value=StreamingResponseEnvelope(content=_src(), status_code=222)
     )
@@ -399,29 +426,17 @@ async def test_backend_request_manager_retirement_routes_raw_through_coordinator
     None
 ):
     """RAW envelope + retire_legacy_dual_path uses coordinator/adapter, not legacy split."""
-    from src.core.services.migration_gate_service import MigrationGateService
-
     from tests.helpers.backend_request_manager_fixtures import (
         create_backend_request_manager,
     )
-
-    async def _src() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(content=b"only")
 
     backend_processor = MagicMock()
     backend_processor.process_backend_request = AsyncMock(
         return_value=ResponseEnvelope(content={"ok": True}, status_code=201)
     )
     manager = create_backend_request_manager(backend_processor=backend_processor)
-    manager._migration_gate_service = MigrationGateService.from_flags(
-        enable_core_canonical_path=True,
-        emit_path_selection_metadata=False,
-        retire_legacy_dual_path=True,
-    )
 
-    streaming = cast(
-        Any, cast(Any, manager._post_backend_response_coordinator)._streaming_handler
-    )
+    streaming = cast(Any, manager._post_backend_response_coordinator._streaming_handler)
     streaming.handle = AsyncMock(
         side_effect=lambda stream, **_kw: stream,
     )
@@ -444,8 +459,6 @@ async def test_backend_request_manager_always_invokes_post_backend_coordinator_r
     """Post-backend coordinator is always invoked for non-streaming canonical handling."""
     from unittest.mock import AsyncMock, patch
 
-    from src.core.services.migration_gate_service import MigrationGateService
-
     from tests.helpers.backend_request_manager_fixtures import (
         create_backend_request_manager,
     )
@@ -455,15 +468,9 @@ async def test_backend_request_manager_always_invokes_post_backend_coordinator_r
         return_value=ResponseEnvelope(content={"x": 1}, status_code=200)
     )
     manager = create_backend_request_manager(backend_processor=backend_processor)
-    manager._migration_gate_service = MigrationGateService.from_flags(
-        enable_core_canonical_path=False,
-        emit_path_selection_metadata=False,
-    )
     coordinator = manager._post_backend_response_coordinator
 
-    streaming = cast(
-        Any, cast(Any, manager._post_backend_response_coordinator)._streaming_handler
-    )
+    streaming = cast(Any, manager._post_backend_response_coordinator._streaming_handler)
     streaming.handle = AsyncMock(
         return_value=StreamingResponseEnvelope(
             content=_async_dict_chunks({"x": 2}),
@@ -493,8 +500,6 @@ async def test_backend_request_manager_streaming_client_blocking_backend_default
     None
 ):
     """Blocking backend result for a streaming client is always adapted to a streaming envelope."""
-    from src.core.services.migration_gate_service import MigrationGateService
-
     from tests.helpers.backend_request_manager_fixtures import (
         create_backend_request_manager,
     )
@@ -504,15 +509,8 @@ async def test_backend_request_manager_streaming_client_blocking_backend_default
         return_value=ResponseEnvelope(content={"sse": True}, status_code=203)
     )
     manager = create_backend_request_manager(backend_processor=backend_processor)
-    manager._migration_gate_service = MigrationGateService.from_flags(
-        enable_core_canonical_path=True,
-        emit_path_selection_metadata=False,
-        retire_legacy_dual_path=False,
-    )
 
-    streaming = cast(
-        Any, cast(Any, manager._post_backend_response_coordinator)._streaming_handler
-    )
+    streaming = cast(Any, manager._post_backend_response_coordinator._streaming_handler)
     streaming.handle = AsyncMock(
         side_effect=lambda stream, **_kw: stream,
     )

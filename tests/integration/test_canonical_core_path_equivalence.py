@@ -23,7 +23,6 @@ from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_request_manager_service import BackendRequestManager
-from src.core.services.migration_gate_service import MigrationGateService
 
 from tests.helpers.backend_request_manager_fixtures import (
     create_backend_request_manager,
@@ -100,19 +99,6 @@ async def _run_manager_non_streaming(
     return _non_streaming_observables(out)
 
 
-def _configure_gate(
-    manager: BackendRequestManager,
-    *,
-    diagnostics: bool = False,
-    legacy_streaming_client_blocking_envelope: bool = False,
-) -> None:
-    manager._migration_gate_service = MigrationGateService.from_flags(
-        enable_core_canonical_path=True,
-        emit_path_selection_metadata=diagnostics,
-        legacy_streaming_client_blocking_envelope=legacy_streaming_client_blocking_envelope,
-    )
-
-
 def _meta(data: dict[str, Any]) -> dict[str, JsonValue]:
     return cast(dict[str, JsonValue], data)
 
@@ -168,7 +154,6 @@ async def test_streaming_transport_observables_canonical_path() -> None:
         stream=True,
     )
 
-    _configure_gate(base)
     chunks, meta = await _run_manager_streaming(base, request=request)
 
     assert len(chunks) == 2
@@ -220,7 +205,6 @@ async def test_non_streaming_schema_usage_canonical_path() -> None:
         stream=False,
     )
 
-    _configure_gate(base)
     obs = await _run_manager_non_streaming(base, request=request)
 
     assert obs["status_code"] == 202
@@ -255,7 +239,6 @@ async def test_non_streaming_backend_error_surfaces() -> None:
         stream=False,
     )
 
-    _configure_gate(base)
     with pytest.raises(BackendError) as excinfo:
         await base.process_backend_request(request, "s", _ctx())
 
@@ -296,10 +279,9 @@ async def test_streaming_terminal_error_status_for_dedup() -> None:
     manager = create_backend_request_manager(
         backend_processor=backend_processor, dedup_service=mock_dedup
     )
-    cast(
-        Any, manager._post_backend_response_coordinator
-    )._streaming_handler.handle = AsyncMock(side_effect=_passthrough)
-    _configure_gate(manager)
+    cast(Any, manager._post_backend_response_coordinator)._streaming_handler.handle = (
+        AsyncMock(side_effect=_passthrough)
+    )
 
     request = ChatRequest(
         model="gpt-4",
@@ -350,7 +332,6 @@ async def test_streaming_dedup_marks_complete_after_exhaustion() -> None:
         stream=True,
     )
 
-    _configure_gate(base)
     result = await base.process_backend_request(request, "sess", _ctx())
     assert isinstance(result, StreamingResponseEnvelope)
     assert result.content is not None
@@ -398,7 +379,6 @@ async def test_empty_stream_recovery_backend_call_count() -> None:
 
     session = "sess-parity"
 
-    _configure_gate(base)
     out = await base.process_backend_request(request, session, _ctx())
     n = backend_processor.process_backend_request.await_count
 
@@ -454,7 +434,6 @@ async def test_swallowed_tool_call_retry_stream() -> None:
         backend_processor=backend_processor,
         response_processor=response_processor,
     )
-    _configure_gate(manager)
     request = ChatRequest(
         model="openai",
         messages=[ChatMessage(role="user", content="hi")],
@@ -493,10 +472,9 @@ async def test_streaming_canonical_usage_metadata_handler_surface() -> None:
     backend_processor = MagicMock()
     backend_processor.process_backend_request = AsyncMock(side_effect=_fresh)
     manager = create_backend_request_manager(backend_processor=backend_processor)
-    cast(
-        Any, manager._post_backend_response_coordinator
-    )._streaming_handler.handle = AsyncMock(side_effect=_handle)
-    _configure_gate(manager)
+    cast(Any, manager._post_backend_response_coordinator)._streaming_handler.handle = (
+        AsyncMock(side_effect=_handle)
+    )
     request = ChatRequest(
         model="openai",
         messages=[ChatMessage(role="user", content="hi")],
@@ -532,7 +510,6 @@ async def test_tool_retry_marker_skips_second_backend() -> None:
         backend_processor=backend_processor,
         response_processor=response_processor,
     )
-    _configure_gate(manager)
     flagged_request = ChatRequest(
         model="gemini",
         messages=[ChatMessage(role="user", content="continue")],
@@ -542,12 +519,10 @@ async def test_tool_retry_marker_skips_second_backend() -> None:
             "_tool_call_reactor_retry_count": 1,
         },
     )
-    backend_processor.process_backend_request.return_value = (
-        StreamingResponseEnvelope(content=_original_stream())
+    backend_processor.process_backend_request.return_value = StreamingResponseEnvelope(
+        content=_original_stream()
     )
-    result = await manager.process_backend_request(
-        flagged_request, "session-y", _ctx()
-    )
+    result = await manager.process_backend_request(flagged_request, "session-y", _ctx())
     assert isinstance(result, StreamingResponseEnvelope)
     assert result.content is not None
     chunks = [c async for c in result.content]
@@ -617,7 +592,6 @@ async def test_quality_verifier_no_steering_stream() -> None:
         response_processor=response_processor,
         mock_provider=DummyProvider(),
     )
-    _configure_gate(manager)
 
     chunks = [
         ProcessedResponse(content="Hello", metadata={}),
@@ -671,11 +645,6 @@ async def test_streaming_request_blocking_backend_envelope_uses_streaming_transp
     )
 
     base = create_backend_request_manager(backend_processor=backend_processor)
-    _configure_gate(
-        base,
-        legacy_streaming_client_blocking_envelope=True,
-    )
-
     request = ChatRequest(
         model="openai",
         messages=[ChatMessage(role="user", content="hi")],
@@ -684,105 +653,3 @@ async def test_streaming_request_blocking_backend_envelope_uses_streaming_transp
     out = await base.process_backend_request(request, "sess", _ctx())
     assert isinstance(out, StreamingResponseEnvelope)
     assert out.status_code == 555
-
-
-@pytest.mark.asyncio
-async def test_migration_diagnostics_only_when_emit_enabled() -> None:
-    """Diagnostics keys must not appear unless emit_path_selection_metadata is true."""
-    backend_processor = MagicMock()
-    backend_processor.process_backend_request = AsyncMock(
-        return_value=ResponseEnvelope(content={"a": 1})
-    )
-
-    base = create_backend_request_manager(backend_processor=backend_processor)
-
-    async def _diag_stream(
-        *, stream: StreamingResponseEnvelope, **_: Any
-    ) -> StreamingResponseEnvelope:
-        async def _chunks() -> AsyncIterator[ProcessedResponse]:
-            yield ProcessedResponse(content={"a": 2})
-
-        return StreamingResponseEnvelope(
-            content=_chunks(), media_type="application/json"
-        )
-
-    cast(Any, base._post_backend_response_coordinator)._streaming_handler.handle = (
-        AsyncMock(side_effect=_diag_stream)
-    )
-
-    request = ChatRequest(
-        model="openai",
-        messages=[ChatMessage(role="user", content="hi")],
-        stream=False,
-    )
-
-    ctx_off = RequestContext(
-        headers={},
-        cookies={},
-        state=MagicMock(),
-        app_state=MagicMock(),
-        extensions={},
-    )
-    manager = base
-    manager._migration_gate_service = MigrationGateService.from_flags(
-        enable_core_canonical_path=True,
-        emit_path_selection_metadata=False,
-    )
-    await manager.process_backend_request(request, "s", ctx_off)
-    assert "migration_stage" not in ctx_off.extensions
-
-    ctx_on = RequestContext(
-        headers={},
-        cookies={},
-        state=MagicMock(),
-        app_state=MagicMock(),
-        extensions={},
-    )
-    manager._migration_gate_service = MigrationGateService.from_flags(
-        enable_core_canonical_path=True,
-        emit_path_selection_metadata=True,
-    )
-    await manager.process_backend_request(request, "s", ctx_on)
-    assert ctx_on.extensions.get("canonical_path_used") is True
-    promo = ctx_on.extensions.get("promotion_guardrails")
-    assert isinstance(promo, dict)
-    assert promo.get("strict_missing_evidence") is True
-    assert promo.get("overall_passed") is False
-
-
-@pytest.mark.asyncio
-async def test_migration_diagnostics_attached_even_when_backend_raises() -> None:
-    """Diagnostics must be present on failure paths when emission is enabled."""
-    backend_processor = MagicMock()
-    backend_processor.process_backend_request = AsyncMock(
-        side_effect=BackendError("backend failed", status_code=503)
-    )
-    manager = create_backend_request_manager(backend_processor=backend_processor)
-    manager._migration_gate_service = MigrationGateService.from_flags(
-        enable_core_canonical_path=True,
-        emit_path_selection_metadata=True,
-        connector_stream_first={"openai": True},
-    )
-    request = ChatRequest(
-        model="openai:gpt-4o-mini",
-        messages=[ChatMessage(role="user", content="hi")],
-        stream=False,
-    )
-    ctx = RequestContext(
-        headers={},
-        cookies={},
-        state=MagicMock(),
-        app_state=MagicMock(),
-        backend="openai",
-        extensions={},
-    )
-    with pytest.raises(BackendError):
-        await manager.process_backend_request(request, "s", ctx)
-    assert ctx.extensions.get("migration_stage") == "canonical_runtime"
-    assert ctx.extensions.get("canonical_path_used") is True
-    assert ctx.extensions.get("connector_stream_first_used") is True
-    assert ctx.extensions.get("forced_backend_stream") is True
-    promo = ctx.extensions.get("promotion_guardrails")
-    assert isinstance(promo, dict)
-    assert promo.get("strict_missing_evidence") is True
-    assert promo.get("promotion_blocked") is True

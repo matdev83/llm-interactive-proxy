@@ -343,11 +343,12 @@ class OpenAIWebSocketClient:
                     metadata={"event_type": event_type},
                 )
 
-        # Handle response.output_item.done
+        # Preserve full Responses-native payloads for tool-call completion events.
+        # Downstream Codex translation needs fields like output_index and the exact
+        # top-level event type to reconstruct canonical tool-call chunks.
         if event_type == "response.output_item.done":
-            output_item = event_data.get("item", {})
             return ProcessedResponse(
-                content={"type": "output_item.done", "item": output_item},
+                content=event_data,
                 metadata={"event_type": event_type},
             )
 

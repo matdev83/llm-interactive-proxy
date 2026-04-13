@@ -263,20 +263,10 @@ dynamic_compression:
   diff_max_lines_per_hunk: 100
   diff_max_total_lines: 500
 
-# Request-processing unification (canonical path is always used at runtime)
-request_processing_unification:
-  enable_core_canonical_path: true
-  enable_canonical_features: false
-  connector_stream_first: {}
-  retire_legacy_dual_path: false
-  emit_path_selection_metadata: false
-  promotion_requirements:
-    require_characterization_tests: true
-    require_equivalence_tests: true
-    max_non_stream_p95_latency_delta_pct: 10.0
-    max_stream_ttft_delta_pct: 10.0
-    max_memory_delta_pct: 10.0
-    require_cleanup_checks: true
+# Canonical request-processing runtime controls
+canonical_request_processing:
+  empty_stream_recovery_prompt: "The previous response was empty, please try again."
+  max_empty_stream_retries: 1
 
 # Logging
 logging:

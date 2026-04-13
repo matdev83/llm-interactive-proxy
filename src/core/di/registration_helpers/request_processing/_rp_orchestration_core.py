@@ -38,7 +38,6 @@ def register_orchestration_core_services(services: ServiceCollection) -> None:
     _register_quality_verifier_service_factory(services)
     _register_response_processor(services)
     _register_post_backend_response_coordinator(services)
-    _register_migration_gate_service(services)
     _register_backend_request_manager(services)
     _register_request_processor(services)
     _register_quality_verifier_turn_ledger(services)
@@ -357,22 +356,6 @@ def _create_deduplication_service(
     )
 
 
-def _register_migration_gate_service(services: ServiceCollection) -> None:
-    """Register MigrationGateService as a shared singleton (additive registration)."""
-    from src.core.di.registrations._shared import register_singleton_if_absent
-    from src.core.services.migration_gate_service import MigrationGateService
-
-    def _migration_gate_factory(provider: IServiceProvider) -> MigrationGateService:
-        config = provider.get_required_service(AppConfig)
-        return MigrationGateService(config=config)
-
-    register_singleton_if_absent(
-        services,
-        MigrationGateService,
-        implementation_factory=_migration_gate_factory,
-    )
-
-
 def _register_post_backend_response_coordinator(services: ServiceCollection) -> None:
     """Register PostBackendResponseCoordinator (canonical post-backend pipeline)."""
     from src.core.di.registrations._shared import register_singleton_if_absent
@@ -412,7 +395,6 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
     from src.core.interfaces.response_processor_interface import IResponseProcessor
     from src.core.interfaces.wire_capture_interface import IWireCapture
     from src.core.services.backend_request_manager_service import BackendRequestManager
-    from src.core.services.migration_gate_service import MigrationGateService
     from src.core.services.post_backend_response_coordinator import (
         PostBackendResponseCoordinator,
     )
@@ -458,7 +440,6 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
         dedup_service: RequestDeduplicationService | None = (
             _create_deduplication_service(provider, config)
         )
-        migration_gate_service = provider.get_required_service(MigrationGateService)
 
         return BackendRequestManager(
             backend_processor,
@@ -470,7 +451,6 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
             history_compaction_service=history_compaction_service,
             config=config,
             dedup_service=dedup_service,
-            migration_gate_service=migration_gate_service,
         )
 
     register_singleton_if_absent(
