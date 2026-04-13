@@ -230,6 +230,24 @@ class PayloadBuilder(IPayloadBuilder):
             resolved_instructions=resolved_instructions,
         )
 
+        # ChatGPT Codex `/responses` rejects bodies with missing or blank `instructions`.
+        # Passthrough clients (e.g. OpenCode over /v1/responses) often send only `input`
+        # and no top-level `instructions`; `OpenCodeClientFamilyAdapter` also returns
+        # early when there are no tools, so merge resolved defaults here.
+        instr = passthrough_dict.get("instructions")
+        if not isinstance(instr, str) or not instr.strip():
+            fallback = resolved_instructions
+            if not isinstance(fallback, str) or not fallback.strip():
+                fallback = self._prompt_resolver.resolve_system_prompt(
+                    self._settings, context.capabilities
+                )
+            if isinstance(fallback, str) and fallback.strip():
+                passthrough_dict["instructions"] = fallback.strip()
+            else:
+                passthrough_dict["instructions"] = (
+                    "You are a helpful assistant. Follow the user request."
+                )
+
         # Convert to CodexPayload
         # Note: passthrough payload may have different structure, so we need to adapt
         return self.convert_dict_to_payload(passthrough_dict, context)

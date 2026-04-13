@@ -277,6 +277,43 @@ class TestPayloadBuilder:
         assert "Codex instructions" in payload.instructions
         assert "OpenCode compatibility mode" in payload.instructions
 
+    def test_build_payload_passthrough_opencode_no_tools_fills_instructions(
+        self, builder, mock_connector, mock_prompt_resolver, sample_context
+    ):
+        """OpenCode + passthrough + no tools must still send Codex-required instructions."""
+        passthrough_request = CanonicalChatRequest(
+            model="gpt-5.1-codex",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=True,
+            agent="opencode/1.2.26 ai-sdk/provider-utils/3.0.20",
+        )
+        object.__setattr__(
+            passthrough_request,
+            "extra_body",
+            {
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "Hello"}],
+                    }
+                ],
+                "codex_capabilities": {"codex_passthrough": True},
+            },
+        )
+        sample_context.request = passthrough_request
+        sample_context.capabilities = CodexClientCapabilities(codex_passthrough=True)
+        mock_connector._is_native_responses_payload.return_value = True
+        mock_prompt_resolver.resolve_system_prompt.return_value = (
+            "Resolved default Codex instructions for test"
+        )
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.instructions is not None
+        assert payload.instructions.strip()
+        assert "Resolved default Codex instructions for test" in payload.instructions
+
     def test_build_payload_passthrough_normalizes_opencode_input(
         self, builder, mock_connector, sample_context
     ):
