@@ -394,7 +394,7 @@ class ResponseExecutor(IResponseExecutor):
 
                 if int(response.status_code) >= 400:
                     # Rotate managed account on explicit rate-limit responses.
-                    if response.status_code == 429 and attempts_used < max_retries:
+                    if response.status_code == 429:
                         rate_limit_json: dict[str, Any] | None = None
                         with contextlib.suppress(Exception):
                             parsed_rl = response.json()
@@ -407,20 +407,27 @@ class ResponseExecutor(IResponseExecutor):
                             retry_after_seconds = (
                                 self._extract_retry_after_from_payload(rate_limit_json)
                             )
-                        rotated = await self._handle_rate_limit_rotation(
+                        if attempts_used < max_retries:
+                            rotated = await self._handle_rate_limit_rotation(
+                                retry_after_seconds=retry_after_seconds,
+                                session_id=context.session_id,
+                                upstream_codex_error=rate_limit_json,
+                                response_headers=response.headers,
+                            )
+                            if rotated:
+                                fresh_headers = self._base_connector.get_headers() or {}
+                                guarded_headers = ensure_loop_guard_header(
+                                    fresh_headers
+                                )
+                                guarded_headers["conversation_id"] = conversation_id
+                                guarded_headers["session_id"] = context.session_id
+                                await self._wait_for_auth_retry_delay(attempts_used)
+                                attempts_used += 1
+                                continue
+                        await self._notify_codex_quota_unrecovered(
+                            upstream_detail=rate_limit_json or {},
                             retry_after_seconds=retry_after_seconds,
-                            session_id=context.session_id,
-                            upstream_codex_error=rate_limit_json,
-                            response_headers=response.headers,
                         )
-                        if rotated:
-                            fresh_headers = self._base_connector.get_headers() or {}
-                            guarded_headers = ensure_loop_guard_header(fresh_headers)
-                            guarded_headers["conversation_id"] = conversation_id
-                            guarded_headers["session_id"] = context.session_id
-                            await self._wait_for_auth_retry_delay(attempts_used)
-                            attempts_used += 1
-                            continue
 
                     # For explicit authorization denials, prefer account rotation.
                     if response.status_code == 403 and attempts_used < max_retries:
@@ -530,15 +537,6 @@ class ResponseExecutor(IResponseExecutor):
                                 },
                             )
                         err = response.text
-                    if int(response.status_code) == 429:
-                        retry_hdr = self._extract_retry_after_seconds(
-                            dict(response.headers)
-                        )
-                        notify_detail = err if isinstance(err, dict) else {}
-                        await self._notify_codex_quota_unrecovered(
-                            upstream_detail=notify_detail,
-                            retry_after_seconds=retry_hdr,
-                        )
                     raise HTTPException(status_code=response.status_code, detail=err)
 
                 # Success - break out of retry loop
