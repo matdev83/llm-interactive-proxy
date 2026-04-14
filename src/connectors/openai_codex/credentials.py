@@ -31,6 +31,7 @@ from src.connectors.openai_codex.codex_quota_notifications import (
 from src.connectors.openai_codex.codex_rate_limit_logging import (
     emit_openai_codex_managed_oauth_rate_limit,
     parse_codex_usage_limit_upstream,
+    usage_limit_payload_from_upstream_detail,
 )
 from src.connectors.openai_codex.interfaces import ICredentialManager
 from src.connectors.openai_codex.managed_oauth_constants import (
@@ -440,6 +441,9 @@ class CredentialManager(ICredentialManager):
             selection_strategy=config.selection_strategy,
             session_affinity_ttl_seconds=config.session_affinity_ttl_seconds,
             session_affinity_max_entries=config.session_affinity_max_entries,
+            max_rate_limit_wait_seconds=config.max_rate_limit_wait_seconds,
+            rate_limit_local_cooldown_cap_seconds=config.rate_limit_local_cooldown_cap_seconds,
+            max_rate_limit_idle_polls=config.max_rate_limit_idle_polls,
         )
 
     def _managed_enabled(self) -> bool:
@@ -508,21 +512,25 @@ class CredentialManager(ICredentialManager):
         return None
 
     async def _load_auth(self, force_reload: bool = False) -> bool:
-        """Load credentials, preferring managed OAuth accounts when available."""
+        """Load credentials, preferring managed OAuth accounts when available.
+
+        Managed accounts always take precedence when present, even if
+        ``openai_codex_path`` / ``auth_path`` points at a legacy ``auth.json``
+        directory (those paths are still used for legacy fallback discovery).
+        """
+        if await self._load_managed_auth(force_reload=force_reload):
+            return True
+
         explicit_legacy_override = (
             self._auth_path is not None or self._oauth_dir_override is not None
         )
         if explicit_legacy_override:
             if await self._load_legacy_auth(force_reload=force_reload):
                 return True
-            if await self._load_managed_auth(force_reload=force_reload):
-                return True
             self._active_source = "none"
             self._managed_current_account = None
             return False
 
-        if await self._load_managed_auth(force_reload=force_reload):
-            return True
         if await self._load_legacy_auth(force_reload=force_reload):
             return True
         self._active_source = "none"
@@ -618,44 +626,6 @@ class CredentialManager(ICredentialManager):
 
     def _validate_credentials_file_exists(self) -> ValidationResult:
         """Validate availability of managed accounts or legacy auth.json."""
-        explicit_legacy_override = (
-            self._auth_path is not None or self._oauth_dir_override is not None
-        )
-        if explicit_legacy_override:
-            auth_path = self._discover_auth_path()
-            if auth_path is None:
-                return ValidationResult.failure(
-                    "OAuth credentials file not found in any default location"
-                )
-
-            if not auth_path.exists():
-                return ValidationResult.failure(
-                    f"OAuth credentials file does not exist: {auth_path}"
-                )
-
-            if not auth_path.is_file():
-                return ValidationResult.failure(
-                    f"OAuth credentials path is not a file: {auth_path}"
-                )
-
-            try:
-                with open(auth_path, encoding="utf-8") as f:
-                    json.load(f)
-            except json.JSONDecodeError as e:
-                return ValidationResult.failure(
-                    f"OAuth credentials file contains invalid JSON: {e}"
-                )
-            except PermissionError:
-                return ValidationResult.failure(
-                    f"No permission to read OAuth credentials file: {auth_path}"
-                )
-            except Exception as e:
-                return ValidationResult.failure(
-                    f"Error reading OAuth credentials file: {e}"
-                )
-
-            return ValidationResult.success()
-
         if self._managed_enabled():
             storage_path = self._managed_storage.storage_path
             try:
@@ -1134,6 +1104,63 @@ class CredentialManager(ICredentialManager):
             self._auth_credentials = self._managed_account_to_credentials(rotated)
             self._active_source = "managed"
             return True
+
+    async def effective_max_rate_limit_retries(self, floor: int) -> int:
+        """Lower bound from connector config; expand with managed account count for 429 rotation."""
+        base = max(0, int(floor))
+        if not self._managed_enabled():
+            return base
+        try:
+            await self._managed_selector.reload_accounts()
+            n = await self._managed_selector.count_available_managed_accounts()
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "OpenAI Codex: could not compute managed account rotation budget: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return base
+        if n <= 1:
+            return base
+        return max(base, n)
+
+    async def notify_codex_usage_limit_unrecovered(
+        self,
+        *,
+        upstream_detail: Any,
+        retry_after_seconds: float | None,
+        all_accounts_exhausted: bool = True,
+    ) -> None:
+        """Notify on ``usage_limit_reached`` when the request is still failing (legacy or exhausted rotation)."""
+        payload = usage_limit_payload_from_upstream_detail(upstream_detail)
+        if payload is None:
+            return
+        usage_fields = parse_codex_usage_limit_upstream(payload)
+        if usage_fields is None:
+            return
+
+        account_id = "legacy-openai-codex"
+        email: str | None = None
+        if self._managed_current_account is not None:
+            account_id = self._managed_current_account.account_id
+            email = self._managed_current_account.email
+        elif isinstance(self._auth_credentials, Mapping):
+            user = self._auth_credentials.get("user")
+            if isinstance(user, Mapping):
+                raw_email = user.get("email")
+                if isinstance(raw_email, str) and raw_email.strip():
+                    email = raw_email.strip()
+
+        await maybe_notify_codex_quota_reached(
+            self._notification_service,
+            self._codex_quota_notification_dedupe,
+            managed_account_id=account_id,
+            email=email,
+            usage_limit_fields=usage_fields,
+            retry_after_seconds=retry_after_seconds,
+            all_accounts_exhausted=all_accounts_exhausted,
+        )
 
     async def handle_auth_failure(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
@@ -357,3 +358,15 @@ class TestResponseExecutor:
         )
 
         assert executor._chunk_has_client_visible_output(chunk) is True
+
+    @pytest.mark.asyncio
+    async def test_effective_rate_limit_max_retries_delegates_to_credentials(
+        self, executor, mock_credential_manager
+    ):
+        """Executor should expand retry budget when credential manager says so."""
+
+        async def _eff(floor: int) -> int:
+            return max(floor, 5)
+
+        mock_credential_manager.effective_max_rate_limit_retries = _eff
+        assert await executor._effective_rate_limit_max_retries() == 5

@@ -36,7 +36,9 @@ class ManagedOAuthAccountSelector:
         selection_strategy: str = "round-robin",
         session_affinity_ttl_seconds: int = 86_400,
         session_affinity_max_entries: int = 10_000,
-        max_rate_limit_wait_seconds: float = 30.0,
+        max_rate_limit_wait_seconds: float = 300.0,
+        rate_limit_local_cooldown_cap_seconds: float = 1800.0,
+        max_rate_limit_idle_polls: int = 48,
     ) -> None:
         self._storage = storage
         self._refresh_service = refresh_service
@@ -46,6 +48,10 @@ class ManagedOAuthAccountSelector:
         self._session_affinity_ttl_seconds = max(0, int(session_affinity_ttl_seconds))
         self._session_affinity_max_entries = max(0, int(session_affinity_max_entries))
         self._max_rate_limit_wait_seconds = max(0.0, float(max_rate_limit_wait_seconds))
+        self._rate_limit_local_cooldown_cap_seconds = max(
+            0.0, float(rate_limit_local_cooldown_cap_seconds)
+        )
+        self._max_rate_limit_idle_polls = max(1, int(max_rate_limit_idle_polls))
         self._session_affinity: OrderedDict[str, tuple[str, float]] = OrderedDict()
         self._accounts: list[ManagedOAuthAccount] = []
         self._current_account: ManagedOAuthAccount | None = None
@@ -141,6 +147,13 @@ class ManagedOAuthAccountSelector:
         _, eligible = self._available_accounts(now_ms)
         return [account.account_id for account in eligible]
 
+    async def count_available_managed_accounts(self) -> int:
+        """Count managed accounts that can participate in rotation (not needs_reauth)."""
+        await self._ensure_accounts_loaded()
+        now_ms = int(time.time() * 1000)
+        available, _ = self._available_accounts(now_ms)
+        return len(available)
+
     def count_eligible_accounts_excluding(self, account_id: str) -> int:
         """Count accounts that can serve traffic, excluding ``account_id``.
 
@@ -228,6 +241,7 @@ class ManagedOAuthAccountSelector:
         """Return next usable account and perform proactive refresh."""
         await self._ensure_accounts_loaded()
 
+        rate_limit_idle_polls = 0
         while True:
             now_ms = int(time.time() * 1000)
             now_s = float(now_ms) / 1000.0
@@ -236,6 +250,9 @@ class ManagedOAuthAccountSelector:
                 return None
 
             if not eligible:
+                rate_limit_idle_polls += 1
+                if rate_limit_idle_polls > self._max_rate_limit_idle_polls:
+                    return None
                 soonest_until = min(
                     (
                         account.rate_limited_until
@@ -245,11 +262,13 @@ class ManagedOAuthAccountSelector:
                     default=now_ms,
                 )
                 wait_seconds = max((soonest_until - now_ms) / 1000.0, 0.0)
-                if 0 < wait_seconds <= self._max_rate_limit_wait_seconds:
-                    await asyncio.sleep(wait_seconds)
+                if wait_seconds > 0 and self._max_rate_limit_wait_seconds > 0:
+                    sleep_for = min(wait_seconds, self._max_rate_limit_wait_seconds)
+                    await asyncio.sleep(sleep_for)
                     continue
                 return None
 
+            rate_limit_idle_polls = 0
             selected: ManagedOAuthAccount | None = None
             if not ignore_session_affinity:
                 selected = self._get_affinity_candidate(
@@ -336,7 +355,14 @@ class ManagedOAuthAccountSelector:
                     "updated_at": observed,
                 }
             )
-        updated = acc.mark_rate_limited(retry_after_seconds)
+        cap = (
+            self._rate_limit_local_cooldown_cap_seconds
+            if self._rate_limit_local_cooldown_cap_seconds > 0
+            else None
+        )
+        updated = acc.mark_rate_limited(
+            retry_after_seconds, local_cooldown_cap_seconds=cap
+        )
         self._current_account = updated
         self._replace_account(updated)
         await self._storage.save_account(updated)

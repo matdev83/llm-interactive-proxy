@@ -112,7 +112,7 @@ async def maybe_notify_codex_quota_reached(
             message=message,
         )
     except Exception as exc:
-        logger.debug("Codex quota notification failed: %s", exc, exc_info=True)
+        logger.warning("Codex quota notification failed: %s", exc, exc_info=True)
         return
 
     dedupe_keys.add(key)

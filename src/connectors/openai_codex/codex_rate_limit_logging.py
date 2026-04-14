@@ -15,6 +15,18 @@ logger = logging.getLogger(__name__)
 _SHORT_ROLLING_CEILING_SECONDS = 6 * 3600
 
 
+def usage_limit_payload_from_upstream_detail(detail: Any) -> Mapping[str, Any] | None:
+    """Normalize error ``detail`` from transports into a shape ``parse_codex_usage_limit_upstream`` accepts."""
+    if not isinstance(detail, Mapping):
+        return None
+    err = detail.get("error")
+    if isinstance(err, Mapping) and err.get("type") == "usage_limit_reached":
+        return detail
+    if detail.get("type") == "usage_limit_reached":
+        return {"error": dict(detail)}
+    return None
+
+
 def parse_codex_usage_limit_upstream(
     payload: Mapping[str, Any] | None,
 ) -> dict[str, Any] | None:

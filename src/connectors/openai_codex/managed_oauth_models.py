@@ -154,7 +154,10 @@ class ManagedOAuthAccount(BaseModel):
         )
 
     def mark_rate_limited(
-        self, retry_after_seconds: float | None
+        self,
+        retry_after_seconds: float | None,
+        *,
+        local_cooldown_cap_seconds: float | None = None,
     ) -> ManagedOAuthAccount:
         """Return account copy with temporary rate-limit cooldown."""
         wait_seconds = (
@@ -162,6 +165,11 @@ class ManagedOAuthAccount(BaseModel):
             if retry_after_seconds and retry_after_seconds > 0
             else 30.0
         )
+        if (
+            local_cooldown_cap_seconds is not None
+            and float(local_cooldown_cap_seconds) > 0
+        ):
+            wait_seconds = min(wait_seconds, float(local_cooldown_cap_seconds))
         wait_ms = int(wait_seconds * 1000)
         now_ms = int(time.time() * 1000)
         return self.model_copy(
@@ -212,6 +220,15 @@ class ManagedOAuthConfig(BaseModel):
     session_affinity_ttl_seconds: int = 86400
     session_affinity_max_entries: int = 10000
     allow_legacy_fallback: bool = True
+    #: Max seconds to sleep in :meth:`ManagedOAuthAccountSelector.get_next_account`
+    #: while waiting for a rate-limited account to become eligible again.
+    max_rate_limit_wait_seconds: float = 300.0
+    #: Caps how long an account stays locally ``rate_limited`` for rotation purposes
+    #: when upstream sends very large ``resets_in_seconds``. Full upstream metadata is
+    #: still stored on ``last_codex_usage_limit``.
+    rate_limit_local_cooldown_cap_seconds: float = 1800.0
+    #: Max idle polls (sleeps) while all accounts are rate-limited before giving up.
+    max_rate_limit_idle_polls: int = 48
 
     @classmethod
     def from_mapping(

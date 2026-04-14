@@ -75,6 +75,6 @@ class DesktopNotifierProvider(INotificationProvider):
                     ),
                 )
         except Exception as e:
-            logger.debug("DesktopNotifierProvider failed to send: %s", e)
+            logger.warning("DesktopNotifierProvider failed to send notification: %s", e)
 
         return None

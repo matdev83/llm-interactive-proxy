@@ -320,7 +320,7 @@ class ResponseExecutor(IResponseExecutor):
 
         # Retry logic for non-streaming requests with auth failures
         attempts_used = 0
-        max_retries = max(0, self._max_retries)
+        max_retries = await self._effective_rate_limit_max_retries()
         incompatible_tool_retries = 0
 
         response_json: dict[str, Any] | None = None
@@ -530,6 +530,15 @@ class ResponseExecutor(IResponseExecutor):
                                 },
                             )
                         err = response.text
+                    if int(response.status_code) == 429:
+                        retry_hdr = self._extract_retry_after_seconds(
+                            dict(response.headers)
+                        )
+                        notify_detail = err if isinstance(err, dict) else {}
+                        await self._notify_codex_quota_unrecovered(
+                            upstream_detail=notify_detail,
+                            retry_after_seconds=retry_hdr,
+                        )
                     raise HTTPException(status_code=response.status_code, detail=err)
 
                 # Success - break out of retry loop
@@ -723,7 +732,7 @@ class ResponseExecutor(IResponseExecutor):
         async def _streaming_iterator() -> AsyncIterator[ProcessedResponse]:
             """Streaming iterator with authentication retry logic."""
             attempts_used = 0
-            max_retries = max(0, self._max_retries)
+            max_retries = await self._effective_rate_limit_max_retries()
             incompatible_tool_retries = 0
             current_headers = dict(headers)
             current_payload_dict = dict(payload_dict)
@@ -829,26 +838,31 @@ class ResponseExecutor(IResponseExecutor):
                                 current_headers, conversation_id, context.session_id
                             )
                             continue
-                        if status_code == 429 and attempts_used < max_retries:
-                            detail_dict = detail if isinstance(detail, dict) else None
+                        if status_code == 429:
+                            rd = detail if isinstance(detail, dict) else {}
                             retry_after_seconds = (
-                                self._extract_retry_after_from_payload(detail)
+                                self._extract_retry_after_from_payload(rd)
                             )
-                            rotated = await self._handle_rate_limit_rotation(
-                                retry_after_seconds=retry_after_seconds,
-                                session_id=context.session_id,
-                                upstream_codex_error=detail_dict,
-                                response_headers=None,
-                            )
-                            if rotated:
-                                await self._wait_for_auth_retry_delay(attempts_used)
-                                attempts_used += 1
-                                self._refresh_headers_auth(
-                                    current_headers,
-                                    conversation_id,
-                                    context.session_id,
+                            if attempts_used < max_retries:
+                                rotated = await self._handle_rate_limit_rotation(
+                                    retry_after_seconds=retry_after_seconds,
+                                    session_id=context.session_id,
+                                    upstream_codex_error=rd or None,
+                                    response_headers=None,
                                 )
-                                continue
+                                if rotated:
+                                    await self._wait_for_auth_retry_delay(attempts_used)
+                                    attempts_used += 1
+                                    self._refresh_headers_auth(
+                                        current_headers,
+                                        conversation_id,
+                                        context.session_id,
+                                    )
+                                    continue
+                            await self._notify_codex_quota_unrecovered(
+                                upstream_detail=rd or {},
+                                retry_after_seconds=retry_after_seconds,
+                            )
                         raise
 
                     current_cancel[0] = stream_handle.cancel_callback
@@ -1423,6 +1437,37 @@ class ResponseExecutor(IResponseExecutor):
         result = mark_used_method()
         if inspect.isawaitable(result):
             await result
+
+    async def _effective_rate_limit_max_retries(self) -> int:
+        fn = getattr(self._credential_manager, "effective_max_rate_limit_retries", None)
+        if not callable(fn):
+            return max(0, self._max_retries)
+        out = fn(self._max_retries)
+        if inspect.isawaitable(out):
+            out = await out
+        try:
+            return max(0, int(cast(Any, out)))
+        except (TypeError, ValueError):
+            return max(0, self._max_retries)
+
+    async def _notify_codex_quota_unrecovered(
+        self,
+        *,
+        upstream_detail: Any,
+        retry_after_seconds: float | None,
+    ) -> None:
+        fn = getattr(
+            self._credential_manager, "notify_codex_usage_limit_unrecovered", None
+        )
+        if not callable(fn):
+            return
+        res = fn(
+            upstream_detail=upstream_detail,
+            retry_after_seconds=retry_after_seconds,
+            all_accounts_exhausted=True,
+        )
+        if inspect.isawaitable(res):
+            await res
 
     @staticmethod
     def _extract_retry_after_seconds(headers: Mapping[str, Any] | None) -> float | None:

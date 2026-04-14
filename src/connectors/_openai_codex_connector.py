@@ -11,7 +11,9 @@ Default legacy credential file locations (first that exists is used):
 - Cross-platform: ~/.codex/auth.json
 
 Configuration:
-- `openai_codex_path`: optional directory that contains legacy `auth.json`
+- `openai_codex_path`: optional directory that contains legacy `auth.json` for
+  discovery; managed OAuth accounts in ``managed_oauth.storage_path`` still load
+  first when present.
 - `openai_api_base_url`: optional base URL override (default: https://api.openai.com/v1)
 """
 
