@@ -8,7 +8,6 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 from src.core.domain.backend_capability_descriptor import BackendCapabilityDescriptor
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel
-from src.core.services.backend_registry import backend_registry
 
 
 def get_openrouter_headers(cfg: dict[str, str], api_key: str) -> dict[str, str]:
@@ -196,6 +195,8 @@ class BackendSettings(DomainModel):
             elif isinstance(config_data, BackendConfig):
                 merged[backend_name] = config_data
 
+        from src.core.services.backend_registry import backend_registry
+
         registered_backends = backend_registry.get_registered_backends()
         for backend_name in registered_backends:
             if backend_name in merged:
@@ -236,6 +237,10 @@ class BackendSettings(DomainModel):
     @property
     def functional_backends(self) -> set[str]:
         """Get the set of functional backends (those with API keys)."""
+        from src.core.services.backend_registry import (
+            backend_registry,
+        )
+
         functional: set[str] = set()
         registered = backend_registry.get_registered_backends()
         configs = self.get_named_backend_configs()

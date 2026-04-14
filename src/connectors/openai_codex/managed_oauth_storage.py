@@ -9,6 +9,7 @@ import logging
 import os
 import platform
 import tempfile
+import time
 from pathlib import Path
 
 from src.connectors.openai_codex.managed_oauth_models import (
@@ -140,6 +141,36 @@ class ManagedOAuthStorageService:
             )
             return None
 
+    @staticmethod
+    def _atomic_replace_with_retry(
+        src: str,
+        dst: str,
+        *,
+        retries: int = _PERMISSION_ERROR_RETRIES,
+        base_delay: float = _PERMISSION_ERROR_BASE_DELAY,
+    ) -> None:
+        last_exc: PermissionError | None = None
+        for attempt in range(retries):
+            try:
+                os.replace(src, dst)
+                return
+            except PermissionError as exc:
+                last_exc = exc
+                if attempt < retries - 1:
+                    delay = base_delay * (attempt + 1)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Permission denied replacing %s (attempt %d/%d), "
+                            "retrying in %.3fs: %s",
+                            dst,
+                            attempt + 1,
+                            retries,
+                            delay,
+                            exc,
+                        )
+                    time.sleep(delay)
+        raise last_exc  # type: ignore[misc]
+
     def _write_atomic_sync(self, path: Path, content: str, account_id: str) -> None:
         self._ensure_storage_dir_sync()
         fd, temp_path = tempfile.mkstemp(
@@ -160,7 +191,7 @@ class ManagedOAuthStorageService:
                 raise
             if platform.system() != "Windows":
                 os.chmod(temp_path, 0o600)
-            os.replace(temp_path, str(path))
+            self._atomic_replace_with_retry(temp_path, str(path))
         except Exception:
             with contextlib.suppress(OSError):
                 os.unlink(temp_path)

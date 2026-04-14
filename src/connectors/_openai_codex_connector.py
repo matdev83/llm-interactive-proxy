@@ -1017,7 +1017,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 if isinstance(dumped, dict):
                     if dumped.get("content") is None:
                         dumped = {**dumped, "content": ""}
-                    normalized.append(ProcessedMessage(**dumped))
+                    normalized.append(ProcessedMessage.model_validate(dumped))
                     continue
             if isinstance(message, dict):
                 payload = dict(message)
@@ -1551,13 +1551,16 @@ class OpenAICodexConnector(OpenAIConnector):
         async def _persist() -> None:
             try:
                 await record(headers, force=False)
+            except OSError as exc:
+                logger.warning(
+                    "OpenAI Codex record_codex_quota_headers failed: %s",
+                    exc,
+                )
             except Exception as exc:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "OpenAI Codex record_codex_quota_headers failed: %s",
-                        exc,
-                        exc_info=True,
-                    )
+                logger.exception(
+                    "OpenAI Codex record_codex_quota_headers failed: %s",
+                    exc,
+                )
 
         task = loop.create_task(_persist())
         self._codex_quota_persist_tasks.add(task)
@@ -1951,12 +1954,6 @@ class OpenAICodexConnector(OpenAIConnector):
         self,
         request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        if not isinstance(request, ConnectorChatCompletionsRequest):
-            raise TypeError(
-                "OpenAICodexConnector.chat_completions() requires a "
-                "ConnectorChatCompletionsRequest instance."
-            )
-
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if (
             request.cancellation_coordinator is not None
