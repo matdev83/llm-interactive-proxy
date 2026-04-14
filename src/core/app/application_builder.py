@@ -442,14 +442,11 @@ class ApplicationBuilder:
         # Store essential state
         app.state.service_provider = service_provider
         app.state.app_config = config
-        try:
-            from src.core.config.auto_append_first_prompt_hydration import (
-                resolve_app_config,
-            )
+        from src.core.config.auto_append_first_prompt_hydration import (
+            resolve_app_config,
+        )
 
-            app.state.resolved_app_config = resolve_app_config(config)
-        except Exception:
-            app.state.resolved_app_config = None
+        app.state.resolved_app_config = resolve_app_config(config)
 
         # Bridge application state service methods onto FastAPI state for compatibility
         try:

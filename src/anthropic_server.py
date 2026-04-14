@@ -7,7 +7,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from src.core.app.application_builder import build_app_async
-from src.core.app.controllers import _register_anthropic_endpoints
+from src.core.app.controllers import register_anthropic_endpoints
 from src.core.config.app_config import AppConfig
 
 # Configure logging
@@ -49,16 +49,13 @@ async def create_anthropic_app_async(
     if service_provider is not None:
         app.state.service_provider = service_provider
 
-    _register_anthropic_endpoints(app, prefix="")
+    register_anthropic_endpoints(app, prefix="")
     app.state.app_config = app_config
-    try:
-        from src.core.config.auto_append_first_prompt_hydration import (
-            resolve_app_config,
-        )
+    from src.core.config.auto_append_first_prompt_hydration import (
+        resolve_app_config,
+    )
 
-        app.state.resolved_app_config = resolve_app_config(app_config)
-    except Exception:
-        app.state.resolved_app_config = None
+    app.state.resolved_app_config = resolve_app_config(app_config)
 
     # Register Codebuff WebSocket endpoint if enabled
     if app_config.codebuff.enabled:

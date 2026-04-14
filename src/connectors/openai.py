@@ -323,7 +323,7 @@ def _raise_upstream_http_error(
             details=merged,
         )
 
-    if status_code == 401 or status_code == 403:
+    if status_code == 401:
         raise AuthenticationError(
             message=message,
             details=merged,
@@ -1995,13 +1995,6 @@ class OpenAIConnector(LLMBackend):
         This method handles requests to the /v1/responses endpoint, which provides
         structured output generation with JSON schema validation.
         """
-        if not isinstance(request, ConnectorChatCompletionsRequest):
-            raise InvalidRequestError(
-                message=(
-                    "OpenAIConnector.responses requires ConnectorChatCompletionsRequest."
-                ),
-                details={"received_type": type(request).__name__},
-            )
         if (
             request.cancellation_coordinator is not None
             and request.cancellation_token is not None
@@ -2042,8 +2035,7 @@ class OpenAIConnector(LLMBackend):
                     # If the message is a pydantic model, use model_dump
                     if hasattr(m, "model_dump") and callable(m.model_dump):
                         dumped = m.model_dump(exclude_none=False)
-                        if isinstance(dumped, dict):
-                            normalized_messages.append(dumped)
+                        normalized_messages.append(dumped)
                         continue
 
                     # Fallback: build a minimal dict
@@ -2069,11 +2061,7 @@ class OpenAIConnector(LLMBackend):
         resolved_headers: dict[str, str] | None = None
 
         if isinstance(headers_override, Mapping):
-            resolved_headers = {
-                str(k): str(v)
-                for k, v in headers_override.items()
-                if isinstance(k, str) and isinstance(v, str)
-            }
+            resolved_headers = {str(k): str(v) for k, v in headers_override.items()}
 
         base_headers: dict[str, str] | None
         try:

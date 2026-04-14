@@ -1385,6 +1385,7 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
                 BackendRoutingService,
             )
 
+
             dummy_response = DummyResponse()
             routing_service = service_provider.get_required_service(
                 BackendRoutingService
@@ -1436,6 +1437,12 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
                 "/v1/info",
             ],
         }
+
+
+def register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
+    """Public wrapper for Anthropic endpoint registration."""
+
+    _register_anthropic_endpoints(app, prefix)
 
 
 def _register_sso_routes(app: FastAPI) -> None:

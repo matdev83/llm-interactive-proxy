@@ -7,6 +7,9 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import FastAPI
+from src.anthropic_server import create_anthropic_app_async
+from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.config.auto_append_first_prompt_hydration import (
     resolve_app_config,
@@ -82,3 +85,26 @@ def test_resolve_app_config_returns_immutable_resolved_model(tmp_path: Path) -> 
     assert resolved.auto_append_first_prompt_text == "tail"
     with pytest.raises((TypeError, ValueError)):
         resolved.auto_append_first_prompt_text = "other"  # type: ignore[misc]
+
+
+def test_application_builder_propagates_invalid_auto_append_prompt_file(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing.md"
+    cfg = AppConfig(auto_append_first_prompt_filename=str(missing))
+
+    with pytest.raises(ValueError, match="file not found"):
+        ApplicationBuilder()._create_fastapi_app(cfg, MagicMock())
+
+
+@pytest.mark.asyncio
+async def test_anthropic_app_propagates_invalid_auto_append_prompt_file(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing.md"
+    cfg = AppConfig(auto_append_first_prompt_filename=str(missing))
+    built_app = FastAPI()
+    built_app.state.service_provider = MagicMock()
+
+    with pytest.raises(ValueError, match="file not found"):
+        await create_anthropic_app_async(cfg, built_app=built_app)

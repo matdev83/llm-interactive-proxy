@@ -329,6 +329,31 @@ async def test_non_streaming_401_raises_authentication_error(
 
 
 @pytest.mark.asyncio
+async def test_non_streaming_403_raises_invalid_request_error(
+    openai_connector: OpenAIConnector,
+) -> None:
+    payload = {
+        "error": {
+            "message": "Policy denied this request.",
+            "type": "policy_error",
+            "code": "policy_denied",
+        }
+    }
+    response = httpx.Response(403, json=payload, request=_req())
+    openai_connector._send_request_with_retry = AsyncMock(return_value=response)  # type: ignore[method-assign]
+
+    with pytest.raises(InvalidRequestError) as exc_info:
+        await openai_connector._handle_non_streaming_response(
+            "https://api.openai.com/v1/chat/completions",
+            {"model": "gpt-4"},
+            {"Authorization": "Bearer sk-test"},
+            "sid",
+            None,
+        )
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_responses_method_uses_request_context(
     openai_connector: OpenAIConnector,
 ) -> None:
