@@ -353,6 +353,11 @@ def normalize_responses_input_to_messages(
             if "tool_call_id" in entry and entry.get("tool_call_id") is not None:
                 message["tool_call_id"] = entry["tool_call_id"]
 
+            # Codex / Responses clients may send role+name (e.g. name=bash) with no body after
+            # tool-only content is stripped. Downstream Codex `ProcessedMessage` requires content.
+            if "content" not in message or message.get("content") is None:
+                message["content"] = ""
+
             return message
 
         return {"role": "user", "content": str(entry)}

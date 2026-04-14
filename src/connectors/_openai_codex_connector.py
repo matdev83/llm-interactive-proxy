@@ -1012,10 +1012,15 @@ class OpenAICodexConnector(OpenAIConnector):
             if hasattr(message, "model_dump") and callable(message.model_dump):
                 dumped = message.model_dump(exclude_none=True)
                 if isinstance(dumped, dict):
+                    if dumped.get("content") is None:
+                        dumped = {**dumped, "content": ""}
                     normalized.append(ProcessedMessage(**dumped))
                     continue
             if isinstance(message, dict):
-                normalized.append(ProcessedMessage(**message))
+                payload = dict(message)
+                if payload.get("content") is None:
+                    payload["content"] = ""
+                normalized.append(ProcessedMessage(**payload))
                 continue
             role = getattr(message, "role", None)
             content = getattr(message, "content", None)

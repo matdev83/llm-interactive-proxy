@@ -47,6 +47,18 @@ class TestTranslationEdgeCases:
             }
         ]
 
+    def test_codex_style_user_named_bash_without_content_gets_empty_string(self):
+        """Codex/CLI can emit user items with name=bash and no body; downstream expects content."""
+
+        input_payload = [{"role": "user", "name": "bash"}]
+
+        normalized = Translation.normalize_responses_input_to_messages(input_payload)
+
+        assert len(normalized) == 1
+        assert normalized[0]["role"] == "user"
+        assert normalized[0]["name"] == "bash"
+        assert normalized[0]["content"] == ""
+
     def test_streaming_error_conditions(self):
         """Invalid Gemini streaming chunks should return an explicit error payload."""
 

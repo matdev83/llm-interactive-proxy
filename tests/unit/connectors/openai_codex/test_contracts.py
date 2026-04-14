@@ -73,6 +73,28 @@ class TestProcessedMessage:
         assert len(msg.tool_calls) == 1
 
 
+class TestOpenAICodexNormalizeProcessedMessages:
+    """Regression: ChatMessage / dict payloads must coerce missing content for ProcessedMessage."""
+
+    def test_defaults_missing_content_for_codex_bash_style_user(self):
+        from src.connectors._openai_codex_connector import OpenAICodexConnector
+        from src.core.domain.chat import ChatMessage
+
+        inst = OpenAICodexConnector.__new__(OpenAICodexConnector)
+        object.__setattr__(inst, "_file_observer_ref", None)
+
+        raw_dict = {"role": "user", "name": "bash"}
+        out_dict = OpenAICodexConnector._normalize_processed_messages(inst, [raw_dict])
+        assert len(out_dict) == 1
+        assert out_dict[0].content == ""
+
+        cm = ChatMessage(role="user", name="bash", content=None)
+        dumped = cm.model_dump(exclude_none=True)
+        out_cm = OpenAICodexConnector._normalize_processed_messages(inst, [dumped])
+        assert len(out_cm) == 1
+        assert out_cm[0].content == ""
+
+
 class TestCodexRequestContext:
     """Tests for CodexRequestContext contract."""
 
