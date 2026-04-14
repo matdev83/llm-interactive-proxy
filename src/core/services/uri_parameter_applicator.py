@@ -252,7 +252,10 @@ class URIParameterApplicator(IURIParameterApplicator):
         """Extract explicit request fields with higher precedence than URI params."""
         request_params: dict[str, Any] = {}
         try:
+            explicit_fields = getattr(request, "model_fields_set", None)
             for param_name in self._param_names():
+                if explicit_fields is not None and param_name not in explicit_fields:
+                    continue
                 value = getattr(request, param_name, None)
                 if value is not None:
                     self._assign_param(request_params, param_name, value)

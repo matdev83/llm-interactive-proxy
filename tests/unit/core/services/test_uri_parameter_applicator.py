@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import BaseModel
+from pydantic.types import JsonValue
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.uri_parameter_applicator import URIParameterApplicator
@@ -199,6 +202,37 @@ class TestEquivalenceWithBackendService:
 
 class TestURIParameterApplicatorReasoningEffort:
     """URI reasoning_effort handling, including xhigh downgrade behavior."""
+
+    def test_uri_reasoning_effort_overrides_defaulted_sdk_request_field(self) -> None:
+        backend_type = "openai-codex"
+        config = _make_config(backend_type, extra={})
+
+        class SDKStyleRequest(BaseModel):
+            model: str
+            messages: list[ChatMessage]
+            extra_body: dict[str, object] | None = None
+            temperature: float | None = None
+            top_p: float | None = None
+            top_k: int | None = None
+            reasoning_effort: str = "medium"
+
+        request = SDKStyleRequest(
+            model="openai-codex:gpt-5.4",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+        assert "reasoning_effort" not in request.model_fields_set
+        uri_params: dict[str, JsonValue] = {"reasoning_effort": "high"}
+
+        result = URIParameterApplicator(config=config).apply(
+            request=cast(Any, request),
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.reasoning_effort == "high"
+        assert result.extra_body is not None
+        assert result.extra_body.get("reasoning_effort") == "high"
 
     def test_uri_xhigh_applied_to_request_for_codex(self) -> None:
         backend_type = "openai-codex"
