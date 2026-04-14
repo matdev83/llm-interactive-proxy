@@ -186,7 +186,9 @@ class TestResponseExecutor:
             pass
 
         mock_base_connector._handle_rate_limit_rotation.assert_awaited_once_with(
-            None, session_id=sample_context.session_id
+            None,
+            session_id=sample_context.session_id,
+            upstream_codex_error=None,
         )
 
     @pytest.mark.asyncio
@@ -228,7 +230,9 @@ class TestResponseExecutor:
             pass
 
         mock_base_connector._handle_rate_limit_rotation.assert_awaited_once_with(
-            45.0, session_id=sample_context.session_id
+            45.0,
+            session_id=sample_context.session_id,
+            upstream_codex_error={"error": {"retry_after_seconds": 45}},
         )
 
     @pytest.mark.asyncio

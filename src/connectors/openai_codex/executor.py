@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 import logging
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
@@ -394,19 +395,22 @@ class ResponseExecutor(IResponseExecutor):
                 if int(response.status_code) >= 400:
                     # Rotate managed account on explicit rate-limit responses.
                     if response.status_code == 429 and attempts_used < max_retries:
+                        rate_limit_json: dict[str, Any] | None = None
+                        with contextlib.suppress(Exception):
+                            parsed_rl = response.json()
+                            if isinstance(parsed_rl, dict):
+                                rate_limit_json = parsed_rl
                         retry_after_seconds = self._extract_retry_after_seconds(
                             response.headers
                         )
-                        if retry_after_seconds is None:
-                            with contextlib.suppress(Exception):
-                                retry_after_seconds = (
-                                    self._extract_retry_after_from_payload(
-                                        response.json()
-                                    )
-                                )
+                        if retry_after_seconds is None and rate_limit_json is not None:
+                            retry_after_seconds = (
+                                self._extract_retry_after_from_payload(rate_limit_json)
+                            )
                         rotated = await self._handle_rate_limit_rotation(
                             retry_after_seconds=retry_after_seconds,
                             session_id=context.session_id,
+                            upstream_codex_error=rate_limit_json,
                         )
                         if rotated:
                             fresh_headers = self._base_connector.get_headers() or {}
@@ -825,12 +829,14 @@ class ResponseExecutor(IResponseExecutor):
                             )
                             continue
                         if status_code == 429 and attempts_used < max_retries:
+                            detail_dict = detail if isinstance(detail, dict) else None
                             retry_after_seconds = (
                                 self._extract_retry_after_from_payload(detail)
                             )
                             rotated = await self._handle_rate_limit_rotation(
                                 retry_after_seconds=retry_after_seconds,
                                 session_id=context.session_id,
+                                upstream_codex_error=detail_dict,
                             )
                             if rotated:
                                 await self._wait_for_auth_retry_delay(attempts_used)
@@ -1348,6 +1354,7 @@ class ResponseExecutor(IResponseExecutor):
         *,
         retry_after_seconds: float | None,
         session_id: str | None,
+        upstream_codex_error: Mapping[str, Any] | None = None,
     ) -> bool:
         rotate_method = getattr(
             self._base_connector,
@@ -1358,6 +1365,7 @@ class ResponseExecutor(IResponseExecutor):
             result = rotate_method(
                 retry_after_seconds,
                 session_id=session_id,
+                upstream_codex_error=upstream_codex_error,
             )
             rotated = await result if inspect.isawaitable(result) else bool(result)
             return bool(rotated)
@@ -1369,6 +1377,7 @@ class ResponseExecutor(IResponseExecutor):
         result = fallback_rotate(
             retry_after_seconds,
             session_id=session_id,
+            upstream_codex_error=upstream_codex_error,
         )
         rotated = await result if inspect.isawaitable(result) else bool(result)
         if rotated:
@@ -1444,6 +1453,8 @@ class ResponseExecutor(IResponseExecutor):
             "retryAfterSeconds",
             "retry_after_ms",
             "retryAfterMs",
+            "resets_in_seconds",
+            "resetsInSeconds",
         )
 
         for key in key_aliases:
@@ -1464,6 +1475,12 @@ class ResponseExecutor(IResponseExecutor):
                 parsed = parsed / 1000.0
             if parsed > 0:
                 return parsed
+
+        resets_at = payload.get("resets_at")
+        if isinstance(resets_at, int | float) and float(resets_at) > 1_000_000_000:
+            delta = float(resets_at) - time.time()
+            if delta > 0:
+                return delta
 
         for nested_key in ("details", "detail", "error", "metadata"):
             nested = payload.get(nested_key)

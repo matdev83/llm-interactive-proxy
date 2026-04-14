@@ -334,7 +334,64 @@ class TestResponseExecutor:
         assert isinstance(result, ResponseEnvelope)
         assert call_count[0] == 2
         mock_base_connector._handle_rate_limit_rotation.assert_awaited_once_with(
-            2.0, session_id=sample_context.session_id
+            2.0,
+            session_id=sample_context.session_id,
+            upstream_codex_error={"error": {"message": "rate limited"}},
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_non_streaming_uses_resets_in_seconds_from_usage_limit_json(
+        self, executor, mock_base_connector, sample_context, non_streaming_payload
+    ):
+        """Codex usage_limit_reached JSON should supply retry delay via resets_in_seconds."""
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.headers = {}
+        rate_limited.json.return_value = {
+            "error": {
+                "type": "usage_limit_reached",
+                "message": "The usage limit has been reached",
+                "plan_type": "plus",
+                "resets_at": 1776358224,
+                "resets_in_seconds": 191966,
+            }
+        }
+        rate_limited.text = "{}"
+
+        success = MagicMock()
+        success.status_code = 200
+        success.headers = {}
+        success.json.return_value = {
+            "id": "chatcmpl-429-codex-usage",
+            "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+        }
+
+        call_count = [0]
+
+        async def post_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return rate_limited
+            return success
+
+        mock_base_connector.client.post = AsyncMock(side_effect=post_side_effect)
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=True)
+
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {"content": "ok"}
+        domain_response.usage = None
+        mock_base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        result = await executor.execute(non_streaming_payload, sample_context)
+
+        assert isinstance(result, ResponseEnvelope)
+        assert call_count[0] == 2
+        mock_base_connector._handle_rate_limit_rotation.assert_awaited_once_with(
+            191966.0,
+            session_id=sample_context.session_id,
+            upstream_codex_error=rate_limited.json.return_value,
         )
 
     @pytest.mark.asyncio
@@ -384,7 +441,14 @@ class TestResponseExecutor:
         assert isinstance(result, ResponseEnvelope)
         assert call_count[0] == 2
         mock_base_connector._handle_rate_limit_rotation.assert_awaited_once_with(
-            75.0, session_id=sample_context.session_id
+            75.0,
+            session_id=sample_context.session_id,
+            upstream_codex_error={
+                "error": {
+                    "message": "rate limited",
+                    "retry_after": 75,
+                }
+            },
         )
 
     @pytest.mark.asyncio

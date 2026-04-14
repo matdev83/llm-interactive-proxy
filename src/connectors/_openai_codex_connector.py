@@ -1545,6 +1545,7 @@ class OpenAICodexConnector(OpenAIConnector):
         retry_after_seconds: float | None,
         *,
         session_id: str | None = None,
+        upstream_codex_error: Mapping[str, Any] | None = None,
     ) -> bool:
         """Rotate managed OAuth accounts on 429 responses when available."""
         rotate_method = getattr(self._credential_manager, "handle_rate_limit", None)
@@ -1555,6 +1556,7 @@ class OpenAICodexConnector(OpenAIConnector):
             result = rotate_method(
                 retry_after_seconds,
                 session_id=session_id,
+                upstream_codex_error=upstream_codex_error,
             )
             rotated = await result if inspect.isawaitable(result) else bool(result)
         except Exception as exc:

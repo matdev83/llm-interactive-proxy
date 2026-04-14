@@ -15,7 +15,7 @@ import os
 import tempfile
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,6 +25,9 @@ import httpx
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from src.connectors.openai_codex.codex_rate_limit_logging import (
+    emit_openai_codex_managed_oauth_rate_limit,
+)
 from src.connectors.openai_codex.interfaces import ICredentialManager
 from src.connectors.openai_codex.managed_oauth_constants import (
     DEFAULT_ALLOW_LEGACY_FALLBACK,
@@ -1010,11 +1013,23 @@ class CredentialManager(ICredentialManager):
         retry_after_seconds: float | None,
         *,
         session_id: str | None = None,
+        upstream_codex_error: Mapping[str, Any] | None = None,
     ) -> bool:
         """Mark managed account as rate-limited and rotate to another account."""
         async with self._token_refresh_lock:
             if not await self._load_managed_auth(force_reload=True):
                 return False
+            current = self._managed_selector.get_current_account()
+            if current is not None:
+                emit_openai_codex_managed_oauth_rate_limit(
+                    managed_account_id=current.account_id,
+                    email=current.email,
+                    chatgpt_account_id=current.chatgpt_account_id,
+                    retry_after_seconds=retry_after_seconds,
+                    session_id=session_id,
+                    upstream_json=upstream_codex_error,
+                    log=logger,
+                )
             rotated = await self._managed_selector.rotate_on_rate_limit(
                 retry_after_seconds=retry_after_seconds,
                 session_id=session_id,
