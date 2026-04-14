@@ -44,7 +44,7 @@ from src.core.interfaces.tool_call_stream_context_resolver_interface import (
 )
 from src.tool_call_loop.lifecycle_registry import (
     ToolCallLifecycleRegistry,
-    build_tool_call_signature,
+    build_reactor_processing_signature,
 )
 
 logger = get_logger(__name__)
@@ -290,7 +290,9 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
         for tool_call in new_tool_calls:
             # Cache model_dump() to avoid repeated calls per tool call (used for signature + write-back)
             tool_call_dict = tool_call.model_dump()
-            signature = build_tool_call_signature(tool_call_dict)
+            signature = build_reactor_processing_signature(
+                tool_call_dict, is_streaming=is_streaming
+            )
 
             # Double-check if already processed (defensive)
             if await self._deduplicator.is_processed(stream_key, signature):

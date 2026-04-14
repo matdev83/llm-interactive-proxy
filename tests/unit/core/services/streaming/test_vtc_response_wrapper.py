@@ -1023,3 +1023,73 @@ class TestVTCMetadataNormalization:
 
         # Valid string should be preserved
         assert result_chunk.metadata.get("valid_string") == "test"
+
+
+class TestVTCReactorDedupe:
+    """Reactor should not re-run for the same logical tool call (VTC path)."""
+
+    @pytest.mark.asyncio
+    async def test_invoke_reactor_duplicate_signature_invokes_once(self) -> None:
+        from unittest.mock import AsyncMock
+
+        from src.core.services.streaming.vtc_response_wrapper import (
+            VTCResponseStreamWrapper,
+        )
+
+        reactor = AsyncMock()
+        reactor.process_tool_call.return_value = None
+
+        wrapper = VTCResponseStreamWrapper(
+            vtc_enabled=True,
+            tool_call_reactor=reactor,
+            session_id="sess-vtc-dedupe",
+            context={"backend_name": "gemini", "model_name": "test-model"},
+        )
+        tool_calls = [
+            {
+                "type": "function",
+                "index": 0,
+                "function": {"name": "bash", "arguments": "{"},
+            },
+            {
+                "type": "function",
+                "index": 0,
+                "id": "call_dup",
+                "function": {"name": "bash", "arguments": '{"cmd":"ls"}'},
+            },
+        ]
+        non_swallowed, _msg, swallowed = await wrapper._invoke_reactor(tool_calls)
+
+        assert reactor.process_tool_call.await_count == 1
+        assert swallowed is False
+        assert len(non_swallowed) == 2
+
+    @pytest.mark.asyncio
+    async def test_reset_clears_vtc_reactor_dedupe_state(self) -> None:
+        from unittest.mock import AsyncMock
+
+        from src.core.services.streaming.vtc_response_wrapper import (
+            VTCResponseStreamWrapper,
+        )
+
+        reactor = AsyncMock()
+        reactor.process_tool_call.return_value = None
+
+        wrapper = VTCResponseStreamWrapper(
+            vtc_enabled=True,
+            tool_call_reactor=reactor,
+            session_id="sess-vtc-reset",
+            context={"backend_name": "gemini", "model_name": "test-model"},
+        )
+        one = [
+            {
+                "type": "function",
+                "index": 0,
+                "function": {"name": "bash", "arguments": "{}"},
+            }
+        ]
+        await wrapper._invoke_reactor(one)
+        assert reactor.process_tool_call.await_count == 1
+        wrapper.reset()
+        await wrapper._invoke_reactor(one)
+        assert reactor.process_tool_call.await_count == 2

@@ -16,7 +16,7 @@ from src.core.interfaces.tool_call_deduplicator_interface import (
 )
 from src.tool_call_loop.lifecycle_registry import (
     ToolCallLifecycleRegistry,
-    build_tool_call_signature,
+    build_reactor_processing_signature,
 )
 
 logger = logging.getLogger(__name__)
@@ -78,15 +78,14 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
 
         # Filter non-buffered calls against lifecycle registry
         for tool_call in tool_calls:
-            # PERFORMANCE: Avoid expensive model_dump() if ID is available
-            if tool_call.id:
-                signature = tool_call.id
-            else:
-                # If name is missing during streaming, skip processing until it arrives.
-                # This prevents "None:hash" signature collisions and useless reactor calls.
-                if is_streaming and not tool_call.function.name:
-                    continue
-                signature = build_tool_call_signature(tool_call.model_dump())
+            # If name is missing during streaming, skip processing until it arrives.
+            # This prevents "None:hash" signature collisions and useless reactor calls.
+            if is_streaming and not tool_call.function.name:
+                continue
+
+            signature = build_reactor_processing_signature(
+                tool_call.model_dump(), is_streaming=is_streaming
+            )
 
             # Check if already processed in buffer state
 

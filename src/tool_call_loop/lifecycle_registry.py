@@ -80,6 +80,48 @@ def build_tool_call_signature(tool_call: ToolCallDict | dict[str, Any]) -> str:
     return f"{name}:{digest}"
 
 
+def build_reactor_processing_signature(
+    tool_call: ToolCallDict | dict[str, Any], *, is_streaming: bool
+) -> str:
+    """Stable signature for tool-call reactor dedupe and lifecycle marking.
+
+    In streaming mode, OpenAI-style deltas often include ``index`` and ``function.name``
+    before ``id`` appears. Using ``id`` as soon as it arrives would change the
+    signature mid-stream (e.g. ``idx:0:bash`` vs ``call_abc``), causing the reactor
+    to run more than once for the same logical tool call.
+
+    When streaming and both ``index`` and ``function.name`` are present, prefer
+    ``idx:{index}:{name}`` so signatures stay stable across argument deltas and
+    late-arriving ``id`` fields. Otherwise fall back to ``id`` (when set) or
+    :func:`build_tool_call_signature`.
+    """
+
+    if isinstance(tool_call, ToolCallDict):
+        data = tool_call.model_dump()
+    else:
+        data = dict(tool_call)
+
+    function_block = data.get("function")
+    if not isinstance(function_block, dict):
+        function_block = {}
+    name = function_block.get("name")
+
+    if is_streaming and isinstance(name, str) and name:
+        idx_val = data.get("index")
+        if idx_val is not None:
+            try:
+                idx_int = int(idx_val)
+            except (TypeError, ValueError):
+                idx_int = idx_val
+            return f"idx:{idx_int}:{name}"
+
+    identifier = data.get("id")
+    if isinstance(identifier, str) and identifier:
+        return identifier
+
+    return build_tool_call_signature(data)
+
+
 class ToolCallLifecycleRegistry:
     """Registry that prevents duplicate tool call processing across the pipeline."""
 

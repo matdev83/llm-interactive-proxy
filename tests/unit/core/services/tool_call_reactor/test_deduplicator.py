@@ -19,7 +19,10 @@ from src.core.services.tool_call_reactor.deduplicator import (
 from src.core.services.tool_call_reactor.stream_buffer_adapter import (
     StreamBufferAdapter,
 )
-from src.tool_call_loop.lifecycle_registry import ToolCallLifecycleRegistry
+from src.tool_call_loop.lifecycle_registry import (
+    ToolCallLifecycleRegistry,
+    build_reactor_processing_signature,
+)
 
 
 class TestFilterNewCalls:
@@ -158,10 +161,6 @@ class TestFilterNewCalls:
             function=FunctionCall(name="test_tool", arguments='{"key": "value"}'),
         )
 
-        from src.tool_call_loop.lifecycle_registry import build_tool_call_signature
-
-        build_tool_call_signature(call1.model_dump())
-
         # First detection should succeed
         result1 = await resolver.filter_new_calls(
             [call1], stream_key, None, is_streaming=False
@@ -173,6 +172,51 @@ class TestFilterNewCalls:
             [call1], stream_key, None, is_streaming=False
         )
         assert len(result2) == 0
+
+    @pytest.mark.asyncio
+    async def test_filter_new_calls_streaming_stable_across_late_tool_call_id(
+        self,
+    ) -> None:
+        """Streaming deltas share index+name before id; reactor must dedupe once."""
+        lifecycle_registry = ToolCallLifecycleRegistry()
+        resolver = ToolCallDeduplicator(lifecycle_registry)
+        stream_key = "test-stream-late-id"
+
+        early = ToolCall.model_validate(
+            {
+                "type": "function",
+                "index": 0,
+                "function": {"name": "bash", "arguments": "{"},
+            }
+        )
+        late = ToolCall.model_validate(
+            {
+                "type": "function",
+                "index": 0,
+                "id": "call_abc123",
+                "function": {"name": "bash", "arguments": '{"cmd":"ls"}'},
+            }
+        )
+
+        first = await resolver.filter_new_calls(
+            [early], stream_key, None, is_streaming=True
+        )
+        assert len(first) == 1
+        assert (
+            build_reactor_processing_signature(early.model_dump(), is_streaming=True)
+            == "idx:0:bash"
+        )
+
+        await resolver.mark_processed(
+            stream_key,
+            build_reactor_processing_signature(early.model_dump(), is_streaming=True),
+            None,
+        )
+
+        second = await resolver.filter_new_calls(
+            [late], stream_key, None, is_streaming=True
+        )
+        assert len(second) == 0
 
     @pytest.mark.asyncio
     async def test_filter_new_calls_handles_none_buffer_state(self) -> None:

@@ -146,6 +146,10 @@ class VTCResponseStreamWrapper:
         self._arguments_fixup_pipeline = arguments_fixup_pipeline
         self._session_id = session_id or ""
         self._context = context or {}
+        # Per-wrapper stream: avoid duplicate ``process_tool_call`` work when the same
+        # logical tool call is observed again (e.g. index+name before id, matching the
+        # main reactor dedupe contract in ``build_reactor_processing_signature``).
+        self._vtc_reactor_outcomes: dict[str, str] = {}
 
     async def wrap(
         self,
@@ -447,6 +451,9 @@ class VTCResponseStreamWrapper:
 
         try:
             from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
+            from src.tool_call_loop.lifecycle_registry import (
+                build_reactor_processing_signature,
+            )
 
             for tool_call in tool_calls:
                 if hasattr(tool_call, "function"):
@@ -515,6 +522,25 @@ class VTCResponseStreamWrapper:
                     calling_agent=self._context.get("calling_agent"),
                 )
 
+                if isinstance(tool_call, dict):
+                    tc_dump: dict[str, Any] = dict(tool_call)
+                elif hasattr(tool_call, "model_dump") and callable(
+                    tool_call.model_dump
+                ):
+                    dumped = tool_call.model_dump(exclude_none=True)  # type: ignore[attr-defined]
+                    tc_dump = dict(dumped) if isinstance(dumped, dict) else {}
+                else:
+                    tc_dump = {}
+
+                dedupe_sig = build_reactor_processing_signature(
+                    tc_dump, is_streaming=True
+                )
+                prior = self._vtc_reactor_outcomes.get(dedupe_sig)
+                if prior is not None:
+                    if prior == "passed":
+                        non_swallowed.append(tool_call)
+                    continue
+
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "VTC wrapper invoking reactor for tool call: %s (session: %s)",
@@ -539,9 +565,11 @@ class VTCResponseStreamWrapper:
                         and result.replacement_response.strip()
                     ):
                         replacement_messages.append(result.replacement_response.strip())
+                    self._vtc_reactor_outcomes[dedupe_sig] = "swallowed"
                 else:
                     # Tool call was not swallowed, keep it
                     non_swallowed.append(tool_call)
+                    self._vtc_reactor_outcomes[dedupe_sig] = "passed"
 
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
@@ -854,6 +882,7 @@ class VTCResponseStreamWrapper:
         """Reset the wrapper state for reuse."""
         self._buffer = ""
         self._last_chunk_template = None
+        self._vtc_reactor_outcomes.clear()
 
 
 async def wrap_processed_response_stream_with_vtc(
