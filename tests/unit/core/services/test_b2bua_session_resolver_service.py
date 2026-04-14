@@ -242,3 +242,159 @@ async def test_resolver_reuses_a_leg_when_client_echoes_prior_session_header() -
     second_context = _context(headers={"x-b2bua-session-id": first_id})
     second_id = await resolver.resolve_session_id(second_context)
     assert second_id == first_id
+
+
+def _config_with_heuristic_inference() -> AppConfig:
+    b2bua = AppConfig().session.b2bua.model_copy(
+        update={"enable_unsafe_heuristic_session_inference": True}
+    )
+    session = AppConfig().session.model_copy(update={"b2bua": b2bua})
+    return AppConfig().model_copy(update={"session": session})
+
+
+@pytest.mark.asyncio
+async def test_heuristic_inference_derives_client_id_from_user_message() -> None:
+    config = _config_with_heuristic_inference()
+    resolver = B2BUASessionResolver(
+        client_session_extractor=DefaultClientSessionIdExtractor(config=config),
+        auth_scope_resolver=DefaultAuthScopeResolver(config=config),
+        mapping_store=InMemoryB2buaMappingStore(continuity_ttl_seconds=60),
+        session_id_factory=B2BUASessionIdFactory(
+            uuid_factory=lambda: UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        ),
+        config=config,
+    )
+
+    context = _context(
+        state={"auth_scope_id": "token-1"},
+    )
+
+    resolved = await resolver.resolve_session_id(context)
+
+    assert resolved == "llm-b2bua-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert context.b2bua_identity is not None
+    assert context.b2bua_identity.client_session_id is not None
+    assert context.b2bua_identity.client_session_id.startswith("b2bua-fallback:")
+    assert context.b2bua_identity.auth_scope_id == "token-1"
+
+
+@pytest.mark.asyncio
+async def test_heuristic_inference_reuses_mapping_with_same_auth_scope_and_message() -> (
+    None
+):
+    config = _config_with_heuristic_inference()
+    resolver = B2BUASessionResolver(
+        client_session_extractor=DefaultClientSessionIdExtractor(config=config),
+        auth_scope_resolver=DefaultAuthScopeResolver(config=config),
+        mapping_store=InMemoryB2buaMappingStore(continuity_ttl_seconds=60),
+        session_id_factory=B2BUASessionIdFactory(
+            uuid_factory=iter(
+                [
+                    UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                    UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                ]
+            ).__next__
+        ),
+        config=config,
+    )
+
+    first_context = _context(state={"auth_scope_id": "token-1"})
+    second_context = _context(state={"auth_scope_id": "token-1"})
+
+    first = await resolver.resolve_session_id(first_context)
+    second = await resolver.resolve_session_id(second_context)
+
+    assert first == "llm-b2bua-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert second == first
+    assert first_context.b2bua_identity is not None
+    assert second_context.b2bua_identity is not None
+    assert (
+        first_context.b2bua_identity.client_session_id
+        == second_context.b2bua_identity.client_session_id
+    )
+
+
+@pytest.mark.asyncio
+async def test_heuristic_inference_falls_back_to_agent_host_when_no_user_message() -> (
+    None
+):
+    config = _config_with_heuristic_inference()
+    resolver = B2BUASessionResolver(
+        client_session_extractor=DefaultClientSessionIdExtractor(config=config),
+        auth_scope_resolver=DefaultAuthScopeResolver(config=config),
+        mapping_store=InMemoryB2buaMappingStore(continuity_ttl_seconds=60),
+        session_id_factory=B2BUASessionIdFactory(
+            uuid_factory=lambda: UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        ),
+        config=config,
+    )
+
+    context = _context(
+        state={"auth_scope_id": "token-1"},
+    )
+    context.domain_request = CanonicalChatRequest(
+        model="test-model",
+        messages=[ChatMessage(role="system", content="You are a helpful assistant")],
+    )
+    context.agent = "test-agent"
+    context.client_host = "192.168.1.1"
+
+    resolved = await resolver.resolve_session_id(context)
+
+    assert resolved == "llm-b2bua-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert context.b2bua_identity is not None
+    assert context.b2bua_identity.client_session_id is not None
+    assert context.b2bua_identity.client_session_id.startswith("b2bua-fallback:")
+
+
+@pytest.mark.asyncio
+async def test_heuristic_inference_does_not_crash_on_exception() -> None:
+    config = _config_with_heuristic_inference()
+    resolver = B2BUASessionResolver(
+        client_session_extractor=DefaultClientSessionIdExtractor(config=config),
+        auth_scope_resolver=DefaultAuthScopeResolver(config=config),
+        mapping_store=InMemoryB2buaMappingStore(continuity_ttl_seconds=60),
+        session_id_factory=B2BUASessionIdFactory(
+            uuid_factory=lambda: UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+        ),
+        config=config,
+    )
+
+    context = _context(
+        state={"auth_scope_id": "token-1"},
+    )
+    context.domain_request = None
+
+    resolved = await resolver.resolve_session_id(context)
+
+    assert resolved == "llm-b2bua-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert context.b2bua_identity is not None
+    assert context.b2bua_identity.auth_scope_id == "token-1"
+
+
+@pytest.mark.asyncio
+async def test_heuristic_inference_disabled_creates_new_a_leg() -> None:
+    config = AppConfig()
+    resolver = B2BUASessionResolver(
+        client_session_extractor=DefaultClientSessionIdExtractor(config=config),
+        auth_scope_resolver=DefaultAuthScopeResolver(config=config),
+        mapping_store=InMemoryB2buaMappingStore(continuity_ttl_seconds=60),
+        session_id_factory=B2BUASessionIdFactory(
+            uuid_factory=iter(
+                [
+                    UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                    UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                ]
+            ).__next__
+        ),
+    )
+
+    first_context = _context(state={"auth_scope_id": "token-1"})
+    second_context = _context(state={"auth_scope_id": "token-1"})
+
+    first = await resolver.resolve_session_id(first_context)
+    second = await resolver.resolve_session_id(second_context)
+
+    assert first == "llm-b2bua-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    assert second == "llm-b2bua-bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    assert first != second
