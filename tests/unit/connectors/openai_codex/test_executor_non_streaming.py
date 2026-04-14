@@ -337,6 +337,7 @@ class TestResponseExecutor:
             2.0,
             session_id=sample_context.session_id,
             upstream_codex_error={"error": {"message": "rate limited"}},
+            response_headers=rate_limited.headers,
         )
 
     @pytest.mark.asyncio
@@ -392,6 +393,7 @@ class TestResponseExecutor:
             191966.0,
             session_id=sample_context.session_id,
             upstream_codex_error=rate_limited.json.return_value,
+            response_headers=rate_limited.headers,
         )
 
     @pytest.mark.asyncio
@@ -449,6 +451,7 @@ class TestResponseExecutor:
                     "retry_after": 75,
                 }
             },
+            response_headers=rate_limited.headers,
         )
 
     @pytest.mark.asyncio

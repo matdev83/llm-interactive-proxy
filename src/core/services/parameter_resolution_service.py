@@ -22,7 +22,7 @@ class ParameterSource:
     """Tracks the source and value of a parameter."""
 
     value: Any
-    source: str  # "uri", "session", "header", "config", "default"
+    source: str  # "config", "header", "uri", "request", "session", "connector_forced"
 
     def __repr__(self) -> str:
         return f"ParameterSource(value={self.value!r}, source={self.source!r})"
@@ -132,11 +132,14 @@ class ParameterResolutionService:
     """
     Resolves model parameters from multiple sources with precedence.
 
-    Precedence (highest to lowest):
-    1. Interactive session commands
-    2. URI parameters from the model string
-    3. Request headers
-    4. Configuration file defaults (lowest priority)
+    Precedence (highest to lowest); see ``_resolve_single_parameter`` for the
+    authoritative ordered merge:
+    1. ``connector_forced_params``
+    2. ``session_params``
+    3. ``request_params`` (explicit request fields)
+    4. ``uri_params``
+    5. ``header_params`` (e.g. ``extra_body`` in the applicator)
+    6. ``config_params``
 
     The service tracks the source of each parameter value for debugging
     and transparency.

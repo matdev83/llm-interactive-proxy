@@ -7,20 +7,29 @@ from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
-from pydantic import BaseModel
 from pydantic.types import JsonValue
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.uri_parameter_applicator import URIParameterApplicator
 
 
-def _make_config(backend_type: str, extra: dict) -> AppConfig:
-    return AppConfig(
-        backends=BackendSettings(
-            default_backend="openai",
-            **{backend_type: BackendConfig(extra=extra)},
-        )
-    )
+def _make_config(backend_type: str, extra: dict[str, Any]) -> AppConfig:
+    raw_backends: dict[str, Any] = {
+        "default_backend": "openai",
+        backend_type: BackendConfig(extra=extra),
+    }
+    return AppConfig(backends=BackendSettings.model_validate(raw_backends))
+
+
+def _uri(**values: JsonValue) -> dict[str, JsonValue]:
+    """Build ``uri_params`` with stable ``dict[str, JsonValue]`` typing for tests."""
+    return dict(values)
+
+
+class _ChatRequestWithDefaultReasoningEffort(ChatRequest):
+    """Mimics SDK clients that define a non-None default for ``reasoning_effort``."""
+
+    reasoning_effort: str = "medium"
 
 
 class TestURIParameterApplicatorPrecedence:
@@ -36,7 +45,6 @@ class TestURIParameterApplicatorPrecedence:
             messages=[ChatMessage(role="user", content="hi")],
             extra_body={"temperature": 0.7},
         )
-        uri_params = {"temperature": "0.5"}
 
         session = MagicMock()
         session.state = SimpleNamespace(planning_phase_config=None)
@@ -46,7 +54,7 @@ class TestURIParameterApplicatorPrecedence:
 
         result = URIParameterApplicator(config=config).apply(
             request=request,
-            uri_params=uri_params,
+            uri_params=_uri(temperature="0.5"),
             backend_type=backend_type,
             session=session,
         )
@@ -63,11 +71,10 @@ class TestURIParameterApplicatorPrecedence:
             messages=[ChatMessage(role="user", content="hi")],
             extra_body={"temperature": 0.7},
         )
-        uri_params = {"temperature": "0.5"}
 
         result = URIParameterApplicator(config=config).apply(
             request=request,
-            uri_params=uri_params,
+            uri_params=_uri(temperature="0.5"),
             backend_type=backend_type,
             session=None,
         )
@@ -87,11 +94,10 @@ class TestURIParameterApplicatorPrecedence:
             temperature=0.1,
             extra_body={"_edit_precision_mode": True},
         )
-        uri_params = {"temperature": "0.9"}
 
         result = URIParameterApplicator(config=config).apply(
             request=request,
-            uri_params=uri_params,
+            uri_params=_uri(temperature="0.9"),
             backend_type=backend_type,
             session=None,
         )
@@ -108,11 +114,10 @@ class TestURIParameterApplicatorPrecedence:
             temperature=0.7,
             extra_body={"temperature": 0.3},
         )
-        uri_params = {"temperature": "0.5"}
 
         result = URIParameterApplicator(config=config).apply(
             request=request,
-            uri_params=uri_params,
+            uri_params=_uri(temperature="0.5"),
             backend_type=backend_type,
             session=None,
         )
@@ -132,11 +137,10 @@ class TestURIParameterApplicatorPrecedence:
             temperature=0.6,
             extra_body={"temperature": 0.4},
         )
-        uri_params = {"temperature": "0.5"}
 
         result = URIParameterApplicator(config=config).apply(
             request=request,
-            uri_params=uri_params,
+            uri_params=_uri(temperature="0.5"),
             backend_type=backend_type,
             session=None,
         )
@@ -158,11 +162,10 @@ class TestURIParameterApplicatorCoercion:
             extra_body={"top_k": "10.5"},
         )
         # Ensure applicator runs, but do not provide top_k via URI
-        uri_params = {"temperature": "0.5"}
 
         result = URIParameterApplicator(config=config).apply(
             request=request,
-            uri_params=uri_params,
+            uri_params=_uri(temperature="0.5"),
             backend_type=backend_type,
             session=None,
         )
@@ -184,7 +187,6 @@ class TestEquivalenceWithBackendService:
             messages=[ChatMessage(role="user", content="hi")],
             extra_body={"temperature": 0.7},
         )
-        uri_params = {"temperature": "0.5"}
 
         session = MagicMock()
         session.state = SimpleNamespace(planning_phase_config=None)
@@ -194,38 +196,62 @@ class TestEquivalenceWithBackendService:
 
         # Create the applicator and compare results
         applicator = URIParameterApplicator(config=config)
-        applicator_result = applicator.apply(request, uri_params, backend_type, session)
+        applicator_result = applicator.apply(
+            request,
+            _uri(temperature="0.5"),
+            backend_type,
+            session,
+        )
 
-        # The applicator should apply session temperature (0.2) since session > URI > header > config
+        # Session > request > URI > header > config (connector_forced not used)
         assert applicator_result.temperature == 0.2
+
+
+class TestURIParameterApplicatorRequestParamExtraction:
+    """Direct coverage of ``_extract_request_params`` edge cases."""
+
+    def test_legacy_object_without_model_fields_set_treats_attrs_as_explicit(
+        self,
+    ) -> None:
+        """No ``model_fields_set``: every non-None known field counts (compat path)."""
+        applicator = URIParameterApplicator(config=None)
+        req = SimpleNamespace(
+            temperature=0.4, top_p=None, top_k=None, reasoning_effort=None
+        )
+        out = applicator._extract_request_params(cast(Any, req), "test-backend")
+        assert out.get("temperature") == pytest.approx(0.4)
+
+    def test_pydantic_default_reasoning_effort_omitted_when_not_in_fields_set(
+        self,
+    ) -> None:
+        """Schema default on a ChatRequest subclass must not populate request_params."""
+        applicator = URIParameterApplicator(config=None)
+        request = _ChatRequestWithDefaultReasoningEffort(
+            model="openai-codex:gpt-5.4",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+        assert "reasoning_effort" not in request.model_fields_set
+        out = applicator._extract_request_params(request, "openai-codex")
+        assert "reasoning_effort" not in out
 
 
 class TestURIParameterApplicatorReasoningEffort:
     """URI reasoning_effort handling, including xhigh downgrade behavior."""
 
     def test_uri_reasoning_effort_overrides_defaulted_sdk_request_field(self) -> None:
+        """Same precedence as SDK clients that set a non-None default on the model."""
         backend_type = "openai-codex"
         config = _make_config(backend_type, extra={})
 
-        class SDKStyleRequest(BaseModel):
-            model: str
-            messages: list[ChatMessage]
-            extra_body: dict[str, object] | None = None
-            temperature: float | None = None
-            top_p: float | None = None
-            top_k: int | None = None
-            reasoning_effort: str = "medium"
-
-        request = SDKStyleRequest(
+        request = _ChatRequestWithDefaultReasoningEffort(
             model="openai-codex:gpt-5.4",
             messages=[ChatMessage(role="user", content="hi")],
         )
         assert "reasoning_effort" not in request.model_fields_set
-        uri_params: dict[str, JsonValue] = {"reasoning_effort": "high"}
 
         result = URIParameterApplicator(config=config).apply(
-            request=cast(Any, request),
-            uri_params=uri_params,
+            request=request,
+            uri_params=_uri(reasoning_effort="high"),
             backend_type=backend_type,
             session=None,
         )
@@ -242,11 +268,10 @@ class TestURIParameterApplicatorReasoningEffort:
             model="openai-codex:gpt-5.1-codex",
             messages=[ChatMessage(role="user", content="hi")],
         )
-        uri_params = {"reasoning_effort": "xhigh"}
 
         result = URIParameterApplicator(config=config).apply(
             request=request,
-            uri_params=uri_params,
+            uri_params=_uri(reasoning_effort="xhigh"),
             backend_type=backend_type,
             session=None,
         )
@@ -263,11 +288,10 @@ class TestURIParameterApplicatorReasoningEffort:
             model="openai:gpt-4.1",
             messages=[ChatMessage(role="user", content="hi")],
         )
-        uri_params = {"reasoning_effort": "xhigh"}
 
         result = URIParameterApplicator(config=config).apply(
             request=request,
-            uri_params=uri_params,
+            uri_params=_uri(reasoning_effort="xhigh"),
             backend_type=backend_type,
             session=None,
         )

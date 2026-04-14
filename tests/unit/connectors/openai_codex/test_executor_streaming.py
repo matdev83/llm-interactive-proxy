@@ -189,6 +189,7 @@ class TestResponseExecutor:
             None,
             session_id=sample_context.session_id,
             upstream_codex_error=None,
+            response_headers=None,
         )
 
     @pytest.mark.asyncio
@@ -233,6 +234,7 @@ class TestResponseExecutor:
             45.0,
             session_id=sample_context.session_id,
             upstream_codex_error={"error": {"retry_after_seconds": 45}},
+            response_headers=None,
         )
 
     @pytest.mark.asyncio

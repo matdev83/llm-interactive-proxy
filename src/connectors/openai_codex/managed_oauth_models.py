@@ -46,6 +46,18 @@ class ManagedOAuthAccount(BaseModel):
     chatgpt_account_id: str | None = None
     rate_limited_until: int | None = None
     consecutive_auth_failures: int = 0
+    last_codex_quota_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Last x-codex-* response headers observed for this account (proxy runtime).",
+    )
+    last_codex_quota_observed_at: str | None = Field(
+        default=None,
+        description="ISO UTC timestamp when last_codex_quota_headers was captured.",
+    )
+    last_codex_usage_limit: dict[str, Any] | None = Field(
+        default=None,
+        description="Last Codex usage_limit_reached payload subset plus observed_at.",
+    )
 
     @field_validator("account_id")
     @classmethod
@@ -141,9 +153,15 @@ class ManagedOAuthAccount(BaseModel):
             }
         )
 
-    def mark_rate_limited(self, retry_after_seconds: float | None) -> ManagedOAuthAccount:
+    def mark_rate_limited(
+        self, retry_after_seconds: float | None
+    ) -> ManagedOAuthAccount:
         """Return account copy with temporary rate-limit cooldown."""
-        wait_seconds = retry_after_seconds if retry_after_seconds and retry_after_seconds > 0 else 30.0
+        wait_seconds = (
+            retry_after_seconds
+            if retry_after_seconds and retry_after_seconds > 0
+            else 30.0
+        )
         wait_ms = int(wait_seconds * 1000)
         now_ms = int(time.time() * 1000)
         return self.model_copy(
@@ -206,4 +224,3 @@ class ManagedOAuthConfig(BaseModel):
         payload = dict(source)
         payload.setdefault("storage_path", default_storage_path)
         return cls.model_validate(payload)
-

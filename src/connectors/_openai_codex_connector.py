@@ -25,7 +25,7 @@ import os
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -234,6 +234,7 @@ class OpenAICodexConnector(OpenAIConnector):
             else CredentialManager(self.client)
         )
         self._configure_managed_oauth_credential_manager()
+        self._codex_quota_persist_tasks: set[asyncio.Task[Any]] = set()
 
         # Compatibility and tool execution
         # Avoid bool(MagicMock)==True if tests monkeypatch settings/DI.
@@ -1531,6 +1532,35 @@ class OpenAICodexConnector(OpenAIConnector):
 
         return response
 
+    def update_quota_headers(self, headers: Mapping[str, Any]) -> None:
+        """Mirror base quota tracking and persist ``x-codex-*`` on the active managed account."""
+        super().update_quota_headers(headers)
+        record_raw = getattr(
+            self._credential_manager, "record_codex_quota_headers", None
+        )
+        if not callable(record_raw):
+            return
+        record = cast(Callable[..., Awaitable[None]], record_raw)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        async def _persist() -> None:
+            try:
+                await record(headers, force=False)
+            except Exception as exc:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "OpenAI Codex record_codex_quota_headers failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
+
+        task = loop.create_task(_persist())
+        self._codex_quota_persist_tasks.add(task)
+        task.add_done_callback(self._codex_quota_persist_tasks.discard)
+
     async def _refresh_access_token(self) -> bool:
         refreshed = await self._credential_manager.refresh_access_token()
         if refreshed:
@@ -1546,6 +1576,7 @@ class OpenAICodexConnector(OpenAIConnector):
         *,
         session_id: str | None = None,
         upstream_codex_error: Mapping[str, Any] | None = None,
+        response_headers: Mapping[str, Any] | None = None,
     ) -> bool:
         """Rotate managed OAuth accounts on 429 responses when available."""
         rotate_method = getattr(self._credential_manager, "handle_rate_limit", None)
@@ -1557,6 +1588,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 retry_after_seconds,
                 session_id=session_id,
                 upstream_codex_error=upstream_codex_error,
+                response_headers=response_headers,
             )
             rotated = await result if inspect.isawaitable(result) else bool(result)
         except Exception as exc:

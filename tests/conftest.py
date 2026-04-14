@@ -344,7 +344,7 @@ def pytest_runtest_teardown(item, nextitem) -> None:  # type: ignore[no-untyped-
         return
     current = getattr(tm, "monotonic", None)
     if current is not _ORIGINAL_STDLIB_TIME_MONOTONIC:
-        setattr(tm, "monotonic", _ORIGINAL_STDLIB_TIME_MONOTONIC)
+        tm.monotonic = _ORIGINAL_STDLIB_TIME_MONOTONIC
 
 
 def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]

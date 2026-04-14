@@ -249,7 +249,14 @@ class URIParameterApplicator(IURIParameterApplicator):
     def _extract_request_params(
         self, request: ChatRequest, backend_type: str
     ) -> dict[str, Any]:
-        """Extract explicit request fields with higher precedence than URI params."""
+        """Extract explicit request fields with higher precedence than URI params.
+
+        For Pydantic v2 models, only attributes listed in ``model_fields_set``
+        count as user-provided. Schema defaults (e.g. ``reasoning_effort="medium"``)
+        are therefore ignored here so URI and lower-precedence sources can apply.
+        Objects without ``model_fields_set`` keep legacy behavior: any non-None
+        attribute among the known parameter names is treated as explicit.
+        """
         request_params: dict[str, Any] = {}
         try:
             explicit_fields = getattr(request, "model_fields_set", None)

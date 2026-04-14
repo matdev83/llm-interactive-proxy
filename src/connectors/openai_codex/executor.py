@@ -411,6 +411,7 @@ class ResponseExecutor(IResponseExecutor):
                             retry_after_seconds=retry_after_seconds,
                             session_id=context.session_id,
                             upstream_codex_error=rate_limit_json,
+                            response_headers=response.headers,
                         )
                         if rotated:
                             fresh_headers = self._base_connector.get_headers() or {}
@@ -837,6 +838,7 @@ class ResponseExecutor(IResponseExecutor):
                                 retry_after_seconds=retry_after_seconds,
                                 session_id=context.session_id,
                                 upstream_codex_error=detail_dict,
+                                response_headers=None,
                             )
                             if rotated:
                                 await self._wait_for_auth_retry_delay(attempts_used)
@@ -1355,6 +1357,7 @@ class ResponseExecutor(IResponseExecutor):
         retry_after_seconds: float | None,
         session_id: str | None,
         upstream_codex_error: Mapping[str, Any] | None = None,
+        response_headers: Mapping[str, Any] | None = None,
     ) -> bool:
         rotate_method = getattr(
             self._base_connector,
@@ -1366,6 +1369,7 @@ class ResponseExecutor(IResponseExecutor):
                 retry_after_seconds,
                 session_id=session_id,
                 upstream_codex_error=upstream_codex_error,
+                response_headers=response_headers,
             )
             rotated = await result if inspect.isawaitable(result) else bool(result)
             return bool(rotated)
@@ -1378,6 +1382,7 @@ class ResponseExecutor(IResponseExecutor):
             retry_after_seconds,
             session_id=session_id,
             upstream_codex_error=upstream_codex_error,
+            response_headers=response_headers,
         )
         rotated = await result if inspect.isawaitable(result) else bool(result)
         if rotated:
