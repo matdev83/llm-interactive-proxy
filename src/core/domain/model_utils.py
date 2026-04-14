@@ -179,6 +179,13 @@ def parse_model_with_params(
         # Parse base model string (without query parameters) using existing function
         parsed_model = parse_model_backend(base_model, default_backend)
 
+        if uri_params and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Parsed URI parameters from model string %r: %s",
+                model,
+                uri_params,
+            )
+
         return ParsedModelWithParams(
             backend_type=parsed_model.backend_type,
             model_name=parsed_model.model_name,

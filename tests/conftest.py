@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 import threading
+import time as _baseline_stdlib_time
 import traceback
 import types
 import warnings
@@ -20,6 +21,10 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 logger = logging.getLogger(__name__)
+
+# Real stdlib monotonic (tests sometimes patch `time.monotonic` on the shared module;
+# a leaked MagicMock breaks asyncio internals when side_effect is exhausted).
+_ORIGINAL_STDLIB_TIME_MONOTONIC = _baseline_stdlib_time.monotonic
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -329,6 +334,17 @@ def pytest_runtest_setup(item) -> None:  # type: ignore[no-untyped-def]
         "tests/test_project_root_cleanliness.py::test_no_txt_files_in_root"
     ):
         _cleanup_root_artifacts()
+
+
+def pytest_runtest_teardown(item, nextitem) -> None:  # type: ignore[no-untyped-def]
+    """Restore stdlib ``time.monotonic`` if a test left a mock installed on the module."""
+    del item, nextitem
+    tm = sys.modules.get("time")
+    if tm is None:
+        return
+    current = getattr(tm, "monotonic", None)
+    if current is not _ORIGINAL_STDLIB_TIME_MONOTONIC:
+        setattr(tm, "monotonic", _ORIGINAL_STDLIB_TIME_MONOTONIC)
 
 
 def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]
