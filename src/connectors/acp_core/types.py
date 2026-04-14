@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ACPError(BaseModel):
-    """JSON-RPC error payload returned by Gemini CLI ACP."""
+    """JSON-RPC error payload returned by ACP servers."""
 
     code: int
     message: str
@@ -41,6 +41,15 @@ class ACPNotification(BaseModel):
     def is_notification(self) -> bool:
         return self.id is None and isinstance(self.method, str)
 
+    @property
+    def is_server_request(self) -> bool:
+        return (
+            self.method is not None
+            and self.id is not None
+            and self.result is None
+            and self.error is None
+        )
+
 
 class ACPUpdateContent(BaseModel):
     """Session update content payload."""
@@ -61,8 +70,8 @@ class ACPSessionUpdate(BaseModel):
 
 
 @dataclass(slots=True)
-class GeminiCliRuntime:
-    """Live Gemini CLI ACP runtime bound to a project directory and model."""
+class ACPProcessRuntime:
+    """Live ACP runtime bound to a project directory and model."""
 
     project_dir: Path
     model: str
@@ -71,6 +80,7 @@ class GeminiCliRuntime:
     initialized: bool = False
     message_id: int = 0
     last_activity: float = 0.0
+    history_injected: bool = False
     process_lock: Any = field(default=None)
     request_lock: Any = field(default=None)
     cancellation_lock: Any = field(default=None)

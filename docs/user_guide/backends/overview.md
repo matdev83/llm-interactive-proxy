@@ -17,6 +17,7 @@ The proxy supports the following backend providers out of the box:
 | `gemini-oauth-plan` | Google Gemini (CLI) | OAuth | Users with Google One subscription |
 | `gemini-oauth-free` | Google Gemini (CLI) | OAuth | Free tier users |
 | `gemini-cli-acp` | Google Gemini (ACP via Gemini CLI) | Local OAuth token | Quality verifier agents, file-search sub-agents, web-search sub-agents using Google Search |
+| `cursor-cli-acp` | Cursor (ACP via Cursor CLI `agent acp`) | Local Cursor login (`agent login`) | Cursor-hosted models through the official CLI; requires `agent` on PATH or `CURSOR_AGENT_BIN` |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + GCP Project | Enterprise, team workflows, central billing |
 | `openrouter` | OpenRouter | API Key | Access to many hosted models |
 | `nvidia` | NVIDIA (NIM / OpenAI-compatible) | API Key (`NVIDIA_API_KEY`) | Hosted NVIDIA integrator or self-hosted NIM |

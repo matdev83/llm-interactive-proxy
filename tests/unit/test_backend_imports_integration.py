@@ -99,6 +99,7 @@ class TestBackendImportsIntegration:
             "anthropic",
             "gemini",
             "gemini-cli-acp",
+            "cursor-cli-acp",
             "gemini-cli-cloud-project",
             "openai",
             "openai-codex",

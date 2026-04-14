@@ -377,6 +377,10 @@ backends:
   # Note: qwen-oauth backend is configured via backend-instances file:
   # config/backends/backend-instances/qwen-oauth.default.yaml
   #
+  # cursor-cli-acp (Cursor CLI Agent Client Protocol): optional instance file
+  # config/backends/backend-instances/cursor-cli-acp.default.yaml
+  # Install Cursor CLI, run `agent login`, ensure `agent` is on PATH (Windows: agent.cmd).
+  #
   # qwen-oauth retry tuning knobs (in that backend-instances file under `extra:`):
   #   enable_qwen_oauth_initial_rate_limit_retry: true
   #   qwen_oauth_initial_rate_limit_retry_max_wait_seconds: 10.0
@@ -453,6 +457,14 @@ backends:
           session_affinity_ttl_seconds: 86400
           session_affinity_max_entries: 10000
           allow_legacy_fallback: true  # if no managed accounts exist, use ~/.codex/auth.json
+          # Max seconds to sleep while waiting for a rate-limited account to clear (rotation).
+          max_rate_limit_wait_seconds: 300
+          # Caps local per-account cooldown when upstream sends huge resets_in_seconds (full
+          # upstream metadata is still stored on each account file).
+          rate_limit_local_cooldown_cap_seconds: 1800
+          # Max sleep iterations when every account is rate-limited (each slice up to
+          # max_rate_limit_wait_seconds).
+          max_rate_limit_idle_polls: 48
     # For Responses API clients (Profile B), use:
     #   default_capabilities:
     #     protocol: openai-responses

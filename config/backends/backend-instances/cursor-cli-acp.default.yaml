@@ -1,0 +1,18 @@
+# Optional Cursor CLI ACP backend instance (local Cursor subscription / login).
+# Prerequisites: install Cursor CLI so `agent` is on PATH (Windows: typically
+# %LOCALAPPDATA%\cursor-agent\agent.cmd). Run `agent login` once.
+# Multi User Mode: this connector is OAuth-style and is not loaded in production multi-user.
+connector: cursor-cli-acp
+extra:
+  workspace_path: "."
+  model: "composer-2"
+  auto_accept: true
+  trust_workspace: true
+  process_timeout: 300
+  idle_timeout: 120
+  # Seconds to reuse `agent models` output before re-running subprocess (0 = always refresh).
+  cursor_models_cache_ttl_seconds: 3600
+  mcp_servers: []
+  # cursor_cli_executable: "C:\\Users\\YOU\\AppData\\Local\\cursor-agent\\agent.cmd"
+  # cursor_api_endpoint: "https://api.cursor.sh"
+  # cursor_cli_extra_args: []

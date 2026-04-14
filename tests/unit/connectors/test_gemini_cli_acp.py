@@ -11,9 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from pydantic.types import JsonValue
+from src.connectors.acp_core.base_connector import ACP_CANCEL_METHODS
+from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
 from src.connectors.contracts import ConnectorChatCompletionsRequest
-from src.connectors.gemini_cli_acp import ACP_CANCEL_METHODS, GeminiCliAcpConnector
-from src.connectors.gemini_cli_acp_types import ACPNotification, GeminiCliRuntime
+from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
 from src.core.common.exceptions import (
     APIConnectionError,
     APITimeoutError,
@@ -75,7 +76,7 @@ def _make_request(
     )
 
 
-def _runtime_locks(runtime: GeminiCliRuntime) -> None:
+def _runtime_locks(runtime: ACPProcessRuntime) -> None:
     assert runtime.process_lock is not None
     assert runtime.request_lock is not None
 
@@ -166,7 +167,7 @@ class TestGeminiCliAcpProtocol:
         runtime.process = MagicMock()
 
         with (
-            patch.object(connector, "_spawn_gemini_cli_process", AsyncMock()),
+            patch.object(connector, "_spawn_process", AsyncMock()),
             patch.object(
                 connector,
                 "_send_jsonrpc_message",
@@ -231,7 +232,7 @@ class TestGeminiCliAcpProtocol:
             ]
         )
 
-        async def _read(_: GeminiCliRuntime) -> ACPNotification:
+        async def _read(_: ACPProcessRuntime) -> ACPNotification:
             return next(responses)
 
         with patch.object(connector, "_read_jsonrpc_message", side_effect=_read):
@@ -254,7 +255,7 @@ class TestGeminiCliAcpChatCompletions:
         runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
 
         async def _mock_iter(
-            _: GeminiCliRuntime, __: int, ___: str
+            _: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[str, None]:
             yield "Hello"
             yield " world"
@@ -285,7 +286,7 @@ class TestGeminiCliAcpChatCompletions:
         runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
 
         async def _mock_iter(
-            _: GeminiCliRuntime, __: int, ___: str
+            _: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[str, None]:
             yield "chunk-1"
             yield "chunk-2"
@@ -323,7 +324,7 @@ class TestGeminiCliAcpChatCompletions:
         invocation = 0
 
         async def _mock_iter(
-            _: GeminiCliRuntime, __: int, ___: str
+            _: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[str, None]:
             nonlocal invocation
             invocation += 1
@@ -396,20 +397,20 @@ class TestGeminiCliAcpChatCompletions:
 
         async def _acquire_runtime(
             request: ConnectorChatCompletionsRequest,
-        ) -> GeminiCliRuntime:
+        ) -> ACPProcessRuntime:
             project_dir = request.options.get("project_dir")
             if project_dir == str(second_workspace):
                 return runtime_two
             return runtime_one
 
         async def _prepare_prompt(
-            runtime: GeminiCliRuntime,
+            runtime: ACPProcessRuntime,
             request: ConnectorChatCompletionsRequest,
         ) -> tuple[int, str]:
             return (1, request.effective_model)
 
         async def _mock_iter(
-            runtime: GeminiCliRuntime, __: int, ___: str
+            runtime: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[str, None]:
             if runtime is runtime_one:
                 stream_started.set()
@@ -457,7 +458,7 @@ class TestGeminiCliAcpChatCompletions:
             patch.object(
                 connector, "_acquire_runtime", AsyncMock(return_value=runtime)
             ),
-            patch.object(connector, "_spawn_gemini_cli_process", AsyncMock()),
+            patch.object(connector, "_spawn_process", AsyncMock()),
             patch.object(connector, "_initialize_runtime", AsyncMock()),
             pytest.raises(BackendError),
         ):
@@ -492,7 +493,7 @@ class TestGeminiCliAcpProcessManagement:
             ) as build_command,
             patch("subprocess.Popen", return_value=mock_process),
         ):
-            await connector._spawn_gemini_cli_process(runtime)
+            await connector._spawn_process(runtime)
 
         build_command.assert_called_once_with(
             [
@@ -529,7 +530,7 @@ class TestGeminiCliAcpProcessManagement:
             patch("subprocess.Popen", return_value=mock_process),
             pytest.raises(APIConnectionError),
         ):
-            await connector._spawn_gemini_cli_process(runtime)
+            await connector._spawn_process(runtime)
 
         assert runtime.process is None
         mock_process.stdin.close.assert_called_once()
@@ -578,7 +579,7 @@ class TestGeminiCliAcpCancellation:
         send_calls: list[str] = []
 
         async def _mock_send(
-            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+            rt: ACPProcessRuntime, method: str, params: dict[str, Any]
         ) -> int:
             send_calls.append(method)
             return rt.message_id
@@ -612,7 +613,7 @@ class TestGeminiCliAcpCancellation:
         await runtime.request_lock.acquire()
 
         async def _mock_send(
-            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+            rt: ACPProcessRuntime, method: str, params: dict[str, Any]
         ) -> int:
             return rt.message_id
 
@@ -646,7 +647,7 @@ class TestGeminiCliAcpCancellation:
         await runtime.request_lock.acquire()
 
         async def _mock_send(
-            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+            rt: ACPProcessRuntime, method: str, params: dict[str, Any]
         ) -> int:
             return rt.message_id
 
@@ -684,7 +685,7 @@ class TestGeminiCliAcpCancellation:
         runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
 
         async def _mock_iter(
-            _: GeminiCliRuntime, __: int, ___: str
+            _: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[str, None]:
             yield "chunk-1"
 
@@ -720,7 +721,7 @@ class TestGeminiCliAcpCancellation:
         runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
 
         async def _mock_iter(
-            _: GeminiCliRuntime, __: int, ___: str
+            _: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[str, None]:
             yield "Hello"
 
@@ -764,7 +765,7 @@ class TestGeminiCliAcpCancellation:
         runtime.process = mock_process
 
         async def _mock_send_raises(
-            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+            rt: ACPProcessRuntime, method: str, params: dict[str, Any]
         ) -> int:
             raise BrokenPipeError("stdin closed")
 
@@ -796,7 +797,7 @@ class TestGeminiCliAcpCancellation:
         read_count = 0
 
         async def _mock_read(
-            rt: GeminiCliRuntime,
+            rt: ACPProcessRuntime,
         ) -> ACPNotification:
             nonlocal read_count
             read_count += 1
@@ -847,7 +848,7 @@ class TestGeminiCliAcpCancellation:
 
         block_event = asyncio.Event()
 
-        async def _mock_read(_: GeminiCliRuntime) -> ACPNotification:
+        async def _mock_read(_: ACPProcessRuntime) -> ACPNotification:
             await block_event.wait()
             raise AssertionError("unreachable")
 
@@ -877,7 +878,7 @@ class TestGeminiCliAcpCancellation:
         await runtime.request_lock.acquire()
 
         async def _mock_send(
-            rt: GeminiCliRuntime, method: str, params: dict[str, Any]
+            rt: ACPProcessRuntime, method: str, params: dict[str, Any]
         ) -> int:
             return rt.message_id
 

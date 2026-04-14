@@ -68,6 +68,7 @@ class TestKnownOAuthConnectors:
     def test_known_oauth_connectors_includes_gemini_cli_acp(self) -> None:
         """Test that known connectors include gemini-cli-acp."""
         assert "gemini-cli-acp" in KNOWN_OAUTH_CONNECTORS
+        assert "cursor-cli-acp" in KNOWN_OAUTH_CONNECTORS
 
 
 class TestIsOAuthConnectorNamingPatterns:
@@ -142,6 +143,10 @@ class TestIsOAuthConnectorKnownList:
     def test_gemini_cli_acp_detected_via_known_list(self) -> None:
         """Test gemini-cli-acp is detected via known list."""
         assert is_oauth_connector("gemini_cli_acp") is True
+
+    def test_cursor_cli_acp_detected_via_known_list(self) -> None:
+        """Test cursor-cli-acp is detected via known list."""
+        assert is_oauth_connector("cursor_cli_acp") is True
 
 
 class TestIsOAuthConnectorPropertyBased:

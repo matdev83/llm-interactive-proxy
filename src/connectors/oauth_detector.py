@@ -31,6 +31,7 @@ _EXTRACTED_OAUTH_CONNECTORS: set[str] = set(get_extracted_backend_names())
 KNOWN_OAUTH_CONNECTORS: set[str] = _EXTRACTED_OAUTH_CONNECTORS.union(
     {
         "gemini-cli-acp",  # Uses local gemini-cli personal auth via ACP
+        "cursor-cli-acp",  # Uses Cursor CLI (agent acp) with cursor_login
         "openai-codex",  # Uses OAuth via auth.json (special case)
         "opencode-zen",  # Extracted plugin; name doesn't follow -oauth convention
         "cline",  # Extracted plugin; uses OAuth-style token management
