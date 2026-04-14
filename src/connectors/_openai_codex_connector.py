@@ -1932,21 +1932,37 @@ class OpenAICodexConnector(OpenAIConnector):
         if ":" in model_for_parsing and not model_for_parsing.startswith("openai/"):
             model_for_parsing = model_for_parsing.split(":", 1)[1]
 
-        try:
-            parsed = parse_model_with_params(model_for_parsing)
-            _, parsed_model, uri_params = (
-                parsed.backend_type,
-                parsed.model_name,
-                parsed.uri_params,
+        extra_body_early = getattr(request_data, "extra_body", None) or {}
+        pre_resolved_uri = extra_body_early.get("_resolved_uri_params")
+        if isinstance(pre_resolved_uri, dict) and pre_resolved_uri:
+            uri_params = dict(pre_resolved_uri)
+
+        if "?" not in model_for_parsing:
+            effective_model = strip_vendor_prefix(
+                model_for_parsing, OPENAI_VENDOR_PREFIX
             )
-            effective_model = strip_vendor_prefix(parsed_model, OPENAI_VENDOR_PREFIX)
-        except Exception as exc:
-            logger.debug("Failed to parse model URI params: %s", exc, exc_info=True)
-            if ":" in effective_model:
-                effective_model = effective_model.split(":", 1)[1]
-            effective_model = strip_vendor_prefix(effective_model, OPENAI_VENDOR_PREFIX)
-            if "?" in effective_model:
-                effective_model = effective_model.split("?", 1)[0]
+        else:
+            try:
+                parsed = parse_model_with_params(model_for_parsing)
+                _, parsed_model, parsed_uri = (
+                    parsed.backend_type,
+                    parsed.model_name,
+                    parsed.uri_params,
+                )
+                if not uri_params:
+                    uri_params = parsed_uri
+                effective_model = strip_vendor_prefix(
+                    parsed_model, OPENAI_VENDOR_PREFIX
+                )
+            except Exception as exc:
+                logger.debug("Failed to parse model URI params: %s", exc, exc_info=True)
+                if ":" in effective_model:
+                    effective_model = effective_model.split(":", 1)[1]
+                effective_model = strip_vendor_prefix(
+                    effective_model, OPENAI_VENDOR_PREFIX
+                )
+                if "?" in effective_model:
+                    effective_model = effective_model.split("?", 1)[0]
 
         resolved_reasoning_effort = self._resolve_reasoning_effort(
             effective_model, uri_params, request_data
