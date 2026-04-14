@@ -5,7 +5,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from src.core.common.exceptions import BackendError, RoutingError
+from src.core.common.exceptions import (
+    BackendError,
+    RateLimitExceededError,
+    RoutingError,
+)
 from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.usage_window_warmup_config import (
     UsageWindowWarmupConfig,
@@ -432,6 +436,12 @@ class TestUsageWindowWarmupService:
         assert (
             UsageWindowWarmupService._is_retryable_error(
                 BackendError("test", status_code=429)
+            )
+            is True
+        )
+        assert (
+            UsageWindowWarmupService._is_retryable_error(
+                RateLimitExceededError("Rate limit reached for requests")
             )
             is True
         )

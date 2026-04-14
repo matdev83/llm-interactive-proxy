@@ -249,10 +249,29 @@ class UsageWindowWarmupService:
                 )
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:
+            except (LLMProxyError, ConnectionError, OSError, TimeoutError) as exc:
+                # Expected warm-up failures (rate limits, routing, transport): log the
+                # message only — full tracebacks here are noisy in production logs.
                 retryable = self._is_retryable_error(exc)
                 logger.warning(
                     "Usage window warm-up attempt %d/2 failed for '%s' target '%s': %s",
+                    attempt,
+                    entry.model,
+                    target_label,
+                    exc,
+                )
+                if not retryable or attempt >= 2:
+                    logger.error(
+                        "Usage window warm-up exhausted attempts for '%s' target '%s'",
+                        entry.model,
+                        target_label,
+                    )
+                    return
+            except Exception as exc:
+                retryable = self._is_retryable_error(exc)
+                logger.error(
+                    "Unexpected error during usage window warm-up attempt %d/2 "
+                    "for '%s' target '%s': %s",
                     attempt,
                     entry.model,
                     target_label,
