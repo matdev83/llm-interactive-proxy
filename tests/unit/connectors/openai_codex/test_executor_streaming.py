@@ -238,6 +238,53 @@ class TestResponseExecutor:
         )
 
     @pytest.mark.asyncio
+    async def test_execute_streaming_handshake_429_usage_limit_notifies_when_rotation_exhausted(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ):
+        """Streaming handshake 429 with usage_limit must notify when rotation cannot recover."""
+        mock_credential_manager.effective_max_rate_limit_retries = AsyncMock(
+            return_value=1
+        )
+        mock_credential_manager.notify_codex_usage_limit_unrecovered = AsyncMock()
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            max_retries=2,
+            retry_backoff_seconds=(0.01,),
+        )
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=False)
+
+        detail = {
+            "error": {
+                "type": "usage_limit_reached",
+                "message": "The usage limit has been reached",
+                "plan_type": "plus",
+                "resets_in_seconds": 120,
+            }
+        }
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=HTTPException(status_code=429, detail=detail)
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        with pytest.raises(HTTPException) as exc_info:
+            async for _ in result.content:
+                pass
+
+        assert exc_info.value.status_code == 429
+        mock_credential_manager.notify_codex_usage_limit_unrecovered.assert_awaited_once()
+        notify_kw = (
+            mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs
+        )
+        assert notify_kw["upstream_detail"] == detail
+
+    @pytest.mark.asyncio
     async def test_execute_streaming_handshake_auth_retry_exhausted(
         self,
         executor,

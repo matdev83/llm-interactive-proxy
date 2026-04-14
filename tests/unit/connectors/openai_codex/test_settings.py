@@ -10,12 +10,14 @@ from unittest.mock import patch
 
 import pytest
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+from src.connectors.openai_codex import (
+    managed_oauth_constants as managed_oauth_constants_mod,
+)
 from src.connectors.openai_codex.interfaces import ISettingsLoader
 from src.connectors.openai_codex.managed_oauth_constants import (
     DEFAULT_ALLOW_LEGACY_FALLBACK,
     DEFAULT_REFRESH_BUFFER_SECONDS,
     DEFAULT_SELECTION_STRATEGY,
-    DEFAULT_STORAGE_PATH,
 )
 from src.connectors.openai_codex.settings import SettingsLoader
 from src.core.config.app_config import AppConfig, BackendConfig
@@ -65,7 +67,10 @@ class TestSettingsLoader:
         assert settings.streaming["retry_backoff_seconds"] == (0.5, 1.5, 3.0)
         assert settings.compatibility_layer["enabled"] is False
         assert settings.managed_oauth["enabled"] is True
-        assert settings.managed_oauth["storage_path"] == DEFAULT_STORAGE_PATH
+        assert (
+            settings.managed_oauth["storage_path"]
+            == managed_oauth_constants_mod.DEFAULT_STORAGE_PATH
+        )
         assert (
             settings.managed_oauth["selection_strategy"] == DEFAULT_SELECTION_STRATEGY
         )

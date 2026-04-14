@@ -810,6 +810,14 @@ async def test_streaming_handshake_exceeds_retry_limit(
         )
         degrade_mock = mocker.patch.object(connector, "_degrade")
 
+        # Managed OAuth can raise the effective rotation budget above ``max_retries``;
+        # this test pins the floor so handshake exhaustion matches connector streaming config.
+        mocker.patch.object(
+            connector._response_executor._credential_manager,
+            "effective_max_rate_limit_retries",
+            AsyncMock(return_value=1),
+        )
+
         headers_seen: list[str | None] = []
 
         async def streaming_side_effect(

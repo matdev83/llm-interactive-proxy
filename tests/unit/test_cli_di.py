@@ -293,14 +293,24 @@ async def test_main_log_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
             assert len(file_handlers) == 1
             # The actual log file will have a PID suffix added by _apply_pid_suffixes
             # Check that the handler's filename contains the base log file path
-            handler_path = file_handlers[0].baseFilename
-            # Extract the base name without PID suffix for comparison
-            # Format is: srv-pid-12345.log
             import os
 
+            under_tmp = [
+                h
+                for h in file_handlers
+                if isinstance(h, logging.FileHandler)
+                and str(h.baseFilename).startswith(str(tmp_path))
+            ]
+            assert len(under_tmp) == 1
+            handler_path = under_tmp[0].baseFilename
+            basename = os.path.basename(handler_path)
             assert handler_path.startswith(str(tmp_path))
-            assert "srv" in os.path.basename(handler_path)
-            assert handler_path.endswith(".log")
+            assert basename.endswith(".log")
+            # LoggingConfigurator renames the stem to ``pytest`` when PYTEST_CURRENT_TEST is set.
+            if os.environ.get("PYTEST_CURRENT_TEST"):
+                assert basename.startswith("pytest-")
+            else:
+                assert "srv" in basename
         finally:
             for handler in root_logger.handlers:
                 handler.close()
@@ -641,7 +651,7 @@ async def test_main_disable_auth_forces_localhost() -> None:
         # Single User Mode (default) should refuse to start with non-localhost host
         with pytest.raises(SystemExit) as exc_info:
             await main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
-        
+
         # Should exit with code 1
         assert exc_info.value.code == 1
 

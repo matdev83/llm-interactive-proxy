@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi import HTTPException
+from src.connectors.openai_codex.executor import ResponseExecutor
 from src.connectors.openai_codex.interfaces import (
     ICompatibilityLayer,
     IResponseExecutor,
@@ -395,6 +396,54 @@ class TestResponseExecutor:
             upstream_codex_error=rate_limited.json.return_value,
             response_headers=rate_limited.headers,
         )
+
+    @pytest.mark.asyncio
+    async def test_execute_non_streaming_429_usage_limit_notifies_when_rotation_exhausted(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        non_streaming_payload,
+    ):
+        """Final non-streaming 429 with Codex usage_limit must notify before HTTPException."""
+        mock_credential_manager.effective_max_rate_limit_retries = AsyncMock(
+            return_value=1
+        )
+        mock_credential_manager.notify_codex_usage_limit_unrecovered = AsyncMock()
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            max_retries=2,
+            retry_backoff_seconds=(0.01,),
+        )
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=False)
+
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.headers = {}
+        usage_body = {
+            "error": {
+                "type": "usage_limit_reached",
+                "message": "The usage limit has been reached",
+                "plan_type": "plus",
+                "resets_in_seconds": 3600,
+            }
+        }
+        rate_limited.json.return_value = usage_body
+        rate_limited.text = "{}"
+        mock_base_connector.client.post = AsyncMock(return_value=rate_limited)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await executor.execute(non_streaming_payload, sample_context)
+
+        assert exc_info.value.status_code == 429
+        mock_credential_manager.notify_codex_usage_limit_unrecovered.assert_awaited_once()
+        notify_kw = (
+            mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs
+        )
+        assert notify_kw["upstream_detail"] == usage_body
+        mock_base_connector._handle_rate_limit_rotation.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_execute_non_streaming_uses_payload_retry_after_when_header_missing(

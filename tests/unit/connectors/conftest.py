@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import tempfile
 from collections.abc import Generator
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
@@ -27,12 +28,21 @@ def reset_di_container() -> Generator[None, None, None]:
 def isolate_managed_oauth_storage() -> Generator[None, None, None]:
     """Redirect managed OAuth storage to an empty temp dir so tests can't
     pick up real accounts from the project's var/openai_codex_oauth_accounts.
+
+    ``from … import DEFAULT_STORAGE_PATH`` binds a separate global per module;
+    patch every consumer so connector settings and credential manager agree.
     """
-    with tempfile.TemporaryDirectory() as tmp, patch(
-        "src.connectors.openai_codex.credentials.DEFAULT_STORAGE_PATH",
-        tmp,
-    ):
-        yield
+    with tempfile.TemporaryDirectory() as tmp:
+        targets = (
+            "src.connectors.openai_codex.managed_oauth_constants.DEFAULT_STORAGE_PATH",
+            "src.connectors.openai_codex.credentials.DEFAULT_STORAGE_PATH",
+            "src.connectors.openai_codex.settings.DEFAULT_STORAGE_PATH",
+            "src.connectors._openai_codex_connector.DEFAULT_STORAGE_PATH",
+        )
+        with ExitStack() as stack:
+            for target in targets:
+                stack.enter_context(patch(target, tmp))
+            yield
 
 
 @pytest_asyncio.fixture(name="auth_dir")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 import pytest
 from src.connectors.openai_codex.codex_rate_limit_logging import (
@@ -10,7 +11,11 @@ from src.connectors.openai_codex.codex_rate_limit_logging import (
     classify_usage_limit_window,
     emit_openai_codex_managed_oauth_rate_limit,
     parse_codex_usage_limit_upstream,
+    usage_limit_payload_from_upstream_detail,
 )
+from src.connectors.openai_codex.managed_oauth_models import ManagedOAuthAccount
+
+from tests.unit.fixtures.markers import real_time
 
 
 def test_parse_codex_usage_limit_upstream_extracts_fields() -> None:
@@ -34,6 +39,39 @@ def test_parse_codex_usage_limit_upstream_extracts_fields() -> None:
 def test_parse_codex_usage_limit_upstream_returns_none_for_other_errors() -> None:
     assert parse_codex_usage_limit_upstream({"error": {"type": "other"}}) is None
     assert parse_codex_usage_limit_upstream(None) is None
+
+
+def test_usage_limit_payload_from_upstream_detail_wraps_flat_error() -> None:
+    detail = {"type": "usage_limit_reached", "resets_in_seconds": 120}
+    wrapped = usage_limit_payload_from_upstream_detail(detail)
+    assert wrapped is not None
+    assert parse_codex_usage_limit_upstream(wrapped) is not None
+
+
+def test_usage_limit_payload_from_upstream_detail_nested_error() -> None:
+    detail = {
+        "error": {
+            "type": "usage_limit_reached",
+            "resets_in_seconds": 60,
+        }
+    }
+    assert usage_limit_payload_from_upstream_detail(detail) == detail
+
+
+@real_time(
+    reason="Bound rate_limited_until against wall clock after mark_rate_limited with cap."
+)
+def test_mark_rate_limited_respects_local_cooldown_cap() -> None:
+    acc = ManagedOAuthAccount(
+        account_id="acct-cap",
+        access_token="t",
+        refresh_token="r",
+        expiry_date=9_999_999_999_999,
+    )
+    updated = acc.mark_rate_limited(86400.0, local_cooldown_cap_seconds=600.0)
+    assert updated.rate_limited_until is not None
+    now_ms = int(time.time() * 1000)
+    assert updated.rate_limited_until <= now_ms + 601_000
 
 
 @pytest.mark.parametrize(

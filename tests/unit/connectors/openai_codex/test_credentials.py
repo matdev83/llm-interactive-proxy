@@ -410,6 +410,7 @@ class TestCredentialManager:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=True,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
 
@@ -440,6 +441,7 @@ class TestCredentialManager:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=True,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
 
@@ -447,6 +449,167 @@ class TestCredentialManager:
 
             assert manager.get_access_token() == "test_access_token"
             assert manager._active_source == "legacy"
+
+    @pytest.mark.asyncio
+    async def test_load_auth_prefers_managed_when_oauth_dir_override_has_legacy_file(
+        self, manager
+    ):
+        """Managed accounts load before legacy even when ``_oauth_dir_override`` is set."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            oauth_dir = Path(temp_dir) / "codex_sidecar"
+            oauth_dir.mkdir(parents=True, exist_ok=True)
+            legacy = oauth_dir / "auth.json"
+            with open(legacy, "w", encoding="utf-8") as f:
+                json.dump({"tokens": {"access_token": "legacy_only"}}, f)
+
+            storage_path = Path(temp_dir) / "managed"
+            storage = ManagedOAuthStorageService(storage_path)
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="managed_one",
+                    access_token="managed_token",
+                    refresh_token="managed_refresh",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            manager._oauth_dir_override = oauth_dir
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="first-available",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=True,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+            assert await manager._load_auth(force_reload=True) is True
+            assert manager._active_source == "managed"
+            assert manager.get_access_token() == "managed_token"
+
+    @pytest.mark.asyncio
+    async def test_effective_max_rate_limit_retries_expands_with_account_count(
+        self, manager
+    ):
+        """Rotation budget should grow when multiple managed accounts exist."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed"
+            storage = ManagedOAuthStorageService(storage_path)
+            exp = 9_999_999_999_999
+            for i in range(3):
+                await storage.save_account(
+                    ManagedOAuthAccount(
+                        account_id=f"acct_{i}",
+                        access_token=f"t{i}",
+                        refresh_token=f"r{i}",
+                        expiry_date=exp,
+                    )
+                )
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=True,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+            assert await manager.effective_max_rate_limit_retries(2) == 3
+
+    @pytest.mark.asyncio
+    async def test_effective_max_rate_limit_retries_managed_disabled_returns_floor(
+        self, manager
+    ):
+        """When managed OAuth is disabled, rotation budget must not expand past the floor."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed"
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=False,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=True,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+            assert await manager.effective_max_rate_limit_retries(7) == 7
+
+    @pytest.mark.asyncio
+    async def test_notify_codex_usage_limit_unrecovered_legacy_path(
+        self, http_client, temp_auth_file
+    ):
+        """Legacy credentials should still trigger quota notifications when exhausted."""
+        from unittest.mock import AsyncMock
+
+        from src.core.interfaces.notification_service_interface import (
+            INotificationService,
+        )
+
+        mock_svc = Mock(spec=INotificationService)
+        mock_svc.is_enabled = True
+        mock_svc.send_notification = AsyncMock(return_value="nid")
+        mgr = CredentialManager(http_client=http_client, notification_service=mock_svc)
+        await mgr.initialize(auth_path=temp_auth_file)
+        mgr._auth_credentials = {
+            "tokens": {"access_token": "x"},
+            "user": {"email": "legacy@example.com"},
+        }
+        mgr._active_source = "legacy"
+        try:
+            await mgr.notify_codex_usage_limit_unrecovered(
+                upstream_detail={
+                    "error": {
+                        "type": "usage_limit_reached",
+                        "message": "The usage limit has been reached",
+                        "plan_type": "plus",
+                        "resets_in_seconds": 120,
+                    }
+                },
+                retry_after_seconds=120.0,
+                all_accounts_exhausted=True,
+            )
+            mock_svc.send_notification.assert_awaited_once()
+        finally:
+            await mgr.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_notify_codex_usage_limit_unrecovered_skips_non_usage_limit_payload(
+        self, http_client, temp_auth_file
+    ):
+        """Non-Codex usage_limit errors must not trigger desktop quota notifications."""
+        from src.core.interfaces.notification_service_interface import (
+            INotificationService,
+        )
+
+        mock_svc = Mock(spec=INotificationService)
+        mock_svc.is_enabled = True
+        mock_svc.send_notification = AsyncMock(return_value="nid")
+        mgr = CredentialManager(http_client=http_client, notification_service=mock_svc)
+        await mgr.initialize(auth_path=temp_auth_file)
+        mgr._auth_credentials = {"tokens": {"access_token": "x"}}
+        mgr._active_source = "legacy"
+        try:
+            await mgr.notify_codex_usage_limit_unrecovered(
+                upstream_detail={
+                    "error": {"type": "invalid_request", "message": "nope"}
+                },
+                retry_after_seconds=None,
+                all_accounts_exhausted=True,
+            )
+            mock_svc.send_notification.assert_not_called()
+        finally:
+            await mgr.shutdown()
 
     @pytest.mark.asyncio
     async def test_handle_rate_limit_rotates_to_next_managed_account(self, manager):
@@ -482,6 +645,7 @@ class TestCredentialManager:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
 
@@ -532,6 +696,7 @@ class TestCredentialManager:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
 
@@ -599,6 +764,7 @@ class TestCredentialManager:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
 
@@ -656,6 +822,7 @@ class TestCredentialManager:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
 
@@ -689,6 +856,7 @@ class TestCredentialManager:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
 
@@ -744,6 +912,7 @@ class TestCredentialManager:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
 
@@ -808,6 +977,7 @@ class TestCodexQuotaNotifications:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
             await mgr.initialize(auth_path=None)
@@ -866,6 +1036,7 @@ class TestCodexQuotaNotifications:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
             await mgr.initialize(auth_path=None)
@@ -925,6 +1096,7 @@ class TestCodexQuotaNotifications:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
             await mgr.initialize(auth_path=None)
@@ -976,6 +1148,7 @@ class TestCodexQuotaNotifications:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
             await mgr.initialize(auth_path=None)
@@ -1007,6 +1180,7 @@ class TestCodexQuotaNotifications:
                     session_affinity_ttl_seconds=3600,
                     session_affinity_max_entries=100,
                     allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
                 )
             )
             await mgr.initialize(auth_path=None)
