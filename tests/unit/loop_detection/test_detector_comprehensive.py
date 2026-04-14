@@ -131,7 +131,7 @@ class TestLoopDetector:
 
     def test_process_chunk_buffer_overflow(self) -> None:
         """Test buffer overflow during chunk processing."""
-        config = InternalLoopDetectionConfig(buffer_size=100)
+        config = InternalLoopDetectionConfig(buffer_size=100, enabled=True)
         detector = LoopDetector(config=config)
 
         # Add content that exceeds buffer size
@@ -272,7 +272,7 @@ class TestLoopDetector:
         detector.process_chunk("x" * 100)
 
         # Update with smaller buffer size
-        new_config = InternalLoopDetectionConfig(buffer_size=50)
+        new_config = InternalLoopDetectionConfig(buffer_size=50, enabled=True)
         detector.update_config(new_config)
 
         # Content should be truncated to fit new buffer size
@@ -382,8 +382,8 @@ class TestLoopDetector:
 
     def test_detector_multiple_instances_isolation(self) -> None:
         """Test that multiple detector instances are isolated."""
-        config1 = InternalLoopDetectionConfig(buffer_size=100)
-        config2 = InternalLoopDetectionConfig(buffer_size=200)
+        config1 = InternalLoopDetectionConfig(buffer_size=100, enabled=True)
+        config2 = InternalLoopDetectionConfig(buffer_size=200, enabled=True)
 
         detector1 = LoopDetector(config=config1)
         detector2 = LoopDetector(config=config2)
@@ -400,7 +400,7 @@ class TestLoopDetector:
 
     def test_process_chunk_performance_with_large_content(self) -> None:
         """Test performance with large content chunks."""
-        detector = LoopDetector()
+        detector = LoopDetector(config=InternalLoopDetectionConfig(enabled=True))
 
         large_chunk = "x" * 10000
 
@@ -474,6 +474,7 @@ class TestLoopDetector:
     def test_detector_with_minimal_config(self) -> None:
         """Test detector with minimal valid configuration."""
         config = InternalLoopDetectionConfig(
+            enabled=True,
             buffer_size=1,  # Minimal valid size
             max_pattern_length=1,
         )
@@ -485,6 +486,7 @@ class TestLoopDetector:
     def test_detector_with_maximal_config(self) -> None:
         """Test detector with large configuration values."""
         config = InternalLoopDetectionConfig(
+            enabled=True,
             buffer_size=100000,
             max_pattern_length=50000,
             max_history_length=100000,

@@ -55,7 +55,11 @@ async def test_loop_detection_with_mocked_backend():
     from src.core.config.app_config import AppConfig, AuthConfig
 
     test_config = AppConfig(
-        auth=AuthConfig(disable_auth=True), session={"default_interactive_mode": True}
+        auth=AuthConfig(disable_auth=True),
+        session={
+            "default_interactive_mode": True,
+            "streaming_loop_detection_enabled": True,
+        },
     )
 
     # Create the app - this will handle all the SOLID architecture setup
@@ -132,7 +136,11 @@ async def test_loop_detection_in_streaming_response():
     from src.core.config.app_config import AppConfig, AuthConfig
 
     test_config = AppConfig(
-        auth=AuthConfig(disable_auth=True), session={"default_interactive_mode": True}
+        auth=AuthConfig(disable_auth=True),
+        session={
+            "default_interactive_mode": True,
+            "streaming_loop_detection_enabled": True,
+        },
     )
 
     # Create the app - this will handle all the SOLID architecture setup

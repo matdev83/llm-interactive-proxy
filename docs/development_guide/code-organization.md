@@ -311,7 +311,7 @@ scripts/
 - **Tool Access Control** (`src/core/services/`): [Policy-based tool filtering](../user_guide/features/tool-access-control.md)
 - **Dangerous Command Protection** (`src/core/services/`): [Blocks harmful commands](../user_guide/features/dangerous-command-protection.md)
 - **File Sandboxing** (`src/core/services/`): [Restricts file access](../user_guide/features/file-access-sandboxing.md)
-- **Loop Detection** (`src/loop_detection/`): Detects repetitive patterns
+- **Loop Detection** (`src/loop_detection/`): Detects repetitive patterns in streamed output (off by default; opt in via `session.streaming_loop_detection_enabled` or `LOOP_DETECTION_ENABLED`)
 
 ### Quality Assurance
 

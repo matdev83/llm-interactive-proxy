@@ -231,6 +231,7 @@ properties:
       droid_path_fix_enabled: { type: boolean }
       double_ampersand_fixes_for_windows_enabled: { type: boolean }
       auto_continue_removal_enabled: { type: boolean }
+      streaming_loop_detection_enabled: { type: boolean }
       max_per_session_backends: { type: integer, minimum: 1 }
       session_continuity:
         type: object

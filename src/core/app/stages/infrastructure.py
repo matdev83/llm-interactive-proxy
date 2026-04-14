@@ -68,7 +68,7 @@ class InfrastructureStage(InitializationStage):
             self._register_rate_limiter(services)
 
             # Register loop detector
-            self._register_loop_detector(services)
+            self._register_loop_detector(services, config)
 
             # Configure streaming sampler
             self._configure_streaming_sampler(config)
@@ -155,7 +155,9 @@ class InfrastructureStage(InitializationStage):
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Registered rate limiter service")
 
-    def _register_loop_detector(self, services: ServiceCollection) -> None:
+    def _register_loop_detector(
+        self, services: ServiceCollection, app_config: AppConfig
+    ) -> None:
         """Register loop detector service."""
         import os
         from typing import cast
@@ -165,20 +167,22 @@ class InfrastructureStage(InitializationStage):
         from src.loop_detection.config import InternalLoopDetectionConfig
         from src.loop_detection.hybrid_detector import HybridLoopDetector
 
-        # Check if loop detection is enabled in config (read from environment)
-        config = InternalLoopDetectionConfig.from_env_vars(dict(os.environ))
+        internal = InternalLoopDetectionConfig.from_env_vars(dict(os.environ))
+        streaming_on = bool(
+            getattr(app_config.session, "streaming_loop_detection_enabled", False)
+        )
 
-        if config.enabled:
+        if streaming_on:
 
             def _create_hybrid_loop_detector() -> HybridLoopDetector:
                 """Build a HybridLoopDetector using legacy config defaults."""
                 short_config = {
-                    "content_loop_threshold": config.content_loop_threshold,
-                    "content_chunk_size": config.content_chunk_size,
-                    "max_history_length": config.max_history_length,
+                    "content_loop_threshold": internal.content_loop_threshold,
+                    "content_chunk_size": internal.content_chunk_size,
+                    "max_history_length": internal.max_history_length,
                 }
 
-                long_threshold = config.long_pattern_threshold
+                long_threshold = internal.long_pattern_threshold
                 if long_threshold is None:
                     raise ValueError(
                         "LoopDetectionConfig.long_pattern_threshold must be set"
@@ -192,11 +196,11 @@ class InfrastructureStage(InitializationStage):
 
                 long_config = {
                     "min_pattern_length": min(
-                        min_pattern_length, config.max_pattern_length
+                        min_pattern_length, internal.max_pattern_length
                     ),
-                    "max_pattern_length": config.max_pattern_length,
+                    "max_pattern_length": internal.max_pattern_length,
                     "min_repetitions": long_threshold.min_repetitions,
-                    "max_history": config.max_history_length,
+                    "max_history": internal.max_history_length,
                 }
 
                 return HybridLoopDetector(

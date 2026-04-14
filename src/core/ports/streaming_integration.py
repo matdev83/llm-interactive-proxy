@@ -105,7 +105,7 @@ async def integrate_streaming_pipeline(
     raw_stream: AsyncIterator[object],
     provider: str,
     stream_id: str | None = None,
-    enable_loop_detection: bool = True,
+    enable_loop_detection: bool = False,
     enable_tool_call_repair: bool = True,
     enable_think_tags: bool = True,
     prompt_tokens: int | None = None,

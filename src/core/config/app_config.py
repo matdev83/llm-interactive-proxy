@@ -42,6 +42,24 @@ logger = logging.getLogger(__name__)
 BACKEND_INSTANCES_DIR = DEFAULT_BACKEND_INSTANCES_DIR
 
 
+def _merge_loop_detection_env_session(
+    cfg: AppConfig, env: Mapping[str, str]
+) -> AppConfig:
+    """Sync LOOP_DETECTION_ENABLED into session.streaming_loop_detection_enabled."""
+    if "LOOP_DETECTION_ENABLED" not in env:
+        return cfg
+    from src.loop_detection.config import InternalLoopDetectionConfig
+
+    env_streaming_on = InternalLoopDetectionConfig.from_env_vars(dict(env)).enabled
+    return cfg.model_copy(
+        update={
+            "session": cfg.session.model_copy(
+                update={"streaming_loop_detection_enabled": env_streaming_on}
+            )
+        }
+    )
+
+
 class AppConfig(AppConfigModel):
     """Complete application configuration.
 
@@ -162,7 +180,7 @@ class AppConfig(AppConfigModel):
         loader = AppConfigLoader(backend_instances_dir=BACKEND_INSTANCES_DIR)
         model = loader.load(None, environ=env, resolution=res)
         cfg = cls.model_validate(model.model_dump())
-        return cfg
+        return _merge_loop_detection_env_session(cfg, env)
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value by dotted key path."""
@@ -240,7 +258,7 @@ def load_config(
 
     # Return the legacy concrete type (subclass) for compatibility.
     cfg = AppConfig.model_validate(model.model_dump())
-    return cfg
+    return _merge_loop_detection_env_session(cfg, env)
 
 
 __all__ = [

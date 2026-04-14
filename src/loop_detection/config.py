@@ -63,8 +63,8 @@ class PatternThresholds(InternalDTO):
 class InternalLoopDetectionConfig(InternalDTO):
     """Internal configuration for loop detection implementation (algorithm-specific)."""
 
-    # Core settings
-    enabled: bool = True
+    # Core settings (opt-in: use LOOP_DETECTION_ENABLED=true or session config)
+    enabled: bool = False
     buffer_size: int = 16384
     max_pattern_length: int = 8192
     # How many new characters must be processed before running another costly

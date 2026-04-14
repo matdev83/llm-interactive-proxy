@@ -539,6 +539,7 @@ def test_steering_handler_is_enabled_via_cli_flag():
         auth_initial_block_seconds=None,
         auth_block_multiplier=None,
         auth_max_block_seconds=None,
+        enable_loop_detection=False,
         llm_loop_assessment_enabled=None,
         llm_assessment_turn_threshold=None,
         llm_assessment_confidence_threshold=None,

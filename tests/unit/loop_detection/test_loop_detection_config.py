@@ -47,7 +47,7 @@ class TestInternalLoopDetectionConfig:
         """Test InternalLoopDetectionConfig creation with defaults."""
         config = InternalLoopDetectionConfig()
 
-        assert config.enabled is True
+        assert config.enabled is False
         assert config.buffer_size == 16384
         assert config.max_pattern_length == 8192
         assert config.analysis_interval == 32

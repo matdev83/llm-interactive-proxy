@@ -30,7 +30,7 @@ class ReasoningConfig(ValueObject, IReasoningConfig):
 class LoopDetectionConfig(ValueObject, ILoopDetectionConfig):
     """Configuration for loop detection."""
 
-    _loop_detection_enabled: bool = True
+    _loop_detection_enabled: bool = False
     _tool_loop_detection_enabled: bool = True
 
     @property

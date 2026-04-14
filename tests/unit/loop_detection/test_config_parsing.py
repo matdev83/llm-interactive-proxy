@@ -36,3 +36,8 @@ class TestInternalLoopDetectionConfigParsing:
             {"LOOP_DETECTION_ENABLED": "  off  "}
         )
         assert config_false.enabled is False
+
+    def test_from_env_vars_absent_key_defaults_disabled(self) -> None:
+        """When LOOP_DETECTION_ENABLED is unset, streaming loop detection stays off."""
+        config = InternalLoopDetectionConfig.from_env_vars({})
+        assert config.enabled is False

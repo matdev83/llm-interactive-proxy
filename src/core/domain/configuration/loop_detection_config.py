@@ -18,7 +18,7 @@ class LoopDetectionConfiguration(ValueObject):
     settings.
     """
 
-    loop_detection_enabled: bool = True
+    loop_detection_enabled: bool = False
     tool_loop_detection_enabled: bool = True
     min_pattern_length: int = 100
     max_pattern_length: int = 8000

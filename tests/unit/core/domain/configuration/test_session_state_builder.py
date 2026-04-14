@@ -323,7 +323,7 @@ class TestSessionStateBuilder:
         # Verify that original configurations were not modified
         assert initial_backend.backend_type is None
         assert initial_reasoning.temperature is None
-        assert initial_loop.loop_detection_enabled is True
+        assert initial_loop.loop_detection_enabled is False
         assert initial_project.project is None
 
         # Verify that builder has new configurations

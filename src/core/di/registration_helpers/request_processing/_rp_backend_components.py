@@ -387,15 +387,12 @@ def _should_use_noop_detector(config: AppConfig | None) -> bool:
     Returns:
         True if NoOpLoopDetector should be used, False otherwise.
     """
-    if not config:
-        return False
-    if not hasattr(config, "session"):
-        return False
-    if not hasattr(config.session, "loop_detection"):
-        return False
-
-    loop_config = config.session.loop_detection  # type: ignore[attr-defined]
-    return not loop_config or not loop_config.get("enabled", True)
+    if not config or not hasattr(config, "session"):
+        return True
+    streaming_on = bool(
+        getattr(config.session, "streaming_loop_detection_enabled", False)
+    )
+    return not streaming_on
 
 
 def _create_hybrid_detector_config() -> HybridDetectorConfig:

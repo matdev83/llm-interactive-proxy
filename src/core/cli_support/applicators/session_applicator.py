@@ -648,6 +648,17 @@ class SessionApplicator:
                 origin="--disable-auto-continue-removal",
             )
 
+        if getattr(args, "enable_loop_detection", False):
+            session = overrides.setdefault("session", {})
+            session["streaming_loop_detection_enabled"] = True
+            os.environ["LOOP_DETECTION_ENABLED"] = "true"
+            resolution.record(
+                "session.streaming_loop_detection_enabled",
+                True,
+                ParameterSource.CLI,
+                origin="--enable-loop-detection",
+            )
+
     def _apply_strict_command_detection(
         self,
         args: CliArgs,

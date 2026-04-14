@@ -100,12 +100,11 @@ The core proxy orchestrates all request processing through a pipeline of middlew
 2. **Response Translation**: Converts backend responses to client-expected format
 3. **Content Filtering**: Removes [think tags](../user_guide/features/think-tags-fix.md), applies content transformations
 4. **Tool Call Validation**: Validates and repairs tool calls
-5. **Loop Detection**: Monitors for repetitive patterns
-6. **Assessment**: Optionally evaluates [conversation quality](../user_guide/features/llm-assessment.md)
-7. **Quality Verifier**: Optionally [verifies response quality](../user_guide/features/quality-verifier.md)
-8. **VTC Post-Processing**: For [VTC clients](./vtc-architecture.md), converts tool calls back to XML format
-9. **Response Formatting**: Formats response for client protocol
-10. **Wire Capture**: Optionally [records request/response](../user_guide/debugging/wire-capture.md) for debugging
+5. **Loop Detection**: Monitors for repetitive patterns in streamed content (opt-in via `session.streaming_loop_detection_enabled`, `LOOP_DETECTION_ENABLED`, or `--enable-loop-detection`; off by default)
+6. **Quality Verifier**: Optionally [verifies response quality](../user_guide/features/quality-verifier.md)
+7. **VTC Post-Processing**: For [VTC clients](./vtc-architecture.md), converts tool calls back to XML format
+8. **Response Formatting**: Formats response for client protocol
+9. **Wire Capture**: Optionally [records request/response](../user_guide/debugging/wire-capture.md) for debugging
 
 ### 3. Backend Connector Layer
 
@@ -128,9 +127,8 @@ Each connector handles:
 
 The service layer provides cross-cutting functionality:
 
-- **LLM Assessment Service**: Monitors [conversation quality and detects unproductive patterns](../user_guide/features/llm-assessment.md)
 - **Quality Verifier Service**: Verifies [individual responses for errors and issues](../user_guide/features/quality-verifier.md)
-- **Loop Detection Service**: Identifies repetitive tool calls and cognitive loops
+- **Loop Detection**: Streaming/content pattern detection (opt-in) and tool-call loop handling
 - **Tool Call Reactor**: Manages [tool call lifecycle, validation, and access control](../user_guide/features/tool-access-control.md)
 - **VTC Processing**: Handles [Virtual Tool Calling](./vtc-architecture.md) for Cline-like clients using XML-based tool calls
 - **Session Management**: Tracks [conversation state and metadata](../user_guide/features/session-management.md)

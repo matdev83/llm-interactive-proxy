@@ -237,10 +237,9 @@ export ENABLE_SANDBOXING=true             # See [File Access Sandboxing](../user
 export DANGEROUS_COMMAND_PREVENTION_ENABLED=true  # See [Dangerous Command Protection](../user_guide/features/dangerous-command-protection.md)
 export FIX_THINK_TAGS_ENABLED=true        # See [Think Tags Fix](../user_guide/features/think-tags-fix.md)
 
-# [LLM Assessment](../user_guide/features/llm-assessment.md)
-export LLM_ASSESSMENT_ENABLED=true
-export LLM_ASSESSMENT_BACKEND=openai
-export LLM_ASSESSMENT_MODEL=gpt-4o-mini
+# Streaming/content loop detection (HybridLoopDetector on model output streams; off by default)
+# See also: `session.streaming_loop_detection_enabled` in config and `--enable-loop-detection` on the CLI.
+export LOOP_DETECTION_ENABLED=true
 
 # [Quality Verifier](../user_guide/features/quality-verifier.md)
 export QUALITY_VERIFIER_MODEL="openai:gpt-4o-mini"

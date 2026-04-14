@@ -1224,6 +1224,17 @@ class ArgumentParserBuilder:
             default=None,
             help="Disable automatic removal of trailing [AUTO-CONTINUE] marker",
         )
+        parser.add_argument(
+            "--enable-loop-detection",
+            action="store_true",
+            dest="enable_loop_detection",
+            default=False,
+            help=(
+                "Enable streaming/content loop detection (HybridLoopDetector). "
+                "Off by default; also set LOOP_DETECTION_ENABLED=true or "
+                "session.streaming_loop_detection_enabled in config."
+            ),
+        )
 
     def _add_b2bua_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add B2BUA session handling arguments."""

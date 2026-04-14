@@ -217,7 +217,7 @@ class TestConfigurationDefaults:
         """Test LoopDetectionConfiguration default values."""
         config = LoopDetectionConfiguration()
 
-        assert config.loop_detection_enabled is True
+        assert config.loop_detection_enabled is False
         assert config.tool_loop_detection_enabled is True
         assert config.min_pattern_length == 100
         assert config.max_pattern_length == 8000

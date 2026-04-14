@@ -330,6 +330,14 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | `--quality-verifier-ttft-timeout-seconds SECONDS` | `QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS` | Timeout for first token from Quality Verifier model before skipping (default: 30s). |
 | `--quality-verifier-tool-followup-weight WEIGHT` | `QUALITY_VERIFIER_TOOL_FOLLOWUP_WEIGHT` | Eligible-turn increment per tool-result follow-up, 0.0–1.0 (default: 0.2). |
 
+### Streaming loop detection
+
+Detects repetitive patterns in streamed model output (local HybridLoopDetector). **Disabled by default** because it adds CPU work on every chunk.
+
+| CLI Argument | Environment Variable | Config File | Description |
+| :--- | :--- | :--- | :--- |
+| `--enable-loop-detection` | `LOOP_DETECTION_ENABLED=true` | `session.streaming_loop_detection_enabled: true` | Opt in to streaming/content loop detection. CLI also sets `LOOP_DETECTION_ENABLED` in the process environment. |
+
 ### Tool Access Control
 
 | CLI Argument | Environment Variable | Description |

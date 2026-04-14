@@ -452,6 +452,7 @@ class TestSessionTestingFlags:
             "--disable-dangerous-git-commands-protection",
             "--disable-double-ampersand-fixes-for-windows",
             "--disable-auto-continue-removal",
+            "--enable-loop-detection",
         ],
     )
     def test_session_testing_flags_present(
@@ -469,6 +470,13 @@ class TestSessionTestingFlags:
         assert action is not None
         assert "--disable-auto-continue-removal" in action.option_strings
         assert action.default is None
+
+    def test_enable_loop_detection_flag_shape(self, parser: argparse.ArgumentParser) -> None:
+        """--enable-loop-detection is a boolean opt-in flag."""
+        action = _get_action_by_dest(parser, "enable_loop_detection")
+        assert action is not None
+        assert "--enable-loop-detection" in action.option_strings
+        assert action.default is False
 
 
 # =============================================================================

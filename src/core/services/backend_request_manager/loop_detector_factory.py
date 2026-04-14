@@ -53,9 +53,20 @@ class LoopDetectorFactory(ILoopDetectorFactory):
                     exc_info=True,
                 )
 
-        # Fallback: create a standalone detector
+        # Fallback: create a standalone detector (respect global streaming loop setting)
         try:
+            from src.core.config.app_config import AppConfig
+            from src.loop_detection.detector import NoOpLoopDetector
             from src.loop_detection.hybrid_detector import HybridLoopDetector
+
+            try:
+                app_config = self._provider.get_service(AppConfig)
+            except (ServiceResolutionError, AttributeError, RuntimeError, TypeError):
+                app_config = None
+            if app_config is not None and not bool(
+                getattr(app_config.session, "streaming_loop_detection_enabled", False)
+            ):
+                return NoOpLoopDetector()
 
             fallback = HybridLoopDetector()
             fallback.reset()

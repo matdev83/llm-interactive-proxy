@@ -275,6 +275,8 @@ class SessionConfig(DomainModel):
     double_ampersand_fixes_for_windows_enabled: bool = True
     """Whether automatic && to ; replacement is enabled for Windows clients."""
     auto_continue_removal_enabled: bool = True
+    # Streaming/content loop detection (HybridLoopDetector); opt-in via CLI or env.
+    streaming_loop_detection_enabled: bool = False
     planning_phase: PlanningPhaseConfig = Field(default_factory=PlanningPhaseConfig)
     max_per_session_backends: int = 32
     session_continuity: SessionContinuityConfig = Field(

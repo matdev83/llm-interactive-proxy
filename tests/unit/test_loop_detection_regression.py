@@ -21,9 +21,16 @@ def test_loop_detector_is_registered_in_di_container():
     from src.core.config.app_config import AppConfig
 
     stage = InfrastructureStage()
-    app_config = AppConfig()
+    base_cfg = AppConfig()
+    app_config = base_cfg.model_copy(
+        update={
+            "session": base_cfg.session.model_copy(
+                update={"streaming_loop_detection_enabled": True}
+            )
+        }
+    )
 
-    # Ensure loop detection is enabled for this test
+    # Ensure loop detection is enabled for this test (session flag is canonical)
     old_value = os.environ.get("LOOP_DETECTION_ENABLED")
     os.environ["LOOP_DETECTION_ENABLED"] = "true"
 
