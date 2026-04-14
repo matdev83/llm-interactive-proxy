@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
 
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.chat import ChatRequest
@@ -112,21 +111,28 @@ class BackendConfigProvider(IBackendConfigProvider):
         # Include both registered backends and any backends explicitly configured
         registered = set(backend_registry.get_registered_backends())
 
-        backends_config: Any = self._app_config.backends
+        backends_config = self._app_config.backends
 
         # Add any backends that are explicitly configured.
-        # BackendSettings is iterable but yields (key, value) tuples; dict yields string keys.
         try:
-            for raw in backends_config:
-                key: str | None = None
-                if isinstance(raw, str):
-                    key = raw
-                elif isinstance(raw, tuple) and raw and isinstance(raw[0], str):
-                    key = raw[0]
-
+            for key in backends_config.get_named_backend_configs():
                 if not key or key == "default_backend" or key.startswith("_"):
                     continue
                 registered.add(key)
+            for raw in backends_config:
+                iter_key: str | None = None
+                if isinstance(raw, str):
+                    iter_key = raw
+                elif isinstance(raw, tuple) and raw and isinstance(raw[0], str):
+                    iter_key = raw[0]
+
+                if (
+                    not iter_key
+                    or iter_key == "default_backend"
+                    or iter_key.startswith("_")
+                ):
+                    continue
+                registered.add(iter_key)
         except Exception as e:
             import logging
 
@@ -172,9 +178,12 @@ class BackendConfigProvider(IBackendConfigProvider):
         # Build a set of backends with api_key present
         result = set()
 
-        # First check backends in __dict__ (for test environments)
-        if hasattr(self._app_config.backends, "__dict__"):
-            for name, value in self._app_config.backends.__dict__.items():
+        # First check explicitly configured backend entries
+        if hasattr(self._app_config.backends, "get_named_backend_configs"):
+            for (
+                name,
+                value,
+            ) in self._app_config.backends.get_named_backend_configs().items():
                 # Skip non-backend attributes
                 if (
                     name == "default_backend"

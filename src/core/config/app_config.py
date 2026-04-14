@@ -204,6 +204,24 @@ class AppConfig(AppConfigModel):
     def get_gcp_project_id(self) -> str | None:
         return self.gcp_project_id
 
+    def mutate_backends(
+        self,
+        updates: Mapping[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Merge *updates* into ``backends`` and assign the new aggregate.
+
+        ``BackendSettings`` is immutable; tests and migration helpers must not
+        assign attributes on ``config.backends`` directly. Pass a mapping for
+        hyphenated backend keys (for example ``{"openai-codex": BackendConfig()}``)
+        and/or keyword arguments for declared fields such as ``default_backend``.
+        """
+        merged: dict[str, Any] = {}
+        if updates is not None:
+            merged.update(dict(updates))
+        merged.update(kwargs)
+        self.backends = self.backends.model_copy(update=merged)
+
 
 def load_config(
     config_path: str | Path | None = None,

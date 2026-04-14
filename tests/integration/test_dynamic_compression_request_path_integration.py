@@ -141,8 +141,12 @@ async def test_request_path_overlap_prevents_double_reduction_with_legacy_limits
             }
         ],
     )
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_chars": 40}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"tool_output_truncate_chars": 40}
+            ),
+        }
     )
     service = BackendRequestPreparationService(
         history_compaction_service=None,

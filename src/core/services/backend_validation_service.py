@@ -96,7 +96,8 @@ class BackendValidationService(IBackendValidator):
         # Add explicit backend configs that have api_key
         # Note: BackendSettings auto-adds all registered backends with empty configs,
         # so we only consider backends that have an api_key as explicitly configured
-        for backend_name, backend_config in config.backends.__dict__.items():
+        named = config.backends.get_named_backend_configs()
+        for backend_name, backend_config in named.items():
             # Skip non-BackendConfig attributes and special fields
             if (
                 backend_name.startswith("_")
@@ -113,8 +114,8 @@ class BackendValidationService(IBackendValidator):
 
         # Filter to only backends that have api_key configured
         for backend_name in potential_backends:
-            backend_config = config.backends.__dict__.get(backend_name)
-            if isinstance(backend_config, BackendConfig) and backend_config.api_key:
+            maybe_cfg = named.get(backend_name)
+            if isinstance(maybe_cfg, BackendConfig) and maybe_cfg.api_key:
                 configured_backends.add(backend_name)
 
         # Filter to registered backends only
@@ -147,8 +148,8 @@ class BackendValidationService(IBackendValidator):
             try:
                 # Get backend config if available
                 backend_config_value: BackendConfig | None = None
-                if backend_name in config.backends.__dict__:
-                    config_value = config.backends.__dict__[backend_name]
+                if backend_name in named:
+                    config_value = named.get(backend_name)
                     if isinstance(config_value, BackendConfig):
                         backend_config_value = config_value
 

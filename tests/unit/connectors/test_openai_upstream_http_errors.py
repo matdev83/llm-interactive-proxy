@@ -300,3 +300,79 @@ async def test_accumulator_maps_rate_limit_domain_error_to_envelope() -> None:
     out = await acc.accumulate(env)
     assert isinstance(out, ResponseEnvelope)
     assert out.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_401_raises_authentication_error(
+    openai_connector: OpenAIConnector,
+) -> None:
+    """A real OpenAI 401 (auth failure) must raise AuthenticationError, not InvalidRequestError."""
+    payload = {
+        "error": {
+            "message": "Incorrect API key provided.",
+            "type": "authentication_error",
+            "code": "invalid_api_key",
+        }
+    }
+    response = httpx.Response(401, json=payload, request=_req())
+    openai_connector._send_request_with_retry = AsyncMock(return_value=response)  # type: ignore[method-assign]
+
+    with pytest.raises(AuthenticationError) as exc_info:
+        await openai_connector._handle_non_streaming_response(
+            "https://api.openai.com/v1/chat/completions",
+            {"model": "gpt-4"},
+            {"Authorization": "Bearer sk-test"},
+            "sid",
+            None,
+        )
+    assert exc_info.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_responses_method_uses_request_context(
+    openai_connector: OpenAIConnector,
+) -> None:
+    """The responses method must pick up request.context, not just options."""
+    req = ConnectorChatCompletionsRequest(
+        request=CanonicalChatRequest(
+            model="gpt-4o",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+        ),
+        processed_messages=[ChatMessage(role="user", content="Hello")],
+        effective_model="gpt-4o",
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=ConnectorRequestContext(
+            request_id="test-req-123",
+            session_id="test-sess-456",
+            client_host="127.0.0.1",
+            extensions={},
+        ),
+        options={},
+    )
+    # Mock the HTTP call to return a valid response
+    response = httpx.Response(
+        200,
+        json={"id": "r1", "output": [], "status": "completed", "model": "gpt-4o"},
+        request=_req(),
+    )
+    captured_context = None
+
+    async def mock_send(**kwargs: object) -> httpx.Response:  # type: ignore[misc]
+        nonlocal captured_context
+        capture = kwargs.get("capture")
+        if capture is not None:
+            captured_context = getattr(capture, "context", None)
+        return response
+
+    openai_connector._send_request_with_retry = AsyncMock(side_effect=mock_send)  # type: ignore[method-assign]
+
+    result = await openai_connector.responses(req)
+    assert isinstance(result, ResponseEnvelope)
+    # The context must be passed to the HTTP layer for correlation
+    assert captured_context is not None
+    assert captured_context.request_id == "test-req-123"
+    assert captured_context.session_id == "test-sess-456"
+    assert captured_context.client_host == "127.0.0.1"

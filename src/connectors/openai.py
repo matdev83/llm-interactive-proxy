@@ -323,6 +323,12 @@ def _raise_upstream_http_error(
             details=merged,
         )
 
+    if status_code == 401 or status_code == 403:
+        raise AuthenticationError(
+            message=message,
+            details=merged,
+        )
+
     if 400 <= status_code < 500:
         raise InvalidRequestError(
             message=message,
@@ -2107,9 +2113,13 @@ class OpenAIConnector(LLMBackend):
             if isinstance(use_websocket_raw, bool)
             else self._use_websocket
         )
-        connector_context = kwargs.get("context")
-        if not isinstance(connector_context, ConnectorRequestContext):
-            connector_context = None
+        # Start from request.context (canonical path), then let options override
+        connector_context: ConnectorRequestContext | None = None
+        if isinstance(request.context, ConnectorRequestContext):
+            connector_context = request.context
+        options_context = kwargs.get("context")
+        if isinstance(options_context, ConnectorRequestContext):
+            connector_context = options_context
         if use_websocket:
             return await self._handle_websocket_response(
                 payload,

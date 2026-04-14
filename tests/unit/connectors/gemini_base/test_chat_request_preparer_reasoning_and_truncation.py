@@ -132,8 +132,12 @@ async def test_prepare_can_keep_reasoning_content_when_configured(
 ) -> None:
     monkeypatch.delenv("GEMINI_STRIP_REASONING_CONTENT", raising=False)
     config = AppConfig()
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"strip_reasoning_content": False}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"strip_reasoning_content": False}
+            ),
+        }
     )
 
     context = MockConnectorContext(config=config)
@@ -182,8 +186,12 @@ async def test_prepare_ignores_legacy_char_truncation_in_connector_stage(
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES", raising=False)
     config = AppConfig()
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_chars": 40}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"tool_output_truncate_chars": 40}
+            ),
+        }
     )
 
     context = MockConnectorContext(config=config)
@@ -235,8 +243,10 @@ async def test_prepare_ignores_legacy_line_truncation_in_connector_stage(
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES", raising=False)
     config = AppConfig()
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_lines": 5}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_lines": 5}),
+        }
     )
 
     context = MockConnectorContext(config=config)
@@ -289,8 +299,12 @@ async def test_prepare_ignores_legacy_truncation_when_compaction_enabled(
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES", raising=False)
     config = AppConfig()
     config.compaction.enabled = True
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_chars": 40}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"tool_output_truncate_chars": 40}
+            ),
+        }
     )
 
     context = MockConnectorContext(config=config)
@@ -339,8 +353,12 @@ async def test_prepare_does_not_apply_connector_truncation_from_backend_extras(
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
     monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES", raising=False)
     config = AppConfig()
-    config.backends["antigravity_oauth"] = BackendConfig(
-        extra={"tool_output_truncate_chars": 40}
+    config.mutate_backends(
+        {
+            "antigravity_oauth": BackendConfig(
+                extra={"tool_output_truncate_chars": 40}
+            ),
+        }
     )
 
     context = MockConnectorContext(config=config, backend_type="antigravity-oauth")

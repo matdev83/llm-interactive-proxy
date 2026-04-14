@@ -14,7 +14,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable
-from typing import Literal, overload
+from typing import Any, Literal, overload
 
 from fastapi import FastAPI
 
@@ -144,9 +144,7 @@ def apply_cli_args(
     return final_cfg
 
 
-def _emit_legacy_compression_deprecation_warnings(
-    *, config: AppConfig
-) -> None:
+def _emit_legacy_compression_deprecation_warnings(*, config: AppConfig) -> None:
     deprecated_env_controls = {
         "GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS": (
             "dynamic_compression.methods.compact_acknowledgement + "
@@ -181,7 +179,9 @@ def _emit_legacy_compression_deprecation_warnings(
     )
     configured_legacy_extras: list[str] = []
     backends = getattr(config, "backends", None)
-    backend_items = getattr(backends, "__dict__", {})
+    backend_items: dict[str, Any] = {}
+    if backends is not None and hasattr(backends, "get_named_backend_configs"):
+        backend_items = backends.get_named_backend_configs()
     if isinstance(backend_items, dict):
         for backend_name, backend_config in backend_items.items():
             if backend_name.startswith("_") or backend_name == "default_backend":

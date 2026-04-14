@@ -18,7 +18,13 @@ from src.connectors.openai_codex.managed_oauth_constants import (
     DEFAULT_STORAGE_PATH,
 )
 from src.connectors.openai_codex.settings import SettingsLoader
-from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
+from src.core.config.app_config import AppConfig, BackendConfig
+
+
+def _with_openai_codex_backend(app: AppConfig, backend: BackendConfig) -> AppConfig:
+    return app.model_copy(
+        update={"backends": app.backends.model_copy(update={"openai_codex": backend})}
+    )
 
 
 class TestSettingsLoader:
@@ -32,10 +38,7 @@ class TestSettingsLoader:
     @pytest.fixture
     def app_config(self):
         """Create a basic app config for testing."""
-        config = AppConfig()
-        if not hasattr(config, "backends"):
-            config.backends = BackendSettings()
-        return config
+        return AppConfig()
 
     def test_loader_implements_interface(self, loader):
         """Verify loader implements ISettingsLoader interface."""
@@ -87,7 +90,7 @@ class TestSettingsLoader:
                 }
             }
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         settings = loader.load(app_config)
 
@@ -120,7 +123,7 @@ class TestSettingsLoader:
                 }
             }
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         with patch.dict(os.environ, {"OPENAI_CODEX_RENDERER_DEFAULT": "env_renderer"}):
             settings = loader.load(app_config)
@@ -148,7 +151,7 @@ class TestSettingsLoader:
                 }
             }
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         settings = loader.load(app_config)
 
@@ -169,7 +172,7 @@ class TestSettingsLoader:
                 }
             }
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         settings = loader.load(app_config)
 
@@ -194,7 +197,7 @@ class TestSettingsLoader:
                 }
             }
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         settings = loader.load(app_config)
 
@@ -235,7 +238,7 @@ class TestSettingsLoader:
                 }
             }
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         settings = loader.load(app_config)
 
@@ -248,7 +251,7 @@ class TestSettingsLoader:
         backend_config = BackendConfig(
             extra={"codex": {"prompt": {"deduplicate": False}}}
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         with patch.dict(os.environ, {"OPENAI_CODEX_PROMPT_DEDUPLICATE": "true"}):
             settings = loader.load(app_config)
@@ -267,7 +270,7 @@ class TestSettingsLoader:
                 }
             }
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         with patch(
             "src.connectors.openai_codex.settings.configure_renderer_registry"
@@ -285,7 +288,7 @@ class TestSettingsLoader:
         backend_config = BackendConfig(
             extra={"codex": {"renderer": {"default": "custom_format"}}}
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         settings = loader.load(app_config)
 
@@ -313,7 +316,7 @@ class TestSettingsLoader:
                 }
             }
         )
-        app_config.backends.__dict__["openai_codex"] = backend_config
+        app_config = _with_openai_codex_backend(app_config, backend_config)
 
         with patch.dict(
             os.environ,

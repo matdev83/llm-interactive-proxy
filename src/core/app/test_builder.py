@@ -173,9 +173,7 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
             and not getattr(config.auth, "disable_auth", False)
             and not (list(getattr(config.auth, "api_keys", []) or []))
         ):
-            new_auth = config.auth.model_copy(
-                update={"api_keys": ["test-proxy-key"]}
-            )
+            new_auth = config.auth.model_copy(update={"api_keys": ["test-proxy-key"]})
             config = config.model_copy(update={"auth": new_auth})
     except (AttributeError, TypeError, ValidationError):
         logger.warning(
@@ -335,16 +333,16 @@ def create_test_config() -> AppConfig:
     default_backend = os.environ.get("LLM_BACKEND", "openai")
 
     # Set up backend config based on the default backend
-    backend_settings = BackendSettings(default_backend=default_backend)
-
-    # Always include openai as a fallback
-    backend_settings.__dict__["openai"] = BackendConfig(api_key="test_key")
-
-    # Add the default backend if it's not openai
+    extra_backends: dict[str, BackendConfig] = {
+        "openai": BackendConfig(api_key="test_key"),
+    }
     if default_backend != "openai":
-        backend_settings.__dict__[default_backend] = BackendConfig(
+        extra_backends[default_backend] = BackendConfig(
             api_key=f"test_key_{default_backend}"
         )
+    backend_payload: dict[str, Any] = {"default_backend": default_backend}
+    backend_payload.update(extra_backends)
+    backend_settings = BackendSettings.model_validate(backend_payload)
 
     # Get command prefix from environment if set
     command_prefix = os.environ.get("COMMAND_PREFIX", "!/")

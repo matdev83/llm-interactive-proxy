@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, cast
 
-from pydantic import ConfigDict, Field, field_validator, model_serializer
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from src.core.domain.backend_capability_descriptor import BackendCapabilityDescriptor
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
@@ -106,13 +106,12 @@ class BackendConfig(DomainModel):
 class BackendSettings(DomainModel):
     """Settings for all backends.
 
-    Note: This class is intentionally not frozen because it needs to support
-    dynamic backend configurations that are added at runtime. Backend configs
-    are stored in __dict__ to allow attribute-style access (e.g., config.backends.openai)
-    without pre-defining all possible backends as fields.
+    Immutable aggregate of declared settings plus dynamically named
+    ``BackendConfig`` entries (extra fields).  Use ``model_copy(update=...)``
+    to add or replace a backend configuration.
     """
 
-    model_config = ConfigDict(frozen=False, extra="allow")
+    model_config = ConfigDict(frozen=True, extra="allow")
 
     default_backend: str = "openai"
     static_route: str | None = None
@@ -152,33 +151,29 @@ class BackendSettings(DomainModel):
         description="Number of subsequent turns to skip reasoning after latency threshold is exceeded. Set 0 to disable adaptive backoff.",
     )
 
-    def __init__(self, **data: Any) -> None:
-        # Access model_fields on the class (Pydantic >=2.11 deprecates instance access)
-        known_fields = set(type(self).model_fields.keys())
+    @model_validator(mode="before")
+    @classmethod
+    def _assemble_dynamic_backends(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
 
-        init_data = {k: v for k, v in data.items() if k in known_fields}
-        backend_data = {k: v for k, v in data.items() if k not in known_fields}
-
-        super().__init__(**init_data)
-
-        # Import constrained family detection to avoid creating duplicate instances
         from src.core.config.constrained_backend_policy import (
             match_constrained_connector_family,
         )
 
-        # Track which constrained families already have instances configured
-        # (an instance is something like 'qwen-oauth.default', which differs from the base name 'qwen-oauth' or 'qwen_oauth')
+        raw = dict(data)
+        known_fields = set(cls.model_fields.keys())
+        init_data = {k: v for k, v in raw.items() if k in known_fields}
+        backend_data = {k: v for k, v in raw.items() if k not in known_fields}
+
         claimed_constrained_families: set[str] = set()
         for existing_name in backend_data:
             family = match_constrained_connector_family(existing_name)
-            # Consider it an "instance" if the existing name has a dot suffix
             if family and "." in existing_name:
                 claimed_constrained_families.add(family)
 
-        # Drop legacy base configuration if an instance exists
         for backend_name in list(backend_data.keys()):
             family = match_constrained_connector_family(backend_name)
-            # If it's literally the base name (with underscore or hyphen), drop it
             if (
                 family
                 and family in claimed_constrained_families
@@ -194,58 +189,48 @@ class BackendSettings(DomainModel):
                     )
                 del backend_data[backend_name]
 
+        merged: dict[str, BackendConfig] = {}
         for backend_name, config_data in backend_data.items():
             if isinstance(config_data, dict):
-                self.__dict__[backend_name] = BackendConfig(**config_data)
+                merged[backend_name] = BackendConfig(**config_data)
             elif isinstance(config_data, BackendConfig):
-                self.__dict__[backend_name] = config_data
+                merged[backend_name] = config_data
 
         registered_backends = backend_registry.get_registered_backends()
         for backend_name in registered_backends:
-            if backend_name not in self.__dict__:
-                # Skip creating default entry if this backend belongs to a constrained family
-                # that already has an instance (e.g., skip 'qwen-oauth' if 'qwen-oauth.default' exists)
-                family = match_constrained_connector_family(backend_name)
-                if family and family in claimed_constrained_families:
-                    continue
-                self.__dict__[backend_name] = BackendConfig()
+            if backend_name in merged:
+                continue
+            family = match_constrained_connector_family(backend_name)
+            if family and family in claimed_constrained_families:
+                continue
+            merged[backend_name] = BackendConfig()
 
-        self._initialization_complete = True
+        return {**init_data, **merged}
+
+    def get_named_backend_configs(self) -> dict[str, BackendConfig]:
+        """Return dynamically configured backends (``name`` -> ``BackendConfig``)."""
+        extra = getattr(self, "__pydantic_extra__", None) or {}
+        return {k: v for k, v in extra.items() if isinstance(v, BackendConfig)}
 
     def __getitem__(self, key: str) -> BackendConfig:
         """Allow dictionary-style access to backend configs."""
-        if key in self.__dict__:
-            return cast(BackendConfig, self.__dict__[key])
-        raise KeyError(f"Backend '{key}' not found")
+        cfg = self.get_named_backend_configs().get(key)
+        if cfg is None:
+            raise KeyError(f"Backend '{key}' not found")
+        return cfg
 
     def __setitem__(self, key: str, value: BackendConfig) -> None:
-        """Allow dictionary-style setting of backend configs."""
-        self.__dict__[key] = value
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Allow attribute-style assignment for backend configs."""
-        if (
-            name in {"default_backend"}
-            or name.startswith("_")
-            or name in type(self).model_fields
-        ):
-            super().__setattr__(name, value)
-            return
-        if isinstance(value, BackendConfig):
-            config = value
-        elif isinstance(value, dict):
-            config = BackendConfig(**value)
-        else:
-            config = BackendConfig()
-        self.__dict__[name] = config
+        raise TypeError(
+            "BackendSettings is immutable; use model_copy(update={...}) instead."
+        )
 
     def get(self, key: str, default: Any = None) -> Any:
         """Dictionary-style get with default."""
-        return cast(BackendConfig | None, self.__dict__.get(key, default))
+        return self.get_named_backend_configs().get(key, default)
 
     def lookup(self, name: str) -> BackendConfig | None:
         """Return an existing BackendConfig by exact key, without side effects."""
-        value = self.__dict__.get(name)
+        value = self.get_named_backend_configs().get(name)
         return value if isinstance(value, BackendConfig) else None
 
     @property
@@ -253,11 +238,11 @@ class BackendSettings(DomainModel):
         """Get the set of functional backends (those with API keys)."""
         functional: set[str] = set()
         registered = backend_registry.get_registered_backends()
+        configs = self.get_named_backend_configs()
         for backend_name in registered:
-            if backend_name in self.__dict__:
-                config: Any = self.__dict__[backend_name]
-                if isinstance(config, BackendConfig) and config.api_key:
-                    functional.add(backend_name)
+            cfg = configs.get(backend_name)
+            if isinstance(cfg, BackendConfig) and cfg.api_key:
+                functional.add(backend_name)
 
         oauth_like: set[str] = set()
         for name in registered:
@@ -268,68 +253,12 @@ class BackendSettings(DomainModel):
 
         functional.update(oauth_like.intersection(set(registered)))
 
-        for name, cfg in getattr(self, "__dict__", {}).items():
-            if (
-                name == "default_backend"
-                or name.startswith("_")
-                or not isinstance(cfg, BackendConfig)
-            ):
+        for name, cfg in configs.items():
+            if name == "default_backend" or name.startswith("_"):
                 continue
-            if cfg.api_key:
+            if isinstance(cfg, BackendConfig) and cfg.api_key:
                 functional.add(name)
         return functional
-
-    def __getattr__(self, name: str) -> Any:
-        """Allow accessing backend configs as attributes.
-
-        If an attribute for a backend is missing, create a default
-        BackendConfig instance lazily. This ensures tests and runtime
-        code can access `config.backends.openai` / `config.backends.gemini`
-        even if the registry hasn't been populated yet.
-        """
-        if name == "default_backend":
-            if "default_backend" in self.__dict__:
-                return self.__dict__["default_backend"]
-            return "openai"
-
-        if name in self.__dict__:
-            return cast(BackendConfig, self.__dict__[name])
-
-        if name.startswith(("_", "__")):
-            raise AttributeError(
-                f"'{self.__class__.__name__}' object has no attribute '{name}'"
-            )
-
-        if not hasattr(self, "_initialization_complete"):
-            raise AttributeError(
-                f"'{self.__class__.__name__}' object has no attribute '{name}'"
-            )
-
-        config = BackendConfig()
-        self.__dict__[name] = config
-        return config
-
-    @model_serializer(mode="wrap")
-    def serialize_model(self, handler: Any) -> dict[str, Any]:
-        """Custom serializer to include dynamic backends."""
-        dumped: dict[str, Any] = handler(self)
-
-        registered = backend_registry.get_registered_backends()
-        for backend_name in registered:
-            if backend_name in self.__dict__:
-                config: Any = self.__dict__[backend_name]
-                if isinstance(config, BackendConfig):
-                    dumped[backend_name] = config.model_dump()
-
-        for key, value in self.__dict__.items():
-            if (
-                key not in dumped
-                and isinstance(value, BackendConfig)
-                and key != "default_backend"
-            ):
-                dumped[key] = value.model_dump()
-
-        return dumped
 
     def model_is_functional(self, model_id: str) -> bool:
         """Check if a model is available in any functional backend."""

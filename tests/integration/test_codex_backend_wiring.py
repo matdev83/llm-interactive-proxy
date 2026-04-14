@@ -19,9 +19,10 @@ import pytest
 import pytest_asyncio
 
 # Import connector to verify registration
+import src.connectors  # noqa: F401 — populate backend registry for BackendSettings
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.app.stages.backend import BackendStage
-from src.core.config.app_config import AppConfig, BackendSettings
+from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.di.container import ServiceCollection
 from src.core.domain.validation import ValidationResult
 from src.core.services.backend_registry import backend_registry
@@ -303,7 +304,13 @@ async def test_full_staged_initialization_pipeline(auth_dir: Path):
     from src.core.app.test_builder import build_test_app, create_test_config
 
     config = create_test_config()
-    config.backends.default_backend = "openai-codex"
+    config = config.model_copy(
+        update={
+            "backends": config.backends.model_copy(
+                update={"default_backend": "openai-codex"}
+            )
+        }
+    )
 
     # Build app through full staged initialization
     app = build_test_app(config)
@@ -318,14 +325,13 @@ async def test_full_staged_initialization_pipeline(auth_dir: Path):
     # Verify backend can be created through factory after staged init
     # Note: build_test_app uses mock backends, so we verify the factory works
     # by checking that it can create a backend (even if it's a mock in test mode)
-    backend_config = getattr(config.backends, "openai_codex", None)
-    # If backend_config doesn't exist, create a minimal one for testing
-    if not backend_config:
-        from src.core.config.app_config import BackendConfig
-
-        backend_config = BackendConfig()
-        # Set auth path for Codex connector
-        backend_config.credentials_path = str(auth_dir / "auth.json")
+    backend_config = config.backends.lookup("openai-codex")
+    if backend_config is None:
+        backend_config = BackendConfig(credentials_path=str(auth_dir / "auth.json"))
+    elif not backend_config.credentials_path:
+        backend_config = backend_config.model_copy(
+            update={"credentials_path": str(auth_dir / "auth.json")},
+        )
 
     backend = await backend_factory.ensure_backend(
         backend_type="openai-codex",
@@ -352,32 +358,24 @@ async def test_config_keys_honored_from_documentation(auth_dir: Path):
     from src.connectors.openai_codex.settings import SettingsLoader
 
     # Test key configuration keys that should be honored
-    config = AppConfig()
-
-    # Set config via backend extra (simulating YAML config)
-    if not hasattr(config.backends, "openai_codex"):
-        from src.core.config.app_config import BackendConfig
-
-        config.backends.openai_codex = BackendConfig()
-
-    # Set some documented keys
-    if not hasattr(config.backends.openai_codex, "extra"):
-        config.backends.openai_codex.extra = {}
-
-    # SettingsLoader expects config under "codex" key in extra, not directly in extra
-    config.backends.openai_codex.extra["codex"] = {
-        "streaming": {
-            "max_retries": 3,
-            "retry_backoff_seconds": [1.0, 2.0, 4.0],
-        },
-        "compatibility_layer": {
-            "enabled": True,
-            "detection": {
-                "cache_ttl_seconds": 7200,
-                "heuristic_threshold": 3,
-            },
-        },
-    }
+    codex_backend = BackendConfig(
+        extra={
+            "codex": {
+                "streaming": {
+                    "max_retries": 3,
+                    "retry_backoff_seconds": [1.0, 2.0, 4.0],
+                },
+                "compatibility_layer": {
+                    "enabled": True,
+                    "detection": {
+                        "cache_ttl_seconds": 7200,
+                        "heuristic_threshold": 3,
+                    },
+                },
+            }
+        }
+    )
+    config = AppConfig(backends=BackendSettings(openai_codex=codex_backend))
 
     loader = SettingsLoader()
     settings = loader.load(config)

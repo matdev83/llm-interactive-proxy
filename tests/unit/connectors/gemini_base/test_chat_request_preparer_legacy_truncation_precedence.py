@@ -154,8 +154,12 @@ async def test_prepare_does_not_run_connector_truncation_resolver_in_prepare_pat
 ):
     config = AppConfig()
     config.compaction.enabled = True
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_chars": 300}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"tool_output_truncate_chars": 300}
+            ),
+        }
     )
     context = MockConnectorContext(config=config)
     resolver = ForcedTruncationResolver()
@@ -193,8 +197,12 @@ async def test_prepare_does_not_run_connector_truncation_resolver_in_prepare_pat
 @pytest.mark.asyncio
 async def test_prepare_ignores_connector_resolver_failures_in_prepare_path() -> None:
     config = AppConfig()
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_chars": 80}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"tool_output_truncate_chars": 80}
+            ),
+        }
     )
     context = MockConnectorContext(config=config)
     translation_service = MagicMock()
@@ -233,8 +241,10 @@ async def test_prepare_warns_legacy_controls_are_deprecated_and_ignored_in_conne
 ) -> None:
     monkeypatch.setenv("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL", "DEBUG")
     config = AppConfig()
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_lines": 2}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(extra={"tool_output_truncate_lines": 2}),
+        }
     )
     context = MockConnectorContext(config=config)
     translation_service = MagicMock()
@@ -276,8 +286,12 @@ async def test_prepare_warns_legacy_controls_are_deprecated_and_ignored_with_com
 ) -> None:
     config = AppConfig()
     config.compaction.enabled = True
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_chars": 40}
+    config.mutate_backends(
+        {
+            "gemini-oauth-auto": BackendConfig(
+                extra={"tool_output_truncate_chars": 40}
+            ),
+        }
     )
     context = MockConnectorContext(config=config)
     translation_service = MagicMock()

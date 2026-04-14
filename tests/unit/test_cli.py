@@ -323,9 +323,17 @@ def test_apply_cli_args_warns_for_deprecated_gemini_truncation_controls(
     monkeypatch.setenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", "120")
     monkeypatch.setenv("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES", "8")
     monkeypatch.setenv("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL", "INFO")
-    config = AppConfig()
-    config.backends["gemini-oauth-auto"] = BackendConfig(
-        extra={"tool_output_truncate_chars": 40}
+    base = AppConfig()
+    config = base.model_copy(
+        update={
+            "backends": base.backends.model_copy(
+                update={
+                    "gemini-oauth-auto": BackendConfig(
+                        extra={"tool_output_truncate_chars": 40}
+                    )
+                }
+            )
+        }
     )
 
     with (

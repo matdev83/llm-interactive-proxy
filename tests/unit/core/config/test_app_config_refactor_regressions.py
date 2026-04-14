@@ -157,7 +157,7 @@ def test_backend_config_provider_missing_backend_returns_default_without_mutatio
     cfg_value = provider.get_backend_config("does-not-exist")
     assert cfg_value is not None
     assert cfg_value.api_key is None
-    assert "does-not-exist" not in cfg.backends.__dict__
+    assert "does-not-exist" not in cfg.backends.get_named_backend_configs()
 
 
 def test_session_auto_continue_removal_enabled_defaults_true() -> None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from src.core.common.backend_discovery_state import (
     get_oauth_install_command,
@@ -428,7 +428,12 @@ def _collect_runtime_referenced_backends(config: AppConfig) -> set[str]:
             references.add(backend_name)
 
     default_backend_config = BackendConfig()
-    for raw_name, value in getattr(backends, "__dict__", {}).items():
+    _named = getattr(backends, "get_named_backend_configs", None)
+    _raw_named = _named() if callable(_named) else {}
+    named_cfgs: dict[str, Any] = (
+        cast(dict[str, Any], _raw_named) if isinstance(_raw_named, dict) else {}
+    )
+    for raw_name, value in named_cfgs.items():
         if (
             not isinstance(raw_name, str)
             or not raw_name
@@ -523,7 +528,12 @@ def _collect_runtime_constrained_backend_names(config: AppConfig) -> list[str]:
 
     configured_names: list[str] = []
     default_backend_config = BackendConfig()
-    for raw_name, value in getattr(backends, "__dict__", {}).items():
+    _named_cb = getattr(backends, "get_named_backend_configs", None)
+    _raw_cb = _named_cb() if callable(_named_cb) else {}
+    _named_items: dict[str, Any] = (
+        cast(dict[str, Any], _raw_cb) if isinstance(_raw_cb, dict) else {}
+    )
+    for raw_name, value in _named_items.items():
         if (
             not isinstance(raw_name, str)
             or not raw_name

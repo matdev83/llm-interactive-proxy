@@ -32,63 +32,57 @@ class TestValidateStaticRoute:
 
     def test_valid_static_route_gemini_passes(self):
         """Test that valid static_route with gemini backend passes validation."""
-        backends = BackendSettings()
-        backends.static_route = "gemini:gemini-2.5-pro"
-        config = AppConfig(backends=backends)
+        config = AppConfig(
+            backends=BackendSettings(static_route="gemini:gemini-2.5-pro")
+        )
 
         # Should not raise any exception
         validate_static_route(config)
 
     def test_valid_static_route_openai_passes(self):
         """Test that valid static_route with openai backend passes validation."""
-        backends = BackendSettings()
-        backends.static_route = "openai:gpt-4"
-        config = AppConfig(backends=backends)
+        config = AppConfig(backends=BackendSettings(static_route="openai:gpt-4"))
 
         # Should not raise any exception
         validate_static_route(config)
 
     def test_valid_static_route_anthropic_passes(self):
         """Test that valid static_route with anthropic backend passes validation."""
-        backends = BackendSettings()
-        backends.static_route = "anthropic:claude-3-opus"
-        config = AppConfig(backends=backends)
+        config = AppConfig(
+            backends=BackendSettings(static_route="anthropic:claude-3-opus")
+        )
 
         # Should not raise any exception
         validate_static_route(config)
 
     def test_valid_static_route_openrouter_passes(self):
         """Test that valid static_route with openrouter backend passes validation."""
-        backends = BackendSettings()
-        backends.static_route = "openrouter:anthropic/claude-3-opus"
-        config = AppConfig(backends=backends)
+        config = AppConfig(
+            backends=BackendSettings(static_route="openrouter:anthropic/claude-3-opus")
+        )
 
         # Should not raise any exception
         validate_static_route(config)
 
     def test_none_static_route_passes(self):
         """Test that None static_route passes validation (no-op)."""
-        backends = BackendSettings()
-        backends.static_route = None
-        config = AppConfig(backends=backends)
+        config = AppConfig(backends=BackendSettings(static_route=None))
 
         # Should not raise any exception
         validate_static_route(config)
 
     def test_empty_string_static_route_passes(self):
         """Test that empty string static_route passes validation (no-op)."""
-        backends = BackendSettings()
-        backends.static_route = ""
-        config = AppConfig(backends=backends)
+        config = AppConfig(backends=BackendSettings(static_route=""))
 
         # Should not raise any exception
         validate_static_route(config)
 
     def test_invalid_backend_name_raises_configuration_error(self):
         """Test that invalid backend name raises ConfigurationError with actionable details."""
-        backends = BackendSettings()
-        backends.static_route = "nonexistent-backend:some-model"
-        config = AppConfig(backends=backends)
+        config = AppConfig(
+            backends=BackendSettings(static_route="nonexistent-backend:some-model")
+        )
 
         with pytest.raises(ConfigurationError) as exc_info:
             validate_static_route(config)
@@ -122,9 +116,7 @@ class TestValidateStaticRoute:
 
     def test_missing_delimiter_raises_configuration_error(self):
         """Test that missing colon delimiter raises ConfigurationError."""
-        backends = BackendSettings()
-        backends.static_route = "openai-gpt-4"  # Missing colon
-        config = AppConfig(backends=backends)
+        config = AppConfig(backends=BackendSettings(static_route="openai-gpt-4"))
 
         with pytest.raises(ConfigurationError) as exc_info:
             validate_static_route(config)
@@ -142,9 +134,11 @@ class TestValidateStaticRoute:
 
     def test_colon_after_slash_selector_raises_configuration_error(self):
         """Test that vendor/model:variant is rejected for static_route."""
-        backends = BackendSettings()
-        backends.static_route = "openrouter/anthropic/claude-3-haiku:free"
-        config = AppConfig(backends=backends)
+        config = AppConfig(
+            backends=BackendSettings(
+                static_route="openrouter/anthropic/claude-3-haiku:free"
+            )
+        )
 
         with pytest.raises(ConfigurationError) as exc_info:
             validate_static_route(config)
@@ -159,9 +153,7 @@ class TestValidateStaticRoute:
 
     def test_empty_model_part_raises_configuration_error(self):
         """Test that empty model part (e.g., 'openai:') raises ConfigurationError."""
-        backends = BackendSettings()
-        backends.static_route = "openai:"  # Empty model part
-        config = AppConfig(backends=backends)
+        config = AppConfig(backends=BackendSettings(static_route="openai:"))
 
         with pytest.raises(ConfigurationError) as exc_info:
             validate_static_route(config)
@@ -183,9 +175,7 @@ class TestValidateStaticRoute:
 
     def test_whitespace_only_model_part_raises_configuration_error(self):
         """Test that whitespace-only model part raises ConfigurationError."""
-        backends = BackendSettings()
-        backends.static_route = "openai:   "  # Whitespace-only model part
-        config = AppConfig(backends=backends)
+        config = AppConfig(backends=BackendSettings(static_route="openai:   "))
 
         with pytest.raises(ConfigurationError) as exc_info:
             validate_static_route(config)
@@ -208,9 +198,9 @@ class TestValidateStaticRoute:
         ]
 
         for static_route_value, expected_in_message in test_cases:
-            backends = BackendSettings()
-            backends.static_route = static_route_value
-            config = AppConfig(backends=backends)
+            config = AppConfig(
+                backends=BackendSettings(static_route=static_route_value)
+            )
 
             with pytest.raises(ConfigurationError) as exc_info:
                 validate_static_route(config)
@@ -223,9 +213,9 @@ class TestValidateStaticRoute:
 
     def test_available_backends_list_is_sorted(self):
         """Test that available_backends list in error details is sorted."""
-        backends = BackendSettings()
-        backends.static_route = "invalid-backend:model"
-        config = AppConfig(backends=backends)
+        config = AppConfig(
+            backends=BackendSettings(static_route="invalid-backend:model")
+        )
 
         with pytest.raises(ConfigurationError) as exc_info:
             validate_static_route(config)
@@ -241,9 +231,9 @@ class TestValidateStaticRoute:
         caplog: pytest.LogCaptureFixture,
     ):
         """Missing extracted static_route warns when a registered alternative exists."""
-        backends = BackendSettings()
-        backends.static_route = "gemini-oauth-plan:gemini-2.5-pro"
-        config = AppConfig(backends=backends)
+        config = AppConfig(
+            backends=BackendSettings(static_route="gemini-oauth-plan:gemini-2.5-pro")
+        )
 
         # Syntax is valid; extracted availability is handled by dedicated validator.
         validate_static_route(config)
@@ -285,4 +275,7 @@ class TestValidateStaticRoute:
             exc.details.get("install_command")
             == "pip install llm-interactive-proxy[oauth]"
         )
-        assert exc.details.get("optional_package") == "llm-interactive-proxy-oauth-connectors"
+        assert (
+            exc.details.get("optional_package")
+            == "llm-interactive-proxy-oauth-connectors"
+        )

@@ -66,10 +66,14 @@ def build_test_app_with_response_handlers(app_config=None) -> FastAPI:
         # Disable auth for tests
         app_config.auth.disable_auth = True
         # Configure test backends
-        app_config.backends.openai = BackendConfig(api_key=["test-key"])
-        app_config.backends.openrouter = BackendConfig(api_key=["test-key"])
-        app_config.backends.anthropic = BackendConfig(api_key=["test-key"])
-        app_config.backends.gemini = BackendConfig(api_key=["test-key"])
+        app_config.mutate_backends(
+            {
+                "openai": BackendConfig(api_key=["test-key"]),
+                "openrouter": BackendConfig(api_key=["test-key"]),
+                "anthropic": BackendConfig(api_key=["test-key"]),
+                "gemini": BackendConfig(api_key=["test-key"]),
+            }
+        )
 
     # Build the app using the new staged approach
     app = build_test_app(config=app_config)

@@ -105,6 +105,8 @@ class SettingsLoader(ISettingsLoader):
         }
 
         backend_config = getattr(app_config.backends, "openai_codex", None)
+        if backend_config is None and hasattr(app_config.backends, "lookup"):
+            backend_config = app_config.backends.lookup("openai-codex")
         backend_extra: dict[str, Any] = {}
         if backend_config and hasattr(backend_config, "extra"):
             try:
@@ -434,9 +436,15 @@ class SettingsLoader(ISettingsLoader):
                     if isinstance(parsed, list):
                         accounts = to_string_list(parsed)
                     else:
-                        accounts = [part.strip() for part in normalized.split(",") if part.strip()]
+                        accounts = [
+                            part.strip()
+                            for part in normalized.split(",")
+                            if part.strip()
+                        ]
                 else:
-                    accounts = [part.strip() for part in normalized.split(",") if part.strip()]
+                    accounts = [
+                        part.strip() for part in normalized.split(",") if part.strip()
+                    ]
         elif isinstance(raw_accounts_source, list):
             accounts = to_string_list(raw_accounts_source)
         elif raw_accounts_source == "all":
@@ -459,7 +467,9 @@ class SettingsLoader(ISettingsLoader):
             os.getenv("OPENAI_CODEX_MANAGED_OAUTH_REFRESH_BUFFER_SECONDS")
         )
         if refresh_buffer is None:
-            refresh_buffer = coerce_positive_int(managed_cfg.get("refresh_buffer_seconds"))
+            refresh_buffer = coerce_positive_int(
+                managed_cfg.get("refresh_buffer_seconds")
+            )
         if refresh_buffer is None:
             refresh_buffer = settings["managed_oauth"]["refresh_buffer_seconds"]
 
@@ -484,7 +494,9 @@ class SettingsLoader(ISettingsLoader):
             affinity_max = settings["managed_oauth"]["session_affinity_max_entries"]
 
         allow_legacy_fallback = managed_cfg.get("allow_legacy_fallback")
-        env_allow_fallback = os.getenv("OPENAI_CODEX_MANAGED_OAUTH_ALLOW_LEGACY_FALLBACK")
+        env_allow_fallback = os.getenv(
+            "OPENAI_CODEX_MANAGED_OAUTH_ALLOW_LEGACY_FALLBACK"
+        )
         if env_allow_fallback is not None:
             allow_legacy_fallback = env_allow_fallback.strip().lower() in truthy
         elif allow_legacy_fallback is None:

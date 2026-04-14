@@ -239,6 +239,7 @@ See the [Dynamic Tool Output Compression Guide](features/dynamic-tool-output-com
 | `--dynamic-compression-disable-methods CSV` | N/A | Comma-separated compression methods to disable. |
 | `--dynamic-compression-disable-tools CSV` | N/A | Comma-separated tool names to bypass. |
 | `--dynamic-compression-disable-command-prefixes CSV` | N/A | Comma-separated command prefixes to bypass. |
+| `--dynamic-compression-per-output-evaluation-log-level LEVEL` | N/A | Per-output compression evaluation log level (`off`, `debug`, `info`). |
 
 ---
 

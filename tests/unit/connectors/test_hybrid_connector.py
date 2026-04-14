@@ -13,7 +13,7 @@ from src.core.common.exceptions import (
     ConfigurationError,
     ServiceResolutionError,
 )
-from src.core.config.app_config import AppConfig, BackendSettings
+from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -23,10 +23,11 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 def app_config():
     """Create a basic app config for testing."""
     config = AppConfig()
-    # Ensure hybrid backend is enabled by default
-    if not hasattr(config, "backends"):
-        config.backends = BackendSettings(disable_hybrid_backend=False)
-    return config
+    return config.model_copy(
+        update={
+            "backends": config.backends.model_copy(update={"disable_hybrid_backend": False})
+        }
+    )
 
 
 @pytest.fixture
@@ -495,7 +496,13 @@ class TestAdaptiveMessageAugmentation:
     def test_repeat_reasoning_as_artificial_message(self, app_config):
         """Test that reasoning is repeated as an artificial message when enabled."""
         # Enable the feature in the config
-        app_config.backends.hybrid_backend_repeat_messages = True
+        app_config = app_config.model_copy(
+            update={
+                "backends": app_config.backends.model_copy(
+                    update={"hybrid_backend_repeat_messages": True}
+                )
+            }
+        )
 
         hybrid_connector = HybridConnector(
             client=Mock(),
@@ -859,7 +866,13 @@ class TestErrorHandling:
     def test_disabled_hybrid_backend_error(self, app_config):
         """Test disabled hybrid backend error."""
         # Configure backend as disabled
-        app_config.backends.disable_hybrid_backend = True
+        app_config = app_config.model_copy(
+            update={
+                "backends": app_config.backends.model_copy(
+                    update={"disable_hybrid_backend": True}
+                )
+            }
+        )
 
         connector = HybridConnector(
             client=Mock(),
@@ -976,14 +989,25 @@ class TestErrorHandling:
         """Test timeout scenario in reasoning phase."""
         import asyncio
 
-        # Reduce timeout to make test fast
-        hybrid_connector.config.backends.hybrid_reasoning_model_timeout = 0.1
+        # Reduce timeout to make test fast (minimum allowed is 1 second).
+        # PhaseExecutor keeps the AppConfig reference from construction; keep it in sync.
+        cfg = hybrid_connector.config
+        new_cfg = cfg.model_copy(
+            update={
+                "backends": cfg.backends.model_copy(
+                    update={"hybrid_reasoning_model_timeout": 1}
+                )
+            }
+        )
+        hybrid_connector.config = new_cfg
+        hybrid_connector._orchestrator.config = new_cfg
+        hybrid_connector._orchestrator.phase_executor.config = new_cfg
 
         # Mock backend service that takes too long
         mock_backend_service = AsyncMock()
 
         async def slow_completion(*args, **kwargs):
-            await asyncio.sleep(0.5)  # Longer than 0.1s
+            await asyncio.sleep(2.0)  # Longer than 1s timeout
             return Mock()
 
         mock_backend_service.call_completion = slow_completion

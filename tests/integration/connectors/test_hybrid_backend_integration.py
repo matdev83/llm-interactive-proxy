@@ -141,7 +141,7 @@ def _build_hybrid_connector() -> HybridConnector:
     if not hasattr(config, "backends"):
         config.backends = cast(Any, SimpleNamespace(disable_hybrid_backend=False))
     else:
-        config.backends.disable_hybrid_backend = False
+        config.mutate_backends(disable_hybrid_backend=False)
 
     translation_service = cast(TranslationService, DummyTranslationService())
 

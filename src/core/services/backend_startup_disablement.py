@@ -72,7 +72,7 @@ def _config_has_any_api_key(config: AppConfig, backend_type: str) -> bool:
         if base_cfg is not None and base_cfg.api_key:
             return True
 
-    for name, cfg in getattr(config.backends, "__dict__", {}).items():
+    for name, cfg in config.backends.get_named_backend_configs().items():
         if not isinstance(name, str) or not name.startswith(prefixes):
             continue
         if getattr(cfg, "api_key", None):

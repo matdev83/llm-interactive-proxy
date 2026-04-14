@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 import pytest_asyncio
+import src.connectors  # noqa: F401 — register backends for default BackendSettings
 from fastapi import HTTPException
 from pytest_mock import MockerFixture
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
@@ -62,7 +63,7 @@ async def _build_connector_with_streaming_settings(
     client = httpx.AsyncClient()
     config = AppConfig()
 
-    config.backends.openai_codex.extra.setdefault("codex", {})["streaming"] = {
+    config.backends["openai-codex"].extra.setdefault("codex", {})["streaming"] = {
         "max_retries": max_retries,
         "retry_backoff_seconds": list(retry_backoff_seconds),
     }
@@ -345,7 +346,7 @@ async def test_codex_xml_mode_handles_structured_tool_calls(
 async def test_config_default_capabilities_from_backend_extra() -> None:
     reset_renderer_registry()
     config = AppConfig()
-    config.backends.openai_codex.extra.setdefault("codex", {}).update(
+    config.backends["openai-codex"].extra.setdefault("codex", {}).update(
         {
             "default_capabilities": {
                 "tool_text_format": "codex_xml",
@@ -369,7 +370,7 @@ async def test_config_default_capabilities_from_backend_extra() -> None:
 async def test_prompt_configuration_applies_prepend_append() -> None:
     reset_renderer_registry()
     config = AppConfig()
-    config.backends.openai_codex.extra.setdefault("codex", {}).update(
+    config.backends["openai-codex"].extra.setdefault("codex", {}).update(
         {
             "prompt": {
                 "prepend": ["<environment constraints>"],
@@ -398,7 +399,7 @@ async def test_prompt_configuration_applies_prepend_append() -> None:
 async def test_tool_schema_configuration_overrides_default() -> None:
     reset_renderer_registry()
     config = AppConfig()
-    config.backends.openai_codex.extra.setdefault("codex", {}).update(
+    config.backends["openai-codex"].extra.setdefault("codex", {}).update(
         {
             "tool_schema": {
                 "base_tools": [
@@ -428,7 +429,7 @@ async def test_tool_schema_configuration_overrides_default() -> None:
 async def test_tool_schema_custom_only_uses_config_defaults() -> None:
     reset_renderer_registry()
     config = AppConfig()
-    config.backends.openai_codex.extra.setdefault("codex", {}).update(
+    config.backends["openai-codex"].extra.setdefault("codex", {}).update(
         {
             "tool_schema": {
                 "custom_tools": [
@@ -463,7 +464,7 @@ async def test_tool_schema_custom_only_uses_config_defaults() -> None:
 async def test_renderer_configuration_alias_and_default() -> None:
     reset_renderer_registry()
     config = AppConfig()
-    config.backends.openai_codex.extra.setdefault("codex", {}).update(
+    config.backends["openai-codex"].extra.setdefault("codex", {}).update(
         {"renderer": {"aliases": {"cli": "xml"}, "default": "cli"}}
     )
     async with httpx.AsyncClient() as client:

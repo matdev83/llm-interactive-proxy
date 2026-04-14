@@ -6,7 +6,7 @@ from src.core.config.app_config import AppConfig
 
 def _connector_with_repeat(repeat: bool) -> HybridConnector:
     config = AppConfig()
-    config.backends.hybrid_backend_repeat_messages = repeat
+    config.mutate_backends(hybrid_backend_repeat_messages=repeat)
     return HybridConnector(
         client=MagicMock(),
         config=config,
