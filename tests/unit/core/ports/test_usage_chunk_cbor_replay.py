@@ -14,6 +14,7 @@ were being stringified and leaked into message content.
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, cast
 
@@ -220,9 +221,15 @@ def cbor_stop_chunks() -> list[dict[str, Any]]:
     if not capture_files:
         pytest.skip("No CBOR capture files available for replay testing")
 
+    # Decode captures in parallel: bounded workers avoid thread overhead on Windows.
+    max_workers = min(8, max(1, len(capture_files)))
     all_chunks: list[dict[str, Any]] = []
-    for capture_file in capture_files:
-        all_chunks.extend(_stop_chunks_for_capture_file(capture_file))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {
+            pool.submit(_stop_chunks_for_capture_file, p): p for p in capture_files
+        }
+        for fut in as_completed(futures):
+            all_chunks.extend(fut.result())
 
     if not all_chunks:
         pytest.skip("No stop chunks with usage found in captures")
