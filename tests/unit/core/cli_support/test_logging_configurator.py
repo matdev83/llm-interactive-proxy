@@ -44,24 +44,26 @@ class TestApplyTimestampSuffix:
         result = configurator.apply_timestamp_suffix("")
         assert result is None
 
-    def test_simple_path_gets_timestamp_suffix(self) -> None:
+    def test_simple_path_gets_timestamp_suffix(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """GIVEN a simple path WHEN apply_timestamp_suffix is called THEN timestamp is appended."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("logs/proxy.log")
         assert result is not None
-        # Verify format: stem-YYYYMMDD_HHMMSS-pPID.suffix
         assert re.match(r"logs[\\/]proxy-\d{8}_\d{6}-p\d+\.log$", result)
 
-    def test_path_with_subdirectories(self) -> None:
+    def test_path_with_subdirectories(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GIVEN a path with subdirectories WHEN apply_timestamp_suffix is called THEN directory preserved."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("var/logs/application.log")
         assert result is not None
-        # Directory structure should be preserved
         assert "var" in result or "logs" in result
         assert re.search(r"application-\d{8}_\d{6}-p\d+\.log$", result)
 
@@ -73,63 +75,68 @@ class TestApplyTimestampSuffix:
         already_suffixed = "logs/proxy-20251212_1430.log"
         result = configurator.apply_timestamp_suffix(already_suffixed)
         assert result is not None
-        # Should return unchanged - no double suffixing (normalize paths for cross-platform)
         assert Path(result) == Path(already_suffixed)
 
-    def test_path_with_no_extension(self) -> None:
+    def test_path_with_no_extension(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GIVEN a path without extension WHEN apply_timestamp_suffix is called THEN suffix still applied."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("logs/proxy")
         assert result is not None
-        # Should have timestamp but no trailing extension
         assert re.match(r"logs[\\/]proxy-\d{8}_\d{6}-p\d+$", result)
 
-    def test_path_with_multiple_extensions(self) -> None:
+    def test_path_with_multiple_extensions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """GIVEN a path with multiple extensions WHEN apply_timestamp_suffix is called THEN only last extension handled."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("logs/capture.log.cbor")
         assert result is not None
-        # The .cbor extension should be preserved
         assert result.endswith(".cbor")
         assert re.search(r"-\d{8}_\d{6}-p\d+\.cbor$", result)
 
-    def test_absolute_path_preserved(self) -> None:
+    def test_absolute_path_preserved(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GIVEN an absolute path WHEN apply_timestamp_suffix is called THEN absolute path returned."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
-        # Windows-style absolute path
         result = configurator.apply_timestamp_suffix("C:\\var\\logs\\proxy.log")
         assert result is not None
         assert result.startswith("C:")
         assert re.search(r"proxy-\d{8}_\d{6}-p\d+\.log$", result)
 
-    def test_unix_absolute_path_preserved(self) -> None:
+    def test_unix_absolute_path_preserved(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """GIVEN a Unix absolute path WHEN apply_timestamp_suffix is called THEN absolute path returned."""
         import os
 
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("/var/logs/proxy.log")
         assert result is not None
-        # On Windows, Path normalizes /var to \var, so check platform-appropriately
         result_path = Path(result)
         if os.name == "nt":
-            # On Windows, the leading slash becomes something like \var
             assert "var" in str(result_path)
         else:
             assert result.startswith("/")
         assert re.search(r"proxy-\d{8}_\d{6}-p\d+\.log$", result)
 
-    def test_timestamp_format_matches_pattern(self) -> None:
+    def test_timestamp_format_matches_pattern(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """GIVEN a path WHEN apply_timestamp_suffix is called THEN timestamp matches YYYYMMDD_HHMMSS-pPID pattern."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
         with (
             patch("src.core.cli_support.logging_configurator.datetime") as mock_dt,
@@ -142,6 +149,83 @@ class TestApplyTimestampSuffix:
 
             result = configurator.apply_timestamp_suffix("test.log")
             assert result == "test-20251212_183045-p12345.log"
+
+
+class TestApplyTimestampSuffixPytestPrefix:
+    """Tests for pytest-specific prefix in apply_timestamp_suffix.
+
+    When running under pytest, log file stems are replaced with 'pytest-'
+    to make test-generated log files distinguishable from production ones.
+    """
+
+    def test_pytest_env_uses_pytest_prefix(self) -> None:
+        """GIVEN a path WHEN under pytest THEN stem is replaced with 'pytest'."""
+        from src.core.cli_support.logging_configurator import LoggingConfigurator
+
+        configurator = LoggingConfigurator()
+        result = configurator.apply_timestamp_suffix("var/logs/proxy.log")
+        assert result is not None
+        assert re.match(r"var[\\/]logs[\\/]pytest-\d{8}_\d{6}-p\d+\.log$", result)
+
+    def test_pytest_prefix_applied_to_any_stem(self) -> None:
+        """GIVEN a non-proxy path WHEN under pytest THEN stem is replaced with 'pytest'."""
+        from src.core.cli_support.logging_configurator import LoggingConfigurator
+
+        configurator = LoggingConfigurator()
+        result = configurator.apply_timestamp_suffix("var/logs/application.log")
+        assert result is not None
+        assert re.search(r"pytest-\d{8}_\d{6}-p\d+\.log$", result)
+
+    def test_pytest_prefix_with_cbor_file(self) -> None:
+        """GIVEN a cbor capture file WHEN under pytest THEN stem uses pytest prefix."""
+        from src.core.cli_support.logging_configurator import LoggingConfigurator
+
+        configurator = LoggingConfigurator()
+        result = configurator.apply_timestamp_suffix("var/wire_captures/proxy.cbor")
+        assert result is not None
+        assert result.endswith(".cbor")
+        assert re.search(r"pytest-\d{8}_\d{6}-p\d+\.cbor$", result)
+
+    def test_pytest_prefix_with_mocked_datetime(self) -> None:
+        """GIVEN mocked datetime WHEN under pytest THEN prefix and timestamp are exact."""
+        from src.core.cli_support.logging_configurator import LoggingConfigurator
+
+        configurator = LoggingConfigurator()
+        with (
+            patch("src.core.cli_support.logging_configurator.datetime") as mock_dt,
+            patch("src.core.cli_support.logging_configurator.os.getpid") as mock_getpid,
+        ):
+            mock_now = MagicMock()
+            mock_now.strftime.return_value = "20260414_174601"
+            mock_dt.now.return_value = mock_now
+            mock_getpid.return_value = 261572
+
+            result = configurator.apply_timestamp_suffix("var/logs/proxy.log")
+            assert result is not None
+            result_normalized = result.replace("\\", "/")
+            assert result_normalized == "var/logs/pytest-20260414_174601-p261572.log"
+
+    def test_already_suffixed_pytest_path_not_double_suffixed(self) -> None:
+        """GIVEN an already-suffixed pytest path WHEN apply_timestamp_suffix called THEN original returned."""
+        from src.core.cli_support.logging_configurator import LoggingConfigurator
+
+        configurator = LoggingConfigurator()
+        already_suffixed = "logs/pytest-20251212_1430.log"
+        result = configurator.apply_timestamp_suffix(already_suffixed)
+        assert result is not None
+        assert Path(result) == Path(already_suffixed)
+
+    def test_non_pytest_env_uses_original_stem(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """GIVEN a path WHEN NOT under pytest THEN original stem is preserved."""
+        from src.core.cli_support.logging_configurator import LoggingConfigurator
+
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+        configurator = LoggingConfigurator()
+        result = configurator.apply_timestamp_suffix("var/logs/proxy.log")
+        assert result is not None
+        assert re.match(r"var[\\/]logs[\\/]proxy-\d{8}_\d{6}-p\d+\.log$", result)
 
 
 class TestApplyPidSuffixes:
@@ -215,11 +299,14 @@ class TestApplyPidSuffixes:
         # Since no updates, should return the original config
         assert result == mock_config
 
-    def test_returns_new_config_with_updated_logging(self) -> None:
+    def test_returns_new_config_with_updated_logging(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """GIVEN a real AppConfig WHEN apply_pid_suffixes called THEN new config returned with suffixed paths."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
         from src.core.config.app_config import AppConfig
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         config = AppConfig(
             logging={"log_file": "test.log", "level": "DEBUG", "use_colors": True}
         )
@@ -382,11 +469,14 @@ class TestLogLevelConversion:
 class TestLoggingConfiguratorIntegration:
     """Integration tests for LoggingConfigurator with real AppConfig."""
 
-    def test_full_workflow_with_real_config(self) -> None:
+    def test_full_workflow_with_real_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """GIVEN a real AppConfig WHEN full workflow executed THEN logging configured correctly."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
         from src.core.config.app_config import AppConfig
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         config = AppConfig(
             logging={
                 "log_file": "var/logs/integration.log",
@@ -431,21 +521,24 @@ class TestTimestampSuffixEdgeCases:
         long_name = "a" * 200 + ".log"
         result = configurator.apply_timestamp_suffix(long_name)
         assert result is not None
-        assert re.search(r"-\d{8}_\d{6}-p\d+\.log$", result)
+        # Under pytest, stem is replaced with 'pytest'
+        assert re.search(r"pytest-\d{8}_\d{6}-p\d+\.log$", result)
 
-    def test_special_characters_in_path(self) -> None:
+    def test_special_characters_in_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GIVEN path with special chars WHEN apply_timestamp_suffix called THEN handled correctly."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("logs/my-special_file.log")
         assert result is not None
         assert re.search(r"my-special_file-\d{8}_\d{6}-p\d+\.log$", result)
 
-    def test_path_with_dots_in_directory(self) -> None:
+    def test_path_with_dots_in_directory(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """GIVEN path with dots in directory names WHEN apply_timestamp_suffix called THEN handled correctly."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("./var/logs/proxy.log")
         assert result is not None
@@ -459,7 +552,8 @@ class TestTimestampSuffixEdgeCases:
         result = configurator.apply_timestamp_suffix("var/wire_captures/proxy.cbor")
         assert result is not None
         assert result.endswith(".cbor")
-        assert re.search(r"proxy-\d{8}_\d{6}-p\d+\.cbor$", result)
+        # Under pytest, stem is replaced with 'pytest'
+        assert re.search(r"pytest-\d{8}_\d{6}-p\d+\.cbor$", result)
 
 
 class TestResolveStdlibLogLevel:

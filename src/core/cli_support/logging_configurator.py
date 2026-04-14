@@ -104,6 +104,11 @@ class LoggingConfigurator:
         filename portion of a path. If the path already has such a suffix,
         returns the original path unchanged to avoid double-suffixing.
 
+        When running under pytest (``PYTEST_CURRENT_TEST`` env var is set), the
+        original file stem is replaced with ``pytest`` so that test-generated
+        log files are immediately distinguishable from production ones:
+        ``proxy-20260414_174601-p261572.log`` → ``pytest-20260414_174601-p261572.log``.
+
         Args:
             path: The file path to suffix, or None.
 
@@ -129,7 +134,10 @@ class LoggingConfigurator:
         if TIMESTAMP_SUFFIX_PATTERN.search(p.stem):
             return str(p)
 
-        new_name = f"{p.stem}-{timestamp}-p{pid}{p.suffix}"
+        # Under pytest, replace the file stem with 'pytest' so test log files
+        # are distinguishable from production ones at a glance.
+        stem = "pytest" if os.getenv("PYTEST_CURRENT_TEST") else p.stem
+        new_name = f"{stem}-{timestamp}-p{pid}{p.suffix}"
         return str(p.with_name(new_name))
 
     def apply_pid_suffixes(self, config: AppConfig) -> AppConfig:
