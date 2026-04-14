@@ -119,7 +119,7 @@ class ACPTranscriptSerializer:
                         out.append(tc)
                     else:
                         dumped: dict[str, Any] = cast(
-                            dict[str, Any], getattr(tc, "model_dump", lambda: {})()
+                            dict[str, Any], getattr(tc, "model_dump", dict)()
                         )
                         out.append(dumped)
                 return out

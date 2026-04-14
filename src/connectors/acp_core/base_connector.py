@@ -9,7 +9,7 @@ import subprocess
 import time
 import uuid
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,9 @@ from src.core.domain.responses import (
     ProcessedResponse,
     ResponseEnvelope,
     StreamingResponseEnvelope,
+)
+from src.core.services.streaming.processed_stream_idle_keepalive import (
+    wrap_processed_stream_with_idle_keepalive,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,6 +123,15 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     def get_validation_errors(self) -> list[str]:
         return self._validation_errors.copy()
+
+    def _resolve_stream_keepalive_interval(self) -> float:
+        """Seconds between idle keepalive chunks while waiting for ACP subprocess output."""
+        cfg = getattr(self, "config", None)
+        failure_handling = getattr(cfg, "failure_handling", None)
+        interval = getattr(failure_handling, "keepalive_interval", None)
+        if isinstance(interval, int | float) and float(interval) > 0:
+            return float(interval)
+        return 12.0
 
     @abstractmethod
     async def _build_acp_command(self, runtime: ACPProcessRuntime) -> list[str]:
@@ -868,10 +880,26 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             async def _cancel_streaming_request() -> None:
                 await self._cancel_active_request(runtime, prompt_request_id)
 
-            return StreamingResponseEnvelope(
-                content=self._stream_response_with_lock(
+            stream_id: str | None = getattr(request.request, "session_id", None)
+            if not stream_id and request.context is not None:
+                stream_id = request.context.session_id
+
+            async def _stream_with_keepalive() -> AsyncIterator[ProcessedResponse]:
+                inner = self._stream_response_with_lock(
                     runtime, requested_model, prompt_request_id
-                ),
+                )
+                async for chunk in wrap_processed_stream_with_idle_keepalive(
+                    inner,
+                    keepalive_interval=self._resolve_stream_keepalive_interval(),
+                    idle_timeout=None,
+                    stream_id=stream_id,
+                    model_name=requested_model,
+                    on_idle_timeout=None,
+                ):
+                    yield chunk
+
+            return StreamingResponseEnvelope(
+                content=_stream_with_keepalive(),
                 media_type="text/event-stream",
                 headers={},
                 cancel_callback=_cancel_streaming_request,

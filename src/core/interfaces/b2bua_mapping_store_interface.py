@@ -61,3 +61,15 @@ class IB2buaMappingStore(ABC):
     @abstractmethod
     async def get_attempt_records(self, a_session_id: str) -> list[B2buaAttemptRecord]:
         """Return recorded backend attempts for a single A-leg session."""
+
+    @abstractmethod
+    async def try_resolve_echoed_a_session_id(
+        self,
+        *,
+        a_session_id: str,
+        requesting_auth_scope_id: str | None,
+    ) -> B2buaContinuityResolution | None:
+        """Resolve an active A-leg when the client echoes a prior ``llm-b2bua-...`` id.
+
+        Returns ``None`` when unknown, expired, or when auth scope does not allow reuse.
+        """

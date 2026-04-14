@@ -54,3 +54,10 @@ class B2BUASessionIdFactory:
     def is_header_safe(identifier: str) -> bool:
         """Return True when identifier is safe to place in HTTP headers."""
         return _HEADER_SAFE_IDENTIFIER_PATTERN.fullmatch(identifier) is not None
+
+    @staticmethod
+    def is_canonical_a_session_id(value: str) -> bool:
+        """Return True when ``value`` matches the canonical ``llm-b2bua-<uuid>`` shape."""
+        if not isinstance(value, str):
+            return False
+        return _A_SESSION_PATTERN.fullmatch(value.strip()) is not None

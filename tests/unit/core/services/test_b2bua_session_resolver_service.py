@@ -216,3 +216,29 @@ async def test_resolver_does_not_reuse_when_auth_scope_missing_outside_localhost
 
     assert first == "llm-b2bua-66666666-6666-6666-6666-666666666666"
     assert second == "llm-b2bua-77777777-7777-7777-7777-777777777777"
+
+
+@pytest.mark.asyncio
+async def test_resolver_reuses_a_leg_when_client_echoes_prior_session_header() -> None:
+    config = AppConfig(
+        host="127.0.0.1",
+        access_mode=AccessModeConfig(mode=AccessMode.SINGLE_USER),
+    )
+    fixed = UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    spare = UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    resolver = B2BUASessionResolver(
+        client_session_extractor=DefaultClientSessionIdExtractor(config=config),
+        auth_scope_resolver=DefaultAuthScopeResolver(config=config),
+        mapping_store=InMemoryB2buaMappingStore(continuity_ttl_seconds=60),
+        session_id_factory=B2BUASessionIdFactory(
+            uuid_factory=iter([fixed, spare]).__next__
+        ),
+    )
+
+    first_context = _context(headers={})
+    first_id = await resolver.resolve_session_id(first_context)
+    assert first_id == "llm-b2bua-aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+    second_context = _context(headers={"x-b2bua-session-id": first_id})
+    second_id = await resolver.resolve_session_id(second_context)
+    assert second_id == first_id

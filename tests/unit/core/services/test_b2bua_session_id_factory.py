@@ -48,3 +48,19 @@ def test_generated_ids_are_http_header_safe() -> None:
 
     assert re.fullmatch(r"[A-Za-z0-9-]+", a_session_id)
     assert re.fullmatch(r"[A-Za-z0-9-]+", b_session_id)
+
+
+def test_is_canonical_a_session_id_accepts_valid_a_leg() -> None:
+    factory = B2BUASessionIdFactory()
+    assert factory.is_canonical_a_session_id(
+        "llm-b2bua-12345678-1234-1234-1234-123456789abc"
+    )
+
+
+def test_is_canonical_a_session_id_rejects_b_leg_and_garbage() -> None:
+    factory = B2BUASessionIdFactory()
+    assert not factory.is_canonical_a_session_id(
+        "llm-b2bua-b-12345678-1234-1234-1234-123456789abc-1"
+    )
+    assert not factory.is_canonical_a_session_id("not-a-session")
+    assert not factory.is_canonical_a_session_id("")

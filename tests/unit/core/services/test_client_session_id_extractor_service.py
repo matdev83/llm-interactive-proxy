@@ -59,23 +59,37 @@ def test_extract_treats_whitespace_candidates_as_absent() -> None:
     assert extracted == "extra-id"
 
 
-def test_extract_ignores_default_echo_header_for_identity() -> None:
+def test_extract_reads_default_echo_header_when_x_session_absent() -> None:
     extractor = DefaultClientSessionIdExtractor(config=AppConfig())
     context = _make_context(headers={"x-b2bua-session-id": "echo-inbound"})
 
     extracted = extractor.extract_client_session_id(context)
 
-    assert extracted is None
+    assert extracted == "echo-inbound"
 
 
-def test_extract_ignores_configured_echo_header_for_identity() -> None:
+def test_extract_precedence_prefers_x_session_id_over_echo_header() -> None:
+    extractor = DefaultClientSessionIdExtractor(config=AppConfig())
+    context = _make_context(
+        headers={
+            "x-session-id": "from-x-session",
+            "x-b2bua-session-id": "from-echo",
+        },
+    )
+
+    extracted = extractor.extract_client_session_id(context)
+
+    assert extracted == "from-x-session"
+
+
+def test_extract_reads_configured_echo_header_when_x_session_absent() -> None:
     config = AppConfig(session={"b2bua": {"echo_header_name": "x-custom-echo"}})
     extractor = DefaultClientSessionIdExtractor(config=config)
     context = _make_context(headers={"x-custom-echo": "echo-inbound"})
 
     extracted = extractor.extract_client_session_id(context)
 
-    assert extracted is None
+    assert extracted == "echo-inbound"
 
 
 def test_extract_sets_conflict_diagnostic_when_candidates_differ() -> None:

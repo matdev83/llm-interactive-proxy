@@ -195,3 +195,38 @@ async def test_resolve_or_create_fails_open_on_internal_store_error() -> None:
         reused_existing=False,
         had_store_error=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_try_resolve_echoed_reuses_anon_mapping_for_localhost_scope() -> None:
+    store = InMemoryB2buaMappingStore(continuity_ttl_seconds=60)
+    first = await store.resolve_or_create_a_session_id(
+        auth_scope_id="__b2bua-anon-auth__:aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        client_session_id="__b2bua-anon-client__",
+        create_a_session_id=lambda: "llm-b2bua-11111111-1111-1111-1111-111111111111",
+    )
+    assert first.a_session_id == "llm-b2bua-11111111-1111-1111-1111-111111111111"
+    hit = await store.try_resolve_echoed_a_session_id(
+        a_session_id=first.a_session_id,
+        requesting_auth_scope_id="localhost",
+    )
+    assert hit == B2buaContinuityResolution(
+        a_session_id=first.a_session_id,
+        reused_existing=True,
+        had_store_error=False,
+    )
+
+
+@pytest.mark.asyncio
+async def test_try_resolve_echoed_rejects_cross_token_auth() -> None:
+    store = InMemoryB2buaMappingStore(continuity_ttl_seconds=60)
+    first = await store.resolve_or_create_a_session_id(
+        auth_scope_id="token-a",
+        client_session_id="client-1",
+        create_a_session_id=lambda: "llm-b2bua-22222222-2222-2222-2222-222222222222",
+    )
+    miss = await store.try_resolve_echoed_a_session_id(
+        a_session_id=first.a_session_id,
+        requesting_auth_scope_id="token-b",
+    )
+    assert miss is None

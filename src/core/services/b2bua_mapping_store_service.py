@@ -25,6 +25,26 @@ _DEFAULT_CONTINUITY_TTL_SECONDS: Final[int] = 3600
 _DEFAULT_PERSISTENT_DB_PATH: Final[Path] = Path("var/state/b2bua_continuity.sqlite3")
 _SQLITE_BUSY_TIMEOUT_SECONDS: Final[float] = 30.0
 
+# Must stay aligned with ``b2bua_session_resolver_service`` anonymous bootstrap prefix.
+_ANON_AUTH_SCOPE_PREFIX: Final[str] = "__b2bua-anon-auth__"
+_LOCALHOST_AUTH_SCOPE: Final[str] = "localhost"
+
+
+def _echo_continuity_auth_allows(
+    *,
+    stored_auth_scope_id: str,
+    requesting_auth_scope_id: str | None,
+) -> bool:
+    """Whether an echoed A-leg id may be reused under the current auth scope."""
+    if requesting_auth_scope_id == stored_auth_scope_id:
+        return True
+    if stored_auth_scope_id.startswith(_ANON_AUTH_SCOPE_PREFIX):
+        if requesting_auth_scope_id is None:
+            return True
+        if requesting_auth_scope_id == _LOCALHOST_AUTH_SCOPE:
+            return True
+    return False
+
 
 def _read_config_ttl_seconds(config: IConfig | None) -> int:
     if config is None:
@@ -131,6 +151,44 @@ class InMemoryB2buaMappingStore(IB2buaMappingStore):
                 a_session_id=create_a_session_id(),
                 reused_existing=False,
                 had_store_error=True,
+            )
+
+    async def try_resolve_echoed_a_session_id(
+        self,
+        *,
+        a_session_id: str,
+        requesting_auth_scope_id: str | None,
+    ) -> B2buaContinuityResolution | None:
+        try:
+            normalized_a = _normalize_required_identifier(
+                a_session_id,
+                "a_session_id",
+            )
+        except ValueError:
+            return None
+
+        now = self._time_provider()
+        async with self._lock:
+            self._cleanup_expired_entries(now)
+            key = self._a_session_to_key.get(normalized_a)
+            if key is None:
+                return None
+            entry = self._entries.get(key)
+            if entry is None or entry.expires_at <= now:
+                return None
+            stored_auth, _stored_client = key
+            if not _echo_continuity_auth_allows(
+                stored_auth_scope_id=stored_auth,
+                requesting_auth_scope_id=requesting_auth_scope_id,
+            ):
+                return None
+            entry.last_accessed_at = now
+            if self._sliding_expiration:
+                entry.expires_at = now + self._continuity_ttl_seconds
+            return B2buaContinuityResolution(
+                a_session_id=entry.a_session_id,
+                reused_existing=True,
+                had_store_error=False,
             )
 
     async def allocate_next_b_seq(self, a_session_id: str) -> int:
@@ -346,6 +404,84 @@ class PersistentB2buaMappingStore(IB2buaMappingStore):
                 reused_existing=False,
                 had_store_error=True,
             )
+
+    async def try_resolve_echoed_a_session_id(
+        self,
+        *,
+        a_session_id: str,
+        requesting_auth_scope_id: str | None,
+    ) -> B2buaContinuityResolution | None:
+        try:
+            normalized_a = _normalize_required_identifier(
+                a_session_id,
+                "a_session_id",
+            )
+        except ValueError:
+            return None
+
+        now = self._time_provider()
+        try:
+            async with self._lock:
+                with self._connect() as conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    self._cleanup_expired_entries(conn, now)
+                    row = conn.execute(
+                        """
+                        SELECT auth_scope_id, expires_at
+                        FROM b2bua_mappings
+                        WHERE a_session_id = ?
+                        """,
+                        (normalized_a,),
+                    ).fetchone()
+                    if row is None:
+                        conn.commit()
+                        return None
+                    expires_at = float(row["expires_at"])
+                    if expires_at <= now:
+                        conn.commit()
+                        return None
+                    stored_auth = str(row["auth_scope_id"])
+                    if not _echo_continuity_auth_allows(
+                        stored_auth_scope_id=stored_auth,
+                        requesting_auth_scope_id=requesting_auth_scope_id,
+                    ):
+                        conn.commit()
+                        return None
+                    if self._sliding_expiration:
+                        conn.execute(
+                            """
+                            UPDATE b2bua_mappings
+                            SET last_accessed_at = ?, expires_at = ?
+                            WHERE a_session_id = ?
+                            """,
+                            (
+                                now,
+                                now + self._continuity_ttl_seconds,
+                                normalized_a,
+                            ),
+                        )
+                    else:
+                        conn.execute(
+                            """
+                            UPDATE b2bua_mappings
+                            SET last_accessed_at = ?
+                            WHERE a_session_id = ?
+                            """,
+                            (now, normalized_a),
+                        )
+                    conn.commit()
+                    return B2buaContinuityResolution(
+                        a_session_id=normalized_a,
+                        reused_existing=True,
+                        had_store_error=False,
+                    )
+        except Exception as exc:  # - must fail open on store faults
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Persistent B2BUA echo continuity lookup failure",
+                    exc_info=exc,
+                )
+            return None
 
     async def allocate_next_b_seq(self, a_session_id: str) -> int:
         """Atomically allocate next B-leg sequence for an active A-leg mapping."""

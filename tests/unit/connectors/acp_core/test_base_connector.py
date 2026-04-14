@@ -71,6 +71,22 @@ def connector() -> DummyAcpConnector:
     return DummyAcpConnector(MagicMock(), MagicMock())
 
 
+def test_resolve_stream_keepalive_interval_default(
+    connector: DummyAcpConnector,
+) -> None:
+    assert connector._resolve_stream_keepalive_interval() == 12.0
+
+
+def test_resolve_stream_keepalive_interval_from_config(
+    connector: DummyAcpConnector,
+) -> None:
+    fh = MagicMock()
+    fh.keepalive_interval = 7.5
+    connector.config = MagicMock()
+    connector.config.failure_handling = fh
+    assert connector._resolve_stream_keepalive_interval() == 7.5
+
+
 @pytest.mark.asyncio
 async def test_base_acp_connector_history_injected_logic(
     connector: DummyAcpConnector,

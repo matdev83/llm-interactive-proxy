@@ -68,7 +68,13 @@ class DefaultClientSessionIdExtractor(IClientSessionIdExtractor):
         if self._configured_echo_header_name == "x-session-id":
             return None
 
-        return self._normalize_candidate(context.get_header("x-session-id"))
+        from_x_session = self._normalize_candidate(context.get_header("x-session-id"))
+        if from_x_session is not None:
+            return from_x_session
+
+        return self._normalize_candidate(
+            context.get_header(self._configured_echo_header_name)
+        )
 
     @staticmethod
     def _extract_body_candidates(

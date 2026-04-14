@@ -43,6 +43,30 @@ class B2BUASessionResolver(ISessionResolver):
         )
         auth_scope_id = await self._auth_scope_resolver.resolve_auth_scope_id(context)
 
+        if (
+            client_session_id is not None
+            and self._session_id_factory.is_canonical_a_session_id(client_session_id)
+        ):
+            echo_continuity = await self._mapping_store.try_resolve_echoed_a_session_id(
+                a_session_id=client_session_id.strip(),
+                requesting_auth_scope_id=auth_scope_id,
+            )
+            if echo_continuity is not None:
+                a_session_id = echo_continuity.a_session_id
+                context.ensure_processing_context().update(
+                    {
+                        "b2bua_continuity_reused_existing": echo_continuity.reused_existing,
+                        "b2bua_continuity_store_error": echo_continuity.had_store_error,
+                    }
+                )
+                context.session_id = a_session_id
+                context.b2bua_identity = B2buaIdentity(
+                    a_session_id=a_session_id,
+                    client_session_id=client_session_id,
+                    auth_scope_id=auth_scope_id,
+                )
+                return a_session_id
+
         if client_session_id is not None and auth_scope_id is not None:
             continuity = await self._mapping_store.resolve_or_create_a_session_id(
                 auth_scope_id=auth_scope_id,
