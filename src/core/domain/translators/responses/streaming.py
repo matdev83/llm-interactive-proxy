@@ -536,7 +536,9 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
 
         return _build_chunk()
 
-    if event_type == "response.completed":
+    # Codex and some OpenAI streams terminate with ``response.done`` (same payload shape
+    # as ``response.completed``). Treat both as terminal completion with usage.
+    if event_type in {"response.completed", "response.done"}:
         response_info = chunk.get("response") or {}
         result = _build_chunk({}, "stop")
         usage = response_info.get("usage")

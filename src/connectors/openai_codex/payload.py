@@ -33,6 +33,7 @@ from src.connectors.openai_codex.interfaces import (
 )
 from src.connectors.openai_codex.utils import message_to_text
 from src.core.app.constants.logging_constants import TRACE_LEVEL
+from src.core.domain.chat import CanonicalChatRequest
 
 if TYPE_CHECKING:
     from src.connectors.openai_codex import OpenAICodexConnector
@@ -247,6 +248,31 @@ class PayloadBuilder(IPayloadBuilder):
                 passthrough_dict["instructions"] = (
                     "You are a helpful assistant. Follow the user request."
                 )
+
+        # Responses → Canonical translation stores ``tools`` on the request model, not in
+        # ``extra_body``. Passthrough must still forward them to Codex /responses.
+        # Only read from real ``CanonicalChatRequest`` instances (tests may use MagicMock).
+        if isinstance(request_data, CanonicalChatRequest):
+            if not passthrough_dict.get("tools"):
+                merged_tools = self._tool_schema_resolver.resolve_tool_schema(context)
+                if merged_tools:
+                    passthrough_dict["tools"] = [
+                        m.model_dump(exclude_none=True) for m in merged_tools
+                    ]
+
+            if passthrough_dict.get("tool_choice") is None:
+                tc = request_data.tool_choice
+                if tc is not None:
+                    dump_fn = getattr(tc, "model_dump", None)
+                    if callable(dump_fn):
+                        passthrough_dict["tool_choice"] = dump_fn(exclude_none=True)
+                    else:
+                        passthrough_dict["tool_choice"] = tc
+
+            if passthrough_dict.get("parallel_tool_calls") is None:
+                ptc = request_data.parallel_tool_calls
+                if ptc is not None:
+                    passthrough_dict["parallel_tool_calls"] = ptc
 
         # Convert to CodexPayload
         # Note: passthrough payload may have different structure, so we need to adapt

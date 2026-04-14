@@ -1773,14 +1773,23 @@ class ResponsesController:
             if isinstance(response, StreamingResponseEnvelope):
                 if response.content is None:
                     raise ValueError("StreamingResponseEnvelope has no content")
+                sent_response_done = False
+                last_dict_chunk: dict[str, Any] | None = None
                 async for chunk in response.content:
                     # Convert chunk to WebSocket event format
                     if isinstance(chunk, ProcessedResponse):
                         chunk_content = chunk.content
                         chunk_metadata = chunk.metadata or {}
 
-                        # Check if this is a done event
-                        if chunk_metadata.get("done"):
+                        if isinstance(chunk_content, dict):
+                            last_dict_chunk = chunk_content
+
+                        # Terminal chunk: tests and legacy mocks used ``done``; the real
+                        # streaming pipeline uses ``is_done`` (see streaming_response_handler).
+                        is_terminal = bool(chunk_metadata.get("done")) or (
+                            chunk_metadata.get("is_done") is True
+                        )
+                        if is_terminal:
                             # Cache the response
                             if isinstance(chunk_content, dict):
                                 response_id = chunk_content.get("id")
@@ -1793,6 +1802,7 @@ class ResponsesController:
                                 "response": chunk_content,
                             }
                             await websocket.send_json(done_event)
+                            sent_response_done = True
                             break
                         else:
                             # Send delta event
@@ -1808,6 +1818,24 @@ class ResponsesController:
                                     "delta": {"content": str(chunk_content)},
                                 }
                                 await websocket.send_json(delta_event)
+
+                # Best-effort close: only treat as a terminal response object, not a
+                # mid-stream ``response.delta`` envelope.
+                if (
+                    not sent_response_done
+                    and isinstance(last_dict_chunk, dict)
+                    and (
+                        last_dict_chunk.get("output") is not None
+                        or last_dict_chunk.get("object") == "response"
+                        or last_dict_chunk.get("status") is not None
+                    )
+                ):
+                    rid = last_dict_chunk.get("id")
+                    if isinstance(rid, str) and rid:
+                        response_cache[rid] = last_dict_chunk
+                    await websocket.send_json(
+                        {"type": "response.done", "response": last_dict_chunk}
+                    )
             else:
                 # Non-streaming response - send as single done event
                 content = response.content

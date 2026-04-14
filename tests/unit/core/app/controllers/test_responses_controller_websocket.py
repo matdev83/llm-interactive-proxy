@@ -160,6 +160,51 @@ async def test_websocket_response_create_streaming(
 
 
 @pytest.mark.asyncio
+async def test_websocket_response_create_streaming_terminal_is_done_emits_response_done(
+    controller, mock_websocket, mock_processor, mock_translation_service
+):
+    """Production pipeline marks terminals with metadata is_done, not done."""
+    request_event = {
+        "type": "response.create",
+        "model": "gpt-4o",
+        "input": "Hello",
+        "stream": True,
+    }
+
+    mock_websocket.receive_text = AsyncMock(
+        side_effect=[
+            json.dumps(request_event),
+            Exception("WebSocketDisconnect"),
+        ]
+    )
+
+    async def mock_stream():
+        yield ProcessedResponse(
+            content={"type": "response.delta", "delta": {"content": "Hi"}},
+            metadata={"event_type": "response.delta"},
+        )
+        yield ProcessedResponse(
+            content={"id": "resp_is_done_1", "output": []},
+            metadata={"event_type": "response.completed", "is_done": True},
+        )
+
+    mock_translation_service.to_domain_request.return_value = MagicMock()
+
+    mock_response = StreamingResponseEnvelope(
+        content=mock_stream(), media_type="text/event-stream"
+    )
+    mock_processor.process_request.return_value = mock_response
+
+    with contextlib.suppress(Exception):
+        await controller.handle_websocket_connection(mock_websocket)
+
+    sent = [call[0][0] for call in mock_websocket.send_json.call_args_list]
+    done_events = [e for e in sent if e.get("type") == "response.done"]
+    assert len(done_events) == 1
+    assert done_events[0].get("response", {}).get("id") == "resp_is_done_1"
+
+
+@pytest.mark.asyncio
 async def test_websocket_invalid_json(controller, mock_websocket):
     """Test handling invalid JSON in WebSocket message."""
     mock_websocket.receive_text = AsyncMock(
