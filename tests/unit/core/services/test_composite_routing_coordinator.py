@@ -7,7 +7,11 @@ import pytest
 from src.core.common.exceptions import ConfigurationError, RoutingError, ValidationError
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.composite_routing import CompositeRoutingInput, RoutingSurface
+from src.core.domain.composite_routing import (
+    CompositeLeafSelector,
+    CompositeRoutingInput,
+    RoutingSurface,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.services.composite_routing_coordinator import CompositeRoutingCoordinator
 from src.core.services.composite_selector_parser import CompositeSelectorParser
@@ -30,10 +34,11 @@ class _LeafResolverDouble:
         *,
         request: ChatRequest,
         context: RequestContext | None,
-        leaf_selector: str,
+        leaf: CompositeLeafSelector,
     ) -> BackendTarget:
         _ = request
         _ = context
+        leaf_selector = leaf.normalized_selector
         self.calls.append(leaf_selector)
         outcome = self._outcomes[leaf_selector]
         if outcome.error is not None:

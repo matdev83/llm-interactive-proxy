@@ -5,9 +5,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.composite_routing import CompositeLeafSelector
 from src.core.domain.request_context import RequestContext
 from src.core.services.composite_leaf_target_resolver_adapter import (
     CompositeLeafTargetResolverAdapter,
+)
+from src.core.services.composite_routing_state import (
+    COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY,
+    COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY,
 )
 
 
@@ -27,6 +32,23 @@ def _context() -> RequestContext:
         app_state=None,
         request_id="req-composite-leaf",
         session_id="session-composite-leaf",
+    )
+
+
+def _leaf(
+    normalized: str,
+    *,
+    raw: str | None = None,
+    uri_params: dict[str, str] | None = None,
+    backend_type: str = "",
+    model_name: str = "",
+) -> CompositeLeafSelector:
+    return CompositeLeafSelector(
+        raw_selector=raw or normalized,
+        normalized_selector=normalized,
+        uri_params=uri_params or {},
+        backend_type=backend_type,
+        model_name=model_name,
     )
 
 
@@ -54,7 +76,12 @@ async def test_leaf_adapter_resolves_leaf_selector_via_backend_model_resolver() 
     target = await adapter.resolve_leaf(
         request=_request(),
         context=context,
-        leaf_selector="openai:gpt-4?temperature=0.2",
+        leaf=_leaf(
+            "openai:gpt-4?temperature=0.2",
+            uri_params={"temperature": "0.2"},
+            backend_type="openai",
+            model_name="gpt-4",
+        ),
     )
 
     assert target.backend == "openai"
@@ -68,6 +95,14 @@ async def test_leaf_adapter_resolves_leaf_selector_via_backend_model_resolver() 
     assert resolver_request.extra_body.get("_resolved_uri_params") == {
         "temperature": "0.2",
     }
+    assert (
+        resolver_request.extra_body.get(COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY)
+        == "openai"
+    )
+    assert (
+        resolver_request.extra_body.get(COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY)
+        == "gpt-4"
+    )
 
 
 @pytest.mark.asyncio
@@ -98,7 +133,11 @@ async def test_explicit_leaf_purges_inherited_backend_type_from_extra_body() -> 
     await adapter.resolve_leaf(
         request=request,
         context=context,
-        leaf_selector="anthropic:claude-3-5-sonnet",
+        leaf=_leaf(
+            "anthropic:claude-3-5-sonnet",
+            backend_type="anthropic",
+            model_name="claude-3-5-sonnet",
+        ),
     )
 
 
@@ -128,7 +167,7 @@ async def test_leaf_resolved_uri_params_reset_to_leaf_local_not_parent_stale() -
     await adapter.resolve_leaf(
         request=request,
         context=_context(),
-        leaf_selector="openai:gpt-4",
+        leaf=_leaf("openai:gpt-4", backend_type="openai", model_name="gpt-4"),
     )
 
     resolver_request = backend_model_resolver.resolve_target.await_args.kwargs[
@@ -159,7 +198,15 @@ async def test_model_only_leaf_preserves_inherited_backend_type_in_extra_body() 
     await adapter.resolve_leaf(
         request=request,
         context=_context(),
-        leaf_selector="gemini-2.0-flash",
+        leaf=_leaf("gemini-2.0-flash", model_name="gemini-2.0-flash"),
+    )
+
+    resolver_request = backend_model_resolver.resolve_target.await_args.kwargs[
+        "request"
+    ]
+    assert (
+        resolver_request.extra_body.get(COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY)
+        == ""
     )
 
 
@@ -187,7 +234,7 @@ async def test_model_only_leaf_without_query_preserves_inherited_resolved_uri_pa
     await adapter.resolve_leaf(
         request=request,
         context=_context(),
-        leaf_selector="gpt-4",
+        leaf=_leaf("gpt-4", model_name="gpt-4"),
     )
 
     resolver_request = backend_model_resolver.resolve_target.await_args.kwargs[
@@ -218,7 +265,11 @@ async def test_leaf_adapter_does_not_mutate_original_request_model() -> None:
     await adapter.resolve_leaf(
         request=request,
         context=context,
-        leaf_selector="anthropic:claude-3-5-sonnet",
+        leaf=_leaf(
+            "anthropic:claude-3-5-sonnet",
+            backend_type="anthropic",
+            model_name="claude-3-5-sonnet",
+        ),
     )
 
     assert backend_model_resolver.resolve_target.await_args is not None

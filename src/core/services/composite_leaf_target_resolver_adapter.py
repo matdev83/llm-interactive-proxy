@@ -4,14 +4,16 @@ from __future__ import annotations
 
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
+from src.core.domain.composite_routing import CompositeLeafSelector
 from src.core.domain.model_utils import (
     RESOLVED_URI_PARAMS_EXTRA_BODY_KEY,
     has_explicit_backend_selector,
-    parse_model_with_params,
 )
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_model_resolver_interface import IBackendModelResolver
 from src.core.services.composite_routing_state import (
+    COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY,
+    COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_RESOLUTION_FLAG,
     COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
@@ -31,22 +33,33 @@ class CompositeLeafTargetResolverAdapter:
         *,
         request: ChatRequest,
         context: RequestContext | None,
-        leaf_selector: str,
+        leaf: CompositeLeafSelector,
     ) -> BackendTarget:
+        leaf_selector = leaf.normalized_selector
         leaf_extra_body = dict(request.extra_body or {})
         leaf_extra_body[COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY] = True
         leaf_extra_body[COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY] = leaf_selector
-
-        parsed_leaf = parse_model_with_params(leaf_selector, default_backend="")
+        # Parser may attach ``default_backend`` to model-only leaves for validation; the
+        # resolver still discovers backends via ``resolve_model_only_backend`` when the
+        # selector string is model-only (same as ``parse_model_with_params`` with empty default).
         if has_explicit_backend_selector(leaf_selector):
-            leaf_extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(
-                parsed_leaf.uri_params
+            leaf_extra_body[COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY] = (
+                leaf.backend_type
             )
+            leaf_extra_body[COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY] = (
+                leaf.model_name
+            )
+        else:
+            leaf_extra_body[COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY] = ""
+            leaf_extra_body[COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY] = (
+                leaf.model_name
+            )
+
+        if has_explicit_backend_selector(leaf_selector):
+            leaf_extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(leaf.uri_params)
             leaf_extra_body.pop("backend_type", None)
-        elif parsed_leaf.uri_params:
-            leaf_extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(
-                parsed_leaf.uri_params
-            )
+        elif leaf.uri_params:
+            leaf_extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(leaf.uri_params)
 
         leaf_request = request.model_copy(
             update={

@@ -15,6 +15,7 @@ from src.core.domain.composite_routing import (
     CompositeBranchOutcomeCategory,
     CompositeFailoverGroupNode,
     CompositeLeafNode,
+    CompositeLeafSelector,
     CompositeRoutePlan,
     CompositeRoutingAttemptContext,
     CompositeRoutingInput,
@@ -47,7 +48,7 @@ class _LeafTargetResolver(Protocol):
         *,
         request: ChatRequest,
         context: RequestContext | None,
-        leaf_selector: str,
+        leaf: CompositeLeafSelector,
     ) -> BackendTarget: ...
 
 
@@ -178,7 +179,7 @@ class CompositeRoutingCoordinator:
         return await self._leaf_target_resolver.resolve_leaf(
             request=request,
             context=context,
-            leaf_selector=leaf_node.leaf_selector.normalized_selector,
+            leaf=leaf_node.leaf_selector,
         )
 
     async def _execute_failover_chain(

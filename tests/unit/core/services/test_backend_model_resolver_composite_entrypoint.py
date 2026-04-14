@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.core.common.exceptions import RoutingError, ValidationError
@@ -864,3 +864,42 @@ async def test_first_request_flag_persisted_even_on_routing_error() -> None:
 
     assert getattr(session.state, "weighted_first_request_consumed", False) is True
     assert session_service.update_session.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_single_composite_leaf_parse_model_with_params_invoked_once() -> None:
+    from src.core.domain import model_utils as model_utils_module
+
+    resolver = _build_resolver_with_real_composite()
+    _attach_deterministic_weighted_composite(resolver, lambda: 0.0)
+
+    model = "openai-codex:gpt-5.4-mini?reasoning_effort=high"
+    req = ChatRequest(
+        model=model,
+        messages=[ChatMessage(role="user", content="hello")],
+        extra_body={},
+    )
+
+    parse_calls = {"n": 0}
+    real_parse = model_utils_module.parse_model_with_params
+
+    def _counting_parse(*args: object, **kwargs: object) -> object:
+        parse_calls["n"] += 1
+        return real_parse(*args, **kwargs)
+
+    with (
+        patch(
+            "src.core.services.composite_selector_parser.parse_model_with_params",
+            side_effect=_counting_parse,
+        ),
+        patch(
+            "src.core.services.backend_model_resolver.parse_model_with_params",
+            side_effect=_counting_parse,
+        ),
+    ):
+        target = await resolver.resolve_target(req, context=_context("main"))
+
+    assert parse_calls["n"] == 1
+    assert target.backend == "openai-codex"
+    assert target.model == "gpt-5.4-mini"
+    assert target.uri_params == {"reasoning_effort": "high"}

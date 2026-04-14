@@ -37,6 +37,8 @@ from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseM
 from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.composite_routing_state import (
+    COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY,
+    COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_RESOLUTION_FLAG,
     COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
@@ -222,26 +224,48 @@ class BackendModelResolver(IBackendModelResolver):
         uri_params: dict[str, JsonValue] = {}
         preserved_uri_params = self._extract_preserved_uri_params(request, context)
 
+        composite_precheck = self._try_read_and_clear_composite_leaf_precheck(request)
+
         if not backend_type:
             # No backend type set yet - parse from model string
             # Pass empty string as default to detect if backend was specified
-            parsed = parse_model_with_params(effective_model, "")
-            backend_selected_by_model_only = False
-            explicit_backend_requested = bool(parsed.backend_type)
+            if composite_precheck is not None:
+                pre_backend, pre_model, pre_uri = composite_precheck
+                backend_selected_by_model_only = False
+                explicit_backend_requested = bool(pre_backend)
 
-            # Resolve model-only selectors via the shared routing path.
-            if not parsed.backend_type:
-                parsed.backend_type = self._routing_service.resolve_model_only_backend(
-                    parsed.model_name,
-                    excluded_backends=excluded_backends,
+                if not pre_backend:
+                    pre_backend = self._routing_service.resolve_model_only_backend(
+                        pre_model,
+                        excluded_backends=excluded_backends,
+                    )
+                    backend_selected_by_model_only = True
+
+                backend_type = pre_backend
+                effective_model = pre_model
+                uri_params = pre_uri if pre_uri else dict(preserved_uri_params)
+            else:
+                parsed = parse_model_with_params(effective_model, "")
+                backend_selected_by_model_only = False
+                explicit_backend_requested = bool(parsed.backend_type)
+
+                # Resolve model-only selectors via the shared routing path.
+                if not parsed.backend_type:
+                    parsed.backend_type = (
+                        self._routing_service.resolve_model_only_backend(
+                            parsed.model_name,
+                            excluded_backends=excluded_backends,
+                        )
+                    )
+                    backend_selected_by_model_only = True
+
+                backend_type = parsed.backend_type
+                effective_model = parsed.model_name
+                uri_params = (
+                    parsed.uri_params
+                    if parsed.uri_params
+                    else dict(preserved_uri_params)
                 )
-                backend_selected_by_model_only = True
-
-            backend_type = parsed.backend_type
-            effective_model = parsed.model_name
-            uri_params = (
-                parsed.uri_params if parsed.uri_params else dict(preserved_uri_params)
-            )
 
             # Route the backend type (either parsed or default)
             should_route_backend_type = (
@@ -274,12 +298,19 @@ class BackendModelResolver(IBackendModelResolver):
             # Backend type already set (from session or extra_body)
             # Still need to parse URI parameters from the model string
             # Parse with empty default backend since we already have backend_type
-            parsed = parse_model_with_params(effective_model, "")
-            parsed_model = parsed.model_name
-            uri_params = (
-                parsed.uri_params if parsed.uri_params else dict(preserved_uri_params)
-            )
-            effective_model = parsed_model
+            if composite_precheck is not None:
+                _, pre_model, pre_uri = composite_precheck
+                uri_params = pre_uri if pre_uri else dict(preserved_uri_params)
+                effective_model = pre_model
+            else:
+                parsed = parse_model_with_params(effective_model, "")
+                parsed_model = parsed.model_name
+                uri_params = (
+                    parsed.uri_params
+                    if parsed.uri_params
+                    else dict(preserved_uri_params)
+                )
+                effective_model = parsed_model
 
             # Route the explicitly set backend.
             resolved = self._routing_service.resolve_backend_instance(
@@ -558,6 +589,36 @@ class BackendModelResolver(IBackendModelResolver):
             return False
         leaf_selector = extra_body.get(COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY)
         return isinstance(leaf_selector, str) and leaf_selector == request.model
+
+    @staticmethod
+    def _try_read_and_clear_composite_leaf_precheck(
+        request: ChatRequest,
+    ) -> tuple[str, str, dict[str, JsonValue]] | None:
+        """Consume composite-leaf bridge fields produced by CompositeLeafTargetResolverAdapter.
+
+        Composite routing already parsed the leaf once in :class:`CompositeSelectorParser`.
+        The adapter forwards ``backend_type``, ``model_name``, and URI params via
+        ``extra_body`` so this resolver can avoid calling :func:`parse_model_with_params`
+        again for the same selector string.
+        """
+        extra_body = getattr(request, "extra_body", None)
+        if not isinstance(extra_body, dict):
+            return None
+        if not bool(extra_body.get(COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY)):
+            return None
+        leaf_selector = extra_body.get(COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY)
+        if not isinstance(leaf_selector, str) or leaf_selector != request.model:
+            return None
+        backend = extra_body.get(COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY)
+        model_name = extra_body.get(COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY)
+        if not isinstance(backend, str) or not isinstance(model_name, str):
+            return None
+        extra_body.pop(COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY, None)
+        extra_body.pop(COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY, None)
+        uri_params = BackendModelResolver._normalize_uri_params(
+            extra_body.get(RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
+        )
+        return (backend, model_name, uri_params)
 
     @staticmethod
     def _normalize_uri_params(raw_value: Any) -> dict[str, JsonValue]:
