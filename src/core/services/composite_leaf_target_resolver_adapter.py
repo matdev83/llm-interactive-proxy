@@ -5,6 +5,7 @@ from __future__ import annotations
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
 from src.core.domain.model_utils import (
+    RESOLVED_URI_PARAMS_EXTRA_BODY_KEY,
     has_explicit_backend_selector,
     parse_model_with_params,
 )
@@ -17,8 +18,6 @@ from src.core.services.composite_routing_state import (
 )
 
 __all__ = ["CompositeLeafTargetResolverAdapter"]
-
-_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY = "_resolved_uri_params"
 
 
 class CompositeLeafTargetResolverAdapter:
@@ -40,12 +39,12 @@ class CompositeLeafTargetResolverAdapter:
 
         parsed_leaf = parse_model_with_params(leaf_selector, default_backend="")
         if has_explicit_backend_selector(leaf_selector):
-            leaf_extra_body[_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(
+            leaf_extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(
                 parsed_leaf.uri_params
             )
             leaf_extra_body.pop("backend_type", None)
         elif parsed_leaf.uri_params:
-            leaf_extra_body[_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(
+            leaf_extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(
                 parsed_leaf.uri_params
             )
 

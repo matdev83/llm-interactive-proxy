@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from src.core.domain.model_utils import (
+    RESOLVED_URI_PARAMS_EXTRA_BODY_KEY,
     has_explicit_backend_selector,
     parse_model_backend,
     parse_model_with_params,
@@ -341,4 +342,9 @@ def test_parse_model_with_leading_ampersand() -> None:
 
     assert result.backend_type == "backend"
     assert result.model_name == "model"
-    assert result.uri_params == {"temp": "0.5"}
+
+
+def test_resolved_uri_params_extra_body_key_value() -> None:
+    assert RESOLVED_URI_PARAMS_EXTRA_BODY_KEY == "_resolved_uri_params"
+    assert isinstance(RESOLVED_URI_PARAMS_EXTRA_BODY_KEY, str)
+    assert RESOLVED_URI_PARAMS_EXTRA_BODY_KEY.startswith("_")

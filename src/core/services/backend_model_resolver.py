@@ -19,6 +19,7 @@ from src.core.domain.chat import ChatRequest
 from src.core.domain.composite_routing import CompositeRoutingInput, RoutingSurface
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.model_utils import (
+    RESOLVED_URI_PARAMS_EXTRA_BODY_KEY,
     has_explicit_backend_selector,
     parse_model_with_params,
 )
@@ -51,7 +52,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _RESOLVED_URI_PARAMS_CONTEXT_KEY = "resolved_uri_params"
-_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY = "_resolved_uri_params"
 _SKIP_STATIC_ROUTE_CONTEXT_KEY = "skip_static_route"
 
 
@@ -415,17 +415,15 @@ class BackendModelResolver(IBackendModelResolver):
             dict(extra_body) if isinstance(extra_body, dict) else {}
         )
         extra_changed = False
-        existing_uri_params = updated_extra_body.get(
-            _RESOLVED_URI_PARAMS_EXTRA_BODY_KEY
-        )
+        existing_uri_params = updated_extra_body.get(RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
         if resolved_uri_params:
             if existing_uri_params != resolved_uri_params:
-                updated_extra_body[_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = (
+                updated_extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = (
                     resolved_uri_params
                 )
                 extra_changed = True
-        elif _RESOLVED_URI_PARAMS_EXTRA_BODY_KEY in updated_extra_body:
-            updated_extra_body.pop(_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
+        elif RESOLVED_URI_PARAMS_EXTRA_BODY_KEY in updated_extra_body:
+            updated_extra_body.pop(RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
             extra_changed = True
 
         if isinstance(extra_body, dict):
@@ -589,11 +587,11 @@ class BackendModelResolver(IBackendModelResolver):
         extra_body = getattr(request, "extra_body", None)
         if (
             isinstance(extra_body, dict)
-            and _RESOLVED_URI_PARAMS_EXTRA_BODY_KEY in extra_body
+            and RESOLVED_URI_PARAMS_EXTRA_BODY_KEY in extra_body
         ):
             # Respect explicit request-scoped URI params first.
             # An explicit empty map means "clear previously resolved params".
-            extra_value = extra_body.get(_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
+            extra_value = extra_body.get(RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
             return cls._normalize_uri_params(extra_value)
 
         if context is not None:

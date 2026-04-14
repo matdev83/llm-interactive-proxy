@@ -79,7 +79,10 @@ from src.core.common.exceptions import (
     ServiceResolutionError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.model_utils import parse_model_with_params
+from src.core.domain.model_utils import (
+    RESOLVED_URI_PARAMS_EXTRA_BODY_KEY,
+    parse_model_with_params,
+)
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
@@ -1933,7 +1936,7 @@ class OpenAICodexConnector(OpenAIConnector):
             model_for_parsing = model_for_parsing.split(":", 1)[1]
 
         extra_body_early = getattr(request_data, "extra_body", None) or {}
-        pre_resolved_uri = extra_body_early.get("_resolved_uri_params")
+        pre_resolved_uri = extra_body_early.get(RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
         if isinstance(pre_resolved_uri, dict) and pre_resolved_uri:
             uri_params = dict(pre_resolved_uri)
 

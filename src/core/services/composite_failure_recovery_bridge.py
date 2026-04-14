@@ -20,7 +20,10 @@ from src.core.common.exceptions import (
     ValidationError,
 )
 from src.core.domain.chat import CanonicalChatRequest
-from src.core.domain.model_utils import parse_model_with_params
+from src.core.domain.model_utils import (
+    RESOLVED_URI_PARAMS_EXTRA_BODY_KEY,
+    parse_model_with_params,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.services.composite_diagnostics_publisher import (
     CompositeDiagnosticsPublisher,
@@ -108,7 +111,7 @@ class CompositeFailureRecoveryBridge:
         selector = state["branches"][state["next_index"]]
         parsed = parse_model_with_params(selector, default_backend="")
         extra_body = dict(request.extra_body or {})
-        extra_body["_resolved_uri_params"] = dict(parsed.uri_params)
+        extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(parsed.uri_params)
         if parsed.backend_type:
             extra_body["backend_type"] = parsed.backend_type
         else:
@@ -211,7 +214,7 @@ class CompositeFailureRecoveryBridge:
 
         parsed = parse_model_with_params(next_selector, default_backend="")
         extra_body = dict(request.extra_body or {})
-        extra_body["_resolved_uri_params"] = dict(parsed.uri_params)
+        extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(parsed.uri_params)
         if parsed.backend_type:
             extra_body["backend_type"] = parsed.backend_type
         else:

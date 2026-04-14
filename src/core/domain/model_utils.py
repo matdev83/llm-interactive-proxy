@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 from src.core.domain.model_capabilities import ModelLimits
 from src.core.interfaces.model_bases import DomainModel
 
+RESOLVED_URI_PARAMS_EXTRA_BODY_KEY = "_resolved_uri_params"
+
 
 class ParsedModelWithParams(BaseModel):
     """Result of parsing a model string with URI parameters.
@@ -164,13 +166,7 @@ def parse_model_with_params(
                     else:
                         # Multiple values for same parameter - use last one
                         uri_params[key] = value_list[-1]
-                        logger.debug(
-                            f"Multiple values for parameter '{key}': {value_list}, using last value: {value_list[-1]}"
-                        )
 
-                logger.debug(
-                    f"Parsed URI parameters from model string '{model}': {uri_params}"
-                )
             except Exception as parse_error:
                 # Log warning for malformed query string but continue
                 logger.warning(
