@@ -6,6 +6,7 @@ import logging
 
 import pytest
 from src.connectors.openai_codex.codex_rate_limit_logging import (
+    _available_again_iso,
     classify_usage_limit_window,
     emit_openai_codex_managed_oauth_rate_limit,
     parse_codex_usage_limit_upstream,
@@ -47,6 +48,21 @@ def test_classify_usage_limit_window(seconds: float, expected_substring: str) ->
     assert expected_substring in classify_usage_limit_window(seconds)
 
 
+def test_available_again_iso_falls_back_when_resets_at_invalid() -> None:
+    """Out-of-range ``resets_at`` must not raise; use ``retry_after_seconds``."""
+    iso = _available_again_iso(
+        resets_at_unix=2**62,
+        retry_after_seconds=42.0,
+    )
+    assert iso is not None
+    assert "T" in iso
+
+
+def test_available_again_iso_returns_none_when_no_valid_hint() -> None:
+    assert _available_again_iso(resets_at_unix=2**62, retry_after_seconds=None) is None
+    assert _available_again_iso(resets_at_unix=500, retry_after_seconds=None) is None
+
+
 def test_emit_openai_codex_managed_oauth_rate_limit_emits_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
@@ -74,3 +90,42 @@ def test_emit_openai_codex_managed_oauth_rate_limit_emits_warning(
     assert "user@example.com" in rec.message
     assert "team" in rec.message
     assert getattr(rec, "openai_codex_rate_limit", None) is True
+
+
+def test_emit_openai_codex_managed_oauth_rate_limit_with_none_upstream_json(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    emit_openai_codex_managed_oauth_rate_limit(
+        managed_account_id="acct-2",
+        email="b@example.com",
+        chatgpt_account_id=None,
+        retry_after_seconds=120.0,
+        session_id="sess-y",
+        upstream_json=None,
+    )
+    assert len(caplog.records) == 1
+    rec = caplog.records[0]
+    assert rec.levelno == logging.WARNING
+    assert "acct-2" in rec.message
+    assert getattr(rec, "codex_error_type", None) is None
+    assert getattr(rec, "plan_type", None) is None
+    assert getattr(rec, "limit_window", "") == "short_rolling (~few_hour_window)"
+
+
+def test_emit_openai_codex_managed_oauth_rate_limit_non_usage_limit_payload(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING)
+    emit_openai_codex_managed_oauth_rate_limit(
+        managed_account_id="acct-3",
+        email=None,
+        chatgpt_account_id="cgpt-z",
+        retry_after_seconds=None,
+        session_id=None,
+        upstream_json={"error": {"type": "server_error", "message": "temporary"}},
+    )
+    assert len(caplog.records) == 1
+    rec = caplog.records[0]
+    assert getattr(rec, "codex_error_type", None) is None
+    assert "unknown" in getattr(rec, "limit_window", "")

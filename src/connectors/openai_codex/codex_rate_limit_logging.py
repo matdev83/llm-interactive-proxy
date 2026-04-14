@@ -69,13 +69,19 @@ def _available_again_iso(
     retry_after_seconds: float | None,
 ) -> str | None:
     if isinstance(resets_at_unix, int) and resets_at_unix > 1_000_000_000:
-        return datetime.fromtimestamp(
-            float(resets_at_unix), tz=timezone.utc
-        ).isoformat()
+        try:
+            return datetime.fromtimestamp(
+                float(resets_at_unix), tz=timezone.utc
+            ).isoformat()
+        except (OSError, OverflowError, ValueError):
+            pass
     if retry_after_seconds is not None and retry_after_seconds > 0:
-        return datetime.fromtimestamp(
-            time.time() + float(retry_after_seconds), tz=timezone.utc
-        ).isoformat()
+        try:
+            return datetime.fromtimestamp(
+                time.time() + float(retry_after_seconds), tz=timezone.utc
+            ).isoformat()
+        except (OSError, OverflowError, ValueError):
+            return None
     return None
 
 
@@ -99,7 +105,7 @@ def emit_openai_codex_managed_oauth_rate_limit(
         if upstream_json is not None
         else None
     )
-    resets_in = parsed.get("resets_in_seconds") if parsed else None
+    resets_in = parsed.get("resets_in_seconds") if parsed is not None else None
     if not isinstance(resets_in, int | float) or resets_in <= 0:
         resets_in = retry_after_seconds
 
@@ -107,7 +113,7 @@ def emit_openai_codex_managed_oauth_rate_limit(
         float(resets_in) if isinstance(resets_in, int | float) else None
     )
     resets_at_unix: int | None = None
-    if parsed:
+    if parsed is not None:
         rat = parsed.get("resets_at_unix")
         if isinstance(rat, int):
             resets_at_unix = rat
@@ -116,9 +122,9 @@ def emit_openai_codex_managed_oauth_rate_limit(
         retry_after_seconds=retry_after_seconds,
     )
 
-    plan = parsed.get("plan_type") if parsed else None
-    err_type = parsed.get("error_type") if parsed else None
-    upstream_msg = parsed.get("message") if parsed else None
+    plan = parsed.get("plan_type") if parsed is not None else None
+    err_type = parsed.get("error_type") if parsed is not None else None
+    upstream_msg = parsed.get("message") if parsed is not None else None
 
     sink.warning(
         "OpenAI Codex managed OAuth: upstream rate limit for account "
@@ -146,7 +152,9 @@ def emit_openai_codex_managed_oauth_rate_limit(
             "plan_type": plan,
             "limit_window": window,
             "retry_after_seconds": retry_after_seconds,
-            "resets_in_seconds": parsed.get("resets_in_seconds") if parsed else None,
+            "resets_in_seconds": (
+                parsed.get("resets_in_seconds") if parsed is not None else None
+            ),
             "resets_at_utc": available,
         },
     )
