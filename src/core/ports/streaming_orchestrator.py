@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+import threading
+from collections.abc import AsyncIterator, MutableMapping
 from contextlib import AsyncExitStack, suppress
 from typing import Any
+
+from cachetools import TTLCache  # type: ignore
 
 from src.core.common.exceptions import LLMProxyError
 from src.core.ports.sse_assembler import SSEAssembler
@@ -28,6 +31,30 @@ from src.core.ports.streaming_contracts import (
 from src.core.ports.streaming_metrics import get_metrics_instance
 
 logger = logging.getLogger(__name__)
+
+# Multiple ``process_stream`` async generators may run for the same logical
+# ``stream_id`` (e.g. shared session id). On client disconnect each one
+# receives ``GeneratorExit`` and would emit identical DEBUG lines; collapse
+# bursts per (provider, stream_id) for a short TTL.
+_client_disconnect_debug_lock = threading.Lock()
+_client_disconnect_debug_recent: MutableMapping[str, bool] = TTLCache(
+    maxsize=10_000, ttl=2.0
+)
+
+
+def _emit_client_disconnect_debug(provider: str, stream_id: str) -> None:
+    """Log client disconnect at DEBUG at most once per provider/stream burst."""
+    if not stream_id or not logger.isEnabledFor(logging.DEBUG):
+        return
+    key = f"{provider}\n{stream_id}"
+    with _client_disconnect_debug_lock:
+        if key in _client_disconnect_debug_recent:
+            return
+        _client_disconnect_debug_recent[key] = True
+    logger.debug(
+        "Client disconnected during streaming",
+        extra={"provider": provider, "stream_id": stream_id},
+    )
 
 
 async def safe_aclose(
@@ -227,11 +254,7 @@ class StreamingPipeline:
                     # Client disconnected - this is expected behavior
                     # Don't try to process this in the outer exception handler
                     # as it will interfere with the context manager cleanup
-                    if stream_id:
-                        logger.debug(
-                            "Client disconnected during streaming",
-                            extra={"provider": provider, "stream_id": stream_id},
-                        )
+                    _emit_client_disconnect_debug(provider, stream_id or "")
                     raise
 
         except GeneratorExit:

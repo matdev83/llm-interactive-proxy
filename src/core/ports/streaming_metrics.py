@@ -239,45 +239,54 @@ class StreamingMetrics:
     def end_stream(self, stream_id: str) -> None:
         """Mark the end of a stream and log metrics.
 
+        Idempotent: if ``end_stream`` is invoked again for the same ``stream_id``
+        after state has already been torn down (for example duplicate ``finally``
+        paths or concurrent cleanup), this is a no-op. Only the first finalization
+        emits the completion log and clears per-stream state.
+
         Args:
             stream_id: Stream identifier
         """
-        # Stop total duration timer (returns elapsed, already handles locks internally)
-        duration = self.stop_timer(stream_id, "total_duration")
-
-        # Capture time-to-first-chunk if still running
-        time_to_first_chunk = self.stop_timer(stream_id, "time_to_first_chunk")
-
-        # Get final metrics for this stream (snapshot under lock)
+        end_time = time.perf_counter()
+        # Atomically claim all per-stream state so concurrent or duplicate callers
+        # cannot each emit a "Stream completed" line for the same stream_id.
         with self._lock:
-            metrics = dict(self._stream_metrics.get(stream_id, {}))
-            metadata = dict(self._stream_metadata.get(stream_id, {}))
+            metrics = self._stream_metrics.pop(stream_id, None)
+            metadata = self._stream_metadata.pop(stream_id, None)
+            timers = self._stream_timers.pop(stream_id, None)
+
+        if metrics is None and metadata is None and timers is None:
+            return
+
+        metrics_dict = dict(metrics) if metrics is not None else {}
+        metadata_dict = dict(metadata) if metadata is not None else {}
+
+        duration: float | None = None
+        if timers and "total_duration" in timers:
+            duration = end_time - timers["total_duration"]
+
+        time_to_first_chunk: float | None = None
+        if timers and "time_to_first_chunk" in timers:
+            time_to_first_chunk = end_time - timers["time_to_first_chunk"]
 
         # Log metrics with guarded logging (snapshot already copied, no lock needed)
         if logger.isEnabledFor(logging.INFO):
             if time_to_first_chunk is not None:
-                metadata.setdefault("time_to_first_chunk_seconds", time_to_first_chunk)
+                metadata_dict.setdefault(
+                    "time_to_first_chunk_seconds", time_to_first_chunk
+                )
             logger.info(
                 "Stream completed",
                 extra={
                     "stream_id": stream_id,
                     "duration_seconds": duration,
-                    "chunks_sent": metrics.get("chunks_sent", 0),
-                    "sentinels_emitted": metrics.get("sentinels_emitted", 0),
-                    "middleware_mutations": metrics.get("middleware_mutations", 0),
-                    "error_terminations": metrics.get("error_terminations", 0),
-                    **metadata,
+                    "chunks_sent": metrics_dict.get("chunks_sent", 0),
+                    "sentinels_emitted": metrics_dict.get("sentinels_emitted", 0),
+                    "middleware_mutations": metrics_dict.get("middleware_mutations", 0),
+                    "error_terminations": metrics_dict.get("error_terminations", 0),
+                    **metadata_dict,
                 },
             )
-
-        # Clean up stream-specific data under lock
-        with self._lock:
-            if stream_id in self._stream_metrics:
-                del self._stream_metrics[stream_id]
-            if stream_id in self._stream_timers:
-                del self._stream_timers[stream_id]
-            if stream_id in self._stream_metadata:
-                del self._stream_metadata[stream_id]
 
     def set_stream_metadata(self, stream_id: str, key: str, value: Any) -> None:
         """Set a metadata value for a stream."""

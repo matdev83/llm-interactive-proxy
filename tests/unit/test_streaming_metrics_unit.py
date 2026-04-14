@@ -5,7 +5,9 @@ This module tests the StreamingMetrics and StreamingSampler classes
 to ensure they correctly track metrics and samples.
 """
 
+import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pytest
 from src.core.ports.streaming_metrics import (
@@ -172,6 +174,52 @@ class TestStreamingMetrics:
         # Stream-specific metrics should be cleaned up
         stream_metrics = metrics.get_stream_metrics(stream_id)
         assert stream_metrics == {}
+
+    def test_end_stream_is_idempotent(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Second end_stream for the same id must not log or resurrect state."""
+        metrics = StreamingMetrics()
+        stream_id = "test_stream_end_idempotent"
+        metrics.start_stream(stream_id)
+        metrics.increment_chunks_sent(stream_id)
+
+        caplog.set_level(logging.INFO)
+        metrics.end_stream(stream_id)
+        first_completed = sum(
+            1 for r in caplog.records if r.getMessage() == "Stream completed"
+        )
+        metrics.end_stream(stream_id)
+        second_completed = sum(
+            1 for r in caplog.records if r.getMessage() == "Stream completed"
+        )
+
+        assert first_completed == 1
+        assert second_completed == 1
+        assert metrics.get_stream_metrics(stream_id) == {}
+
+    def test_concurrent_end_stream_logs_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Many concurrent finalizers must not multiply completion logs."""
+        metrics = StreamingMetrics()
+        stream_id = "test_stream_concurrent_end"
+        metrics.start_stream(stream_id)
+        metrics.increment_chunks_sent(stream_id)
+
+        caplog.set_level(logging.INFO)
+
+        def _finalize() -> None:
+            metrics.end_stream(stream_id)
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(_finalize) for _ in range(10)]
+            for fut in as_completed(futures):
+                fut.result()
+
+        completed = sum(
+            1 for r in caplog.records if r.getMessage() == "Stream completed"
+        )
+        assert completed == 1
+        assert metrics.get_stream_metrics(stream_id) == {}
 
     def test_reset(self) -> None:
         """Test resetting all metrics."""
