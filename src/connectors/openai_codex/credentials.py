@@ -25,8 +25,12 @@ import httpx
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
+from src.connectors.openai_codex.codex_quota_notifications import (
+    maybe_notify_codex_quota_reached,
+)
 from src.connectors.openai_codex.codex_rate_limit_logging import (
     emit_openai_codex_managed_oauth_rate_limit,
+    parse_codex_usage_limit_upstream,
 )
 from src.connectors.openai_codex.interfaces import ICredentialManager
 from src.connectors.openai_codex.managed_oauth_constants import (
@@ -58,6 +62,10 @@ from src.core.domain.validation import ValidationResult
 
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
+
+    from src.core.interfaces.notification_service_interface import (
+        INotificationService,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -355,17 +363,27 @@ class CredentialManager(ICredentialManager):
     and update its health status accordingly.
     """
 
-    def __init__(self, http_client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient,
+        *,
+        notification_service: INotificationService | None = None,
+    ) -> None:
         """Initialize the credential manager.
 
         Args:
             http_client: HTTP client for OAuth token refresh API calls
+            notification_service: Optional desktop notifications (Codex quota alerts).
         """
         self._http_client = http_client
+        self._notification_service = notification_service
+        self._codex_quota_notification_dedupe: set[tuple[str, str, str]] = set()
         self._auth_path: Path | None = None
         self._auth_credentials: dict[str, Any] | None = None
         self._last_modified: float = 0.0
         self._token_refresh_lock = asyncio.Lock()
+        self._codex_telemetry_lock = asyncio.Lock()
+        self._codex_quota_last_disk_write_at: dict[str, float] = {}
         self._event_loop: asyncio.AbstractEventLoop | None = None
         self._oauth_dir_override: Path | None = None
         self._watcher = CredentialWatcher(self)
@@ -1008,17 +1026,76 @@ class CredentialManager(ICredentialManager):
         logger.info("Successfully refreshed OpenAI Codex access token.")
         return True
 
+    CODEX_QUOTA_HEADER_DISK_MIN_INTERVAL_SEC = 60.0
+
+    async def record_codex_quota_headers(
+        self,
+        headers: Mapping[str, Any],
+        *,
+        force: bool = False,
+    ) -> None:
+        """Persist last x-codex-* headers on the currently selected managed account.
+
+        By default, account JSON is written at most once per
+        :attr:`CODEX_QUOTA_HEADER_DISK_MIN_INTERVAL_SEC` per ``account_id`` to limit
+        disk I/O. Pass ``force=True`` on 429 handling so limit-related state is not
+        delayed behind the throttle window.
+        """
+        if not self._managed_enabled():
+            return
+        captured: dict[str, str] = {}
+        for k, v in headers.items():
+            k_lower = str(k).lower()
+            if k_lower.startswith("x-codex-"):
+                captured[k_lower] = str(v)
+        if not captured:
+            return
+        async with self._codex_telemetry_lock:
+            current = self._managed_selector.get_current_account()
+            if current is None:
+                return
+            now_m = time.monotonic()
+            if not force:
+                last_m = self._codex_quota_last_disk_write_at.get(current.account_id)
+                if (
+                    last_m is not None
+                    and now_m - last_m < self.CODEX_QUOTA_HEADER_DISK_MIN_INTERVAL_SEC
+                ):
+                    return
+            observed = datetime.now(timezone.utc).isoformat()
+            updated = current.model_copy(
+                update={
+                    "last_codex_quota_headers": captured,
+                    "last_codex_quota_observed_at": observed,
+                    "updated_at": observed,
+                }
+            )
+            self._managed_selector.update_account(updated)
+            await self._managed_storage.save_account(updated)
+            self._codex_quota_last_disk_write_at[current.account_id] = now_m
+            if (
+                self._managed_current_account is not None
+                and self._managed_current_account.account_id == updated.account_id
+            ):
+                self._managed_current_account = updated
+
     async def handle_rate_limit(
         self,
         retry_after_seconds: float | None,
         *,
         session_id: str | None = None,
         upstream_codex_error: Mapping[str, Any] | None = None,
+        response_headers: Mapping[str, Any] | None = None,
     ) -> bool:
         """Mark managed account as rate-limited and rotate to another account."""
         async with self._token_refresh_lock:
             if not await self._load_managed_auth(force_reload=True):
                 return False
+            if response_headers is not None:
+                await self.record_codex_quota_headers(
+                    response_headers,
+                    force=True,
+                )
             current = self._managed_selector.get_current_account()
             if current is not None:
                 emit_openai_codex_managed_oauth_rate_limit(
@@ -1030,9 +1107,26 @@ class CredentialManager(ICredentialManager):
                     upstream_json=upstream_codex_error,
                     log=logger,
                 )
+            usage_fields = parse_codex_usage_limit_upstream(upstream_codex_error)
+            if current is not None:
+                other_eligible = (
+                    self._managed_selector.count_eligible_accounts_excluding(
+                        current.account_id
+                    )
+                )
+                await maybe_notify_codex_quota_reached(
+                    self._notification_service,
+                    self._codex_quota_notification_dedupe,
+                    managed_account_id=current.account_id,
+                    email=current.email,
+                    usage_limit_fields=usage_fields,
+                    retry_after_seconds=retry_after_seconds,
+                    all_accounts_exhausted=other_eligible == 0,
+                )
             rotated = await self._managed_selector.rotate_on_rate_limit(
                 retry_after_seconds=retry_after_seconds,
                 session_id=session_id,
+                codex_usage_limit_fields=usage_fields,
             )
             if rotated is None:
                 return False

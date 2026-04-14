@@ -7,6 +7,8 @@ import logging
 import random
 import time
 from collections import OrderedDict
+from datetime import datetime, timezone
+from typing import Any
 
 from src.connectors.openai_codex.managed_oauth_models import ManagedOAuthAccount
 from src.connectors.openai_codex.managed_oauth_refresh import (
@@ -138,6 +140,17 @@ class ManagedOAuthAccountSelector:
         now_ms = int(time.time() * 1000)
         _, eligible = self._available_accounts(now_ms)
         return [account.account_id for account in eligible]
+
+    def count_eligible_accounts_excluding(self, account_id: str) -> int:
+        """Count accounts that can serve traffic, excluding ``account_id``.
+
+        Uses the same eligibility rules as :meth:`get_next_account`: allowlist,
+        not ``needs_reauth``, and not currently rate-limited. Intended for
+        notifications when the excluded account is about to be marked limited.
+        """
+        now_ms = int(time.time() * 1000)
+        _, eligible = self._available_accounts(now_ms)
+        return sum(1 for a in eligible if a.account_id != account_id)
 
     def _select_by_strategy(
         self,
@@ -306,10 +319,24 @@ class ManagedOAuthAccountSelector:
     async def mark_current_account_rate_limited(
         self,
         retry_after_seconds: float | None,
+        *,
+        codex_usage_limit_fields: dict[str, Any] | None = None,
     ) -> None:
         if self._current_account is None:
             return
-        updated = self._current_account.mark_rate_limited(retry_after_seconds)
+
+        acc = self._current_account
+        if codex_usage_limit_fields:
+            observed = datetime.now(timezone.utc).isoformat()
+            snap = dict(codex_usage_limit_fields)
+            snap["observed_at"] = observed
+            acc = acc.model_copy(
+                update={
+                    "last_codex_usage_limit": snap,
+                    "updated_at": observed,
+                }
+            )
+        updated = acc.mark_rate_limited(retry_after_seconds)
         self._current_account = updated
         self._replace_account(updated)
         await self._storage.save_account(updated)
@@ -319,8 +346,12 @@ class ManagedOAuthAccountSelector:
         *,
         retry_after_seconds: float | None,
         session_id: str | None = None,
+        codex_usage_limit_fields: dict[str, Any] | None = None,
     ) -> ManagedOAuthAccount | None:
-        await self.mark_current_account_rate_limited(retry_after_seconds)
+        await self.mark_current_account_rate_limited(
+            retry_after_seconds,
+            codex_usage_limit_fields=codex_usage_limit_fields,
+        )
         return await self.get_next_account(
             session_id=session_id,
             ignore_session_affinity=True,

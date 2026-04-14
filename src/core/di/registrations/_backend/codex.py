@@ -36,6 +36,9 @@ def register_codex_services(services: ServiceCollection) -> None:
     )
     from src.connectors.openai_codex.settings import SettingsLoader
     from src.connectors.openai_codex.tools import ToolExecutionService
+    from src.core.interfaces.notification_service_interface import (
+        INotificationService,
+    )
 
     # Register SettingsLoader
     register_singleton_if_absent(services, SettingsLoader)
@@ -50,7 +53,14 @@ def register_codex_services(services: ServiceCollection) -> None:
         provider: IServiceProvider,
     ) -> CredentialManager:
         http_client = provider.get_required_service(httpx.AsyncClient)
-        return CredentialManager(http_client)
+        notification_service = cast(
+            INotificationService | None,
+            provider.get_service(cast(type[Any], INotificationService)),
+        )
+        return CredentialManager(
+            http_client,
+            notification_service=notification_service,
+        )
 
     register_singleton_if_absent(
         services,

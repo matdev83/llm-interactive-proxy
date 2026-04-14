@@ -85,6 +85,18 @@ def _available_again_iso(
     return None
 
 
+def compute_codex_quota_until_iso_utc(
+    *,
+    resets_at_unix: int | None,
+    retry_after_seconds: float | None,
+) -> str | None:
+    """When the quota is expected to lift: prefer Codex ``resets_at``, else Retry-After."""
+    return _available_again_iso(
+        resets_at_unix=resets_at_unix,
+        retry_after_seconds=retry_after_seconds,
+    )
+
+
 def emit_openai_codex_managed_oauth_rate_limit(
     *,
     managed_account_id: str | None,
@@ -117,7 +129,7 @@ def emit_openai_codex_managed_oauth_rate_limit(
         rat = parsed.get("resets_at_unix")
         if isinstance(rat, int):
             resets_at_unix = rat
-    available = _available_again_iso(
+    available = compute_codex_quota_until_iso_utc(
         resets_at_unix=resets_at_unix,
         retry_after_seconds=retry_after_seconds,
     )

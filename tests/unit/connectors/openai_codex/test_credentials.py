@@ -10,11 +10,15 @@ import base64
 import contextlib
 import json
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
 import pytest
+from src.connectors.openai_codex.codex_quota_notifications import (
+    user_facing_quota_type,
+)
 from src.connectors.openai_codex.credentials import (
     CredentialManager,
     CredentialWatcher,
@@ -493,6 +497,130 @@ class TestCredentialManager:
             assert second_token != first_token
 
     @pytest.mark.asyncio
+    async def test_handle_rate_limit_persists_codex_usage_limit_on_rotated_account(
+        self, manager
+    ):
+        """usage_limit_reached JSON should be stored on the account that was rate-limited."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            expires_at = 9_999_999_999_999
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=expires_at,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_b",
+                    access_token="token_b",
+                    refresh_token="refresh_b",
+                    expiry_date=expires_at,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+
+            await manager.initialize(auth_path=None)
+            current = manager._managed_selector.get_current_account()
+            assert current is not None
+            first_id = current.account_id
+
+            upstream = {
+                "error": {
+                    "type": "usage_limit_reached",
+                    "message": "The usage limit has been reached",
+                    "plan_type": "plus",
+                    "resets_at": 1776358224,
+                    "resets_in_seconds": 191966,
+                }
+            }
+            rotated = await manager.handle_rate_limit(
+                60.0,
+                session_id="session-1",
+                upstream_codex_error=upstream,
+            )
+            assert rotated is True
+
+            limited = await storage.get_account(first_id)
+            assert limited is not None
+            assert limited.last_codex_usage_limit is not None
+            assert limited.last_codex_usage_limit.get("plan_type") == "plus"
+            assert limited.last_codex_usage_limit.get("resets_in_seconds") == 191966.0
+            assert limited.last_codex_usage_limit.get("observed_at")
+
+    @pytest.mark.asyncio
+    async def test_record_codex_quota_headers_updates_managed_account_file(
+        self, manager
+    ):
+        """x-codex-* headers should be written to the current managed account JSON."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            expires_at = 9_999_999_999_999
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=expires_at,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_b",
+                    access_token="token_b",
+                    refresh_token="refresh_b",
+                    expiry_date=expires_at,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+
+            await manager.initialize(auth_path=None)
+
+            await manager.record_codex_quota_headers(
+                {
+                    "X-Codex-Plan-Type": "team",
+                    "x-codex-primary-used-percent": "80",
+                    "Other": "ignored",
+                }
+            )
+
+            cur = manager._managed_selector.get_current_account()
+            assert cur is not None
+            on_disk = await storage.get_account(cur.account_id)
+            assert on_disk is not None
+            assert on_disk.last_codex_quota_headers is not None
+            assert on_disk.last_codex_quota_headers.get("x-codex-plan-type") == "team"
+            assert on_disk.last_codex_quota_observed_at
+
+    @pytest.mark.asyncio
     async def test_list_managed_oauth_account_ids_returns_eligible_accounts(
         self, manager
     ):
@@ -534,6 +662,380 @@ class TestCredentialManager:
             account_ids = await manager.list_managed_oauth_account_ids()
 
             assert account_ids == ["acct_a"]
+
+    @pytest.mark.asyncio
+    async def test_record_codex_quota_headers_throttles_disk_writes(self, manager):
+        """Quota header snapshots should not hit disk more than once per 60s per account."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            expires_at = 9_999_999_999_999
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=expires_at,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+
+            await manager.initialize(auth_path=None)
+
+            saves: list[int] = []
+            orig_save = manager._managed_storage.save_account
+
+            async def counting_save(acc: ManagedOAuthAccount) -> None:
+                saves.append(1)
+                await orig_save(acc)
+
+            manager._managed_storage.save_account = counting_save  # type: ignore[method-assign]
+
+            headers = {"x-codex-plan-type": "team", "x-codex-primary-used-percent": "1"}
+            await manager.record_codex_quota_headers(headers, force=False)
+            assert len(saves) == 1
+            cur = manager._managed_selector.get_current_account()
+            assert cur is not None
+            manager._codex_quota_last_disk_write_at[cur.account_id] = (
+                time.monotonic() - 10.0
+            )
+            await manager.record_codex_quota_headers(headers, force=False)
+            assert len(saves) == 1
+            manager._codex_quota_last_disk_write_at[cur.account_id] = (
+                time.monotonic() - 70.0
+            )
+            await manager.record_codex_quota_headers(headers, force=False)
+            assert len(saves) == 2
+
+    @pytest.mark.asyncio
+    async def test_record_codex_quota_headers_force_bypasses_throttle(self, manager):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            expires_at = 9_999_999_999_999
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=expires_at,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+
+            await manager.initialize(auth_path=None)
+
+            saves: list[int] = []
+            orig_save = manager._managed_storage.save_account
+
+            async def counting_save(acc: ManagedOAuthAccount) -> None:
+                saves.append(1)
+                await orig_save(acc)
+
+            manager._managed_storage.save_account = counting_save  # type: ignore[method-assign]
+
+            headers = {"x-codex-plan-type": "team"}
+            await manager.record_codex_quota_headers(headers, force=False)
+            assert len(saves) == 1
+            cur = manager._managed_selector.get_current_account()
+            assert cur is not None
+            manager._codex_quota_last_disk_write_at[cur.account_id] = (
+                time.monotonic() - 10.0
+            )
+            await manager.record_codex_quota_headers(headers, force=True)
+            assert len(saves) == 2
+
+
+class TestCodexQuotaNotifications:
+    """Desktop notification dedupe and exhaustion messaging on managed 429s."""
+
+    @pytest.fixture
+    def http_client(self):
+        return httpx.AsyncClient()
+
+    @pytest.mark.asyncio
+    async def test_handle_rate_limit_notifies_once_per_dedupe_key(self, http_client):
+        """Same account + quota window should not send duplicate notifications."""
+        mock_notify = AsyncMock(return_value="nid-1")
+        svc = Mock()
+        svc.is_enabled = True
+        svc.send_notification = mock_notify
+        mgr = CredentialManager(http_client=http_client, notification_service=svc)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            expires_at = 9_999_999_999_999
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="only_one",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=expires_at,
+                )
+            )
+            mgr.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+            await mgr.initialize(auth_path=None)
+
+            upstream = {
+                "error": {
+                    "type": "usage_limit_reached",
+                    "message": "limit",
+                    "plan_type": "plus",
+                    "resets_at": 1_776_358_224,
+                    "resets_in_seconds": 191_966,
+                }
+            }
+            await mgr.handle_rate_limit(
+                60.0,
+                session_id="s1",
+                upstream_codex_error=upstream,
+            )
+            await mgr.handle_rate_limit(
+                60.0,
+                session_id="s1",
+                upstream_codex_error=upstream,
+            )
+            assert mock_notify.await_count == 1
+            await mgr.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_handle_rate_limit_notifies_again_when_until_changes(
+        self, http_client
+    ):
+        mock_notify = AsyncMock(return_value="nid")
+        svc = Mock()
+        svc.is_enabled = True
+        svc.send_notification = mock_notify
+        mgr = CredentialManager(http_client=http_client, notification_service=svc)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            expires_at = 9_999_999_999_999
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="only_one",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=expires_at,
+                )
+            )
+            mgr.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+            await mgr.initialize(auth_path=None)
+
+            upstream1 = {
+                "error": {
+                    "type": "usage_limit_reached",
+                    "resets_at": 1_776_358_224,
+                    "resets_in_seconds": 191_966,
+                }
+            }
+            upstream2 = {
+                "error": {
+                    "type": "usage_limit_reached",
+                    "resets_at": 1_786_358_224,
+                    "resets_in_seconds": 191_966,
+                }
+            }
+            await mgr.handle_rate_limit(
+                60.0, session_id="s1", upstream_codex_error=upstream1
+            )
+            await mgr.handle_rate_limit(
+                60.0, session_id="s1", upstream_codex_error=upstream2
+            )
+            assert mock_notify.await_count == 2
+            await mgr.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_handle_rate_limit_exhaustion_suffix_single_account(
+        self, http_client
+    ):
+        mock_notify = AsyncMock(return_value="nid")
+        svc = Mock()
+        svc.is_enabled = True
+        svc.send_notification = mock_notify
+        mgr = CredentialManager(http_client=http_client, notification_service=svc)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="solo",
+                    email="solo@example.com",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            mgr.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+            await mgr.initialize(auth_path=None)
+
+            upstream = {
+                "error": {
+                    "type": "usage_limit_reached",
+                    "resets_at": 1_776_358_224,
+                    "resets_in_seconds": 10_000,
+                }
+            }
+            await mgr.handle_rate_limit(
+                60.0, session_id="s1", upstream_codex_error=upstream
+            )
+            mock_notify.assert_awaited_once()
+            body = mock_notify.await_args.kwargs["message"]
+            assert "Quotas exhausted on all available accounts" in body
+            assert "solo@example.com" in body
+            assert "sliding 5h window" in body
+            await mgr.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_handle_rate_limit_no_notification_when_disabled(self, http_client):
+        mock_notify = AsyncMock(return_value="nid")
+        svc = Mock()
+        svc.is_enabled = False
+        svc.send_notification = mock_notify
+        mgr = CredentialManager(http_client=http_client, notification_service=svc)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            for aid in ("a", "b"):
+                await storage.save_account(
+                    ManagedOAuthAccount(
+                        account_id=aid,
+                        access_token=f"t_{aid}",
+                        refresh_token=f"r_{aid}",
+                        expiry_date=9_999_999_999_999,
+                    )
+                )
+            mgr.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+            await mgr.initialize(auth_path=None)
+            await mgr.handle_rate_limit(60.0, session_id="s1")
+            mock_notify.assert_not_awaited()
+            await mgr.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_handle_rate_limit_no_notification_without_service(self, http_client):
+        mgr = CredentialManager(http_client=http_client)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="solo",
+                    access_token="token_a",
+                    refresh_token="refresh_a",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            mgr.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                )
+            )
+            await mgr.initialize(auth_path=None)
+            await mgr.handle_rate_limit(60.0, session_id="s1")
+            await mgr.shutdown()
+
+
+def test_user_facing_quota_type_sliding_vs_weekly() -> None:
+    assert user_facing_quota_type(3600.0) == "sliding 5h window"
+    assert user_facing_quota_type(10 * 24 * 3600.0) == "weekly limit"
+    assert user_facing_quota_type(None) == "unknown"
+
+
+def test_managed_oauth_account_codex_telemetry_fields_roundtrip() -> None:
+    acc = ManagedOAuthAccount(
+        account_id="acct1",
+        access_token="at",
+        refresh_token="rt",
+        last_codex_quota_headers={"x-codex-plan-type": "team"},
+        last_codex_quota_observed_at="2026-04-14T00:00:00+00:00",
+        last_codex_usage_limit={
+            "plan_type": "team",
+            "observed_at": "2026-04-14T00:01:00+00:00",
+        },
+    )
+    restored = ManagedOAuthAccount.model_validate(acc.model_dump())
+    assert restored.last_codex_quota_headers == {"x-codex-plan-type": "team"}
+    assert restored.last_codex_usage_limit is not None
+    assert restored.last_codex_usage_limit.get("plan_type") == "team"
 
 
 class TestCredentialWatcher:
