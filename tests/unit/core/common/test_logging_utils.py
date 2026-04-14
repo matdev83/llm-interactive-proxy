@@ -426,3 +426,98 @@ class TestSecurityWarningFalsePositive:
             ]
             assert not any("SECURITY WARNING" in w for w in warning_calls)
             assert key in found
+
+
+class _FakePydanticBackends:
+    """Mimics Pydantic BackendSettings with extra='allow' for hyphenated names.
+
+    getattr raises AttributeError for names containing '-', matching real
+    Pydantic v2 behaviour for non-identifier field names.  The real model
+    exposes such fields only through get_named_backend_configs().
+    """
+
+    def __init__(self, named: dict[str, object]) -> None:
+        self._named = named
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if "-" in name:
+            raise AttributeError(
+                f"'BackendSettings' object has no attribute '{name}'"
+            )
+        return MagicMock()
+
+    def get_named_backend_configs(self) -> dict[str, object]:
+        return self._named
+
+
+class TestHyphenatedBackendNameSupport:
+    """Regression tests for backends with hyphenated names (e.g. qwen-oauth).
+
+    Pydantic v2 BackendSettings stores extra fields with hyphenated names in
+    __pydantic_extra__; getattr(backends, 'qwen-oauth') raises AttributeError.
+    The discovery function must use get_named_backend_configs() as a fallback.
+    """
+
+    def test_discovers_api_key_for_hyphenated_backend_name(self):
+        """getattr raises AttributeError for hyphenated names on Pydantic models;
+        get_named_backend_configs() must be used as fallback."""
+        key = "sk-hyphenated-backend-key"
+        mock_backend = MagicMock()
+        mock_backend.api_key = key
+
+        mock_backends = _FakePydanticBackends({"qwen-oauth": mock_backend})
+        mock_config = MagicMock()
+        mock_config.backends = mock_backends
+
+        with (
+            patch(
+                "src.core.services.backend_registry.backend_registry"
+            ) as mock_registry,
+            patch("src.core.common.logging_utils._logged_security_warnings", new=set()),
+            patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
+            patch.dict(os.environ, {"QWEN_OAUTH_API_KEY": key}, clear=False),
+            patch(
+                "src.core.common.env_utils.get_env_value_with_windows_persistent_fallback",
+                side_effect=lambda _name, **_kw: (os.environ.get(_name), "process"),
+            ),
+        ):
+            mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+
+            found: set[str] = set()
+            _discover_api_keys_from_config_backends(mock_config, found)
+
+            assert key in found, "API key from hyphenated backend must be discovered"
+
+    def test_no_crash_on_hyphenated_backend_name(self):
+        """The function must not crash when a registered backend has a
+        hyphenated name and getattr raises AttributeError."""
+        mock_backend_no_key = MagicMock()
+        mock_backend_no_key.api_key = None
+        mock_backends = _FakePydanticBackends({"qwen-oauth": mock_backend_no_key})
+        mock_config = MagicMock()
+        mock_config.backends = mock_backends
+
+        with (
+            patch(
+                "src.core.services.backend_registry.backend_registry"
+            ) as mock_registry,
+            patch("src.core.common.logging_utils._logged_security_warnings", new=set()),
+            patch("src.core.common.logging_utils.get_logger") as mock_get_logger,
+        ):
+            mock_registry.get_registered_backends.return_value = ["qwen-oauth"]
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
+
+            found: set[str] = set()
+            # Must not raise - this was the original crash scenario
+            _discover_api_keys_from_config_backends(mock_config, found)
+
+            # Should not log any "Skipping malformed backend config" debug error
+            debug_calls = [
+                call.args[0] for call in mock_logger.debug.call_args_list
+            ]
+            assert not any("Skipping malformed" in msg for msg in debug_calls)

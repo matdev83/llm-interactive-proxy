@@ -768,7 +768,18 @@ def _discover_api_keys_from_config_backends(
             # Iterate over registered backends and pull api_key fields
             for b in registered:
                 try:
-                    bcfg = getattr(backends, b)
+                    bcfg = getattr(backends, b, None)
+                    if bcfg is None:
+                        # Hyphenated backend names (e.g. qwen-oauth) live in
+                        # __pydantic_extra__ and cannot be reached via getattr.
+                        named = (
+                            backends.get_named_backend_configs()
+                            if hasattr(backends, "get_named_backend_configs")
+                            else {}
+                        )
+                        bcfg = named.get(b)
+                    if bcfg is None:
+                        continue
                     ak = getattr(bcfg, "api_key", None)
                     if ak:
                         # Map backend names to environment variables (handle exceptions)
