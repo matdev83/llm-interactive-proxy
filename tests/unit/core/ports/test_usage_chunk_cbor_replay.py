@@ -14,7 +14,7 @@ were being stringified and leaked into message content.
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, cast
 
@@ -67,6 +67,17 @@ def _stop_chunks_for_capture_file(capture_file: Path) -> list[dict[str, Any]]:
     """Decode one capture file and extract stop+usage chunks (worker for parallel I/O)."""
 
     return extract_stop_chunks_with_usage(load_cbor_entries(capture_file))
+
+
+def _merge_chunks_by_capture_order(
+    capture_files: list[Path],
+    chunks_by_capture: dict[Path, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Merge decoded chunks following the original capture file order."""
+    merged: list[dict[str, Any]] = []
+    for capture_file in capture_files:
+        merged.extend(chunks_by_capture.get(capture_file, []))
+    return merged
 
 
 def extract_stop_chunks_with_usage(
@@ -167,6 +178,28 @@ def verify_no_usage_leak(proc_resp: ProcessedResponse) -> tuple[bool, str]:
     return False, "No SSE data line found in output"
 
 
+class TestCBORChunkMergeOrder:
+    """Tests for deterministic merge order across parallel decode results."""
+
+    def test_merge_chunks_preserves_capture_file_order(self) -> None:
+        """Merged chunks should follow capture_files order, not completion order."""
+        file_a = Path("a.cbor")
+        file_b = Path("b.cbor")
+        file_c = Path("c.cbor")
+
+        chunks_by_capture = {
+            file_b: [{"id": "b-1"}],
+            file_a: [{"id": "a-1"}, {"id": "a-2"}],
+            file_c: [{"id": "c-1"}],
+        }
+
+        merged = _merge_chunks_by_capture_order(
+            [file_a, file_b, file_c],
+            chunks_by_capture,
+        )
+        assert [chunk["id"] for chunk in merged] == ["a-1", "a-2", "b-1", "c-1"]
+
+
 class TestStopChunkWithUsageProtection:
     """Tests for StopChunkWithUsage stringification protection."""
 
@@ -223,13 +256,16 @@ def cbor_stop_chunks() -> list[dict[str, Any]]:
 
     # Decode captures in parallel: bounded workers avoid thread overhead on Windows.
     max_workers = min(8, max(1, len(capture_files)))
-    all_chunks: list[dict[str, Any]] = []
+    chunks_by_capture: dict[Path, list[dict[str, Any]]] = {}
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        futures = {
-            pool.submit(_stop_chunks_for_capture_file, p): p for p in capture_files
+        futures_by_capture: dict[Path, Future[list[dict[str, Any]]]] = {
+            p: pool.submit(_stop_chunks_for_capture_file, p) for p in capture_files
         }
-        for fut in as_completed(futures):
-            all_chunks.extend(fut.result())
+
+        for capture_file in capture_files:
+            chunks_by_capture[capture_file] = futures_by_capture[capture_file].result()
+
+    all_chunks = _merge_chunks_by_capture_order(capture_files, chunks_by_capture)
 
     if not all_chunks:
         pytest.skip("No stop chunks with usage found in captures")
