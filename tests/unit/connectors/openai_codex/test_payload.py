@@ -365,6 +365,57 @@ class TestPayloadBuilder:
         assert len(payload.tools) == 1
         assert payload.tools[0].name == "read_file"
 
+    def test_passthrough_does_not_replace_explicit_empty_tools_in_extra_body(
+        self,
+        builder,
+        mock_connector,
+        mock_tool_schema_resolver,
+        sample_context,
+    ):
+        """Explicit ``tools: []`` in extra_body disables merge from canonical tools."""
+        mock_connector._is_native_responses_payload.return_value = True
+        mock_tool_schema_resolver.resolve_tool_schema.return_value = [
+            CodexToolSchema(
+                name="read_file",
+                description="Read a file",
+                type="function",
+                parameters={"type": "object", "properties": {}},
+            )
+        ]
+        passthrough_request = CanonicalChatRequest(
+            model="gpt-5.4",
+            messages=[ChatMessage(role="user", content="hi")],
+            stream=True,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read a file",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+            extra_body={
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "hi"}],
+                    }
+                ],
+                "tools": [],
+                "codex_capabilities": {"codex_passthrough": True},
+            },
+        )
+        sample_context.request = passthrough_request
+        sample_context.capabilities = CodexClientCapabilities(codex_passthrough=True)
+
+        payload = builder.build_payload(sample_context)
+
+        mock_tool_schema_resolver.resolve_tool_schema.assert_not_called()
+        assert payload.tools == []
+
     def test_build_payload_passthrough_normalizes_opencode_input(
         self, builder, mock_connector, sample_context
     ):

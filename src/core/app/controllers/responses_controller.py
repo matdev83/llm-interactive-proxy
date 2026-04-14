@@ -1830,6 +1830,13 @@ class ResponsesController:
                         or last_dict_chunk.get("status") is not None
                     )
                 ):
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "WebSocket streaming ended without terminal chunk metadata "
+                            "(done/is_done); emitting response.done from last dict chunk. "
+                            "response_id=%s",
+                            last_dict_chunk.get("id"),
+                        )
                     rid = last_dict_chunk.get("id")
                     if isinstance(rid, str) and rid:
                         response_cache[rid] = last_dict_chunk

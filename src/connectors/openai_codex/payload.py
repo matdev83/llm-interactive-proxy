@@ -252,8 +252,10 @@ class PayloadBuilder(IPayloadBuilder):
         # Responses → Canonical translation stores ``tools`` on the request model, not in
         # ``extra_body``. Passthrough must still forward them to Codex /responses.
         # Only read from real ``CanonicalChatRequest`` instances (tests may use MagicMock).
+        # Merge only when ``tools`` was not supplied in the passthrough dict (missing key);
+        # an explicit ``tools: []`` in ``extra_body`` must not be replaced by resolver output.
         if isinstance(request_data, CanonicalChatRequest):
-            if not passthrough_dict.get("tools"):
+            if "tools" not in passthrough_dict:
                 merged_tools = self._tool_schema_resolver.resolve_tool_schema(context)
                 if merged_tools:
                     passthrough_dict["tools"] = [

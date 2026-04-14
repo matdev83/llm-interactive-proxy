@@ -2,6 +2,7 @@
 
 import contextlib
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -202,6 +203,68 @@ async def test_websocket_response_create_streaming_terminal_is_done_emits_respon
     done_events = [e for e in sent if e.get("type") == "response.done"]
     assert len(done_events) == 1
     assert done_events[0].get("response", {}).get("id") == "resp_is_done_1"
+
+
+@pytest.mark.asyncio
+async def test_websocket_streaming_fallback_done_logs_debug(
+    controller,
+    mock_websocket,
+    mock_processor,
+    mock_translation_service,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Stream ends without terminal metadata but last chunk looks like a response object."""
+    request_event = {
+        "type": "response.create",
+        "model": "gpt-4o",
+        "input": "Hello",
+        "stream": True,
+    }
+
+    mock_websocket.receive_text = AsyncMock(
+        side_effect=[
+            json.dumps(request_event),
+            Exception("WebSocketDisconnect"),
+        ]
+    )
+
+    async def mock_stream():
+        yield ProcessedResponse(
+            content={"type": "response.delta", "delta": {"content": "Hi"}},
+            metadata={"event_type": "response.delta"},
+        )
+        yield ProcessedResponse(
+            content={
+                "id": "resp_fallback_1",
+                "object": "response",
+                "output": [],
+                "status": "completed",
+            },
+            metadata={"event_type": "response.completed"},
+        )
+
+    mock_translation_service.to_domain_request.return_value = MagicMock()
+
+    mock_response = StreamingResponseEnvelope(
+        content=mock_stream(), media_type="text/event-stream"
+    )
+    mock_processor.process_request.return_value = mock_response
+
+    caplog.set_level(
+        logging.DEBUG, logger="src.core.app.controllers.responses_controller"
+    )
+
+    with contextlib.suppress(Exception):
+        await controller.handle_websocket_connection(mock_websocket)
+
+    sent = [call[0][0] for call in mock_websocket.send_json.call_args_list]
+    done_events = [e for e in sent if e.get("type") == "response.done"]
+    assert len(done_events) == 1
+    assert done_events[0].get("response", {}).get("id") == "resp_fallback_1"
+    assert any(
+        "emitting response.done from last dict chunk" in r.message
+        for r in caplog.records
+    )
 
 
 @pytest.mark.asyncio
