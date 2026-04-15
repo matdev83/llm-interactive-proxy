@@ -18,6 +18,7 @@ from src.connectors.acp_core.types import (
     ACPNotification,
     ACPProcessRuntime,
     ACPSessionUpdate,
+    AcpStreamPiece,
     ACPUpdateContent,
 )
 from src.connectors.base import LLMBackend, add_vendor_prefix, strip_vendor_prefix
@@ -52,6 +53,7 @@ DEFAULT_IDLE_TIMEOUT = 30.0
 MAX_RESPONSE_LINE_SIZE = 10 * 1024 * 1024
 ACP_UPDATE_METHOD = "session/update"
 ACP_AGENT_MESSAGE_CHUNK = "agent_message_chunk"
+ACP_AGENT_THOUGHT_CHUNK = "agent_thought_chunk"
 ACP_CANCEL_METHODS = ("session/cancel", "session/stop", "session/end")
 ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS = 12.0
 
@@ -551,26 +553,99 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             return " ".join(part for part in parts if part)
         return str(content)
 
-    def _extract_text_fragment(self, response: ACPNotification) -> str | None:
+    @staticmethod
+    def _text_from_acp_content_block(content: Any) -> str | None:
+        """Extract human-readable text from a session/update ``content`` block."""
+        if isinstance(content, dict):
+            raw_text = content.get("text")
+            if content.get("type") == "text" and isinstance(raw_text, str):
+                return raw_text
+            td = content.get("textDelta")
+            if isinstance(td, str) and td:
+                return td
+            try:
+                normalized = ACPUpdateContent(**content)
+            except Exception:
+                return None
+            if normalized.type == "text" and isinstance(normalized.text, str):
+                return normalized.text
+        return None
+
+    def _acp_progress_reasoning_line(
+        self, session_update_kind: str, update: dict[str, Any]
+    ) -> str | None:
+        """Build a short progress line for tool/plan style updates (reasoning channel)."""
+        if session_update_kind == "tool_call":
+            tc = update.get("toolCall")
+            if isinstance(tc, dict):
+                name = tc.get("name") or tc.get("toolName") or tc.get("title") or "tool"
+                return f"[tool] {name}"
+            return "[tool]"
+        if session_update_kind == "tool_call_update":
+            tcu = update.get("toolCallUpdate")
+            if not isinstance(tcu, dict):
+                tcu = update.get("toolCall")
+            if isinstance(tcu, dict):
+                name = tcu.get("name") or tcu.get("toolName") or "tool"
+                status = tcu.get("status") or tcu.get("state")
+                if isinstance(status, str) and status:
+                    return f"[tool] {name}: {status}"
+                return f"[tool] {name} …"
+            return "[tool] …"
+        if session_update_kind == "plan":
+            title = update.get("title")
+            if isinstance(title, str) and title.strip():
+                return f"[plan] {title.strip()}"
+            return "[plan]"
+        if session_update_kind == "current_mode_update":
+            mode = update.get("modeId") or update.get("mode")
+            if isinstance(mode, str) and mode:
+                return f"[mode] {mode}"
+            return "[mode]"
+        return None
+
+    def _session_update_to_stream_piece(
+        self, response: ACPNotification
+    ) -> AcpStreamPiece | None:
+        """Map a ``session/update`` JSON-RPC notification to a stream piece, if any."""
         if response.method != ACP_UPDATE_METHOD or response.params is None:
             return None
-        update = ACPSessionUpdate(**response.params)
-        if update.update.get("sessionUpdate") != ACP_AGENT_MESSAGE_CHUNK:
+        try:
+            envelope = ACPSessionUpdate(**response.params)
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ACP session/update params could not be parsed",
+                    exc_info=True,
+                )
             return None
-        content = update.update.get("content")
-        if not isinstance(content, dict):
+        upd = envelope.update
+        kind = upd.get("sessionUpdate")
+        if not isinstance(kind, str):
             return None
-        normalized_content = ACPUpdateContent(**content)
-        if normalized_content.type != "text":
-            return None
-        return normalized_content.text
 
-    async def _iter_text_fragments(
+        text = self._text_from_acp_content_block(upd.get("content"))
+
+        if kind == ACP_AGENT_MESSAGE_CHUNK:
+            if text:
+                return AcpStreamPiece(content=text)
+            return None
+        if kind == ACP_AGENT_THOUGHT_CHUNK:
+            if text:
+                return AcpStreamPiece(reasoning_content=text)
+            return None
+
+        progress = self._acp_progress_reasoning_line(kind, upd)
+        if progress:
+            return AcpStreamPiece(reasoning_content=progress)
+        return None
+
+    async def _iter_acp_stream_pieces(
         self,
         runtime: ACPProcessRuntime,
         prompt_request_id: int,
         response_model: str,
-    ) -> AsyncGenerator[str, None]:
+    ) -> AsyncGenerator[AcpStreamPiece, None]:
         try:
             while True:
                 if runtime.cancellation_event is not None:
@@ -625,16 +700,27 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                         )
                     break
 
-                text = self._extract_text_fragment(response)
-                if text:
-                    yield text
+                piece = self._session_update_to_stream_piece(response)
+                if piece is not None and (
+                    piece.content is not None or piece.reasoning_content is not None
+                ):
+                    yield piece
         except asyncio.TimeoutError as exc:
             raise APITimeoutError(
                 message="Timeout waiting for ACP response",
                 details={"timeout": self._process_timeout, "model": response_model},
             ) from exc
 
-    def _create_sse_chunk(self, text: str, model: str, chunk_id: str) -> str:
+    def _create_sse_chunk_from_piece(
+        self, piece: AcpStreamPiece, model: str, chunk_id: str
+    ) -> str | None:
+        delta: dict[str, Any] = {}
+        if piece.content:
+            delta["content"] = piece.content
+        if piece.reasoning_content:
+            delta["reasoning_content"] = piece.reasoning_content
+        if not delta:
+            return None
         payload = {
             "id": chunk_id,
             "object": "chat.completion.chunk",
@@ -643,7 +729,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             "choices": [
                 {
                     "index": 0,
-                    "delta": {"content": text},
+                    "delta": delta,
                     "finish_reason": None,
                 }
             ],
@@ -662,12 +748,14 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
     ) -> AsyncGenerator[ProcessedResponse, None]:
         chunk_id = str(uuid.uuid4())
         try:
-            async for text in self._iter_text_fragments(
+            async for piece in self._iter_acp_stream_pieces(
                 runtime, prompt_request_id, requested_model
             ):
-                yield ProcessedResponse(
-                    content=self._create_sse_chunk(text, requested_model, chunk_id)
+                sse = self._create_sse_chunk_from_piece(
+                    piece, requested_model, chunk_id
                 )
+                if sse is not None:
+                    yield ProcessedResponse(content=sse)
         finally:
             yield ProcessedResponse(content=self._create_sse_done_chunk())
 
@@ -921,10 +1009,11 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 cancellable_registered = True
             try:
                 fragments: list[str] = []
-                async for text in self._iter_text_fragments(
+                async for piece in self._iter_acp_stream_pieces(
                     runtime, prompt_request_id, requested_model
                 ):
-                    fragments.append(text)
+                    if piece.content:
+                        fragments.append(piece.content)
                 full_response = "".join(fragments)
 
                 response = CanonicalChatResponse(

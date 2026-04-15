@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.acp_core.base_connector import BaseAcpConnector
-from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
+from src.connectors.acp_core.types import (
+    ACPNotification,
+    ACPProcessRuntime,
+    AcpStreamPiece,
+)
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
@@ -75,6 +79,40 @@ def test_resolve_stream_keepalive_interval_default(
     connector: DummyAcpConnector,
 ) -> None:
     assert connector._resolve_stream_keepalive_interval() == 12.0
+
+
+def test_session_update_thought_maps_to_reasoning_piece(
+    connector: DummyAcpConnector,
+) -> None:
+    msg = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {"type": "text", "text": "planning step"},
+            },
+        },
+    )
+    piece = connector._session_update_to_stream_piece(msg)
+    assert piece == AcpStreamPiece(reasoning_content="planning step")
+
+
+def test_session_update_tool_call_maps_to_progress_piece(
+    connector: DummyAcpConnector,
+) -> None:
+    msg = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCall": {"name": "read_file"},
+            },
+        },
+    )
+    piece = connector._session_update_to_stream_piece(msg)
+    assert piece == AcpStreamPiece(reasoning_content="[tool] read_file")
 
 
 def test_resolve_stream_keepalive_interval_from_config(

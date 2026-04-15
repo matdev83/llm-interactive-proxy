@@ -12,7 +12,11 @@ import httpx
 import pytest
 from pydantic.types import JsonValue
 from src.connectors.acp_core.base_connector import ACP_CANCEL_METHODS
-from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
+from src.connectors.acp_core.types import (
+    ACPNotification,
+    ACPProcessRuntime,
+    AcpStreamPiece,
+)
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.gemini_cli_acp import GeminiCliAcpConnector
 from src.core.common.exceptions import (
@@ -200,7 +204,7 @@ class TestGeminiCliAcpProtocol:
         assert sent_calls[2].args[2]["sessionId"] == "session-123"
         assert sent_calls[2].args[2]["prompt"] == [{"type": "text", "text": "hello"}]
 
-    async def test_iter_text_fragments_reads_session_update_chunks(
+    async def test_iter_acp_stream_pieces_reads_session_update_chunks(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path
     ) -> None:
         runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
@@ -238,12 +242,15 @@ class TestGeminiCliAcpProtocol:
         with patch.object(connector, "_read_jsonrpc_message", side_effect=_read):
             fragments = [
                 chunk
-                async for chunk in connector._iter_text_fragments(
+                async for chunk in connector._iter_acp_stream_pieces(
                     runtime, 7, "google/gemini-2.5-flash"
                 )
             ]
 
-        assert fragments == ["Hello"]
+        assert fragments == [
+            AcpStreamPiece(content="Hello"),
+            AcpStreamPiece(reasoning_content="ignored"),
+        ]
 
 
 class TestGeminiCliAcpChatCompletions:
@@ -256,9 +263,9 @@ class TestGeminiCliAcpChatCompletions:
 
         async def _mock_iter(
             _: ACPProcessRuntime, __: int, ___: str
-        ) -> AsyncGenerator[str, None]:
-            yield "Hello"
-            yield " world"
+        ) -> AsyncGenerator[AcpStreamPiece, None]:
+            yield AcpStreamPiece(content="Hello")
+            yield AcpStreamPiece(content=" world")
 
         with (
             patch.object(
@@ -269,7 +276,7 @@ class TestGeminiCliAcpChatCompletions:
                 "_prepare_prompt_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
-            patch.object(connector, "_iter_text_fragments", side_effect=_mock_iter),
+            patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
         ):
             response = await connector.chat_completions(_make_request())
 
@@ -287,9 +294,9 @@ class TestGeminiCliAcpChatCompletions:
 
         async def _mock_iter(
             _: ACPProcessRuntime, __: int, ___: str
-        ) -> AsyncGenerator[str, None]:
-            yield "chunk-1"
-            yield "chunk-2"
+        ) -> AsyncGenerator[AcpStreamPiece, None]:
+            yield AcpStreamPiece(content="chunk-1")
+            yield AcpStreamPiece(content="chunk-2")
 
         chunks: list[str] = []
         with (
@@ -301,7 +308,7 @@ class TestGeminiCliAcpChatCompletions:
                 "_prepare_prompt_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
-            patch.object(connector, "_iter_text_fragments", side_effect=_mock_iter),
+            patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
         ):
             response = await connector.chat_completions(_make_request(stream=True))
             assert isinstance(response, StreamingResponseEnvelope)
@@ -325,16 +332,16 @@ class TestGeminiCliAcpChatCompletions:
 
         async def _mock_iter(
             _: ACPProcessRuntime, __: int, ___: str
-        ) -> AsyncGenerator[str, None]:
+        ) -> AsyncGenerator[AcpStreamPiece, None]:
             nonlocal invocation
             invocation += 1
             if invocation == 1:
                 started_stream.set()
-                yield "stream-1"
+                yield AcpStreamPiece(content="stream-1")
                 await release_stream.wait()
-                yield "stream-2"
+                yield AcpStreamPiece(content="stream-2")
                 return
-            yield "second-request"
+            yield AcpStreamPiece(content="second-request")
 
         async def _consume(
             response: StreamingResponseEnvelope,
@@ -355,7 +362,7 @@ class TestGeminiCliAcpChatCompletions:
                 "_prepare_prompt_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
-            patch.object(connector, "_iter_text_fragments", side_effect=_mock_iter),
+            patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
         ):
             first_response = await connector.chat_completions(
                 _make_request(stream=True)
@@ -411,13 +418,13 @@ class TestGeminiCliAcpChatCompletions:
 
         async def _mock_iter(
             runtime: ACPProcessRuntime, __: int, ___: str
-        ) -> AsyncGenerator[str, None]:
+        ) -> AsyncGenerator[AcpStreamPiece, None]:
             if runtime is runtime_one:
                 stream_started.set()
-                yield "first"
+                yield AcpStreamPiece(content="first")
                 await release_stream.wait()
                 return
-            yield "second"
+            yield AcpStreamPiece(content="second")
 
         with (
             patch.object(connector, "_acquire_runtime", side_effect=_acquire_runtime),
@@ -426,7 +433,7 @@ class TestGeminiCliAcpChatCompletions:
                 "_prepare_prompt_request_locked",
                 side_effect=_prepare_prompt,
             ),
-            patch.object(connector, "_iter_text_fragments", side_effect=_mock_iter),
+            patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
         ):
             stream_response = await connector.chat_completions(
                 _make_request(stream=True)
@@ -686,8 +693,8 @@ class TestGeminiCliAcpCancellation:
 
         async def _mock_iter(
             _: ACPProcessRuntime, __: int, ___: str
-        ) -> AsyncGenerator[str, None]:
-            yield "chunk-1"
+        ) -> AsyncGenerator[AcpStreamPiece, None]:
+            yield AcpStreamPiece(content="chunk-1")
 
         with (
             patch.object(
@@ -698,7 +705,7 @@ class TestGeminiCliAcpCancellation:
                 "_prepare_prompt_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
-            patch.object(connector, "_iter_text_fragments", side_effect=_mock_iter),
+            patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
             patch.object(
                 connector, "_cancel_active_request", AsyncMock()
             ) as cancel_mock,
@@ -722,8 +729,8 @@ class TestGeminiCliAcpCancellation:
 
         async def _mock_iter(
             _: ACPProcessRuntime, __: int, ___: str
-        ) -> AsyncGenerator[str, None]:
-            yield "Hello"
+        ) -> AsyncGenerator[AcpStreamPiece, None]:
+            yield AcpStreamPiece(content="Hello")
 
         mock_coordinator = MagicMock()
         mock_coordinator.register_cancellable = MagicMock()
@@ -738,7 +745,7 @@ class TestGeminiCliAcpCancellation:
                 "_prepare_prompt_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
-            patch.object(connector, "_iter_text_fragments", side_effect=_mock_iter),
+            patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
         ):
             response = await connector.chat_completions(
                 _make_request(
@@ -787,7 +794,7 @@ class TestGeminiCliAcpCancellation:
         assert result is False
         mock_stdin.close.assert_called()
 
-    async def test_cancellation_event_stops_iter_text_fragments(
+    async def test_cancellation_event_stops_iter_acp_stream_pieces(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path
     ) -> None:
         runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
@@ -826,7 +833,7 @@ class TestGeminiCliAcpCancellation:
             ):
                 fragments = [
                     chunk
-                    async for chunk in connector._iter_text_fragments(
+                    async for chunk in connector._iter_acp_stream_pieces(
                         runtime, 99, "google/gemini-2.5-flash"
                     )
                 ]
@@ -837,7 +844,9 @@ class TestGeminiCliAcpCancellation:
 
         assert read_count >= 1
         assert len(fragments) >= 1
-        assert all(f == "chunk" for f in fragments)
+        assert all(
+            isinstance(f, AcpStreamPiece) and f.content == "chunk" for f in fragments
+        )
 
     async def test_cancellation_branch_honors_process_timeout(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path
@@ -857,7 +866,7 @@ class TestGeminiCliAcpCancellation:
             pytest.raises(APITimeoutError),
         ):
             await asyncio.wait_for(
-                connector._iter_text_fragments(
+                connector._iter_acp_stream_pieces(
                     runtime, 99, "google/gemini-2.5-flash"
                 ).__anext__(),
                 timeout=1.0,

@@ -69,6 +69,19 @@ class ACPSessionUpdate(BaseModel):
     update: dict[str, Any]
 
 
+@dataclass(frozen=True, slots=True)
+class AcpStreamPiece:
+    """One streaming unit from an ACP ``session/update`` notification.
+
+    ``content`` maps to OpenAI-style ``delta.content`` (assistant-visible text).
+    ``reasoning_content`` maps to ``delta.reasoning_content`` for clients that
+    surface thinking / progress separately from the final answer.
+    """
+
+    content: str | None = None
+    reasoning_content: str | None = None
+
+
 @dataclass(slots=True)
 class ACPProcessRuntime:
     """Live ACP runtime bound to a project directory and model."""
