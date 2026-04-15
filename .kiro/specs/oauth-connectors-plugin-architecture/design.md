@@ -4,323 +4,164 @@
 
 **Purpose**: This feature evolves the architecture of `llm-interactive-proxy` to treat OAuth-oriented backends as true, decoupled plugins. It removes hardcoded references, implicit contracts, and test dependencies that currently bind the core proxy to the `llm-interactive-proxy-oauth-connectors` package.
 
-**Users**: Core system maintainers and plugin developers will utilize this to build and maintain independent, modular backend connectors.
+**Users**: Core system maintainers and plugin developers will use this design to build and maintain independent, modular backend connectors.
 
-**Impact**: Changes the current system state by replacing string-matching and duck-typing with explicit capability declarations and strongly-typed interfaces, ensuring the core remains agnostic to plugin-specific implementations in the **in-scope** paths listed under [Scope](#scope-and-deferred-work).
+**Impact**: Changes the current system state by replacing string matching and duck-typing with explicit capability declarations and strongly typed interfaces, ensuring the core remains agnostic to plugin-specific implementations in the in-scope paths.
 
 ### Goals
 
-- Eliminate hardcoded extracted-plugin identifiers and implicit contracts from **in-scope** core logic and from connector-behavior tests.
-- Introduce a standardized capability declaration mechanism (`BackendCapabilityDescriptor`).
-- Decouple **in-scope** execution logic by extending existing `ITokenRefresher` protocol and removing remaining duck-typing.
+- Eliminate hardcoded extracted-plugin identifiers and implicit contracts from in-scope core logic and connector-behavior tests.
+- Introduce standardized OAuth-related capability declaration through `BackendCapabilityDescriptor`.
+- Decouple in-scope execution logic by extending the existing `ITokenRefresher` contract and removing remaining duck-typing.
 - Enable dynamic CLI argument registration and configuration application for plugins.
-- Ensure **runtime** test isolation from the OAuth plugin package, with a narrow **packaging contract** exception (see `requirements.md` §5).
+- Ensure runtime test isolation from the OAuth plugin package, with a narrow packaging-contract exception.
 
 ### Non-Goals
 
-- Large refactors of business logic inside the OAuth plugin repository **except** what is required to adopt the new protocols, capability flags, CLI hooks, and relocated tests.
-- Rewriting routing/failover globally, except where it directly reads plugin-private state or duplicate name checks called out in scope.
-- In a single pass, eliminating every `backend_type` substring heuristic in the [Deferred scope](#scope-and-deferred-work) list; those are tracked as follow-up unless explicitly pulled into a task.
+- Large refactors inside the OAuth plugin repository beyond what is needed to adopt new contracts and relocate plugin-specific tests.
+- Global cleanup of every remaining `backend_type` heuristic outside the explicitly in-scope modules.
+- Reclassification of deferred in-repo OAuth policy flags in this iteration.
 
 ### Scope and deferred work
 
-**In scope** matches `requirements.md`: `oauth_detector.py`, `scope.py`, `streaming_executor.py` (remaining duck-typing paths), CLI builder + `ConfigurationApplicator` integration, `BackendCapabilityDescriptor`, `BackendPluginDefinition` hooks, `backend_discovery_state`, `plugin_api.py` re-exports.
+**In scope** matches `requirements.md`: discovery and classification, resilience scoping, streaming execution, CLI/config hooks, capability metadata, plugin registration metadata, and test isolation for the targeted paths.
 
-**Deferred (follow-up phases)**: Additional modules that still use OAuth-ish **string heuristics** are listed in `requirements.md` under “Deferred scope”. Implementation of this spec should not silently expand into those files unless a task is added.
+**Deferred (follow-up)**: Additional modules that still use OAuth-oriented string heuristics remain follow-up work unless they are explicitly pulled into a future task list.
 
 ### Cross-repository coordination
 
-Moving connector-specific tests and any new hook implementations into `llm-interactive-proxy-oauth-connectors` requires:
-
-- **Versioning**: Align minimum core version expected by the plugin (and optionally maximum) with existing `PluginMetadataRecord` / entry-point metadata patterns.
-- **CI**: Core CI drops optional imports; plugin repo CI installs the published or editable core and runs migrated tests. Document expected checkout layout for local joint development (side-by-side clones) without encoding personal paths in the spec.
-- **Release ordering**: Land capability defaults + protocols in core first where possible so plugins can adopt behind feature flags or minor bumps; document any ordering dependency in the plugin changelog.
+Moving connector-specific runtime-behavior tests into `llm-interactive-proxy-oauth-connectors` requires coordinated versioning, CI expectations, and release ordering so the plugin can adopt the new contracts after the core publishes them.
 
 ## Architecture
 
 ### Existing Architecture Analysis
 
-The core already has substantial OAuth infrastructure:
-- `oauth_detector.py` uses **multi-layered** detection: explicit `KNOWN_OAUTH_CONNECTORS` set (6 hardcoded + dynamically resolved extracted backends via `get_extracted_backend_names()`), naming patterns (`_oauth_`, `_oauth`), substring matching against known names, and `has_static_credentials=False` property check. The module already has **partial** dynamic capability through entry-point discovery, but still unions static names.
-- `streaming_executor.py` defines `ITokenRefresher` protocol (`refresh_token_if_needed(force_reload, session_id, retry_after_seconds) -> bool`) but retains legacy duck-typing helpers: `_is_oauth_auto_refresher` (checks `"oauth-auto" in backend_type` via `getattr`), `_apply_refreshed_auth_header` (accesses `_oauth_credentials` dict via `getattr`), `_get_oauth_auto_selection_strategy` / `_get_oauth_auto_available_account_count` (access `_account_selector` via `getattr`), and `_record_rate_limit` (duck-typed `getattr(token_refresher, "record_rate_limit", None)`).
-- `resilience/scope.py` uses hardcoded `_PERSONAL_BACKEND_TYPES` frozenset with **7 entries** (`antigravity-oauth`, `gemini-cli-cloud-project`, `gemini-oauth-free`, `gemini-oauth-plan`, `openai-codex`, `opencode-zen`, `qwen-oauth`) plus a fallback `"oauth" in normalized or "codex" in normalized` substring heuristic. Also supports runtime config overrides via `resilience.shared_backend_types` / `resilience.personal_backend_types`.
-- `argument_parser_builder.py` contains **9 hardcoded** backend-specific debugging override flags in `_add_debugging_override_arguments` (e.g. `--enable-gemini-oauth-auto-backend-debugging-override`, `--enable-kiro-oauth-auto-backend-debugging-override`). Additionally has 3 in-repo OAuth behavior flags: `--disable-gemini-oauth-fallback`, `--disable-gemini-oauth-reasoning-prompt-injection`, `--allow-oauth-auto-replacement` (deferred — see `requirements.md`).
-- **CLI vs discovery ordering (default entry point)**: `src/core/cli.py` imports `src.core.services.backend_imports` at module import time; that module calls `discover_backends()` immediately, which runs built-in connector import plus `discover_plugin_backends()` before `main()` calls `parse_cli_args()` → `ArgumentParserBuilder.build()`. A **second** `discover_backends()` during `ApplicationBuilder` startup is idempotent. Therefore, for `python -m src.core.cli`, **full backend/plugin discovery completes before the CLI parser is built**.
-- **Alternate entry points**: Unit tests or tools that construct `ArgumentParserBuilder` (or `ArgumentParser`) **without** first importing `src.core.cli` (or otherwise calling `discover_backends()`) may run with **no** registered plugin CLI hooks. Tests that need hooks must import discovery side effects explicitly or call `discover_backends(force=True)` after test fixtures reset discovery state.
-- Test suite has `pytest.importorskip("llm_proxy_oauth_connectors...")` in `test_qwen_oauth_retry.py` and `test_vendor_prefix.py`.
+The core already has substantial OAuth-related infrastructure, but it remains partially coupled:
 
-This spec formalizes and cleans up the remaining implicit contracts.
+- Discovery and classification still combine capability-like checks with hardcoded names and spelling-based heuristics.
+- `streaming_executor.py` already has an `ITokenRefresher` protocol, but related behaviors still depend on duck-typing and private connector state.
+- Resilience scoping still uses hardcoded backend lists and name heuristics for personal-auth decisions.
+- CLI wiring still contains hardcoded extracted-plugin debug flags instead of plugin-owned registration hooks.
+- Some tests still model real optional-plugin behavior from the core repository.
 
-### Architecture Pattern & Boundary Map
+This spec standardizes the remaining plugin boundary and removes those implicit contracts from the in-scope paths.
 
-**Architecture Integration**:
+### Architecture Pattern and Boundary Map
 
-- **Selected pattern**: Plugin architecture with **capability flags** on `BackendCapabilityDescriptor` + **explicit `typing.Protocol` interfaces** (building on existing `ITokenRefresher`).
-- **Domain/feature boundaries**: Core defines/extends contracts in `src/core/interfaces/` and re-exports stable versions via `src/core/plugin_api.py`. Plugins declare capabilities and implement protocols. Core interacts only via these contracts in in-scope paths.
-- **New components rationale**: 
-  - Extend `BackendCapabilityDescriptor` (`requires_personal_auth`, `is_oauth_based`) to replace name-based classification.
-  - Reconcile/extend existing `ITokenRefresher` instead of creating parallel `ICredentialRotator`/`IOAuthAccountSelector` where possible.
-  - Add `cli_arguments_hook` and `config_applicator_hook` to `BackendPluginDefinition` (natural extension of existing `post_build_hook`).
-- **CLI lifecycle note (critical)**: For the supported CLI entry point, plugin discovery already runs at `cli` import time (see above). Implementation work must **preserve** that ordering when adding CLI hooks and must document the **non-default** import path for tests. If a future entry point ever parses before discovery, adopt two-phase parsing or move discovery earlier for that entry point only.
+- **Selected pattern**: Capability-driven plugin architecture with explicit `typing.Protocol` contracts.
+- **Core ownership**: Core defines the stable contracts, capability model, discovery registries, and CLI/config integration points.
+- **Plugin ownership**: Plugins declare capabilities, implement published protocols, and own any plugin-specific runtime behavior and tests.
+- **Boundary rule**: External plugins import from `src/core/plugin_api.py` only; core may use internal interfaces but must re-export stable contracts for plugin use.
+- **Lifecycle rule**: Plugin discovery must complete before CLI argument registration is needed on the supported entry path.
 
 ### Technology Stack
 
-| Layer | Choice / Version | Role in Feature | Notes |
-|-------|------------------|-----------------|-------|
-| Backend / Services | Python 3.10+ | Core proxy and plugin execution | `typing.Protocol`; see [Protocol runtime checks](#protocol-runtime-checks-and-ioauthaccountselector). |
-| CLI | `argparse` | Dynamic argument registration | `BackendPluginDefinition` extended with `cli_arguments_hook` and `config_applicator_hook`. |
+| Layer | Choice | Role in Feature |
+|-------|--------|-----------------|
+| Backend / Services | Python 3.10+ | Core runtime and protocol definitions |
+| CLI | `argparse` | Dynamic plugin argument registration |
+| Configuration | Pydantic v2 models | Capability declaration and config application |
 
 ## Requirements Traceability
 
-| Requirement | Summary | Components | Interfaces |
-|-------------|---------|------------|------------|
-| 1.1–1.3 | Core independence (in-scope) | `oauth_detector.py`, `scope.py` | `BackendCapabilityDescriptor` |
-| 2.1–2.4 | Capability declaration | `BackendCapabilityDescriptor`, `BackendPluginDefinition` | `BackendCapabilityDescriptor`, plugin registration metadata |
-| 3.1–3.5 | Execution decoupling | `streaming_executor.py` | `ITokenRefresher` (relocated + extended), `ICredentialRotator`, `IOAuthAccountSelector` |
-| 4.1–4.5 | Configuration and CLI | `argument_parser_builder.py`, `plugin_api.py`, `ConfigurationApplicator` | `BackendPluginDefinition`, optional schema hook |
-| 5.1–5.4 | Test isolation + packaging exception | Core tests, plugin repo | N/A |
+| Requirement | Summary | Components |
+|-------------|---------|------------|
+| 1.1–1.3 | Core independence from plugin names | Discovery, resilience scoping, capability metadata |
+| 2.1–2.4 | Capability declaration | `BackendCapabilityDescriptor`, plugin registration metadata |
+| 3.1–3.5 | Execution decoupling | Runtime protocols, streaming execution |
+| 4.1–4.5 | Configuration and CLI independence | CLI hook registration, config application |
+| 5.1–5.4 | Test isolation | Core tests, plugin-repo behavior tests |
 
 ## Components and Interfaces
 
-| Component | Domain/Layer | Intent | Req Coverage | Key Dependencies | Contracts |
-|-----------|--------------|--------|--------------|------------------|-----------|
-| `BackendCapabilityDescriptor` | Core Domain | Declare OAuth-related capabilities | 1, 2 | None | State |
-| `BackendPluginDefinition` | Core Plugin API | Metadata + CLI/config hooks | 4 | `argparse` | API |
-| `ITokenRefresher` | Core Interfaces | Token refresh (relocated from `streaming_executor.py`) | 3 | None | Protocol |
-| `ICredentialRotator` | Core Interfaces | Credential rotation + rate-limit recording | 3 | extends `ITokenRefresher` | Protocol |
-| `IOAuthAccountSelector` | Core Interfaces | Account selection surface | 3 | None | Protocol |
-| `streaming_executor.py` | Core Execution | Execute requests using protocols | 3 | `ITokenRefresher`, `ICredentialRotator` | Service |
-| `argument_parser_builder.py` | Core CLI | Build CLI parser dynamically | 4 | `BackendPluginDefinition` | Service |
-| `ConfigurationApplicator` | Core CLI | Apply parsed CLI args to config | 4 | `BackendPluginDefinition` | Service |
+### 1. Backend Capability Metadata
 
-### Core Domain
+**Intent**: Represent OAuth-related backend characteristics through explicit metadata rather than name inference.
 
-#### BackendCapabilityDescriptor
+**Responsibilities**:
 
-| Field | Detail |
-|-------|--------|
-| Intent | Extend capability descriptor with OAuth-related flags. |
-| Requirements | 1.3, 2.1–2.3 |
+- Carry capability flags such as `requires_personal_auth` and `is_oauth_based`.
+- Support classification in configuration-aware paths.
+- Align in-repo backends and entry-point plugins around the same capability vocabulary.
 
-**Responsibilities & Constraints**
+**Design decisions**:
 
-- Declare whether a backend requires personal authentication.
-- Declare whether a backend is OAuth-based (for discovery / scoping in scope).
+- Extend `BackendCapabilityDescriptor` with the OAuth-related flags required by the requirements.
+- Ensure in-repo OAuth-oriented backends declare those flags in their capability descriptor data.
+- Keep new flags limited to cross-cutting behavior rather than plugin-specific quirks.
 
-**Contracts**: State
+### 2. Discovery and Registration Metadata
 
-##### State model
+**Intent**: Let discovery logic classify OAuth-oriented connectors without depending on extracted-plugin naming conventions.
 
-Add `requires_personal_auth: bool = False` and `is_oauth_based: bool = False` to `BackendCapabilityDescriptor`.
+**Responsibilities**:
 
-**Implementation Notes**
+- Make OAuth-related capability signals available at discovery time.
+- Preserve idempotent backend and plugin discovery behavior.
+- Separate packaging diagnostics from behavioral branching.
 
-- **Integration**: Update `oauth_detector.py` and `scope.py` to consult these flags (plus any existing neutral signals such as `has_static_credentials` on the class when supplied) instead of static connector lists for in-scope classification.
-- **YAML config update**: All in-repo backends that are OAuth-based or require personal auth must have their `capability_descriptor` sections updated in config YAML templates (e.g., `gemini-oauth-plan`, `gemini-oauth-free`, `openai-codex`, etc.). This ensures the new flags are populated even without plugin hooks.
+**Design decisions**:
 
-##### Pre-import connector walk (`src/connectors/__init__.py`)
+- Entry-point plugins expose discovery-time OAuth capability hints through plugin registration metadata.
+- In-repo connectors use core-readable capability information that is available before heavy runtime behavior is needed.
+- Discovery code may use neutral public signals available at decision time, but must not rely on extracted-plugin literals or package-path discrimination.
 
-The auto-discovery loop may call `is_oauth_connector(module_name)` **before** importing a connector module. YAML-backed `BackendCapabilityDescriptor` instances are **not** available at that instant. Align implementation with [Capability signals and discovery timing](requirements.md#capability-signals-and-discovery-timing-normative) in `requirements.md`:
+### 3. Runtime Protocols
 
-| Approach | When to use | Notes |
-|----------|-------------|-------|
-| **Plugin definition flags** | Entry-point backends | Add `is_oauth_based` / `requires_personal_auth` (names illustrative) to `BackendPluginDefinition` so `oauth_detector` / discovery can read OAuth semantics from registration metadata without hardcoding extracted logical names. |
-| **Core manifest or generated map** | In-repo `pkgutil` modules | Small map keyed by module slug, maintained next to YAML or generated in CI from the same `capability_descriptor` source, read without importing connector implementation. |
-| **Reorder / import-then-filter** | Only if explicitly accepted | Document threat model if OAuth connector module import must run before skip logic. |
+**Intent**: Replace private-state duck-typing in execution paths with stable protocol-based contracts.
 
-`scope.py` operates on configured backends and **can** rely on merged `BackendCapabilityDescriptor` from YAML after config load; the pre-import constraint applies primarily to `oauth_detector` and the `connectors` package walk.
+**Responsibilities**:
 
-### Core Plugin API
+- Preserve the existing `ITokenRefresher` concern as the refresh contract.
+- Add explicit contracts for credential rotation, rate-limit bookkeeping, and account-selection behavior.
+- Keep runtime calls centered on published interfaces rather than backend names or private fields.
 
-#### BackendPluginDefinition
+**Design decisions**:
 
-| Field | Detail |
-|-------|--------|
-| Intent | Allow plugins to register CLI arguments, apply parsed args to `AppConfig`, and optionally register config schema hooks. |
-| Requirements | 4.1–4.5 |
+- Relocate `ITokenRefresher` to a stable core interfaces module and re-export it from `plugin_api.py`.
+- Add protocol-based capabilities for credential rotation and account selection.
+- Prefer method-based protocol surfaces for runtime structural checks.
+- Treat multi-account OAuth refreshers as the primary place where refresh, rotation, and account-selection capabilities coexist.
 
-**Responsibilities & Constraints**
+### 4. CLI and Configuration Hooks
 
-- Provide hooks for plugins to inject arguments into the core `argparse.ArgumentParser` and apply the parsed arguments to `AppConfig`.
-- Optional **schema extension** (REQ 4.3): support a hook such as `register_backend_config_models: Callable[..., None] | None` **or** documented convention that plugins validate their `BackendConfig.extra` payload during connector construction. Minimum bar for this spec: **one** supported approach is implemented and documented in `plugin_api.md` / docstrings—either (a) hook invoked during config model assembly for plugin-registered backend types, or (b) deferred validation only in the plugin with core passing through opaque `extra` dicts. Pick (a) if low coupling can be preserved with a narrow registry keyed by backend `type`.
+**Intent**: Move plugin-specific CLI and configuration ownership out of hardcoded core wiring.
 
-**Contracts**: API
+**Responsibilities**:
 
-##### API Contract
+- Let plugins register CLI arguments dynamically.
+- Let plugins apply parsed arguments to configuration through a supported hook.
+- Preserve the existing core config precedence and applicator flow.
 
-```python
-@dataclass(frozen=True)
-class BackendPluginDefinition:
-    # ... existing fields ...
-    # Registration-time OAuth/capability hints (illustrative names — align with
-    # BackendCapabilityDescriptor in implementation). Required so pre-import
-    # discovery never depends on extracted connector name literals.
-    is_oauth_based: bool = False
-    requires_personal_auth: bool = False
-    cli_arguments_hook: Callable[[argparse.ArgumentParser], None] | None = None
-    config_applicator_hook: Callable[[argparse.Namespace, AppConfig], AppConfig] | None = None
-    # Optional: register_backend_config_models or equivalent — see REQ 4.3 note above.
-```
+**Design decisions**:
 
-**Implementation Notes**
+- Extend `BackendPluginDefinition` with hooks for CLI registration and configuration application.
+- Keep plugin hook invocation deterministic and compatible with the current CLI lifecycle.
+- Allow plugin-private configuration validation through a documented extension mechanism without introducing core-owned plugin-specific defaults.
 
-- **Integration**: Update `src/core/common/backend_discovery_state.py` to store these hooks alongside existing `_plugin_post_build_hooks`. Specifically:
-  - Add `_plugin_cli_hooks: dict[str, Callable]` and `_plugin_config_hooks: dict[str, Callable]` module-level dicts (guarded by existing `_lock`).
-  - Add `register_plugin_cli_hook(backend_name, hook)`, `get_plugin_cli_hooks()`, `clear_plugin_cli_hooks()` functions (mirroring existing `register_plugin_post_build_hook` / `get_plugin_post_build_hooks` / `clear_plugin_post_build_hooks` pattern).
-  - Same for config hooks.
-- **CLI builder**: Update `argument_parser_builder.py` to iterate registered CLI hooks in `_add_plugin_arguments`.
-- **Config application**: `ConfigurationApplicator` uses a **domain-specific applicator delegation pattern** (15+ specialized applicators under `src/core/cli_support/applicators/`). Plugin hooks should be invoked as a **post-applicator phase** (after all domain applicators run) to ensure core config is stable before plugins modify it. Add a dedicated `PluginHookApplicator` or invoke hooks directly from `ConfigurationApplicator.apply_overrides` after the main applicator pipeline.
-- **Validation**: Document that plugins must prefix CLI flags to avoid collisions.
+### 5. Test Boundary
 
-### Core Interfaces
+**Intent**: Keep the core test suite independent from optional plugin runtime behavior.
 
-#### ITokenRefresher (relocated), ICredentialRotator & IOAuthAccountSelector
+**Responsibilities**:
 
-| Field | Detail |
-|-------|--------|
-| Intent | Formalize credential lifecycle, rotation, rate-limit recording, and account selection. |
-| Requirements | 3.1–3.5 |
+- Use generic mocks and dummy plugins in core tests.
+- Preserve packaging-contract assertions that do not import the optional plugin package.
+- Move extracted-plugin behavior tests to the plugin repository.
 
-**Responsibilities & Constraints**
+**Design decisions**:
 
-- Replace remaining duck-typing on private fields for in-scope executor paths.
-- **Relocate** existing `ITokenRefresher` from `streaming_executor.py` to `src/core/interfaces/` (e.g., `backend_auth_interfaces.py`). This protocol already covers `refresh_token_if_needed(...)` and is the primary token-refresh contract.
-- **Extend** with `ICredentialRotator` for credential rotation, rate-limit recording, and credential snapshot; and `IOAuthAccountSelector` for account selection strategy and count.
-- **Dependency rule**: All protocols are defined under `src/core/interfaces/` for core use and **re-exported** from `src/core/plugin_api.py`. External plugins import only from `plugin_api.py`.
+- Core tests validate contracts and integration seams, not plugin-specific runtime behavior.
+- Plugin-repo tests own connector-specific retry, streaming, and behavior assertions.
 
-**Contracts**: Protocol
+## Integration Notes
 
-##### Relationship between ITokenRefresher, ICredentialRotator, and IOAuthAccountSelector
-
-- **`ITokenRefresher`** (existing, relocated): Covers routine and forced token refresh. Already used as the typed parameter in `StreamingExecutor` methods. Remains the primary interface for token refresh.
-- **`ICredentialRotator`** (new, extends `ITokenRefresher`): Adds rate-limit-aware credential rotation, credential snapshot access (replacing `_oauth_credentials` duck-typing), and rate-limit recording (replacing `_record_rate_limit` duck-typing). Implementors MUST also satisfy `ITokenRefresher`.
-- **`IOAuthAccountSelector`** (new, standalone): Covers account selection strategy and available account count.
-- **Canonical wiring rule (this spec)**: Multi-account OAuth token refreshers implement **both** `ICredentialRotator` and `IOAuthAccountSelector` on the **same object** passed into `streaming_executor`. Core uses `isinstance(token_refresher, ICredentialRotator)` and `isinstance(token_refresher, IOAuthAccountSelector)` on that object only—**no** `getattr` on `_account_selector`, no nested private selector objects. If a future connector needs a separate selector instance, core may introduce an explicit public accessor method on `ICredentialRotator` in a follow-up spec; it is **out of scope** for the initial migration.
-
-##### Service interface (illustrative)
-
-```python
-from typing import Protocol, runtime_checkable
-
-@runtime_checkable
-class ITokenRefresher(Protocol):
-    """Relocated from streaming_executor.py to src/core/interfaces/.
-    
-    Already implemented by existing OAuth connectors.
-    """
-    async def refresh_token_if_needed(
-        self,
-        *,
-        force_reload: bool = False,
-        session_id: str | None = None,
-        retry_after_seconds: float | None = None,
-    ) -> bool:
-        """Refresh the OAuth token if needed. Returns True on success."""
-        ...
-
-@runtime_checkable
-class ICredentialRotator(ITokenRefresher, Protocol):
-    """Extended interface for credential rotation on rate limit.
-    
-    Adds rotation semantics, credential snapshot, and rate-limit recording
-    on top of ITokenRefresher.
-    """
-    async def rotate_credentials_on_rate_limit(
-        self,
-        session_id: str | None,
-        retry_after_seconds: float | None,
-    ) -> bool:
-        """Return True if rotation succeeded and the caller should retry.
-
-        Return False if rotation did not occur (no-op) or failed without
-        raising; callers treat False as 'do not retry based on rotation'."""
-        ...
-
-    def get_current_access_token(self) -> str | None:
-        """Return the current access token for auth header construction.
-        
-        Replaces duck-typed access to _oauth_credentials['access_token']."""
-        ...
-
-    def record_rate_limit(
-        self,
-        *,
-        retry_after_seconds: float | None = None,
-    ) -> None:
-        """Record a rate-limit event for accounting/monitoring (synchronous).
-
-        Replaces duck-typed getattr(token_refresher, 'record_rate_limit', None).
-        Must be non-blocking and safe to call from async contexts without await."""
-        ...
-
-@runtime_checkable
-class IOAuthAccountSelector(Protocol):
-    """Account selection surface for multi-account OAuth backends."""
-    def get_selection_strategy(self) -> str | None:
-        """Return the account selection strategy name (e.g., 'session-affinity').
-        
-        Migration note: replaces duck-typed access to
-        token_refresher.selection_strategy and
-        token_refresher._account_selector.selection_strategy."""
-        ...
-
-    def get_available_account_count(self) -> int | None:
-        """Return the number of available accounts, or None if unknown.
-        
-        Migration note: method name standardized from the current mix of
-        _account_selector.get_available_count() (method) and 
-        token_refresher.available_account_count (attribute)."""
-        ...
-```
-
-##### Protocol runtime checks and IOAuthAccountSelector
-
-- Prefer **methods** (`get_*`) over `@property` on `@runtime_checkable` protocols: CPython's runtime structural checks for `isinstance` are unreliable for protocol properties in many versions.
-- `IOAuthAccountSelector` does **not** require `isinstance` runtime dispatch in the current architecture (it is always accessed via a known code path from `ICredentialRotator` implementors). If this remains the case during implementation, the `@runtime_checkable` decorator is optional and can be omitted to sidestep CPython quirks. Keep it if future polymorphic dispatch is anticipated.
-- If properties are required for backward compatibility during migration, avoid `isinstance` on that protocol; use `getattr` with **public** method names only as a temporary bridge, or use explicit adapter objects owned by core. **Do not** bridge via private attributes such as `_account_selector` (requirement 3.4).
-
-##### Migration path for current duck-typed access
-
-| Current access pattern | Replacement |
-|---|---|
-| `getattr(tr, "backend_type", "")` + `"oauth-auto" in ...` | `isinstance(tr, ICredentialRotator)` |
-| `getattr(tr, "_oauth_credentials", None)["access_token"]` | `tr.get_current_access_token()` (via `ICredentialRotator`) |
-| `getattr(tr, "_account_selector", None).selection_strategy` | `selector.get_selection_strategy()` (via `IOAuthAccountSelector`) |
-| `getattr(tr, "_account_selector", None).get_available_count()` | `selector.get_available_account_count()` (via `IOAuthAccountSelector`) |
-| `getattr(tr, "record_rate_limit", None)(...)` | `tr.record_rate_limit(...)` (via `ICredentialRotator`) |
-| `getattr(tr, "selection_strategy", None)` | `selector.get_selection_strategy()` (via `IOAuthAccountSelector`) |
-| `getattr(tr, "available_account_count", None)` | `selector.get_available_account_count()` (via `IOAuthAccountSelector`) |
-
-**Implementation Notes**
-
-- **Integration**: Relocate `ITokenRefresher` from `streaming_executor.py` to `src/core/interfaces/backend_auth_interfaces.py` (or similar). Update all imports. Define `ICredentialRotator` and `IOAuthAccountSelector` in the same module. Re-export all three from `plugin_api.py`.
-- **Refactor `streaming_executor.py`**: Replace `_is_oauth_auto_refresher` with `isinstance(token_refresher, ICredentialRotator)`. Replace `_apply_refreshed_auth_header` to use `ICredentialRotator.get_current_access_token()`. Replace `_get_oauth_auto_selection_strategy` / `_get_oauth_auto_available_account_count` with `IOAuthAccountSelector` method calls. Replace `_record_rate_limit` duck-typing with `ICredentialRotator.record_rate_limit()`.
-
-### Core CLI
-
-#### argument_parser_builder.py & ConfigurationApplicator
-
-| Field | Detail |
-|-------|--------|
-| Intent | Dynamically build CLI parser and apply config including plugin arguments. |
-| Requirements | 4.1–4.5 |
-
-**Responsibilities & Constraints**
-
-- Remove hardcoded extracted-plugin debug flags from core.
-- Invoke plugin `cli_arguments_hook`s during parser build.
-- Invoke plugin `config_applicator_hook`s during config application.
-
-**Contracts**: Service
-
-**Implementation Notes**
-
-- **Integration**: Remove flags such as `--enable-gemini-oauth-auto-backend-debugging-override`. Add `_add_plugin_arguments` that invokes registered hooks.
-- **Lifecycle ordering**: Default `cli.py` path already runs `discover_backends()` at import time before `parse_cli_args()`; keep that invariant when wiring hooks. See [Existing Architecture Analysis](#existing-architecture-analysis) and `research.md` for alternate import paths.
-- **Config application**: `ConfigurationApplicator` (or a small helper invoked from it) iterates `config_applicator_hook`s with `Namespace` + `AppConfig` so plugins can inject into `BackendConfig.extra` or other extension fields.
+- Discovery, CLI registration, and application startup must continue to honor the current supported lifecycle so plugin hooks are available when argument parsing occurs.
+- Capability metadata and runtime protocols should converge on one vocabulary so resilience, execution, and discovery do not drift apart again.
+- The stable plugin API should remain narrow and versionable because external packages depend on it directly.
 
 ## Testing Strategy
 
-- **Unit tests**: `BackendCapabilityDescriptor` parses new flags; `argument_parser_builder` and `ConfigurationApplicator` invoke **mock** plugin hooks; `streaming_executor` uses mock backends implementing/extending `ITokenRefresher`. Legacy duck-typing paths are removed or guarded.
-- **Integration tests**: End-to-end paths that do not import `llm_proxy_oauth_connectors`, using dummy entry points where needed.
-- **Test isolation**: Move connector-behavior tests that require the real optional package to the plugin repository. Retain **packaging contract** tests listed in `requirements.md` §5 that only assert strings/metadata without importing connector modules.
+- **Unit tests**: Capability metadata parsing, plugin hook registration and application, and runtime protocol dispatch using mock implementations.
+- **Integration tests**: Discovery and execution flows using dummy plugins without importing `llm_proxy_oauth_connectors`.
+- **Boundary tests**: Packaging-contract assertions stay in core; extracted-plugin runtime-behavior tests move to the plugin repository.

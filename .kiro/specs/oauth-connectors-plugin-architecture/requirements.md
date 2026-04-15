@@ -6,50 +6,30 @@ oauth-connectors-plugin-architecture — Evolve the split between `llm-interacti
 
 ## Scope and boundaries
 
-**Primary target**: Decouple the **extracted** optional distribution `llm-interactive-proxy-oauth-connectors` and generic OAuth **plugin** behavior from core **discovery**, **resilience scoping**, **streaming/token execution**, and **CLI / debug-flag** wiring. Replace name-based heuristics and duck-typing with `BackendCapabilityDescriptor` metadata and protocols exported from `src/core/plugin_api.py`.
+**Primary target**: Decouple the **extracted** optional distribution `llm-interactive-proxy-oauth-connectors` and generic OAuth **plugin** behavior from core **discovery**, **resilience scoping**, **streaming/token execution**, and **CLI / debug-flag** wiring. Replace name-based heuristics and duck-typing with capability metadata and stable protocols exported from `src/core/plugin_api.py`.
 
-**In-repo backends**: YAML `backend_type` strings for connectors shipped in this repository (for example `gemini-oauth-plan`) remain legitimate identifiers. The requirement is to stop using **spelling-based inference** and **plugin-specific lists** for *classification* and *execution* where capability metadata should drive behavior. Those backends declare the same OAuth-related flags on `BackendCapabilityDescriptor` as extracted plugins.
+**In-repo backends**: YAML `backend_type` strings for connectors shipped in this repository remain valid identifiers. The requirement is to stop using spelling-based inference and plugin-specific lists for classification and execution where capability metadata should drive behavior. Those backends declare the same OAuth-related capability flags as extracted plugins.
 
-**In scope (initial implementation)** — aligned with `design.md` / `tasks.md` Phases 1–3:
+**In scope (initial implementation)**:
 
-- `src/connectors/oauth_detector.py` (multi-layered detection: `KNOWN_OAUTH_CONNECTORS` set, naming patterns, dynamic entry-point resolution via `get_extracted_backend_names()`, and `has_static_credentials` property check)
-- `src/core/services/resilience/scope.py` (hardcoded `_PERSONAL_BACKEND_TYPES` frozenset with 7 entries + `"oauth" in normalized or "codex" in normalized` substring fallback)
-- `src/connectors/gemini_base/streaming_executor.py` (existing `ITokenRefresher` protocol + legacy duck-typing helpers: `_is_oauth_auto_refresher`, `_apply_refreshed_auth_header` accessing `_oauth_credentials`, `_get_oauth_auto_selection_strategy`/`_get_oauth_auto_available_account_count` accessing `_account_selector`, and `_record_rate_limit` duck-typed access)
-- `src/core/cli_support/argument_parser_builder.py` and `ConfigurationApplicator` (including the `_add_debugging_override_arguments` section with 9 backend-specific flags)
-- Core models and plugin seams: `BackendCapabilityDescriptor`, `BackendPluginDefinition`, `src/core/common/backend_discovery_state.py`, `src/core/plugin_api.py`
-- YAML backend config templates: in-repo backends must declare `requires_personal_auth` and `is_oauth_based` flags on their `capability_descriptor` sections
+- OAuth classification and discovery behavior
+- Resilience scoping for personal-auth backends
+- Streaming and token-execution behavior
+- CLI registration and configuration application for plugins
+- Core plugin seams and capability models
+- YAML capability flags for in-repo OAuth-oriented backends
 
-**Deferred scope (follow-up)**: Other `backend_type` string heuristics (for example `startswith("gemini-oauth")`) and name lists still present outside the files above, including but not limited to:
+**Deferred scope (follow-up)**:
 
-- `src/core/config/models/backends.py`
-- `src/connectors/gemini_base/chat_request_preparer.py`
-- `src/core/services/backend_request_preparation_service.py`
-- `src/core/services/backend_completion_flow/usage_accounting_orchestrator.py`
-- `src/connectors/hybrid_backend/orchestration/orchestrator.py`
-- `src/connectors/utils/model_capabilities.py`, `src/connectors/gemini_base/backend_compatibility.py`
-- Operator-facing copy in `src/core/cli_support/error_handler.py` when it does not affect execution branches
+- Other `backend_type` heuristics outside the in-scope modules
+- Operator-facing copy that does not affect branching behavior
+- In-repo OAuth policy flags such as `--disable-gemini-oauth-fallback`, `--disable-gemini-oauth-reasoning-prompt-injection`, and `--allow-oauth-auto-replacement`
 
-**Deferred CLI flags** (in-repo OAuth backend behavior, not extracted-plugin debug overrides):
+## Discovery-time capability constraint
 
-- `--disable-gemini-oauth-fallback` (controls in-repo `gemini-oauth-plan`/`gemini-oauth-free` fallback behavior)
-- `--disable-gemini-oauth-reasoning-prompt-injection` (controls in-repo prompt injection)
-- `--allow-oauth-auto-replacement` (controls replacement safety for multi-account backends)
+Some discovery paths may need to decide whether a connector is OAuth-oriented before importing the connector implementation. At that point, runtime connector instances and loaded YAML-backed capability descriptors may not yet exist.
 
-These flags govern **in-repo** backend connectors that happen to be OAuth-based. They are intentionally deferred from the initial implementation because they control core behavioral policies rather than plugin-specific wiring. Follow-up work should evaluate whether they belong in a plugin hook or remain core flags with capability-based gating.
-
-Follow-up work should converge all deferred sites on the same capability metadata after headline paths are complete.
-
-## Capability signals and discovery timing (normative)
-
-`src/connectors/__init__.py` calls `is_oauth_connector(module_name)` **before** `importlib.import_module` for in-repo connector packages when multi-user mode skips OAuth modules. At that moment there is **no** loaded connector class and **no** parsed `BackendCapabilityDescriptor` from YAML, so requirement 1.3’s “capability metadata instead of naming conventions” must be satisfied using **equivalent declared signals** that are available **without** importing connector implementation code.
-
-Acceptable patterns (pick **one** coherent approach per implementation; document the choice in `design.md` and `plugin_api.md`):
-
-1. **Entry-point plugins**: declare OAuth-related booleans on `BackendPluginDefinition` (or an adjacent metadata object registered during `discover_plugin_backends`) so the core never needs extracted logical names inside `oauth_detector.py` for classification.
-2. **In-repo connectors**: a **core-owned** lightweight map or small manifest keyed by module / `backend_type`, generated or maintained from the same source as YAML `capability_descriptor` templates, readable before heavy module import; **or** a documented **reorder** of discovery that preserves security expectations if connector code may run before the skip decision.
-3. **Neutral structural signals** that are not marketing names (for example `has_static_credentials` on a class) remain valid **only** when the connector is already imported or the signal is exposed through one of the mechanisms above.
-
-Interpretation: requirement 1.3 applies to **behavioral classification** in in-scope modules. Where YAML descriptors are not yet loaded, “declared capability metadata” includes plugin-definition flags and manifest-equivalent data derived from the same templates, **not** ad hoc substring checks on `backend_type` for extracted plugins.
+For those paths, the system shall use only capability signals that are available when the classification decision is made. Those signals may come from registration-time plugin metadata, core-readable capability metadata for in-repo connectors, or other neutral public signals that do not require private implementation access. The system shall not rely on extracted plugin name literals, package import paths, or substring-based marketing-name inference for that decision.
 
 ## Requirements
 
@@ -59,11 +39,13 @@ Interpretation: requirement 1.3 applies to **behavioral classification** in in-s
 
 #### Acceptance Criteria
 
-1. The system shall not contain hardcoded strings referencing specific **extracted** OAuth connector logical names (for example `"opencode-zen"`, `"kiro-oauth-auto"`) in **classification** logic in `oauth_detector.py` or `scope.py`. (User documentation and static help text may continue to mention common `backend_type` examples where they do not encode branching rules.)
-
-2. The core shall not use the optional OAuth plugin **import path** or **module name** as a runtime discriminator in **execution** paths (request processing, streaming, token refresh, backend instance selection). **Allowed**: the centralized string constants in `backend_discovery_state.py` (`_oauth_install_command`, `_optional_oauth_package_name`) used only for **operator-facing** diagnostics (for example “install optional package X”, `pip install …[oauth]`) and for **packaging contract tests** listed under requirement 5; those strings must not drive conditional behavior beyond reporting/discovery diagnostics.
-
-3. When filtering or categorizing connectors for behavior described in this spec’s **in-scope** modules, the system shall rely on declared capability metadata: primarily `BackendCapabilityDescriptor` where configuration is loaded, and **equivalent** capability signals described under [Capability signals and discovery timing](#capability-signals-and-discovery-timing-normative) where descriptors are not yet available (for example pre-import discovery). The system shall not use naming conventions (for example `-oauth-` suffixes) or static lists of **extracted** connector logical names for that purpose.
+1. When the core classifies OAuth-oriented backends in the in-scope paths, the system shall not use hardcoded strings referencing specific extracted OAuth connector logical names.
+2. When the core presents user documentation or static help text, the system may mention common `backend_type` examples only where those examples do not control behavioral branching.
+3. When the core executes request processing, streaming, token refresh, or backend instance selection, the system shall not use the optional OAuth plugin import path or module name as a runtime discriminator.
+4. Where packaging diagnostics or packaging-contract tests require package-identifying strings, the system shall keep those strings isolated from runtime behavioral branching.
+5. When the in-scope modules filter or categorize connectors after configuration has been loaded, the system shall use declared capability metadata from `BackendCapabilityDescriptor`.
+6. When an in-scope discovery decision occurs before configuration-backed descriptors are available, the system shall use equivalent declared capability signals that are available at that decision point.
+7. When the core classifies or categorizes extracted OAuth connectors in the in-scope modules, the system shall not rely on naming conventions or static lists of extracted connector logical names for that decision.
 
 ### 2. Capability Declaration
 
@@ -71,31 +53,27 @@ Interpretation: requirement 1.3 applies to **behavioral classification** in in-s
 
 #### Acceptance Criteria
 
-1. The system shall provide a standardized metadata structure by extending `BackendCapabilityDescriptor` so backends declare capabilities (including `requires_personal_auth`, `is_oauth_based`).
-
-2. When a plugin is loaded, the system shall read its capability declarations to determine how to manage its lifecycle and authentication for in-scope flows.
-
-3. If a backend requires personal authentication, the system shall use the generic capability flag to trigger the appropriate auth flows for in-scope flows, rather than checking the backend’s marketing name or module slug.
-
-4. For entry-point plugins, OAuth-related capability flags needed for in-scope discovery or filtering shall be readable from the plugin’s **registration-time** metadata (for example fields on `BackendPluginDefinition` populated when the entry point is evaluated), so core code does not infer OAuth behavior from optional package import paths or connector nicknames.
+1. The system shall provide a standardized metadata structure by extending `BackendCapabilityDescriptor` so backends can declare OAuth-related capabilities, including `requires_personal_auth` and `is_oauth_based`.
+2. When a plugin is loaded for an in-scope flow, the system shall read its declared capabilities to determine the plugin's lifecycle and authentication behavior.
+3. When a backend requires personal authentication, the system shall use the declared capability flag to trigger the appropriate in-scope authentication behavior.
+4. When the core evaluates a backend that does not require personal authentication, the system shall not infer personal-auth behavior from the backend's marketing name or module slug.
+5. When an entry-point plugin must be classified during discovery or filtering, the system shall make the needed OAuth-related capability flags available through registration-time plugin metadata.
+6. Where registration-time plugin metadata is used for OAuth classification, the system shall not infer OAuth behavior from optional package import paths or connector nicknames.
 
 ### 3. Execution Decoupling
 
 **Objective:** As an architect, I want core execution logic to interact with plugins via generic interfaces, so that the core remains agnostic to plugin-specific implementations.
 
-**Existing infrastructure**: `streaming_executor.py` already defines `ITokenRefresher` (a `@runtime_checkable` Protocol with `refresh_token_if_needed(force_reload, session_id, retry_after_seconds) -> bool`). The spec extends/reconciles with this existing protocol rather than creating fully parallel alternatives. The `ITokenRefresher` protocol should be relocated from `streaming_executor.py` to `src/core/interfaces/` and re-exported via `plugin_api.py`.
+**Existing infrastructure**: `streaming_executor.py` already defines `ITokenRefresher`, a runtime-checkable protocol covering token refresh. This spec extends and relocates that contract rather than introducing an overlapping refresh abstraction.
 
 #### Acceptance Criteria
 
-1. The system shall define generic interfaces (for example `ICredentialRotator`, `IOAuthAccountSelector`) for behaviors currently accessed via duck-typing. Where an existing protocol covers the same concern (for example `ITokenRefresher` for credential refresh), the system shall extend or reconcile rather than create parallel interfaces. The `record_rate_limit` duck-typed access pattern must also be covered by a **synchronous** protocol method on `ICredentialRotator` (callers invoke it without `await`; implementations perform fast bookkeeping only).
-
-2. The system shall expose these generic interfaces through the stable plugin API (`src/core/plugin_api.py`) to prevent circular dependencies.
-
-3. When executing a request in in-scope execution paths (including `streaming_executor.py`), the system shall interact with the backend connector only through these generic interfaces for those behaviors.
-
-4. The system shall not access private attributes or state (for example `_oauth_credentials`, `_account_selector`) of any backend connector via duck-typing or `getattr` in those paths.
-
-5. Where a connector implements a specific interface (for example `ICredentialRotator`), the system shall invoke the interface methods without checking the connector's specific type (for example without substring checks on `backend_type` for that decision).
+1. The system shall define generic interfaces for the credential-refresh, credential-rotation, rate-limit bookkeeping, and account-selection behaviors currently reached through duck-typing.
+2. Where an existing protocol already covers one of those behaviors, the system shall extend or reconcile that protocol rather than introduce a parallel contract for the same concern.
+3. The system shall expose the in-scope execution interfaces through the stable plugin API in `src/core/plugin_api.py`.
+4. When the core executes an in-scope request path, the system shall interact with the backend connector through the published interfaces for the covered behaviors.
+5. When the core performs those in-scope execution behaviors, the system shall not access private attributes or private nested state of backend connectors through duck-typing or `getattr`.
+6. Where a connector implements a supported execution interface, the system shall invoke the interface methods without checking the connector's specific type or backend marketing name.
 
 ### 4. Configuration and CLI Independence
 
@@ -103,30 +81,23 @@ Interpretation: requirement 1.3 applies to **behavioral classification** in in-s
 
 #### Acceptance Criteria
 
-1. The system shall provide a hook or mechanism for plugins to dynamically register their own CLI arguments (for example into `argparse`) during the startup phase.
-
-2. The system shall provide a hook or mechanism for plugins to apply their parsed CLI arguments to the application configuration (for example via `ConfigurationApplicator`).
-
-3. The system shall provide a mechanism for plugins to supply **additional** typed configuration fragments for their own backends (for example registering Pydantic models or JSON Schema fragments merged under each plugin backend’s config subtree, or documented extension fields validated by the plugin at construction). The core remains responsible for loading the shared `AppConfig` shell; plugins own validation of their private sections.
-
-4. The core system shall not define CLI flags specific to individual extracted OAuth plugins (for example `--enable-gemini-oauth-auto-backend-debugging-override` in `argument_parser_builder.py`).
-
-5. The core system shall not ship **default YAML instances** or **schemas** dedicated to individual extracted OAuth plugins under core-owned config templates beyond neutral placeholders; plugin-owned defaults live with the plugin or under documented `extra` keys applied via hooks.
+1. When the application starts, the system shall provide a mechanism for plugins to dynamically register their own CLI arguments.
+2. When CLI arguments have been parsed, the system shall provide a mechanism for plugins to apply their parsed CLI values to application configuration.
+3. Where a plugin owns private configuration fragments, the system shall provide a mechanism for the plugin to own validation of those fragments without requiring core-owned plugin-specific schemas or default YAML instances.
+4. When the core defines CLI flags, the system shall not define flags specific to individual extracted OAuth plugins.
+5. When the core ships configuration templates or schemas, the system shall not ship default YAML instances or schemas dedicated to individual extracted OAuth plugins beyond neutral extension points.
 
 ### 5. Test Isolation
 
-**Objective:** As a developer, I want the core proxy's test suite to avoid **runtime** coupling to the OAuth plugin package for connector behavior tests, so that tests can run without importing optional connector code while packaging remains verifiable.
+**Objective:** As a developer, I want the core proxy's test suite to avoid runtime coupling to the OAuth plugin package for connector behavior tests, so that tests can run without importing optional connector code while packaging remains verifiable.
 
 #### Packaging contract exception
 
-The following **do not** violate acceptance criterion 1 below when they **do not** import `llm_proxy_oauth_connectors`: tests that assert optional-dependency wiring, install command strings, or discovery-state constants against `pyproject.toml` / metadata. Examples: `tests/unit/core/common/test_oauth_packaging_contract.py`, `tests/unit/core/common/test_backend_discovery_state.py` (install hint assertions), `tests/unit/core/services/test_backend_discovery.py` / `test_backend_discovery_service.py` when only string expectations for packaging metadata are involved. Discovery unit tests may use **string** module names and fake entry points to simulate a plugin without importing the real package.
+The following do not violate acceptance criterion 1 below when they do not import `llm_proxy_oauth_connectors`: tests that assert optional-dependency wiring, install command strings, or discovery-state constants against `pyproject.toml` or metadata. Discovery unit tests may also use string module names and fake entry points to simulate a plugin without importing the real package.
 
 #### Acceptance Criteria
 
-1. Except for the **packaging contract exception** above, the core test suite shall not import or attempt to import `llm_proxy_oauth_connectors` (including `pytest.importorskip("llm_proxy_oauth_connectors...")`) for connector behavior, streaming, or retry logic.
-
-2. The core test suite shall not contain tests that specifically target the **behavior** of individual extracted OAuth connectors (for example `test_qwen_oauth_retry.py`, `test_vendor_prefix.py` when it uses `pytest.importorskip("llm_proxy_oauth_connectors.qwen_oauth")`); those belong in `llm-interactive-proxy-oauth-connectors`.
-
-3. When testing plugin discovery or execution logic in core, tests shall use generic mock or dummy plugins.
-
-4. The system shall ensure tests that assert extracted OAuth connector **runtime behavior** reside in the `llm-interactive-proxy-oauth-connectors` repository (coordinated releases; see `design.md` cross-repo note).
+1. Except for the packaging contract exception above, when the core test suite covers connector behavior, streaming, or retry logic, the system shall not import or attempt to import `llm_proxy_oauth_connectors`.
+2. When the core test suite validates extracted OAuth connector behavior, the system shall not keep those behavior tests in the core repository.
+3. When the core test suite validates plugin discovery or execution logic, the system shall use generic mock or dummy plugins.
+4. When extracted OAuth connector runtime behavior needs direct verification, the system shall keep those tests in the `llm-interactive-proxy-oauth-connectors` repository.
