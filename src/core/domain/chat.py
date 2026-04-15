@@ -330,6 +330,9 @@ class ChatRequest(ValueObject):
         exclude=True,
     )
     vtc_enabled: bool | None = None  # Virtual Tool Calling mode for Cline-like clients
+    # When set, overrides AppConfig.session.streaming_loop_detection_enabled for the
+    # ports-layer streaming pipeline (connector integrate_streaming_pipeline path).
+    streaming_loop_detection_enabled: bool | None = None
 
     # Reasoning parameters for o1, o3, o4-mini and other reasoning models
     reasoning_effort: str | None = None

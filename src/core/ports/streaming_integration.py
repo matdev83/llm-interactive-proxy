@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 from typing import Any, cast
 
 from src.core.common.exceptions import LLMProxyError, RateLimitExceededError
+from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -157,11 +158,42 @@ def _try_extract_http_status_from_first_sse_chunk(first_chunk: bytes) -> int | N
     return None
 
 
+def _resolve_ports_streaming_loop_detection_enabled(
+    *,
+    explicit: bool | None,
+    domain_request: ChatRequest | None,
+) -> bool:
+    """Whether to attach the ports :class:`LoopDetectionProcessor` to the pipeline.
+
+    Precedence: ``explicit`` (tests / call-site override), per-request field on
+    ``domain_request``, then :attr:`AppConfig.session.streaming_loop_detection_enabled`.
+    """
+    if explicit is not None:
+        return explicit
+    if domain_request is not None:
+        per_request = domain_request.streaming_loop_detection_enabled
+        if per_request is not None:
+            return bool(per_request)
+    try:
+        from src.core.config.app_config import AppConfig
+        from src.core.di.services import get_or_build_service_provider
+
+        provider = get_or_build_service_provider()
+        app_config = provider.get_service(AppConfig)
+        if app_config is None:
+            return False
+        return bool(
+            getattr(app_config.session, "streaming_loop_detection_enabled", False)
+        )
+    except Exception:
+        return False
+
+
 async def integrate_streaming_pipeline(
     raw_stream: AsyncIterator[object],
     provider: str,
     stream_id: str | None = None,
-    enable_loop_detection: bool = False,
+    enable_loop_detection: bool | None = None,
     enable_tool_call_repair: bool = True,
     enable_think_tags: bool = True,
     prompt_tokens: int | None = None,
@@ -169,6 +201,7 @@ async def integrate_streaming_pipeline(
     vtc_enabled: bool = False,
     yield_interval: int = 100,
     headers: dict[str, str] | None = None,
+    domain_request: ChatRequest | None = None,
 ) -> StreamingResponseEnvelope:
     """Integrate a raw backend stream with the streaming pipeline.
 
@@ -184,7 +217,11 @@ async def integrate_streaming_pipeline(
         raw_stream: Raw async iterator from backend's stream_completion() (opaque provider-specific data)
         provider: Provider name ("openai", "anthropic", "gemini")
         stream_id: Optional stream identifier
-        enable_loop_detection: Whether to enable loop detection processor
+        enable_loop_detection: When not ``None``, forces the loop detection processor
+            on or off. When ``None`` (default), uses ``domain_request`` override if set,
+            otherwise ``AppConfig.session.streaming_loop_detection_enabled``.
+        domain_request: Optional domain request for per-request loop detection override
+            (``streaming_loop_detection_enabled`` on the request model).
         enable_tool_call_repair: Whether to enable tool call repair processor
         enable_think_tags: Whether to enable think tags processor
         prompt_tokens: Optional prompt token count for usage calculation
@@ -196,6 +233,11 @@ async def integrate_streaming_pipeline(
     Returns:
         StreamingResponseEnvelope with processed chunks
     """
+    enable_loop_detection_effective = _resolve_ports_streaming_loop_detection_enabled(
+        explicit=enable_loop_detection,
+        domain_request=domain_request,
+    )
+
     processors: list[IStreamProcessor] = []
 
     # Lazy DI provider resolution - only fetch when needed.
@@ -219,7 +261,7 @@ async def integrate_streaming_pipeline(
         logger.debug("VTC pre-processor enabled for stream %s", stream_id)
 
     # Loop detection processor - stateless, can be created directly
-    if enable_loop_detection:
+    if enable_loop_detection_effective:
         processors.append(PortsLoopDetectionProcessor())
 
     # Service-based tool call repair processor - requires DI dependencies

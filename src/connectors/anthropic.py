@@ -546,13 +546,13 @@ class AnthropicBackend(LLMBackend):
                     raw_stream=raw_stream,
                     provider=self.get_provider_name(),
                     stream_id=getattr(domain_request, "session_id", None),
-                    enable_loop_detection=True,
                     enable_tool_call_repair=True,
                     enable_think_tags=True,
                     prompt_tokens=prompt_tokens,
                     model_name=effective_model,
                     vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
                     yield_interval=self.config.streaming_yield_interval,
+                    domain_request=domain_request,
                 )
             except AuthenticationError:
                 raise
