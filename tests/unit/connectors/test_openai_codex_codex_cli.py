@@ -1096,40 +1096,57 @@ async def test_codex_retries_after_token_refresh(
     # Set api_key so get_headers() returns Authorization header
     connector.api_key = "test_token"
 
-    # Mock client.post to return 401 first, then 200 with success response
-    first_response = httpx.Response(
-        401,
-        request=httpx.Request(
-            "POST", "https://chatgpt.com/backend-api/codex/responses"
-        ),
-        json={"detail": {"message": "unauthorized"}},
-    )
-    second_response_data = {
-        "id": "chatcmpl-test",
-        "object": "chat.completion",
-        "created": 1234567890,
-        "model": "gpt-5.1-codex",
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "ok"},
-                "finish_reason": "stop",
+    # Mock streaming handshake to return 401 first, then a successful stream handle
+    call_count = 0
+
+    async def success_iterator() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": "ok"},
+                        "finish_reason": None,
+                    }
+                ]
             }
-        ],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
-    }
-    second_response = httpx.Response(
-        200,
-        request=httpx.Request(
-            "POST", "https://chatgpt.com/backend-api/codex/responses"
-        ),
-        json=second_response_data,
+        )
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 2,
+                    "total_tokens": 12,
+                },
+            },
+            usage={"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+            metadata={"done": True},
+        )
+
+    success_handle = StreamingResponseHandle(
+        iterator=success_iterator(),
+        cancel_callback=AsyncMock(),
+        headers={"x-request-id": "req-refresh"},
     )
 
-    mocker.patch.object(
-        connector._response_executor._base_connector.client,
-        "post",
-        AsyncMock(side_effect=[first_response, second_response]),
+    async def streaming_side_effect(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return success_handle
+
+    streaming_mock = mocker.patch.object(
+        connector,
+        "_handle_streaming_response",
+        AsyncMock(side_effect=streaming_side_effect),
     )
     refresh_mock = mocker.patch.object(
         connector,
@@ -1150,9 +1167,101 @@ async def test_codex_retries_after_token_refresh(
         assert result.content.get("choices") is not None
     else:
         assert "ok" in str(result.content)
-    # Verify client.post was called twice (initial + retry)
-    assert connector._response_executor._base_connector.client.post.await_count == 2  # type: ignore[attr-defined]
+    # Verify streaming handshake retried once and then succeeded
+    assert streaming_mock.await_count == 2
     refresh_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_call_codex_responses_api_accumulates_stream_for_non_stream_clients(
+    mocker: MockerFixture,
+) -> None:
+    async with _build_connector_with_streaming_settings(
+        max_retries=1, retry_backoff_seconds=(0.0,)
+    ) as connector:
+        chat_request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hi")],
+            model="gpt-5.1-codex",
+            stream=False,
+        )
+        payload = CodexPayload(
+            model="gpt-5.1-codex",
+            input=[],
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            prompt_cache_key="cid-acc",
+            stream=True,
+            include=[],
+        )
+        mocker.patch.object(
+            connector, "_build_codex_payload", return_value=(payload, "cid-acc")
+        )
+        mocker.patch.object(
+            connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
+        )
+
+        async def iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content={
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "hello"},
+                            "finish_reason": None,
+                        }
+                    ]
+                }
+            )
+            yield ProcessedResponse(
+                content={
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 2,
+                        "total_tokens": 12,
+                    },
+                },
+                usage={
+                    "prompt_tokens": 10,
+                    "completion_tokens": 2,
+                    "total_tokens": 12,
+                },
+                metadata={"done": True},
+            )
+
+        mock_handle = StreamingResponseHandle(
+            iterator=iterator(),
+            cancel_callback=AsyncMock(),
+            headers={"x-request-id": "req-acc"},
+        )
+        mocker.patch.object(
+            connector._response_executor._base_connector,
+            "_handle_streaming_response",
+            AsyncMock(return_value=mock_handle),
+        )
+
+        result = await connector._call_codex_responses_api(
+            chat_request,
+            chat_request.messages,
+            "gpt-5.1-codex",
+            chat_request,
+        )
+
+        assert isinstance(result, ResponseEnvelope)
+        assert result.headers == {"x-request-id": "req-acc"}
+        assert result.usage is not None
+        assert result.usage.total_tokens == 12
+        assert isinstance(result.content, dict)
+        assert result.content["choices"][0]["message"]["content"] == "hello"
+        assert result.content["choices"][0]["finish_reason"] == "stop"
 
 
 @pytest.mark.asyncio
@@ -1280,19 +1389,11 @@ async def test_codex_refresh_failure_propagates(
     # Set api_key so get_headers() returns Authorization header
     connector.api_key = "test_token"
 
-    # Mock client.post to return 401 error
-    first_response = httpx.Response(
-        401,
-        request=httpx.Request(
-            "POST", "https://chatgpt.com/backend-api/codex/responses"
-        ),
-        json={"detail": {"message": "unauthorized"}},
-    )
-
+    # Mock streaming handshake to fail auth immediately
     mocker.patch.object(
-        connector._response_executor._base_connector.client,
-        "post",
-        AsyncMock(side_effect=[first_response]),
+        connector,
+        "_handle_streaming_response",
+        AsyncMock(side_effect=HTTPException(status_code=401, detail="Unauthorized")),
     )
     refresh_mock = mocker.patch.object(
         connector,
@@ -1300,16 +1401,17 @@ async def test_codex_refresh_failure_propagates(
         AsyncMock(return_value=False),
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await connector._call_codex_responses_api(
-            chat_request,
-            chat_request.messages,
-            "gpt-5.1-codex",
-            chat_request,
-        )
+    result = await connector._call_codex_responses_api(
+        chat_request,
+        chat_request.messages,
+        "gpt-5.1-codex",
+        chat_request,
+    )
 
-    # Verify the exception is the expected auth failure
-    assert exc_info.value.status_code == 401
+    assert isinstance(result, ResponseEnvelope)
+    assert result.status_code == 401
+    assert isinstance(result.content, dict)
+    assert result.content["error"]["error"] == "openai_codex_stream_auth_failed"
     refresh_mock.assert_awaited_once()
 
 

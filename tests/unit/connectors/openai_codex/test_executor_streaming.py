@@ -21,6 +21,34 @@ from src.core.services.translation_service import TranslationService
 class TestResponseExecutor:
     """Test ResponseExecutor service implementation."""
 
+    @pytest.mark.asyncio
+    async def test_execute_non_streaming_payload_still_uses_streaming_transport(
+        self, executor, mock_base_connector, sample_context, non_streaming_payload
+    ):
+        """Executor should always use streaming transport even for non-stream payloads."""
+
+        async def empty_iterator():
+            return
+            yield  # pragma: no cover
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {"x-request-id": "stream-123"}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = empty_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        result = await executor.execute(non_streaming_payload, sample_context)
+
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        mock_base_connector._handle_streaming_response.assert_awaited_once()
+        mock_base_connector.client.post.assert_not_called()
+
     async def test_execute_streaming_success(
         self, executor, mock_base_connector, sample_context, streaming_payload
     ):
@@ -191,6 +219,31 @@ class TestResponseExecutor:
             upstream_codex_error=None,
             response_headers=None,
         )
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_handshake_maps_instruction_invalid_error(
+        self, executor, mock_base_connector, sample_context, streaming_payload
+    ):
+        """Handshake instruction validation failures should use actionable Codex error mapping."""
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=HTTPException(
+                status_code=400,
+                detail={"detail": "Instructions are not valid"},
+            )
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+
+        with pytest.raises(HTTPException) as exc_info:
+            async for _ in result.content:
+                pass
+
+        assert exc_info.value.status_code == 400
+        assert isinstance(exc_info.value.detail, dict)
+        assert exc_info.value.detail["error"] == "codex_instructions_invalid"
+        assert "prompt_mode" in exc_info.value.detail["suggestion"]
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_uses_retry_after_from_error_detail(

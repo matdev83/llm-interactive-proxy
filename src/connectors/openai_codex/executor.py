@@ -1,8 +1,8 @@
 """Response executor for OpenAI Codex connector.
 
 This module implements the ResponseExecutor service that handles:
-- Non-streaming execution with response parsing, usage metadata, and capture data
 - Streaming execution with authentication retry and error mapping
+- Connector-level non-stream accumulation via the canonical streaming path
 - Credential refresh integration for streaming retries
 """
 
@@ -15,7 +15,6 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
-import httpx
 from fastapi import HTTPException
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
@@ -36,20 +35,41 @@ from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
     LLMProxyError,
-    ServiceUnavailableError,
 )
 from src.core.common.resilience_retry import AsyncRetryExecutor, RetryPolicy
 from src.core.domain.responses import (
-    ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.tool_text_renderer import OverrideRenderer
 
 if TYPE_CHECKING:
     from src.connectors.openai import OpenAIConnector
+
+
+def _map_codex_instruction_error(status_code: int, detail: Any) -> Any:
+    """Map Codex instruction validation failures to actionable proxy errors."""
+
+    if status_code != 400 or not isinstance(detail, dict):
+        return detail
+    if detail.get("detail") != "Instructions are not valid":
+        return detail
+    return {
+        "error": "codex_instructions_invalid",
+        "message": (
+            "Codex backend rejected the instructions field as invalid. "
+            "This usually happens when custom prompt modifications are incompatible with Codex's validation rules."
+        ),
+        "detail": detail.get("detail"),
+        "suggestion": (
+            "Set prompt_mode to 'codex_default' in your request capabilities "
+            "(or in config via backends.openai_codex.extra.codex.default_capabilities) "
+            "to use Codex's default instructions. System prompts are automatically "
+            "converted to <user_instructions> blocks and do not need to be in the instructions field."
+        ),
+        "original_error": detail,
+    }
 
 
 def _codex_initiate_streaming_error_view(
@@ -58,13 +78,15 @@ def _codex_initiate_streaming_error_view(
     """Normalize handshake errors from OpenAIConnector for Codex retry logic."""
 
     if isinstance(exc, HTTPException):
-        return exc.status_code, exc.detail
+        return exc.status_code, _map_codex_instruction_error(
+            exc.status_code, exc.detail
+        )
     status_code = getattr(exc, "status_code", 500)
     if not isinstance(status_code, int):
         status_code = 500
     det = getattr(exc, "details", None)
     if isinstance(det, dict) and det:
-        return status_code, det
+        return status_code, _map_codex_instruction_error(status_code, det)
     return status_code, {"message": getattr(exc, "message", str(exc))}
 
 
@@ -210,11 +232,11 @@ class _CodexRetryDelayError(Exception):
 
 
 class ResponseExecutor(IResponseExecutor):
-    """Service for executing Codex API requests with retry and compatibility handling.
+    """Service for executing Codex API requests on the canonical streaming path.
 
     This service handles:
-    - Non-streaming execution with response parsing, usage metadata, and capture data
     - Streaming execution with authentication retry and error mapping
+    - Connector-level non-stream accumulation via the canonical streaming path
     - Credential refresh integration for streaming retries
     """
 
@@ -267,438 +289,24 @@ class ResponseExecutor(IResponseExecutor):
 
     async def execute(
         self, payload: CodexPayload, context: CodexRequestContext
-    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+    ) -> StreamingResponseEnvelope:
         """Execute Codex request with retry and compatibility handling.
+
+        Codex always executes against the upstream streaming transport. Callers that
+        need a non-streaming result must accumulate the returned stream at the
+        connector boundary.
 
         Args:
             payload: Codex API payload
             context: Request context
 
         Returns:
-            Response envelope (streaming or non-streaming)
+            Streaming response envelope
         """
         # Resolve renderer key from capabilities
         renderer_key = self._select_renderer_key(context.capabilities)
 
-        if payload.stream:
-            return await self._execute_streaming(payload, context, renderer_key)
-        else:
-            return await self._execute_non_streaming(payload, context, renderer_key)
-
-    async def _execute_non_streaming(
-        self, payload: CodexPayload, context: CodexRequestContext, renderer_key: str
-    ) -> ResponseEnvelope:
-        """Execute non-streaming Codex request with response parsing.
-
-        Args:
-            payload: Codex API payload
-            context: Request context
-            renderer_key: Renderer key for tool text rendering
-
-        Returns:
-            Response envelope with parsed response, usage metadata, and capture data
-        """
-        url = self._codex_url
-        # Derive conversation_id from prompt_cache_key, fallback to session_id
-        conversation_id = payload.prompt_cache_key or context.session_id
-        headers = self._build_headers(conversation_id, context.session_id)
-        payload_dict = payload.model_dump(exclude_none=True)
-
-        # Get compatibility state from context metadata if available
-        # State should always be provided by the facade via CodexRequestContext.metadata
-        # when compatibility layer is enabled and successfully applied (see design.md).
-        compatibility_state: CompatibilityState | None = None
-        if context.metadata and "compatibility_state" in context.metadata:
-            state_value = context.metadata["compatibility_state"]
-            if isinstance(state_value, CompatibilityState):
-                compatibility_state = state_value
-
-        if not headers or not headers.get("Authorization"):
-            raise AuthenticationError(message="No auth credentials found")
-
-        guarded_headers = ensure_loop_guard_header(headers)
-
-        # Retry logic for non-streaming requests with auth failures
-        attempts_used = 0
-        max_retries = await self._effective_rate_limit_max_retries()
-        incompatible_tool_retries = 0
-
-        response_json: dict[str, Any] | None = None
-        response: httpx.Response | None = None
-
-        try:
-            while True:
-                try:
-                    response = await self._base_connector.client.post(
-                        url, json=payload_dict, headers=guarded_headers
-                    )
-                    self._base_connector.update_quota_headers(response.headers)
-                except httpx.RequestError as e:
-                    logger.error(
-                        "Request failed to %s. Error: %s",
-                        url,
-                        e,
-                        exc_info=True,
-                        extra={
-                            "backend": "openai-codex",
-                            "session_id": context.session_id,
-                            "model": context.effective_model,
-                        },
-                    )
-                    raise ServiceUnavailableError(
-                        message=f"Could not connect to backend ({e})"
-                    ) from e
-                except httpx.HTTPStatusError as e:
-                    # Handle HTTP status errors (e.g., 429, 500, etc.)
-                    try:
-                        err = e.response.json()
-                        # Map "Instructions are not valid" errors to actionable messages
-                        if (
-                            e.response.status_code == 400
-                            and isinstance(err, dict)
-                            and err.get("detail") == "Instructions are not valid"
-                        ):
-                            err = {
-                                "error": "codex_instructions_invalid",
-                                "message": (
-                                    "Codex backend rejected the instructions field as invalid. "
-                                    "This usually happens when custom prompt modifications are incompatible with Codex's validation rules."
-                                ),
-                                "detail": err.get("detail"),
-                                "suggestion": (
-                                    "Set prompt_mode to 'codex_default' in your request capabilities "
-                                    "(or in config via backends.openai_codex.extra.codex.default_capabilities) "
-                                    "to use Codex's default instructions. System prompts are automatically "
-                                    "converted to <user_instructions> blocks and do not need to be in the instructions field."
-                                ),
-                                "original_error": err,
-                            }
-                    except Exception as json_err:
-                        if logger.isEnabledFor(TRACE_LEVEL):
-                            logger.log(
-                                TRACE_LEVEL,
-                                "Failed to parse error response JSON, falling back to text: %s",
-                                json_err,
-                                exc_info=True,
-                                extra={
-                                    "backend": "openai-codex",
-                                    "session_id": context.session_id,
-                                    "model": context.effective_model,
-                                    "status_code": e.response.status_code,
-                                },
-                            )
-                        err = e.response.text
-                    raise HTTPException(
-                        status_code=e.response.status_code, detail=err
-                    ) from e
-
-                if int(response.status_code) >= 400:
-                    # Rotate managed account on explicit rate-limit responses.
-                    if response.status_code == 429:
-                        rate_limit_json: dict[str, Any] | None = None
-                        with contextlib.suppress(Exception):
-                            parsed_rl = response.json()
-                            if isinstance(parsed_rl, dict):
-                                rate_limit_json = parsed_rl
-                        retry_after_seconds = self._extract_retry_after_seconds(
-                            response.headers
-                        )
-                        if retry_after_seconds is None and rate_limit_json is not None:
-                            retry_after_seconds = (
-                                self._extract_retry_after_from_payload(rate_limit_json)
-                            )
-                        if attempts_used < max_retries:
-                            rotated = await self._handle_rate_limit_rotation(
-                                retry_after_seconds=retry_after_seconds,
-                                session_id=context.session_id,
-                                upstream_codex_error=rate_limit_json,
-                                response_headers=response.headers,
-                            )
-                            if rotated:
-                                fresh_headers = self._base_connector.get_headers() or {}
-                                guarded_headers = ensure_loop_guard_header(
-                                    fresh_headers
-                                )
-                                guarded_headers["conversation_id"] = conversation_id
-                                guarded_headers["session_id"] = context.session_id
-                                await self._wait_for_auth_retry_delay(attempts_used)
-                                attempts_used += 1
-                                continue
-                        await self._notify_codex_quota_unrecovered(
-                            upstream_detail=rate_limit_json or {},
-                            retry_after_seconds=retry_after_seconds,
-                        )
-
-                    # For explicit authorization denials, prefer account rotation.
-                    if response.status_code == 403 and attempts_used < max_retries:
-                        rotated = await self._handle_auth_failure_rotation(
-                            session_id=context.session_id
-                        )
-                        if rotated:
-                            fresh_headers = self._base_connector.get_headers() or {}
-                            guarded_headers = ensure_loop_guard_header(fresh_headers)
-                            guarded_headers["conversation_id"] = conversation_id
-                            guarded_headers["session_id"] = context.session_id
-                            await self._wait_for_auth_retry_delay(attempts_used)
-                            attempts_used += 1
-                            continue
-
-                    # Check for auth errors and retry if within limit
-                    if (
-                        response.status_code in {401, 403}
-                        and attempts_used < max_retries
-                    ):
-                        # Use connector's refresh method to ensure consistency and test compatibility
-                        refresh_method = getattr(
-                            self._base_connector, "_refresh_access_token", None
-                        )
-                        if (
-                            refresh_method
-                            and callable(refresh_method)
-                            and inspect.iscoroutinefunction(refresh_method)
-                        ):
-                            refreshed = await refresh_method()
-                        else:
-                            refreshed = (
-                                await self._credential_manager.refresh_access_token()
-                            )
-                            # Update connector's api_key so get_headers() returns the new token
-                            new_token = self._credential_manager.get_access_token()
-                            if new_token and hasattr(self._base_connector, "api_key"):
-                                self._base_connector.api_key = new_token
-                        if not refreshed:
-                            # Notify connector of authentication failure for degradation
-                            degrade_method = getattr(
-                                self._base_connector, "_degrade", None
-                            )
-                            if degrade_method is not None:
-                                degrade_method(
-                                    [
-                                        f"Codex non-streaming token refresh failed after {attempts_used} attempts"
-                                    ]
-                                )
-                            raise HTTPException(
-                                status_code=401,
-                                detail={
-                                    "error": "openai_codex_auth_failed",
-                                    "message": "Codex request failed authentication and could not be recovered.",
-                                    "details": {
-                                        "backend": "openai-codex",
-                                        "attempts": attempts_used,
-                                        "max_retries": max_retries,
-                                    },
-                                },
-                            )
-                        # Update headers with new token
-                        fresh_headers = self._base_connector.get_headers() or {}
-                        guarded_headers = ensure_loop_guard_header(fresh_headers)
-                        guarded_headers["conversation_id"] = conversation_id
-                        guarded_headers["session_id"] = context.session_id
-                        await self._wait_for_auth_retry_delay(attempts_used)
-                        attempts_used += 1
-                        continue
-
-                    # Non-retriable errors or retry limit exceeded - raise immediately
-                    try:
-                        err = response.json()
-                        # Map "Instructions are not valid" errors to actionable messages
-                        if (
-                            response.status_code == 400
-                            and isinstance(err, dict)
-                            and err.get("detail") == "Instructions are not valid"
-                        ):
-                            err = {
-                                "error": "codex_instructions_invalid",
-                                "message": (
-                                    "Codex backend rejected the instructions field as invalid. "
-                                    "This usually happens when custom prompt modifications are incompatible with Codex's validation rules."
-                                ),
-                                "detail": err.get("detail"),
-                                "suggestion": (
-                                    "Set prompt_mode to 'codex_default' in your request capabilities "
-                                    "(or in config via backends.openai_codex.extra.codex.default_capabilities) "
-                                    "to use Codex's default instructions. System prompts are automatically "
-                                    "converted to <user_instructions> blocks and do not need to be in the instructions field."
-                                ),
-                                "original_error": err,
-                            }
-                    except Exception as json_err:
-                        if logger.isEnabledFor(TRACE_LEVEL):
-                            logger.log(
-                                TRACE_LEVEL,
-                                "Failed to parse error response JSON, falling back to text: %s",
-                                json_err,
-                                exc_info=True,
-                                extra={
-                                    "backend": "openai-codex",
-                                    "session_id": context.session_id,
-                                    "model": context.effective_model,
-                                    "status_code": response.status_code,
-                                },
-                            )
-                        err = response.text
-                    raise HTTPException(status_code=response.status_code, detail=err)
-
-                # Success - break out of retry loop
-                response_json = response.json()
-                incompatible_tools = self._detect_incompatible_tool_calls(
-                    response_json,
-                    context,
-                )
-                if incompatible_tools:
-                    if incompatible_tool_retries < self._max_incompatible_tool_retries:
-                        incompatible_tool_retries += 1
-                        payload_dict = self._append_incompatible_tool_retry_steering(
-                            payload_dict,
-                            incompatible_tools,
-                            context,
-                        )
-                        logger.info(
-                            "Retrying non-streaming Codex request after incompatible tool calls: %s",
-                            ", ".join(incompatible_tools),
-                            extra={
-                                "backend": "openai-codex",
-                                "session_id": context.session_id,
-                                "model": context.effective_model,
-                                "retry_count": incompatible_tool_retries,
-                            },
-                        )
-                        response_json = None
-                        continue
-                    logger.warning(
-                        "Incompatible tool calls persisted after retries; returning final response.",
-                        extra={
-                            "backend": "openai-codex",
-                            "session_id": context.session_id,
-                            "model": context.effective_model,
-                            "tool_names": incompatible_tools,
-                        },
-                    )
-                break
-
-            # Ensure response_json is set (MyPy type narrowing)
-            assert (
-                response_json is not None
-            ), "response_json should be set after successful request"
-            assert (
-                response is not None
-            ), "response should be set after successful request"
-
-            # Verbose raw response diagnostics (TRACE only; avoid str()/slicing on DEBUG)
-            if logger.isEnabledFor(TRACE_LEVEL):
-                choices_count = len(response_json.get("choices", []))
-                response_id = response_json.get("id", "unknown")
-                response_model = response_json.get("model", "unknown")
-                logger.log(
-                    TRACE_LEVEL,
-                    "Non-streaming response from Codex: id=%s model=%s choices_count=%d",
-                    response_id,
-                    response_model,
-                    choices_count,
-                    extra={
-                        "backend": "openai-codex",
-                        "session_id": context.session_id,
-                        "model": context.effective_model,
-                        "response_id": response_id,
-                    },
-                )
-                if choices_count == 0:
-                    logger.log(
-                        TRACE_LEVEL,
-                        "Empty choices in non-streaming response - raw response: %s",
-                        str(response_json)[:500],
-                        extra={
-                            "backend": "openai-codex",
-                            "session_id": context.session_id,
-                            "model": context.effective_model,
-                        },
-                    )
-
-            # Parse response using translation service with renderer override
-            # Codex uses OpenAI Responses API format which has 'output' not 'choices'
-            with OverrideRenderer(renderer_key):
-                domain_response = (
-                    self._base_connector.translation_service.to_domain_response(
-                        response_json, "openai-responses"
-                    )
-                )
-
-            # Extract response headers
-            try:
-                response_headers = dict(response.headers)
-            except (TypeError, AttributeError) as e:
-                if logger.isEnabledFor(TRACE_LEVEL):
-                    logger.log(
-                        TRACE_LEVEL,
-                        "Failed to extract response.headers, using fallback: %s",
-                        e,
-                        extra={
-                            "backend": "openai-codex",
-                            "session_id": context.session_id,
-                            "model": context.effective_model,
-                        },
-                    )
-                try:
-                    response_headers = dict(getattr(response, "headers", {}) or {})
-                except (TypeError, AttributeError) as fallback_err:
-                    if logger.isEnabledFor(TRACE_LEVEL):
-                        logger.log(
-                            TRACE_LEVEL,
-                            "Failed to extract fallback headers: %s",
-                            fallback_err,
-                            extra={
-                                "backend": "openai-codex",
-                                "session_id": context.session_id,
-                                "model": context.effective_model,
-                            },
-                        )
-                    response_headers = {}
-
-            # Build response envelope with usage metadata
-            await self._mark_account_used()
-            return ResponseEnvelope(
-                content=domain_response.model_dump(),
-                status_code=response.status_code,
-                headers=response_headers,
-                usage=domain_response.usage,
-                metadata={
-                    "backend": "openai-codex",
-                    "model": context.effective_model,
-                    "session_id": context.session_id,
-                },
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error(
-                "Unexpected error in non-streaming Codex execution: %s",
-                e,
-                exc_info=True,
-                extra={
-                    "backend": "openai-codex",
-                    "session_id": context.session_id,
-                    "model": context.effective_model,
-                },
-            )
-            raise
-        finally:
-            # Cleanup compatibility state after non-streaming execution completes
-            if self._compatibility_layer and compatibility_state:
-                try:
-                    await self._compatibility_layer.cleanup_state(compatibility_state)
-                except Exception as e:
-                    if logger.isEnabledFor(TRACE_LEVEL):
-                        logger.log(
-                            TRACE_LEVEL,
-                            "Compatibility state cleanup failed: %s",
-                            e,
-                            exc_info=True,
-                            extra={
-                                "backend": "openai-codex",
-                                "session_id": context.session_id,
-                                "model": context.effective_model,
-                            },
-                        )
+        return await self._execute_streaming(payload, context, renderer_key)
 
     async def _execute_streaming(
         self, payload: CodexPayload, context: CodexRequestContext, renderer_key: str
@@ -861,7 +469,7 @@ class ResponseExecutor(IResponseExecutor):
                                 upstream_detail=rd or {},
                                 retry_after_seconds=retry_after_seconds,
                             )
-                        raise
+                        raise HTTPException(status_code=status_code, detail=detail)
 
                     current_cancel[0] = stream_handle.cancel_callback
                     headers_holder.clear()

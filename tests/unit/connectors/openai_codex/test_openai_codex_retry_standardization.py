@@ -19,7 +19,7 @@ from src.connectors.openai_codex.contracts import (
 from src.connectors.openai_codex.executor import ResponseExecutor
 from src.connectors.openai_codex.interfaces import ICredentialManager
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
@@ -81,37 +81,38 @@ async def test_non_streaming_401_refreshes_and_retries_once() -> None:
     context = _build_context(stream=False)
     payload = _build_payload(stream=False)
 
-    unauthorized_response = MagicMock()
-    unauthorized_response.status_code = 401
-    unauthorized_response.json.return_value = {"error": "unauthorized"}
-    unauthorized_response.text = '{"error":"unauthorized"}'
-    unauthorized_response.headers = {}
+    async def success_iterator() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(content={"choices": [{"delta": {"content": "ok"}}]})
 
-    success_response = MagicMock()
-    success_response.status_code = 200
-    success_response.json.return_value = {"id": "ok", "choices": []}
-    success_response.headers = {"x-request-id": "req-1"}
+    stream_handle = MagicMock()
+    stream_handle.headers = {"x-request-id": "req-1"}
+    stream_handle.cancel_callback = AsyncMock()
+    stream_handle.iterator = success_iterator()
 
-    connector.client.post = AsyncMock(
-        side_effect=[unauthorized_response, success_response]
+    transport = MagicMock()
+    transport.initiate_streaming_request = AsyncMock(
+        side_effect=[
+            HTTPException(status_code=401, detail="Unauthorized"),
+            stream_handle,
+        ]
     )
-    domain_response = MagicMock()
-    domain_response.model_dump.return_value = {"content": "ok"}
-    domain_response.usage = {"total_tokens": 1}
-    connector.translation_service.to_domain_response.return_value = domain_response
 
     executor = ResponseExecutor(
         connector,
         credential_manager,
         max_retries=2,
         retry_backoff_seconds=(0.2, 0.4),
+        transport=transport,
     )
 
     with stamina.set_testing(True, attempts=3, cap=True):
         result = await executor.execute(payload, context)
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+        chunks = [chunk async for chunk in result.content]
 
-    assert isinstance(result, ResponseEnvelope)
-    assert connector.client.post.await_count == 2
+    assert len(chunks) == 1
+    assert transport.initiate_streaming_request.await_count == 2
     assert credential_manager.refresh_access_token.await_count == 1
 
 
@@ -123,31 +124,34 @@ async def test_non_streaming_refresh_failure_surfaces_deterministic_context() ->
     context = _build_context(stream=False)
     payload = _build_payload(stream=False)
 
-    unauthorized_response = MagicMock()
-    unauthorized_response.status_code = 401
-    unauthorized_response.json.return_value = {"error": "unauthorized"}
-    unauthorized_response.text = '{"error":"unauthorized"}'
-    unauthorized_response.headers = {}
-    connector.client.post = AsyncMock(return_value=unauthorized_response)
+    transport = MagicMock()
+    transport.initiate_streaming_request = AsyncMock(
+        side_effect=HTTPException(status_code=401, detail="Unauthorized")
+    )
 
     executor = ResponseExecutor(
         connector,
         credential_manager,
         max_retries=1,
         retry_backoff_seconds=(0.2,),
+        transport=transport,
     )
+
+    result = await executor.execute(payload, context)
 
     with (
         stamina.set_testing(True, attempts=3, cap=True),
         pytest.raises(HTTPException) as exc_info,
     ):
-        await executor.execute(payload, context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
 
     detail = exc_info.value.detail
     assert exc_info.value.status_code == 401
     assert isinstance(detail, dict)
     detail_dict = cast(dict[str, object], detail)
-    assert detail_dict["error"] == "openai_codex_auth_failed"
+    assert detail_dict["error"] == "openai_codex_stream_auth_failed"
     details = cast(dict[str, object], detail_dict["details"])
     assert details["max_retries"] == 1
     assert "attempts" in details
