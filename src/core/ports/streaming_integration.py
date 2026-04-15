@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import cast
+from typing import Any, cast
 
 from src.core.common.exceptions import LLMProxyError, RateLimitExceededError
 from src.core.domain.responses import StreamingResponseEnvelope
@@ -45,6 +45,53 @@ from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 logger = logging.getLogger(__name__)
 
+# String / type tokens that indicate a rate-limited first SSE frame when HTTP status
+# was already 200 (some OpenAI-compatible gateways stream errors as SSE only).
+_RATE_LIMIT_ERROR_CODE_TOKENS: frozenset[str] = frozenset(
+    {
+        "rate_limit_exceeded",
+        "too_many_requests",
+        "requests_per_minute_exceeded",
+        "rpm_limit_exceeded",
+        "tpm_limit_exceeded",
+        "tenant_rate_limited",
+        "usage_limit_reached",
+    }
+)
+
+
+def _error_payload_implies_rate_limit(payload: dict[str, Any]) -> bool:
+    """Return True when a JSON object (often ``error``) describes a rate limit."""
+    err_type = payload.get("type")
+    if isinstance(err_type, str) and err_type.strip():
+        lowered = err_type.strip().lower()
+        if lowered in _RATE_LIMIT_ERROR_CODE_TOKENS:
+            return True
+        if "rate" in lowered and "limit" in lowered:
+            return True
+
+    code = payload.get("code")
+    if isinstance(code, int) and code == 429:
+        return True
+    if isinstance(code, float) and code.is_integer() and int(code) == 429:
+        return True
+    if isinstance(code, str) and code.strip():
+        lowered = code.strip().lower()
+        if lowered in _RATE_LIMIT_ERROR_CODE_TOKENS or lowered == "429":
+            return True
+
+    sc = payload.get("status_code")
+    if isinstance(sc, int) and sc == 429:
+        return True
+    if isinstance(sc, float) and sc.is_integer() and int(sc) == 429:
+        return True
+    if isinstance(sc, str):
+        stripped = sc.strip()
+        if stripped.isdigit() and int(stripped) == 429:
+            return True
+
+    return False
+
 
 def _try_extract_http_status_from_first_sse_chunk(first_chunk: bytes) -> int | None:
     """Best-effort: extract HTTP-like status from an SSE error chunk.
@@ -56,6 +103,7 @@ def _try_extract_http_status_from_first_sse_chunk(first_chunk: bytes) -> int | N
     Expected formats:
     - data: {"choices": [...], "error": {"status_code": 404, ...}}
     - data: {"choices": [{"finish_reason": "error"}], ...}
+    - data: {"error": {"code": "rate_limit_exceeded", ...}}  (no numeric status)
     """
     try:
         text = first_chunk.decode("utf-8", errors="ignore")
@@ -91,6 +139,14 @@ def _try_extract_http_status_from_first_sse_chunk(first_chunk: bytes) -> int | N
                 return code
             if isinstance(code, float) and code.is_integer():
                 return int(code)
+            if _error_payload_implies_rate_limit(err):
+                return 429
+        elif isinstance(err, str) and "rate" in err.lower() and "limit" in err.lower():
+            return 429
+
+        if _error_payload_implies_rate_limit(obj):
+            return 429
+
         # Fallback: if it looks like an OpenAI error chunk, treat as 500.
         choices = obj.get("choices")
         if isinstance(choices, list) and choices:

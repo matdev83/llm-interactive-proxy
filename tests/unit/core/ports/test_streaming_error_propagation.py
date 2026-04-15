@@ -17,7 +17,10 @@ from src.core.ports.streaming_contracts import (
     StreamingErrorMapper,
     handle_streaming_error,
 )
-from src.core.ports.streaming_integration import integrate_streaming_pipeline
+from src.core.ports.streaming_integration import (
+    _try_extract_http_status_from_first_sse_chunk,
+    integrate_streaming_pipeline,
+)
 
 
 class TestStreamingContentErrorChunks:
@@ -298,6 +301,61 @@ class TestHandleStreamingError:
         detail = cast(dict[str, Any], excinfo.value.detail)
         headers = cast(dict[str, Any], detail["headers"])
         assert headers["retry-after"] == "7"
+
+    def test_extract_status_from_first_sse_string_rate_limit_code(self) -> None:
+        """String error.code (no numeric status) must classify as HTTP 429 for failover."""
+        payload = (
+            'data: {"error":{"type":"rate_limit_exceeded",'
+            '"code":"rate_limit_exceeded","message":"RPM"}}\n\n'
+        )
+        assert _try_extract_http_status_from_first_sse_chunk(payload.encode()) == 429
+
+    def test_extract_status_from_first_sse_usage_limit_reached_type(self) -> None:
+        """Codex-style usage_limit_reached must map to 429 for downstream recovery."""
+        payload = (
+            'data: {"error":{"type":"usage_limit_reached",'
+            '"message":"The usage limit has been reached"}}\n\n'
+        )
+        assert _try_extract_http_status_from_first_sse_chunk(payload.encode()) == 429
+
+    def test_extract_status_from_first_sse_string_status_code_429(self) -> None:
+        payload = 'data: {"error":{"status_code":"429","message":"slow down"}}\n\n'
+        assert _try_extract_http_status_from_first_sse_chunk(payload.encode()) == 429
+
+    @pytest.mark.asyncio
+    async def test_integrate_streaming_pipeline_first_sse_string_rate_limit_status_429(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When the first SSE frame is a string-coded rate limit, envelope HTTP status is 429."""
+
+        rate_chunk = (
+            b'data: {"error":{"code":"rate_limit_exceeded","message":"RPM"}}\n\n'
+        )
+
+        class _Pipeline:
+            async def process_stream(self, *args, **kwargs):
+                yield rate_chunk
+
+        monkeypatch.setattr(
+            "src.core.ports.streaming_integration.create_pipeline_for_provider",
+            lambda *args, **kwargs: _Pipeline(),
+        )
+
+        async def raw_stream():
+            if False:
+                yield b""
+
+        envelope = await integrate_streaming_pipeline(
+            raw_stream(),
+            provider="openai",
+            stream_id="sse-string-rl",
+            enable_loop_detection=False,
+            enable_tool_call_repair=False,
+            enable_think_tags=False,
+        )
+
+        assert envelope.status_code == 429
+        assert envelope.content is not None
 
     @pytest.mark.asyncio
     async def test_integrate_streaming_pipeline_maps_early_429(
