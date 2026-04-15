@@ -82,6 +82,73 @@ class ACPTranscriptSerializer:
         return "\n".join(lines)
 
     @staticmethod
+    def serialize_tail(
+        messages: Sequence[ChatMessage | dict[str, Any] | str | Any],
+        start_index: int,
+    ) -> str:
+        """Serialize messages from ``start_index`` through the final user turn.
+
+        Used when the ACP agent already saw messages ``[:start_index]`` and new
+        messages were appended (e.g. non-ACP turns in between).
+        """
+        if start_index <= 0:
+            return ACPTranscriptSerializer.serialize(messages)
+        if not messages or start_index >= len(messages):
+            return ""
+
+        last_user_idx = -1
+        for i in range(len(messages) - 1, -1, -1):
+            if ACPTranscriptSerializer._get_role(messages[i]) == "user":
+                last_user_idx = i
+                break
+
+        if last_user_idx == -1:
+            return ""
+
+        last_user_msg = ACPTranscriptSerializer._get_content(messages[last_user_idx])
+        if last_user_idx < start_index:
+            return last_user_msg
+
+        history_msgs = list(messages[start_index:last_user_idx])
+        if not history_msgs:
+            return last_user_msg
+
+        lines = [
+            "[System Note: Additional conversation occurred since your last response. "
+            "Here is the new context:]",
+            "",
+            "--- New Messages ---",
+        ]
+
+        for msg in history_msgs:
+            role = ACPTranscriptSerializer._get_role(msg)
+            content = ACPTranscriptSerializer._get_content(msg)
+
+            if role == "system":
+                lines.append(f"**System:** {content}")
+            elif role == "user":
+                lines.append(f"**User:** {content}")
+            elif role == "assistant":
+                lines.append(f"**Assistant:** {content}")
+
+                tool_calls = ACPTranscriptSerializer._get_tool_calls(msg)
+                for tc in tool_calls:
+                    func_name = tc.get("function", {}).get("name", "unknown")
+                    func_args = tc.get("function", {}).get("arguments", "{}")
+                    lines.append(f"*Tool Call (`{func_name}`)*: `{func_args}`")
+            elif role == "tool":
+                lines.append(f"*Tool Result*: `{content}`")
+            else:
+                lines.append(f"**{role.capitalize()}:** {content}")
+
+        lines.append("------------------------")
+        lines.append("")
+        lines.append("[Current Request]")
+        lines.append(last_user_msg)
+
+        return "\n".join(lines)
+
+    @staticmethod
     def _get_role(msg: Any) -> str:
         if isinstance(msg, ChatMessage):
             return msg.role

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ from src.connectors.acp_core.types import (
     ACPSessionUpdate,
     AcpStreamPiece,
     ACPUpdateContent,
+    HistoryState,
 )
 from src.connectors.base import LLMBackend, add_vendor_prefix, strip_vendor_prefix
 from src.connectors.contracts import ConnectorChatCompletionsRequest
@@ -107,7 +109,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         self._process_timeout = DEFAULT_PROCESS_TIMEOUT
         self._idle_timeout = DEFAULT_IDLE_TIMEOUT
         self._runtime_pool_lock = asyncio.Lock()
-        self._runtimes: dict[tuple[str, str], ACPProcessRuntime] = {}
+        self._runtimes: dict[tuple[str, str, str], ACPProcessRuntime] = {}
 
     @property
     def has_static_credentials(self) -> bool:
@@ -153,18 +155,47 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
     def _is_usable_directory(path: Path) -> bool:
         return path.exists() and path.is_dir() and os.access(path, os.R_OK)
 
-    def _build_runtime_key(self, project_dir: Path, model: str) -> tuple[str, str]:
-        return (str(project_dir), model)
+    def _build_runtime_key(
+        self, project_dir: Path, model: str, client_session_id: str
+    ) -> tuple[str, str, str]:
+        return (str(project_dir), model, client_session_id)
 
-    def _create_runtime(self, project_dir: Path, model: str) -> ACPProcessRuntime:
+    def _create_runtime(
+        self, project_dir: Path, model: str, client_session_id: str = "default"
+    ) -> ACPProcessRuntime:
         return ACPProcessRuntime(
             project_dir=project_dir,
             model=model,
+            client_session_id=client_session_id,
             process_lock=asyncio.Lock(),
             request_lock=asyncio.Lock(),
             cancellation_lock=asyncio.Lock(),
             cancellation_event=asyncio.Event(),
         )
+
+    @staticmethod
+    def _resolve_client_session_id(request: ConnectorChatCompletionsRequest) -> str:
+        sid: str | None = None
+        if request.context is not None and request.context.session_id:
+            sid = request.context.session_id
+        if not sid:
+            raw = getattr(request.request, "session_id", None)
+            if isinstance(raw, str) and raw.strip():
+                sid = raw
+        if isinstance(sid, str) and sid.strip():
+            return sid.strip()
+        return "default"
+
+    @staticmethod
+    def _hash_messages_prefix(
+        messages: Sequence[ChatMessage], end_exclusive: int
+    ) -> str:
+        if end_exclusive <= 0:
+            return hashlib.sha256(b"").hexdigest()
+        slice_msgs = messages[:end_exclusive]
+        payload = [m.model_dump(mode="json", exclude_none=True) for m in slice_msgs]
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
     async def _acquire_runtime(
         self, request: ConnectorChatCompletionsRequest
@@ -174,12 +205,17 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             request.effective_model or self._model,
             self.VENDOR_PREFIX,
         )
-        runtime_key = self._build_runtime_key(project_dir, requested_model)
+        client_session_id = self._resolve_client_session_id(request)
+        runtime_key = self._build_runtime_key(
+            project_dir, requested_model, client_session_id
+        )
 
         async with self._runtime_pool_lock:
             runtime = self._runtimes.get(runtime_key)
             if runtime is None:
-                runtime = self._create_runtime(project_dir, requested_model)
+                runtime = self._create_runtime(
+                    project_dir, requested_model, client_session_id
+                )
                 self._runtimes[runtime_key] = runtime
 
         await self._reap_idle_runtime(runtime)
@@ -276,14 +312,14 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 runtime.initialized = False
                 runtime.session_id = None
                 runtime.message_id = 0
-                runtime.history_injected = False
+                runtime.history_state = None
             except Exception as exc:
                 if new_process is not None:
                     self._cleanup_process(new_process)
                 runtime.process = None
                 runtime.initialized = False
                 runtime.session_id = None
-                runtime.history_injected = False
+                runtime.history_state = None
                 raise APIConnectionError(
                     message=f"Failed to start ACP process: {exc}",
                     details={
@@ -323,7 +359,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         runtime.session_id = None
         runtime.message_id = 0
         runtime.last_activity = 0.0
-        runtime.history_injected = False
+        runtime.history_state = None
 
     def _cleanup_process(self, process: subprocess.Popen[bytes] | None = None) -> None:
         if process is None:
@@ -767,13 +803,56 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         await self._spawn_process(runtime)
         await self._initialize_runtime(runtime)
 
-        if not runtime.history_injected:
-            user_message = ACPTranscriptSerializer.serialize(request.processed_messages)
-            runtime.history_injected = True
-        else:
-            user_message = self._extract_user_message_as_string(
-                request.processed_messages
+        messages = list(request.processed_messages)
+        if not messages:
+            raise BackendError(message="No messages found in request")
+
+        state = runtime.history_state
+        new_history_state: HistoryState
+        user_message: str
+
+        if state is None:
+            user_message = ACPTranscriptSerializer.serialize(messages)
+            new_history_state = HistoryState(
+                message_count=len(messages),
+                prefix_hash=self._hash_messages_prefix(messages, len(messages)),
             )
+        else:
+            n = state.message_count
+            prefix_hash = state.prefix_hash
+            diverged = (
+                len(messages) < n
+                or self._hash_messages_prefix(messages, n) != prefix_hash
+            )
+
+            if diverged:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "ACP history diverged or shrank; resetting agent process "
+                        "(project=%s model=%s client_session=%s)",
+                        runtime.project_dir,
+                        runtime.model,
+                        runtime.client_session_id,
+                    )
+                await self._kill_runtime(runtime)
+                await self._spawn_process(runtime)
+                await self._initialize_runtime(runtime)
+                user_message = ACPTranscriptSerializer.serialize(messages)
+                new_history_state = HistoryState(
+                    message_count=len(messages),
+                    prefix_hash=self._hash_messages_prefix(messages, len(messages)),
+                )
+            elif len(messages) == n:
+                user_message = self._extract_user_message_as_string(messages)
+                new_history_state = state
+            else:
+                user_message = ACPTranscriptSerializer.serialize_tail(messages, n)
+                if not user_message.strip():
+                    user_message = self._extract_user_message_as_string(messages)
+                new_history_state = HistoryState(
+                    message_count=len(messages),
+                    prefix_hash=self._hash_messages_prefix(messages, len(messages)),
+                )
 
         if not user_message:
             raise BackendError(message="No user message found in request")
@@ -792,6 +871,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             "session/prompt",
             prompt_params,
         )
+        runtime.history_state = new_history_state
         return prompt_request_id, requested_model
 
     async def _stream_response_with_lock(

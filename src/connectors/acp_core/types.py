@@ -82,18 +82,27 @@ class AcpStreamPiece:
     reasoning_content: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class HistoryState:
+    """Tracks how much of ``processed_messages`` has been applied to the ACP agent."""
+
+    message_count: int
+    prefix_hash: str
+
+
 @dataclass(slots=True)
 class ACPProcessRuntime:
-    """Live ACP runtime bound to a project directory and model."""
+    """Live ACP runtime bound to a project directory, model, and client session."""
 
     project_dir: Path
     model: str
+    client_session_id: str = "default"
     process: Any | None = None
     session_id: str | None = None
     initialized: bool = False
     message_id: int = 0
     last_activity: float = 0.0
-    history_injected: bool = False
+    history_state: HistoryState | None = None
     process_lock: Any = field(default=None)
     request_lock: Any = field(default=None)
     cancellation_lock: Any = field(default=None)

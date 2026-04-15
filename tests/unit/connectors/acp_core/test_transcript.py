@@ -59,3 +59,24 @@ def test_transcript_serializer_with_tool_calls() -> None:
     assert "*Tool Result*: `file1.txt, file2.txt`" in result
     assert "[Current Request]" in result
     assert "Thanks!" in result
+
+
+def test_transcript_serializer_serialize_tail_appends_block() -> None:
+    messages = [
+        ChatMessage(role="user", content="first"),
+        ChatMessage(role="assistant", content="second"),
+        ChatMessage(role="user", content="third"),
+    ]
+    tail = ACPTranscriptSerializer.serialize_tail(messages, start_index=1)
+    assert "Additional conversation occurred" in tail
+    assert "**Assistant:** second" in tail
+    assert "third" in tail
+
+
+def test_transcript_serializer_serialize_tail_start_zero_delegates() -> None:
+    messages = [
+        ChatMessage(role="user", content="only"),
+    ]
+    assert ACPTranscriptSerializer.serialize_tail(
+        messages, 0
+    ) == ACPTranscriptSerializer.serialize(messages)

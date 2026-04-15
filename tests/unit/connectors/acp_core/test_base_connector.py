@@ -9,7 +9,10 @@ import pytest
 from src.connectors.acp_core.base_connector import BaseAcpConnector
 from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
 from src.connectors.acp_core.types import AcpStreamPiece as AcpStreamPiece
-from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+)
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope
 
@@ -39,9 +42,13 @@ class DummyAcpConnector(BaseAcpConnector):
 
 
 def _make_request(
-    stream: bool = False, with_history: bool = False
+    stream: bool = False,
+    with_history: bool = False,
+    *,
+    messages: list[ChatMessage] | None = None,
+    session_id: str | None = None,
 ) -> ConnectorChatCompletionsRequest:
-    messages = (
+    resolved_messages = messages or (
         [
             ChatMessage(role="system", content="You are a helpful assistant."),
             ChatMessage(role="user", content="What is 2+2?"),
@@ -55,16 +62,21 @@ def _make_request(
     request = CanonicalChatRequest(
         model="dummy/model",
         stream=stream,
-        messages=messages,
+        messages=resolved_messages,
     )
+    context: ConnectorRequestContext | None = None
+    if session_id is not None:
+        context = ConnectorRequestContext(
+            request_id=None, session_id=session_id, client_host=None
+        )
     return ConnectorChatCompletionsRequest(
         request=request,
-        processed_messages=messages,
+        processed_messages=resolved_messages,
         effective_model="dummy/model",
         identity=None,
         cancellation_token=None,
         cancellation_coordinator=None,
-        context=None,
+        context=context,
         options={},
     )
 
@@ -124,8 +136,38 @@ def test_resolve_stream_keepalive_interval_from_config(
     assert connector._resolve_stream_keepalive_interval() == 7.5
 
 
+def test_build_runtime_key_includes_client_session_id(
+    connector: DummyAcpConnector,
+) -> None:
+    key = connector._build_runtime_key(Path("/tmp/ws"), "my-model", "client-42")
+    assert key == (str(Path("/tmp/ws")), "my-model", "client-42")
+
+
+def test_resolve_client_session_id_defaults(connector: DummyAcpConnector) -> None:
+    req = _make_request()
+    assert connector._resolve_client_session_id(req) == "default"
+
+
+def test_resolve_client_session_id_from_context(connector: DummyAcpConnector) -> None:
+    req = _make_request(session_id="  abc  ")
+    assert connector._resolve_client_session_id(req) == "abc"
+
+
 @pytest.mark.asyncio
-async def test_base_acp_connector_history_injected_logic(
+async def test_acquire_runtime_isolates_per_client_session(
+    connector: DummyAcpConnector,
+) -> None:
+    connector._default_project_dir = Path("/tmp/dummy")
+    ra = await connector._acquire_runtime(_make_request(session_id="s-a"))
+    rb = await connector._acquire_runtime(_make_request(session_id="s-b"))
+    assert ra is not rb
+    assert ra.client_session_id == "s-a"
+    assert rb.client_session_id == "s-b"
+    assert len(connector._runtimes) == 2
+
+
+@pytest.mark.asyncio
+async def test_prepare_prompt_first_turn_serializes_full_transcript(
     connector: DummyAcpConnector,
 ) -> None:
     connector._default_project_dir = Path("/tmp/dummy")
@@ -134,7 +176,7 @@ async def test_base_acp_connector_history_injected_logic(
     runtime.process.stdin = MagicMock()
     runtime.process.stdout = MagicMock()
 
-    assert runtime.history_injected is False
+    assert runtime.history_state is None
 
     with (
         patch.object(connector, "_spawn_process", AsyncMock()),
@@ -142,25 +184,143 @@ async def test_base_acp_connector_history_injected_logic(
             connector, "_send_jsonrpc_message", AsyncMock(return_value=1)
         ) as send_mock,
     ):
-
         await connector._prepare_prompt_request_locked(
             runtime, _make_request(with_history=True)
         )
 
-        assert runtime.history_injected is True
+    assert runtime.history_state is not None
+    assert runtime.history_state.message_count == 4
+    sent_params = send_mock.call_args[0][2]
+    assert "System Note:" in sent_params["prompt"][0]["text"]
 
-        # Check that the prompt sent contains the transcript preamble
-        sent_params = send_mock.call_args[0][2]
-        prompt_text = sent_params["prompt"][0]["text"]
-        assert "System Note:" in prompt_text
 
-        # Second request should not inject history
-        await connector._prepare_prompt_request_locked(runtime, _make_request())
+@pytest.mark.asyncio
+async def test_prepare_prompt_incremental_tail_after_non_acp_turns(
+    connector: DummyAcpConnector,
+) -> None:
+    connector._default_project_dir = Path("/tmp/dummy")
+    runtime = connector._create_runtime(Path("/tmp/dummy"), "model")
+    runtime.process = MagicMock()
+    runtime.process.stdin = MagicMock()
+    runtime.process.stdout = MagicMock()
 
-        sent_params_2 = send_mock.call_args[0][2]
-        prompt_text_2 = sent_params_2["prompt"][0]["text"]
-        assert "System Note:" not in prompt_text_2
-        assert prompt_text_2 == "hello"
+    base = [
+        ChatMessage(role="user", content="first"),
+        ChatMessage(role="assistant", content="ack"),
+    ]
+    extended = [
+        *base,
+        ChatMessage(role="user", content="from other model"),
+        ChatMessage(role="assistant", content="external reply"),
+        ChatMessage(role="user", content="back to acp"),
+    ]
+
+    with (
+        patch.object(connector, "_spawn_process", AsyncMock()),
+        patch.object(
+            connector, "_send_jsonrpc_message", AsyncMock(return_value=1)
+        ) as send_mock,
+    ):
+        await connector._prepare_prompt_request_locked(
+            runtime, _make_request(messages=base)
+        )
+        assert runtime.history_state is not None
+        assert runtime.history_state.message_count == 2
+
+        await connector._prepare_prompt_request_locked(
+            runtime, _make_request(messages=extended)
+        )
+
+    assert runtime.history_state.message_count == 5
+    last_text = send_mock.call_args[0][2]["prompt"][0]["text"]
+    assert "Additional conversation occurred" in last_text
+    assert "from other model" in last_text
+    assert "back to acp" in last_text
+
+
+@pytest.mark.asyncio
+async def test_prepare_prompt_diverged_prefix_resets_and_reserializes_full(
+    connector: DummyAcpConnector,
+) -> None:
+    connector._default_project_dir = Path("/tmp/dummy")
+    runtime = connector._create_runtime(Path("/tmp/dummy"), "model")
+    runtime.process = MagicMock()
+    runtime.process.stdin = MagicMock()
+    runtime.process.stdout = MagicMock()
+
+    messages_v1 = [
+        ChatMessage(role="user", content="q1"),
+        ChatMessage(role="assistant", content="a1"),
+        ChatMessage(role="user", content="q2"),
+    ]
+    messages_v2 = [
+        ChatMessage(role="user", content="q1-edited"),
+        ChatMessage(role="assistant", content="a1"),
+        ChatMessage(role="user", content="q2"),
+    ]
+
+    with (
+        patch.object(connector, "_spawn_process", AsyncMock()),
+        patch.object(
+            connector, "_send_jsonrpc_message", AsyncMock(return_value=1)
+        ) as send_mock,
+        patch.object(connector, "_kill_runtime", AsyncMock()) as kill_mock,
+    ):
+        await connector._prepare_prompt_request_locked(
+            runtime, _make_request(messages=messages_v1)
+        )
+        await connector._prepare_prompt_request_locked(
+            runtime, _make_request(messages=messages_v2)
+        )
+
+    kill_mock.assert_awaited_once()
+    last_text = send_mock.call_args[0][2]["prompt"][0]["text"]
+    assert "q1-edited" in last_text
+    assert "System Note: The user is continuing a previous session" in last_text
+
+
+@pytest.mark.asyncio
+async def test_prepare_prompt_same_length_retry_uses_last_user_only(
+    connector: DummyAcpConnector,
+) -> None:
+    connector._default_project_dir = Path("/tmp/dummy")
+    runtime = connector._create_runtime(Path("/tmp/dummy"), "model")
+    runtime.process = MagicMock()
+    runtime.process.stdin = MagicMock()
+    runtime.process.stdout = MagicMock()
+    msgs = [ChatMessage(role="user", content="ping")]
+
+    with (
+        patch.object(connector, "_spawn_process", AsyncMock()),
+        patch.object(
+            connector, "_send_jsonrpc_message", AsyncMock(return_value=1)
+        ) as send_mock,
+    ):
+        await connector._prepare_prompt_request_locked(
+            runtime, _make_request(messages=msgs)
+        )
+        hc = runtime.history_state.message_count if runtime.history_state else 0
+        assert hc == 1
+        await connector._prepare_prompt_request_locked(
+            runtime, _make_request(messages=msgs)
+        )
+
+    last_text = send_mock.call_args[0][2]["prompt"][0]["text"]
+    assert last_text == "ping"
+
+
+def test_hash_messages_prefix_detects_edit(connector: DummyAcpConnector) -> None:
+    a = [
+        ChatMessage(role="user", content="x"),
+        ChatMessage(role="assistant", content="y"),
+    ]
+    b = [
+        ChatMessage(role="user", content="x-changed"),
+        ChatMessage(role="assistant", content="y"),
+    ]
+    h1 = connector._hash_messages_prefix(a, 1)
+    h2 = connector._hash_messages_prefix(b, 1)
+    assert h1 != h2
 
 
 @pytest.mark.asyncio
