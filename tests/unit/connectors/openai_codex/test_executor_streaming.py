@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import AsyncIterator
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
+from src.connectors.contracts import ConnectorRequestContext
+from src.connectors.openai_codex.continuation import (
+    InMemoryCodexContinuationCoordinator,
+)
+from src.connectors.openai_codex.contracts import CodexToolSchema
 from src.connectors.openai_codex.executor import ResponseExecutor
 from src.connectors.openai_codex.interfaces import ICompatibilityLayer
+from src.core.common.exceptions import InvalidRequestError
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.translators.responses.streaming import (
     reset_active_responses_stream_context,
@@ -219,6 +227,98 @@ class TestResponseExecutor:
             upstream_codex_error=None,
             response_headers=None,
         )
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_rotation_invalidates_continuation(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        continuation = MagicMock()
+        continuation.resolve_previous_response_id.return_value = "resp-prev"
+
+        async def empty_iterator():
+            return
+            yield  # pragma: no cover
+
+        success_handle = MagicMock()
+        success_handle.headers = {}
+        success_handle.cancel_callback = AsyncMock()
+        success_handle.iterator = empty_iterator()
+
+        call_count = [0]
+
+        async def handle_streaming_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise HTTPException(status_code=429, detail="rate limited")
+            return success_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=True)
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        continuation.invalidate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_auth_rotation_invalidates_continuation(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        continuation = MagicMock()
+        continuation.resolve_previous_response_id.return_value = "resp-prev"
+
+        async def empty_iterator():
+            return
+            yield  # pragma: no cover
+
+        success_handle = MagicMock()
+        success_handle.headers = {}
+        success_handle.cancel_callback = AsyncMock()
+        success_handle.iterator = empty_iterator()
+
+        call_count = [0]
+
+        async def handle_streaming_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise HTTPException(status_code=403, detail="Forbidden")
+            return success_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+        mock_base_connector._handle_auth_failure_rotation = AsyncMock(return_value=True)
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        continuation.invalidate.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_maps_instruction_invalid_error(
@@ -796,3 +896,640 @@ class TestResponseExecutor:
         assert all(
             cid == "retry-conversation-key-456" for cid in conversation_ids
         ), f"Expected all conversation_ids to be 'retry-conversation-key-456', got {conversation_ids}"
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_injects_previous_response_id_from_continuation(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        continuation = MagicMock()
+        continuation.resolve_previous_response_id.return_value = "resp_prev_123"
+
+        async def done_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_new_456", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        captured_payloads: list[dict[str, object]] = []
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = done_iterator()
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            captured_payloads.append(dict(payload_dict))
+            return mock_stream_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        assert captured_payloads[0]["previous_response_id"] == "resp_prev_123"
+        continuation.resolve_previous_response_id.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_proxy_continuation_omits_bootstrap_fields(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        continuation = MagicMock()
+        continuation.resolve_previous_response_id.return_value = "resp_prev_123"
+        streaming_payload.instructions = "Full Codex bootstrap"
+        streaming_payload.tools = [
+            CodexToolSchema(
+                name="read_file",
+                description="Read a file",
+                type="function",
+                parameters={"type": "object", "properties": {}},
+            )
+        ]
+
+        async def done_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_new_456", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        captured_payloads: list[dict[str, object]] = []
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = done_iterator()
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            captured_payloads.append(dict(payload_dict))
+            return mock_stream_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        assert captured_payloads[0]["previous_response_id"] == "resp_prev_123"
+        assert "instructions" not in captured_payloads[0]
+        assert "tools" not in captured_payloads[0]
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_logs_continuation_mode_metrics(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        caplog,
+    ) -> None:
+        continuation = MagicMock()
+        continuation.resolve_previous_response_id.return_value = "resp_prev_123"
+        streaming_payload.instructions = "Full Codex bootstrap"
+        streaming_payload.tools = [
+            CodexToolSchema(
+                name="read_file",
+                description="Read a file",
+                type="function",
+                parameters={"type": "object", "properties": {}},
+            )
+        ]
+
+        async def done_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_new_456", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = done_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        with caplog.at_level(logging.INFO):
+            result = await executor.execute(streaming_payload, sample_context)
+            assert result.content is not None
+            async for _ in result.content:
+                pass
+
+        matching = [
+            record
+            for record in caplog.records
+            if record.msg == "Submitting Codex request."
+        ]
+        assert matching
+        assert matching[-1].continuation_mode == "continued_delta"
+        assert matching[-1].input_item_count == 0
+        assert matching[-1].instructions_bytes == 0
+        assert matching[-1].tools_bytes == 0
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_uses_delta_suffix_for_translated_continuation(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+    ) -> None:
+        continuation = InMemoryCodexContinuationCoordinator()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        from src.connectors.openai_codex.contracts import CodexInputItem, CodexPayload
+
+        first_payload = CodexPayload(
+            model="gpt-5.1-codex",
+            input=[
+                CodexInputItem.model_validate(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": "environment block"}
+                        ],
+                    }
+                ),
+                CodexInputItem.model_validate(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "turn one"}],
+                    }
+                ),
+            ],
+            tools=[
+                CodexToolSchema(
+                    name="read_file",
+                    description="Read a file",
+                    type="function",
+                    parameters={"type": "object", "properties": {}},
+                )
+            ],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            stream=True,
+            include=[],
+            prompt_cache_key="test-key",
+            instructions="Full Codex bootstrap",
+        )
+
+        second_payload = first_payload.model_copy(
+            update={
+                "input": [
+                    *first_payload.input,
+                    CodexInputItem.model_validate(
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [
+                                {"type": "output_text", "text": "turn one reply"}
+                            ],
+                        }
+                    ),
+                    CodexInputItem.model_validate(
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "turn two"}],
+                        }
+                    ),
+                ]
+            }
+        )
+
+        async def first_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_first", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        async def second_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_second", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        captured_payloads: list[dict[str, object]] = []
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            captured_payloads.append(dict(payload_dict))
+            stream_handle = MagicMock()
+            stream_handle.headers = {}
+            stream_handle.cancel_callback = AsyncMock()
+            stream_handle.iterator = (
+                first_iterator() if len(captured_payloads) == 1 else second_iterator()
+            )
+            return stream_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        first_result = await executor.execute(first_payload, sample_context)
+        assert first_result.content is not None
+        async for _ in first_result.content:
+            pass
+
+        second_result = await executor.execute(second_payload, sample_context)
+        assert second_result.content is not None
+        async for _ in second_result.content:
+            pass
+
+        assert len(captured_payloads) == 2
+        assert "previous_response_id" not in captured_payloads[0]
+        assert captured_payloads[1]["previous_response_id"] == "resp_first"
+        assert "instructions" not in captured_payloads[1]
+        assert "tools" not in captured_payloads[1]
+        second_input = captured_payloads[1]["input"]
+        assert isinstance(second_input, list)
+        assert len(second_input) == 2
+        full_second_size = len(
+            json.dumps(second_payload.model_dump(exclude_none=True), sort_keys=True)
+        )
+        delta_second_size = len(json.dumps(captured_payloads[1], sort_keys=True))
+        assert delta_second_size < full_second_size
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_invalidates_proxy_lineage_on_tool_change(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+    ) -> None:
+        continuation = InMemoryCodexContinuationCoordinator()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+        from src.connectors.openai_codex.contracts import CodexInputItem, CodexPayload
+
+        first_payload = CodexPayload(
+            model="gpt-5.1-codex",
+            input=[
+                CodexInputItem.model_validate(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "turn one"}],
+                    }
+                )
+            ],
+            tools=[
+                CodexToolSchema(
+                    name="read_file",
+                    description="Read a file",
+                    type="function",
+                    parameters={"type": "object", "properties": {}},
+                )
+            ],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            stream=True,
+            include=[],
+            prompt_cache_key="test-key",
+            instructions="Full Codex bootstrap",
+        )
+        changed_tool_payload = first_payload.model_copy(
+            update={
+                "tools": [
+                    CodexToolSchema(
+                        name="write_file",
+                        description="Write a file",
+                        type="function",
+                        parameters={"type": "object", "properties": {}},
+                    )
+                ],
+                "input": [
+                    *first_payload.input,
+                    CodexInputItem.model_validate(
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "turn two"}],
+                        }
+                    ),
+                ],
+            }
+        )
+
+        async def done_iterator(response_id: str):
+            yield ProcessedResponse(
+                content={"id": response_id, "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        captured_payloads: list[dict[str, object]] = []
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            captured_payloads.append(dict(payload_dict))
+            stream_handle = MagicMock()
+            stream_handle.headers = {}
+            stream_handle.cancel_callback = AsyncMock()
+            stream_handle.iterator = done_iterator(
+                "resp_first" if len(captured_payloads) == 1 else "resp_second"
+            )
+            return stream_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        first_result = await executor.execute(first_payload, sample_context)
+        assert first_result.content is not None
+        async for _ in first_result.content:
+            pass
+
+        second_result = await executor.execute(changed_tool_payload, sample_context)
+        assert second_result.content is not None
+        async for _ in second_result.content:
+            pass
+
+        assert len(captured_payloads) == 2
+        assert "previous_response_id" not in captured_payloads[1]
+        changed_tools = captured_payloads[1]["tools"]
+        assert isinstance(changed_tools, list)
+        assert changed_tools[0]["name"] == "write_file"
+        assert captured_payloads[1]["instructions"] == "Full Codex bootstrap"
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_records_terminal_response_id_in_continuation(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        continuation = MagicMock()
+        continuation.resolve_previous_response_id.return_value = None
+
+        async def done_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_terminal_789", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = done_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        continuation.record_response_id.assert_called_once()
+        record_call = continuation.record_response_id.call_args
+        assert record_call.args[1] == "resp_terminal_789"
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_invalidates_continuation_on_missing_previous_response(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        continuation = MagicMock()
+        continuation.resolve_previous_response_id.return_value = "resp_prev_missing"
+
+        async def failing_iterator():
+            raise InvalidRequestError(
+                message="Previous response not found",
+                details={"code": "previous_response_not_found"},
+            )
+            yield  # pragma: no cover
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            stream_handle = MagicMock()
+            stream_handle.headers = {}
+            stream_handle.cancel_callback = AsyncMock()
+            stream_handle.iterator = failing_iterator()
+            return stream_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        with pytest.raises(InvalidRequestError):
+            async for _ in result.content:
+                pass
+
+        assert continuation.invalidate.call_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_replays_once_after_proxy_continuation_miss(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        continuation = MagicMock()
+        continuation.resolve_previous_response_id.return_value = "resp_prev_missing"
+        streaming_payload.instructions = "Full Codex bootstrap"
+        streaming_payload.tools = [
+            CodexToolSchema(
+                name="read_file",
+                description="Read a file",
+                type="function",
+                parameters={"type": "object", "properties": {}},
+            )
+        ]
+
+        async def failing_iterator():
+            raise InvalidRequestError(
+                message="Previous response not found",
+                details={"code": "previous_response_not_found"},
+            )
+            yield  # pragma: no cover
+
+        async def success_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_recovered_001", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        first_handle = MagicMock()
+        first_handle.headers = {}
+        first_handle.cancel_callback = AsyncMock()
+        first_handle.iterator = failing_iterator()
+
+        second_handle = MagicMock()
+        second_handle.headers = {}
+        second_handle.cancel_callback = AsyncMock()
+        second_handle.iterator = success_iterator()
+
+        captured_payloads: list[dict[str, object]] = []
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            captured_payloads.append(dict(payload_dict))
+            if len(captured_payloads) == 1:
+                return first_handle
+            return second_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        chunks = [chunk async for chunk in result.content]
+
+        assert len(chunks) == 1
+        assert chunks[0].metadata["event_type"] == "response.done"
+        assert captured_payloads[0]["previous_response_id"] == "resp_prev_missing"
+        assert "instructions" not in captured_payloads[0]
+        assert "tools" not in captured_payloads[0]
+        assert "previous_response_id" not in captured_payloads[1]
+        assert captured_payloads[1]["instructions"] == "Full Codex bootstrap"
+        restored_tools = captured_payloads[1]["tools"]
+        assert isinstance(restored_tools, list)
+        assert restored_tools
+        assert restored_tools[0]["name"] == "read_file"
+        continuation.invalidate.assert_called_once()
+        continuation.record_response_id.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_websocket_transport_passes_capture_context(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        streaming_payload,
+        monkeypatch,
+    ) -> None:
+        connector_context = ConnectorRequestContext(
+            request_id="req-codex-ws",
+            session_id="sess-codex-ws",
+            client_host="127.0.0.1",
+            extensions={"source": "test"},
+        )
+        # Build a fresh context with connector capture metadata to avoid mutating the shared fixture.
+        from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+        from src.connectors.openai_codex.contracts import (
+            CodexRequestContext,
+            ProcessedMessage,
+        )
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request = CanonicalChatRequest(
+            model="gpt-5.1-codex",
+            messages=[ChatMessage(role="user", content="hello")],
+            stream=True,
+        )
+        context = CodexRequestContext(
+            request=request,
+            processed_messages=[ProcessedMessage(role="user", content="hello")],
+            effective_model="gpt-5.1-codex",
+            capabilities=CodexClientCapabilities(),
+            session_id="proxy-session-codex",
+            metadata={
+                "connector_request_context": connector_context,
+                "capture_key_name": "openai-codex",
+            },
+        )
+
+        async def ws_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_ws_terminal", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        ws_client = MagicMock()
+        ws_client.disconnect = AsyncMock()
+        ws_client.send_response_create = MagicMock(return_value=ws_iterator())
+
+        monkeypatch.setattr(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            MagicMock(return_value=ws_client),
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            use_websocket=True,
+        )
+
+        result = await executor.execute(streaming_payload, context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        ws_client.send_response_create.assert_called_once()
+        send_kwargs = ws_client.send_response_create.call_args.kwargs
+        assert send_kwargs["context"] == connector_context
+        assert send_kwargs["backend"] == "openai-codex"
+        assert send_kwargs["model"] == "gpt-5.1-codex"
+        assert send_kwargs["key_name"] == "openai-codex"

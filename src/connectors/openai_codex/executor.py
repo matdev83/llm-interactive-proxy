@@ -6,10 +6,13 @@ This module implements the ResponseExecutor service that handles:
 - Credential refresh integration for streaming retries
 """
 
+# ruff: noqa: C901
+
 from __future__ import annotations
 
 import contextlib
 import inspect
+import json
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -18,6 +21,11 @@ from typing import TYPE_CHECKING, Any, cast
 from fastapi import HTTPException
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+from src.connectors.contracts import ConnectorRequestContext
+from src.connectors.openai_codex.continuation import (
+    CodexContinuationSnapshot,
+    InMemoryCodexContinuationCoordinator,
+)
 from src.connectors.openai_codex.contracts import (
     CodexPayload,
     CodexRequestContext,
@@ -25,6 +33,7 @@ from src.connectors.openai_codex.contracts import (
     ProviderStreamChunk,
 )
 from src.connectors.openai_codex.interfaces import (
+    ICodexContinuationCoordinator,
     ICodexTransport,
     ICompatibilityLayer,
     ICredentialManager,
@@ -111,11 +120,23 @@ class _CodexTransportAdapter:
         payload: dict[str, Any],
         headers: dict[str, str],
         session_id: str,
+        *,
+        context: ConnectorRequestContext | None = None,
+        backend: str = "openai-codex",
+        model: str = "unknown",
+        key_name: str | None = None,
     ) -> StreamingResponseHandle:
         # Opportunistically use WebSocket if enabled
         if self._use_websocket:
             return await self._initiate_websocket_streaming(
-                url, payload, headers, session_id
+                url,
+                payload,
+                headers,
+                session_id,
+                context=context,
+                backend=backend,
+                model=model,
+                key_name=key_name,
             )
 
         # Default to HTTP/SSE
@@ -129,6 +150,11 @@ class _CodexTransportAdapter:
         payload: dict[str, Any],
         headers: dict[str, str],
         session_id: str,
+        *,
+        context: ConnectorRequestContext | None = None,
+        backend: str = "openai-codex",
+        model: str = "unknown",
+        key_name: str | None = None,
     ) -> StreamingResponseHandle:
         """Initiate WebSocket streaming request for Codex.
 
@@ -183,6 +209,10 @@ class _CodexTransportAdapter:
                 async for response_chunk in self._websocket_client.send_response_create(
                     payload=payload,
                     previous_response_id=payload.get("previous_response_id"),
+                    context=context,
+                    backend=backend,
+                    model=model,
+                    key_name=key_name,
                 ):
                     # Pass through ProcessedResponse from WebSocket client
                     yield response_chunk
@@ -252,6 +282,7 @@ class ResponseExecutor(IResponseExecutor):
         codex_url: str = "https://chatgpt.com/backend-api/codex/responses",
         compatibility_layer: ICompatibilityLayer | None = None,
         transport: ICodexTransport | None = None,
+        continuation_coordinator: ICodexContinuationCoordinator | None = None,
         use_websocket: bool = False,
     ) -> None:
         """Initialize the response executor.
@@ -274,6 +305,11 @@ class ResponseExecutor(IResponseExecutor):
         self._compatibility_layer = compatibility_layer
         self._use_websocket = use_websocket
         self._max_incompatible_tool_retries = 2
+        self._continuation_coordinator = (
+            continuation_coordinator
+            if continuation_coordinator is not None
+            else InMemoryCodexContinuationCoordinator()
+        )
         self._transport = (
             transport
             if transport is not None
@@ -328,10 +364,61 @@ class ResponseExecutor(IResponseExecutor):
         # Derive conversation_id from prompt_cache_key, fallback to session_id
         conversation_id = payload.prompt_cache_key or context.session_id
         headers = self._build_headers(conversation_id, context.session_id)
+        continuation_context = self._build_continuation_context(
+            context,
+            prompt_cache_key=payload.prompt_cache_key,
+        )
         payload_dict = payload.model_dump(exclude_none=True)
+        full_payload_dict = dict(payload_dict)
+        continuation_snapshot = self._get_continuation_snapshot(continuation_context)
+        proxy_managed_previous_response_id = False
+        if "previous_response_id" not in payload_dict:
+            previous_response_id = (
+                self._continuation_coordinator.resolve_previous_response_id(
+                    continuation_context
+                )
+            )
+            if previous_response_id:
+                if continuation_snapshot is None:
+                    payload_dict["previous_response_id"] = previous_response_id
+                    proxy_managed_previous_response_id = True
+                elif self._is_compatible_continuation_snapshot(
+                    continuation_snapshot, payload_dict
+                ):
+                    sliced_input = self._slice_input_for_continuation(
+                        continuation_snapshot, payload_dict
+                    )
+                    if sliced_input is not None:
+                        payload_dict["previous_response_id"] = previous_response_id
+                        payload_dict["input"] = sliced_input
+                        proxy_managed_previous_response_id = True
+                    else:
+                        self._continuation_coordinator.invalidate(
+                            continuation_context,
+                            reason="continuation_input_drift",
+                        )
+                        continuation_snapshot = None
+                else:
+                    self._continuation_coordinator.invalidate(
+                        continuation_context,
+                        reason="continuation_static_fingerprint_changed",
+                    )
+                    continuation_snapshot = None
+        replay_payload_dict = dict(full_payload_dict)
+        initial_payload_dict = (
+            self._prune_continuation_bootstrap_fields(dict(payload_dict))
+            if proxy_managed_previous_response_id
+            else dict(payload_dict)
+        )
+        initial_request_mode = self._resolve_request_mode(
+            proxy_managed_previous_response_id=proxy_managed_previous_response_id,
+            has_previous_response_id="previous_response_id" in initial_payload_dict,
+        )
 
         headers_holder: dict[str, str] = {}
         current_cancel: list[Callable[[], Awaitable[None]] | None] = [None]
+        request_context = self._extract_connector_request_context(context)
+        capture_key_name = self._resolve_capture_key_name(context)
 
         async def cancel_active_stream() -> None:
             cancel_cb = current_cancel[0]
@@ -343,8 +430,10 @@ class ResponseExecutor(IResponseExecutor):
             attempts_used = 0
             max_retries = await self._effective_rate_limit_max_retries()
             incompatible_tool_retries = 0
+            previous_response_retry_used = False
             current_headers = dict(headers)
-            current_payload_dict = dict(payload_dict)
+            current_payload_dict = dict(initial_payload_dict)
+            current_request_mode = initial_request_mode
 
             # Get compatibility state from context metadata if available
             # State should always be provided by the facade via CodexRequestContext.metadata
@@ -358,14 +447,24 @@ class ResponseExecutor(IResponseExecutor):
             stream_handle = None
             try:
                 while True:
+                    self._log_request_attempt(
+                        context,
+                        current_payload_dict,
+                        mode=current_request_mode,
+                        attempt=attempts_used + 1,
+                    )
                     try:
-                        stream_handle = (
-                            await self._transport.initiate_streaming_request(
-                                url,
-                                current_payload_dict,
-                                current_headers,
-                                context.session_id,
-                            )
+                        stream_handle = await cast(
+                            Any, self._transport
+                        ).initiate_streaming_request(
+                            url,
+                            current_payload_dict,
+                            current_headers,
+                            context.session_id,
+                            context=request_context,
+                            backend="openai-codex",
+                            model=context.effective_model,
+                            key_name=capture_key_name,
                         )
                         # Fall through to consume the stream iterator below
                     except (HTTPException, LLMProxyError) as exc:
@@ -375,6 +474,10 @@ class ResponseExecutor(IResponseExecutor):
                                 session_id=context.session_id
                             )
                             if rotated:
+                                self._invalidate_continuation_on_rotation(
+                                    continuation_context,
+                                    reason="auth_rotation",
+                                )
                                 await self._wait_for_auth_retry_delay(attempts_used)
                                 attempts_used += 1
                                 self._refresh_headers_auth(
@@ -460,6 +563,10 @@ class ResponseExecutor(IResponseExecutor):
                                     response_headers=None,
                                 )
                                 if rotated:
+                                    self._invalidate_continuation_on_rotation(
+                                        continuation_context,
+                                        reason="rate_limit_rotation",
+                                    )
                                     await self._wait_for_auth_retry_delay(attempts_used)
                                     attempts_used += 1
                                     self._refresh_headers_auth(
@@ -497,143 +604,196 @@ class ResponseExecutor(IResponseExecutor):
 
                     restart_stream = False
                     retry_for_incompatible_tools = False
+                    retry_for_missing_previous_response = False
                     visible_output_emitted = False
-                    with OverrideRenderer(renderer_key):
-                        async for processed_chunk in stream_handle.iterator:
-                            processed_chunk = self._normalize_processed_stream_chunk(
-                                processed_chunk
-                            )
-                            incompatible_tools = self._detect_incompatible_tool_calls(
-                                processed_chunk.content,
-                                context,
-                            )
-                            if incompatible_tools and not visible_output_emitted:
-                                if (
-                                    incompatible_tool_retries
-                                    < self._max_incompatible_tool_retries
-                                ):
-                                    retry_for_incompatible_tools = True
-                                    restart_stream = True
-                                    incompatible_tool_retries += 1
-                                    current_payload_dict = (
-                                        self._append_incompatible_tool_retry_steering(
+                    terminal_response_id: str | None = None
+                    try:
+                        with OverrideRenderer(renderer_key):
+                            async for processed_chunk in stream_handle.iterator:
+                                candidate_response_id = (
+                                    self._extract_terminal_response_id(processed_chunk)
+                                )
+                                if candidate_response_id:
+                                    terminal_response_id = candidate_response_id
+                                processed_chunk = (
+                                    self._normalize_processed_stream_chunk(
+                                        processed_chunk
+                                    )
+                                )
+                                incompatible_tools = (
+                                    self._detect_incompatible_tool_calls(
+                                        processed_chunk.content,
+                                        context,
+                                    )
+                                )
+                                if incompatible_tools and not visible_output_emitted:
+                                    if (
+                                        incompatible_tool_retries
+                                        < self._max_incompatible_tool_retries
+                                    ):
+                                        retry_for_incompatible_tools = True
+                                        restart_stream = True
+                                        incompatible_tool_retries += 1
+                                        current_payload_dict = self._append_incompatible_tool_retry_steering(
                                             current_payload_dict,
                                             incompatible_tools,
                                             context,
                                         )
-                                    )
-                                    logger.info(
-                                        "Retrying streaming Codex request after incompatible tool calls: %s",
-                                        ", ".join(incompatible_tools),
-                                        extra={
-                                            "backend": "openai-codex",
-                                            "session_id": context.session_id,
-                                            "model": context.effective_model,
-                                            "retry_count": incompatible_tool_retries,
-                                        },
-                                    )
-                                    break
-                                logger.warning(
-                                    "Incompatible streaming tool calls persisted after retries; forwarding final stream.",
-                                    extra={
-                                        "backend": "openai-codex",
-                                        "session_id": context.session_id,
-                                        "model": context.effective_model,
-                                        "tool_names": incompatible_tools,
-                                    },
-                                )
-
-                            if self._should_retry_for_auth_error(processed_chunk):
-                                if visible_output_emitted:
-                                    logger.warning(
-                                        "Skipping stream restart for auth error because visible output was already emitted.",
-                                        extra={
-                                            "backend": "openai-codex",
-                                            "session_id": context.session_id,
-                                            "model": context.effective_model,
-                                        },
-                                    )
-                                    yield processed_chunk
-                                    continue
-                                restart_stream = True
-                                logger.info(
-                                    "Codex streaming chunk reported authentication failure; attempting token refresh.",
-                                    extra={
-                                        "backend": "openai-codex",
-                                        "session_id": context.session_id,
-                                        "model": context.effective_model,
-                                        "attempts_used": attempts_used,
-                                    },
-                                )
-                                # If max_retries is 0, raise immediately without yielding the error chunk
-                                if max_retries == 0:
-                                    if stream_handle.cancel_callback is not None:
-                                        with contextlib.suppress(Exception):
-                                            await stream_handle.cancel_callback()
-                                    # Notify connector of authentication failure for degradation
-                                    degrade_method = getattr(
-                                        self._base_connector, "_degrade", None
-                                    )
-                                    if degrade_method is not None:
-                                        degrade_method(
-                                            [
-                                                f"Codex streaming request failed authentication after {attempts_used} attempts"
-                                            ]
-                                        )
-                                    raise HTTPException(
-                                        status_code=401,
-                                        detail={
-                                            "error": "openai_codex_stream_auth_failed",
-                                            "message": "Codex streaming request failed authentication and could not be recovered.",
-                                            "details": {
+                                        logger.info(
+                                            "Retrying streaming Codex request after incompatible tool calls: %s",
+                                            ", ".join(incompatible_tools),
+                                            extra={
                                                 "backend": "openai-codex",
-                                                "attempts": attempts_used,
-                                                "max_retries": max_retries,
+                                                "session_id": context.session_id,
+                                                "model": context.effective_model,
+                                                "retry_count": incompatible_tool_retries,
                                             },
+                                        )
+                                        break
+                                    logger.warning(
+                                        "Incompatible streaming tool calls persisted after retries; forwarding final stream.",
+                                        extra={
+                                            "backend": "openai-codex",
+                                            "session_id": context.session_id,
+                                            "model": context.effective_model,
+                                            "tool_names": incompatible_tools,
                                         },
                                     )
-                                break
 
-                            # Apply compatibility layer translation if available
-                            if self._compatibility_layer and compatibility_state:
-                                try:
-                                    chunk_wrapper = ProviderStreamChunk(
-                                        raw=processed_chunk
-                                    )
-                                    translated_chunk = await self._compatibility_layer.translate_stream_chunk(
-                                        chunk_wrapper, compatibility_state
-                                    )
-                                    # Extract the translated content
-                                    if hasattr(translated_chunk, "raw"):
-                                        processed_chunk = cast(
-                                            ProcessedResponse, translated_chunk.raw
-                                        )
-                                    else:
-                                        processed_chunk = cast(
-                                            ProcessedResponse, translated_chunk
-                                        )
-                                except Exception as e:
-                                    if logger.isEnabledFor(TRACE_LEVEL):
-                                        logger.log(
-                                            TRACE_LEVEL,
-                                            "Compatibility layer translation failed: %s",
-                                            e,
-                                            exc_info=True,
+                                if self._should_retry_for_auth_error(processed_chunk):
+                                    if visible_output_emitted:
+                                        logger.warning(
+                                            "Skipping stream restart for auth error because visible output was already emitted.",
                                             extra={
                                                 "backend": "openai-codex",
                                                 "session_id": context.session_id,
                                                 "model": context.effective_model,
                                             },
                                         )
-                                    # Continue with original chunk on translation failure
+                                        yield processed_chunk
+                                        continue
+                                    restart_stream = True
+                                    logger.info(
+                                        "Codex streaming chunk reported authentication failure; attempting token refresh.",
+                                        extra={
+                                            "backend": "openai-codex",
+                                            "session_id": context.session_id,
+                                            "model": context.effective_model,
+                                            "attempts_used": attempts_used,
+                                        },
+                                    )
+                                    # If max_retries is 0, raise immediately without yielding the error chunk
+                                    if max_retries == 0:
+                                        if stream_handle.cancel_callback is not None:
+                                            with contextlib.suppress(Exception):
+                                                await stream_handle.cancel_callback()
+                                        # Notify connector of authentication failure for degradation
+                                        degrade_method = getattr(
+                                            self._base_connector, "_degrade", None
+                                        )
+                                        if degrade_method is not None:
+                                            degrade_method(
+                                                [
+                                                    f"Codex streaming request failed authentication after {attempts_used} attempts"
+                                                ]
+                                            )
+                                        raise HTTPException(
+                                            status_code=401,
+                                            detail={
+                                                "error": "openai_codex_stream_auth_failed",
+                                                "message": "Codex streaming request failed authentication and could not be recovered.",
+                                                "details": {
+                                                    "backend": "openai-codex",
+                                                    "attempts": attempts_used,
+                                                    "max_retries": max_retries,
+                                                },
+                                            },
+                                        )
+                                    break
 
-                            if self._chunk_has_client_visible_output(processed_chunk):
-                                visible_output_emitted = True
-                            yield processed_chunk
+                                # Apply compatibility layer translation if available
+                                if self._compatibility_layer and compatibility_state:
+                                    try:
+                                        chunk_wrapper = ProviderStreamChunk(
+                                            raw=processed_chunk
+                                        )
+                                        translated_chunk = await self._compatibility_layer.translate_stream_chunk(
+                                            chunk_wrapper, compatibility_state
+                                        )
+                                        # Extract the translated content
+                                        if hasattr(translated_chunk, "raw"):
+                                            processed_chunk = cast(
+                                                ProcessedResponse, translated_chunk.raw
+                                            )
+                                        else:
+                                            processed_chunk = cast(
+                                                ProcessedResponse, translated_chunk
+                                            )
+                                    except Exception as e:
+                                        if logger.isEnabledFor(TRACE_LEVEL):
+                                            logger.log(
+                                                TRACE_LEVEL,
+                                                "Compatibility layer translation failed: %s",
+                                                e,
+                                                exc_info=True,
+                                                extra={
+                                                    "backend": "openai-codex",
+                                                    "session_id": context.session_id,
+                                                    "model": context.effective_model,
+                                                },
+                                            )
+                                        # Continue with original chunk on translation failure
+
+                                if self._chunk_has_client_visible_output(
+                                    processed_chunk
+                                ):
+                                    visible_output_emitted = True
+                                yield processed_chunk
+                    except Exception as exc:
+                        if self._is_previous_response_not_found_error(exc):
+                            self._continuation_coordinator.invalidate(
+                                continuation_context,
+                                reason="previous_response_not_found",
+                            )
+                            if (
+                                proxy_managed_previous_response_id
+                                and not previous_response_retry_used
+                                and not visible_output_emitted
+                                and "previous_response_id" in current_payload_dict
+                            ):
+                                retry_for_missing_previous_response = True
+                                restart_stream = True
+                                previous_response_retry_used = True
+                                current_payload_dict = dict(replay_payload_dict)
+                                current_payload_dict.pop("previous_response_id", None)
+                                current_request_mode = "fallback_replay"
+                                logger.info(
+                                    "Retrying Codex request with full replay after continuation miss.",
+                                    extra={
+                                        "backend": "openai-codex",
+                                        "session_id": context.session_id,
+                                        "model": context.effective_model,
+                                        "continuation_mode": current_request_mode,
+                                    },
+                                )
+                            else:
+                                raise
+                        else:
+                            raise
 
                     # If stream completed successfully without auth errors, exit retry loop
                     if not restart_stream:
                         await self._mark_account_used()
+                        if terminal_response_id:
+                            self._continuation_coordinator.record_response_id(
+                                continuation_context,
+                                terminal_response_id,
+                            )
+                            self._record_continuation_turn(
+                                continuation_context,
+                                terminal_response_id,
+                                replay_payload_dict,
+                            )
                         break
 
                     if restart_stream:
@@ -642,6 +802,10 @@ class ResponseExecutor(IResponseExecutor):
                                 await stream_handle.cancel_callback()
 
                         if retry_for_incompatible_tools:
+                            current_cancel[0] = None
+                            continue
+
+                        if retry_for_missing_previous_response:
                             current_cancel[0] = None
                             continue
 
@@ -791,6 +955,214 @@ class ResponseExecutor(IResponseExecutor):
 
         return headers
 
+    def _build_continuation_context(
+        self,
+        context: CodexRequestContext,
+        *,
+        prompt_cache_key: str,
+    ) -> CodexRequestContext:
+        metadata = dict(context.metadata) if isinstance(context.metadata, dict) else {}
+        metadata["continuation_backend"] = "openai-codex"
+        metadata["continuation_prompt_cache_key"] = prompt_cache_key
+        account_id = self._get_account_id()
+        if account_id:
+            metadata["continuation_account_id"] = account_id
+        return context.model_copy(update={"metadata": metadata})
+
+    @staticmethod
+    def _extract_connector_request_context(
+        context: CodexRequestContext,
+    ) -> ConnectorRequestContext | None:
+        metadata = context.metadata if isinstance(context.metadata, dict) else {}
+        candidate = metadata.get("connector_request_context")
+        if isinstance(candidate, ConnectorRequestContext):
+            return candidate
+        request = context.request
+        extra_body = getattr(request, "extra_body", None)
+        if isinstance(extra_body, dict):
+            request_id = extra_body.get("_llm_proxy_request_id")
+            if isinstance(request_id, str) and request_id.strip():
+                proxy_session_id = extra_body.get("_llm_proxy_session_id")
+                proxy_client_host = extra_body.get("_llm_proxy_client_host")
+                return ConnectorRequestContext(
+                    request_id=request_id.strip(),
+                    session_id=(
+                        proxy_session_id.strip()
+                        if isinstance(proxy_session_id, str)
+                        and proxy_session_id.strip()
+                        else context.session_id
+                    ),
+                    client_host=(
+                        proxy_client_host.strip()
+                        if isinstance(proxy_client_host, str)
+                        and proxy_client_host.strip()
+                        else None
+                    ),
+                    extensions={},
+                )
+        return ConnectorRequestContext(
+            request_id=context.session_id,
+            session_id=context.session_id,
+            client_host=None,
+            extensions={},
+        )
+
+    @staticmethod
+    def _resolve_capture_key_name(context: CodexRequestContext) -> str:
+        metadata = context.metadata if isinstance(context.metadata, dict) else {}
+        candidate = metadata.get("capture_key_name")
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+        return "openai-codex"
+
+    def _get_continuation_snapshot(
+        self, context: CodexRequestContext
+    ) -> CodexContinuationSnapshot | None:
+        getter = getattr(self._continuation_coordinator, "get_snapshot", None)
+        if not callable(getter):
+            return None
+        snapshot = getter(context)
+        return snapshot if isinstance(snapshot, CodexContinuationSnapshot) else None
+
+    def _record_continuation_turn(
+        self,
+        context: CodexRequestContext,
+        response_id: str,
+        payload_dict: dict[str, Any],
+    ) -> None:
+        recorder = getattr(self._continuation_coordinator, "record_turn", None)
+        if callable(recorder):
+            recorder(
+                context,
+                response_id=response_id,
+                payload_dict=payload_dict,
+            )
+
+    def _invalidate_continuation_on_rotation(
+        self, context: CodexRequestContext, *, reason: str
+    ) -> None:
+        self._continuation_coordinator.invalidate(context, reason=reason)
+
+    @staticmethod
+    def _is_compatible_continuation_snapshot(
+        snapshot: CodexContinuationSnapshot,
+        payload_dict: dict[str, Any],
+    ) -> bool:
+        return (
+            snapshot.instructions_fingerprint
+            == InMemoryCodexContinuationCoordinator._fingerprint_component(
+                payload_dict.get("instructions")
+            )
+            and snapshot.tools_fingerprint
+            == InMemoryCodexContinuationCoordinator._fingerprint_component(
+                payload_dict.get("tools")
+            )
+        )
+
+    @staticmethod
+    def _slice_input_for_continuation(
+        snapshot: CodexContinuationSnapshot,
+        payload_dict: dict[str, Any],
+    ) -> list[Any] | None:
+        current_input = payload_dict.get("input")
+        if not isinstance(current_input, list) or not current_input:
+            return None
+        current_fingerprints = (
+            InMemoryCodexContinuationCoordinator._fingerprint_input_items(current_input)
+        )
+        prior_fingerprints = snapshot.input_fingerprints
+        if not prior_fingerprints:
+            return None
+
+        common_prefix_len = 0
+        for prior, current in zip(
+            prior_fingerprints, current_fingerprints, strict=False
+        ):
+            if prior != current:
+                break
+            common_prefix_len += 1
+
+        if common_prefix_len <= 0 or common_prefix_len >= len(current_input):
+            return None
+        return list(current_input[common_prefix_len:])
+
+    @staticmethod
+    def _prune_continuation_bootstrap_fields(
+        payload_dict: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload_dict.pop("instructions", None)
+        payload_dict.pop("tools", None)
+        return payload_dict
+
+    @staticmethod
+    def _resolve_request_mode(
+        *, proxy_managed_previous_response_id: bool, has_previous_response_id: bool
+    ) -> str:
+        if proxy_managed_previous_response_id:
+            return "continued_delta"
+        if has_previous_response_id:
+            return "client_continuation"
+        return "bootstrap"
+
+    def _log_request_attempt(
+        self,
+        context: CodexRequestContext,
+        payload_dict: dict[str, Any],
+        *,
+        mode: str,
+        attempt: int,
+    ) -> None:
+        if not logger.isEnabledFor(logging.INFO):
+            return
+        input_items = payload_dict.get("input")
+        tools = payload_dict.get("tools")
+        instructions = payload_dict.get("instructions")
+        logger.info(
+            "Submitting Codex request.",
+            extra={
+                "backend": "openai-codex",
+                "session_id": context.session_id,
+                "model": context.effective_model,
+                "attempt": attempt,
+                "continuation_mode": mode,
+                "has_previous_response_id": "previous_response_id" in payload_dict,
+                "input_item_count": (
+                    len(input_items) if isinstance(input_items, list) else 0
+                ),
+                "input_bytes": self._measure_json_bytes(input_items),
+                "tools_count": len(tools) if isinstance(tools, list) else 0,
+                "tools_bytes": self._measure_json_bytes(tools),
+                "instructions_bytes": (
+                    len(instructions.encode("utf-8"))
+                    if isinstance(instructions, str)
+                    else 0
+                ),
+            },
+        )
+
+    @staticmethod
+    def _measure_json_bytes(value: Any) -> int:
+        if value is None:
+            return 0
+        try:
+            return len(
+                json.dumps(
+                    value,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=ResponseExecutor._json_default,
+                ).encode("utf-8")
+            )
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _json_default(value: Any) -> Any:
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            return model_dump(mode="json")
+        return str(value)
+
     def _detect_incompatible_tool_calls(
         self,
         response_like: object,
@@ -867,6 +1239,59 @@ class ResponseExecutor(IResponseExecutor):
             usage=chunk.usage,
             metadata=dict(metadata),
         )
+
+    def _extract_terminal_response_id(self, chunk: ProcessedResponse) -> str | None:
+        metadata = chunk.metadata
+        event_type = metadata.get("event_type")
+        is_terminal = bool(metadata.get("done")) or event_type in {
+            "response.done",
+            "response.completed",
+        }
+        if not is_terminal:
+            return None
+
+        content = self._coerce_stream_chunk_content(chunk.content)
+        if not content:
+            return None
+
+        response_id = content.get("id")
+        if isinstance(response_id, str) and response_id.strip():
+            return response_id.strip()
+
+        response = content.get("response")
+        if isinstance(response, Mapping):
+            nested_id = response.get("id")
+            if isinstance(nested_id, str) and nested_id.strip():
+                return nested_id.strip()
+
+        return None
+
+    def _is_previous_response_not_found_error(self, exc: Exception) -> bool:
+        if isinstance(exc, HTTPException):
+            return self._contains_previous_response_not_found(exc.detail)
+        if isinstance(exc, LLMProxyError):
+            return self._contains_previous_response_not_found(exc.details) or (
+                "previous_response_not_found" in exc.message
+            )
+        return "previous_response_not_found" in str(exc)
+
+    def _contains_previous_response_not_found(self, payload: Any) -> bool:
+        if isinstance(payload, Mapping):
+            code = payload.get("code")
+            if code == "previous_response_not_found":
+                return True
+            for nested_key in ("error", "details", "detail", "metadata"):
+                if (
+                    nested_key in payload
+                    and self._contains_previous_response_not_found(
+                        payload.get(nested_key)
+                    )
+                ):
+                    return True
+            return False
+        if isinstance(payload, str):
+            return "previous_response_not_found" in payload
+        return False
 
     @staticmethod
     def _extract_tool_calls(response_like: object) -> list[dict[str, object]]:

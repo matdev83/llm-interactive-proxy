@@ -48,9 +48,15 @@ from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
 from src.connectors._openai_codex_request_translator import CodexRequestTranslator
 from src.connectors._openai_codex_session_detector import SessionDetector
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
-from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+)
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex.compat import CompatibilityLayer
+from src.connectors.openai_codex.continuation import (
+    InMemoryCodexContinuationCoordinator,
+)
 from src.connectors.openai_codex.contracts import (
     CodexConnectorDependencies,
     CodexConnectorSettings,
@@ -272,6 +278,7 @@ class OpenAICodexConnector(OpenAIConnector):
             and self._dependencies.tool_execution_service is not None
             else ToolExecutionService()
         )
+        self._continuation_coordinator = InMemoryCodexContinuationCoordinator()
 
         self._compatibility_layer = (
             self._dependencies.compatibility_layer
@@ -324,6 +331,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 max_retries=max_retries,
                 retry_backoff_seconds=retry_backoff_seconds,
                 compatibility_layer=self._compatibility_layer,
+                continuation_coordinator=self._continuation_coordinator,
                 use_websocket=use_websocket,
             )
         )
@@ -1342,6 +1350,7 @@ class OpenAICodexConnector(OpenAIConnector):
         domain_request: Any,
         *,
         options_metadata: Mapping[str, Any] | None = None,
+        request_context: ConnectorRequestContext | None = None,
     ) -> Any:
         """Call the Codex-specific Responses API endpoint."""
         capabilities = self._resolve_capabilities(request_data)
@@ -1469,6 +1478,11 @@ class OpenAICodexConnector(OpenAIConnector):
             if executor_metadata is None:
                 executor_metadata = {}
             executor_metadata["compatibility_state"] = compatibility_state
+        if request_context is not None:
+            if executor_metadata is None:
+                executor_metadata = {}
+            executor_metadata["connector_request_context"] = request_context
+            executor_metadata["capture_key_name"] = self.backend_type
 
         executor_context = CodexRequestContext.model_construct(
             request=request_data,
@@ -2065,6 +2079,7 @@ class OpenAICodexConnector(OpenAIConnector):
                             if isinstance((md_raw := kwargs.get("metadata")), Mapping)
                             else None
                         ),
+                        request_context=request.context,
                     ),
                 )
                 if not self.is_functional:

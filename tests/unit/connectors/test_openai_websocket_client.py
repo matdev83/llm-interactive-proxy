@@ -154,6 +154,38 @@ async def test_send_response_create_with_previous_id(ws_client):
 
 
 @pytest.mark.asyncio
+async def test_send_response_create_preserves_previous_id_without_local_cache(
+    ws_client,
+):
+    """Continuation must not depend on connection-local response cache."""
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+
+        response_done = {
+            "type": "response.done",
+            "response": {"id": "resp_789", "output": []},
+        }
+
+        async def mock_aiter(self):
+            yield json.dumps(response_done)
+
+        mock_ws.__aiter__ = lambda self: mock_aiter(self)
+        mock_connect.return_value = mock_ws
+
+        await ws_client.connect()
+
+        payload = {"model": "gpt-4o", "input": "Follow-up message"}
+        async for _ in ws_client.send_response_create(
+            payload, previous_response_id="resp_missing_locally"
+        ):
+            pass
+
+        sent_event = json.loads(mock_ws.send.call_args[0][0])
+        assert sent_event.get("previous_response_id") == "resp_missing_locally"
+
+
+@pytest.mark.asyncio
 async def test_error_handling_previous_response_not_found(ws_client):
     """Test error handling for previous_response_not_found."""
     with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
@@ -177,9 +209,11 @@ async def test_error_handling_previous_response_not_found(ws_client):
         await ws_client.connect()
 
         payload = {"model": "gpt-4o", "input": "Test"}
-        with pytest.raises(InvalidRequestError):
+        with pytest.raises(InvalidRequestError) as exc_info:
             async for _ in ws_client.send_response_create(payload):
                 pass
+
+        assert exc_info.value.details["code"] == "previous_response_not_found"
 
 
 @pytest.mark.asyncio

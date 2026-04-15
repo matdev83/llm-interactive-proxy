@@ -73,15 +73,11 @@ class OpenCodeClientFamilyAdapter(IClientFamilyAdapter):
         if not isinstance(instructions, str) or not instructions.strip():
             instructions = resolved_instructions or ""
 
-        bridge_prompt = self._build_bridge_prompt()
-        if bridge_prompt in instructions:
-            result["instructions"] = instructions
-            return result
-
-        if instructions.strip():
-            result["instructions"] = f"{instructions.rstrip()}\n\n{bridge_prompt}"
-        else:
-            result["instructions"] = bridge_prompt
+        result["instructions"] = self._append_instruction_block(
+            instructions,
+            marker=_OPENCODE_BRIDGE_MARKER,
+            block=self._build_bridge_prompt(),
+        )
         return result
 
     def _adapt_input_items(
@@ -144,15 +140,6 @@ class OpenCodeClientFamilyAdapter(IClientFamilyAdapter):
         else:
             return None
 
-        if str(normalized.get("type") or "").strip().lower() == "item_reference":
-            return None
-
-        normalized.pop("id", None)
-        nested_item = normalized.get("item")
-        if isinstance(nested_item, Mapping):
-            nested_copy = dict(nested_item)
-            nested_copy.pop("id", None)
-            normalized["item"] = nested_copy
         return normalized
 
     def _is_opencode_system_prompt_item(self, item: Mapping[str, Any]) -> bool:
@@ -299,12 +286,16 @@ class OpenCodeClientFamilyAdapter(IClientFamilyAdapter):
             context,
         )
         instructions = result.get("instructions")
-        if isinstance(instructions, str) and steering in instructions:
+        if (
+            isinstance(instructions, str)
+            and _OPENCODE_INCOMPATIBLE_MARKER in instructions
+        ):
             return result
-        if isinstance(instructions, str) and instructions.strip():
-            result["instructions"] = f"{instructions.rstrip()}\n\n{steering}"
-        else:
-            result["instructions"] = steering
+        result["instructions"] = self._append_instruction_block(
+            instructions if isinstance(instructions, str) else "",
+            marker=_OPENCODE_INCOMPATIBLE_MARKER,
+            block=steering,
+        )
         return result
 
     def _resolve_supported_tool_names(self, context: CodexRequestContext) -> set[str]:
@@ -360,3 +351,16 @@ class OpenCodeClientFamilyAdapter(IClientFamilyAdapter):
             "- For shell execution, arguments MUST be a JSON object with string "
             "`command` and string `description`."
         )
+
+    @staticmethod
+    def _append_instruction_block(
+        instructions: str,
+        *,
+        marker: str,
+        block: str,
+    ) -> str:
+        if marker in instructions:
+            return instructions
+        if instructions.strip():
+            return f"{instructions.rstrip()}\n\n{block}"
+        return block

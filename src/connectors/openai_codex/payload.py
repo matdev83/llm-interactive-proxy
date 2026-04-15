@@ -196,6 +196,7 @@ class PayloadBuilder(IPayloadBuilder):
                 "text",
                 "include",
                 "prompt_cache_key",
+                "previous_response_id",
                 "store",
                 "stream",
             ):
@@ -216,12 +217,17 @@ class PayloadBuilder(IPayloadBuilder):
 
         # Ensure prompt_cache_key exists
         passthrough_dict["prompt_cache_key"] = self._resolve_prompt_cache_key(
-            request_data, passthrough_dict
+            request_data,
+            passthrough_dict,
+            fallback_session_id=context.session_id,
         )
 
         # Ensure include is present when reasoning is used (Codex CLI behavior).
         if not passthrough_dict.get("include") and passthrough_dict.get("reasoning"):
             passthrough_dict["include"] = ["reasoning.encrypted_content"]
+        has_previous_response_id = isinstance(
+            passthrough_dict.get("previous_response_id"), str
+        ) and bool(cast(str, passthrough_dict["previous_response_id"]).strip())
 
         resolved_instructions = self._resolve_instructions(context)
         passthrough_dict = self._family_registry.adapt_payload_dict(
@@ -235,7 +241,9 @@ class PayloadBuilder(IPayloadBuilder):
         # and no top-level `instructions`; `OpenCodeClientFamilyAdapter` also returns
         # early when there are no tools, so merge resolved defaults here.
         instr = passthrough_dict.get("instructions")
-        if not isinstance(instr, str) or not instr.strip():
+        if not has_previous_response_id and (
+            not isinstance(instr, str) or not instr.strip()
+        ):
             fallback = resolved_instructions
             if not isinstance(fallback, str) or not fallback.strip():
                 fallback = self._prompt_resolver.resolve_system_prompt(
@@ -254,7 +262,7 @@ class PayloadBuilder(IPayloadBuilder):
         # Merge only when ``tools`` was not supplied in the passthrough dict (missing key);
         # an explicit ``tools: []`` in ``extra_body`` must not be replaced by resolver output.
         if isinstance(request_data, CanonicalChatRequest):
-            if "tools" not in passthrough_dict:
+            if "tools" not in passthrough_dict and not has_previous_response_id:
                 merged_tools = self._tool_schema_resolver.resolve_tool_schema(context)
                 if merged_tools:
                     passthrough_dict["tools"] = [
@@ -306,7 +314,11 @@ class PayloadBuilder(IPayloadBuilder):
         instructions = self._resolve_instructions(context)
 
         # Build conversation ID
-        conversation_id = self._resolve_prompt_cache_key(context.request, None)
+        conversation_id = self._resolve_prompt_cache_key(
+            context.request,
+            None,
+            fallback_session_id=context.session_id,
+        )
 
         # Codex backend expects streaming SSE; Codex CLI always streams.
         stream_flag = True
@@ -369,15 +381,19 @@ class PayloadBuilder(IPayloadBuilder):
 
     @staticmethod
     def _resolve_prompt_cache_key(
-        request_data: Any, passthrough_dict: dict[str, Any] | None
+        request_data: Any,
+        passthrough_dict: dict[str, Any] | None,
+        *,
+        fallback_session_id: str | None = None,
     ) -> str:
         """Resolve a stable prompt_cache_key/conversation id.
 
         Priority order mirrors Codex/OpenCode usage:
         1) explicit prompt_cache_key (Responses)
         2) conversation_id/session_id (legacy)
-        3) CanonicalChatRequest.session_id (proxy correlation)
-        4) UUID fallback
+        3) CanonicalChatRequest.session_id (request-side correlation)
+        4) proxy session id fallback
+        5) UUID fallback
         """
         candidates: list[Any] = []
         if passthrough_dict:
@@ -396,6 +412,7 @@ class PayloadBuilder(IPayloadBuilder):
             candidates.append(extra_body.get("session_id"))
 
         candidates.append(getattr(request_data, "session_id", None))
+        candidates.append(fallback_session_id)
         for value in candidates:
             if isinstance(value, str) and value.strip():
                 return value.strip()
@@ -657,6 +674,7 @@ class PayloadBuilder(IPayloadBuilder):
             stream=payload_dict.get("stream", True),
             include=payload_dict.get("include", []),
             prompt_cache_key=payload_dict.get("prompt_cache_key", str(uuid.uuid4())),
+            previous_response_id=payload_dict.get("previous_response_id"),
             instructions=payload_dict.get("instructions"),
             extras=payload_dict.get("extras"),
         )
@@ -664,9 +682,9 @@ class PayloadBuilder(IPayloadBuilder):
     @staticmethod
     def _sanitize_responses_input(input_value: Any) -> list[dict[str, Any] | Any]:
         """Make a Responses `input` array safe for ChatGPT Codex backend.
-        
-        Note: We must NOT strip `id`, `metadata`, or `item_reference` fields, nor 
-        modify `function_call_output` entries. The Codex backend relies on the exact 
+
+        Note: We must NOT strip `id`, `metadata`, or `item_reference` fields, nor
+        modify `function_call_output` entries. The Codex backend relies on the exact
         shape of these messages (including `id`s) to perform context (write) caching.
         Stripping them causes cache misses and rapid quota exhaustion.
         """

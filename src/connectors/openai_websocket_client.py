@@ -199,15 +199,14 @@ class OpenAIWebSocketClient:
 
         # Add previous_response_id if provided and in cache
         if previous_response_id:
+            event["previous_response_id"] = previous_response_id
             if previous_response_id in self._response_cache:
-                event["previous_response_id"] = previous_response_id
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Using cached response ID: %s", previous_response_id)
-            else:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "previous_response_id not in cache, starting new chain"
-                    )
+            elif logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "previous_response_id not in local cache; forwarding upstream continuation id anyway"
+                )
 
         # Remove transport-specific fields
         event.pop("stream", None)
@@ -277,7 +276,11 @@ class OpenAIWebSocketClient:
 
                     if error_code == "previous_response_not_found":
                         raise InvalidRequestError(
-                            message=f"Previous response not found: {error_message}"
+                            message=f"Previous response not found: {error_message}",
+                            details={
+                                "code": "previous_response_not_found",
+                                "message": error_message,
+                            },
                         )
                     if error_code == "websocket_connection_limit_reached":
                         raise ServiceUnavailableError(

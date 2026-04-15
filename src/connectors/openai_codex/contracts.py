@@ -201,6 +201,7 @@ class CodexPayload(BaseModel):
     stream: bool
     include: list[str]
     prompt_cache_key: str
+    previous_response_id: str | None = None
     instructions: str | None = None
     extras: dict[str, object] | None = None
 

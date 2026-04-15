@@ -5,7 +5,6 @@ Tests cover passthrough detection edge cases and payload construction.
 
 from __future__ import annotations
 
-import uuid
 from unittest.mock import MagicMock
 
 import pytest
@@ -167,6 +166,43 @@ class TestPayloadBuilder:
         assert payload.model == sample_context.effective_model
         mock_request_translator.translate_messages.assert_called_once()
 
+    def test_build_translated_payload_uses_proxy_session_id_as_prompt_cache_key_fallback(
+        self,
+        builder,
+        mock_connector,
+        sample_context,
+    ):
+        """Translated payloads should fall back to the proxy session id."""
+        mock_connector._is_native_responses_payload.return_value = False
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.prompt_cache_key == sample_context.session_id
+
+    def test_build_translated_payload_reuses_proxy_session_id_across_turns_without_request_side_ids(
+        self,
+        builder,
+        mock_connector,
+        sample_context,
+    ):
+        """Repeated translated turns should keep a stable conversation key."""
+        mock_connector._is_native_responses_payload.return_value = False
+
+        first_payload = builder.build_payload(sample_context)
+        second_context = sample_context.model_copy(
+            update={
+                "processed_messages": [
+                    ProcessedMessage(role="user", content="Test message"),
+                    ProcessedMessage(role="assistant", content="Reply"),
+                    ProcessedMessage(role="user", content="Follow-up"),
+                ]
+            }
+        )
+        second_payload = builder.build_payload(second_context)
+
+        assert first_payload.prompt_cache_key == sample_context.session_id
+        assert second_payload.prompt_cache_key == sample_context.session_id
+
     def test_build_payload_passthrough_detection(
         self, builder, mock_connector, sample_context
     ):
@@ -245,6 +281,87 @@ class TestPayloadBuilder:
         payload = builder.build_payload(sample_context)
 
         assert payload.prompt_cache_key == "session-456"
+
+    def test_build_payload_passthrough_preserves_previous_response_id(
+        self, builder, mock_connector, sample_context
+    ):
+        """Responses passthrough should keep previous_response_id intact."""
+        passthrough_request = CanonicalChatRequest(
+            model="gpt-5.1-codex",
+            messages=[ChatMessage(role="user", content="Test message")],
+            stream=True,
+        )
+        object.__setattr__(
+            passthrough_request,
+            "extra_body",
+            {
+                "input": [{"type": "message", "role": "user", "content": "test"}],
+                "previous_response_id": "resp-123",
+                "store": False,
+                "stream": True,
+            },
+        )
+        sample_context.request = passthrough_request
+        sample_context.capabilities = CodexClientCapabilities(codex_passthrough=True)
+        mock_connector._is_native_responses_payload.return_value = True
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.previous_response_id == "resp-123"
+
+    def test_build_payload_passthrough_continuation_keeps_bootstrap_fields_omitted(
+        self,
+        builder,
+        mock_connector,
+        mock_prompt_resolver,
+        mock_tool_schema_resolver,
+        sample_context,
+    ):
+        """Continued passthrough turns should not re-inject instructions or tools."""
+        passthrough_request = CanonicalChatRequest(
+            model="gpt-5.1-codex",
+            messages=[ChatMessage(role="user", content="Test message")],
+            stream=True,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read a file",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        )
+        object.__setattr__(
+            passthrough_request,
+            "extra_body",
+            {
+                "input": [{"type": "message", "role": "user", "content": "delta"}],
+                "previous_response_id": "resp-123",
+                "store": False,
+                "stream": True,
+            },
+        )
+        sample_context.request = passthrough_request
+        sample_context.capabilities = CodexClientCapabilities(codex_passthrough=True)
+        mock_connector._is_native_responses_payload.return_value = True
+        mock_prompt_resolver.resolve_system_prompt.return_value = "Codex instructions"
+        mock_tool_schema_resolver.resolve_tool_schema.return_value = [
+            CodexToolSchema(
+                name="read_file",
+                description="Read a file",
+                type="function",
+                parameters={"type": "object", "properties": {}},
+            )
+        ]
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.previous_response_id == "resp-123"
+        assert payload.instructions is None
+        assert payload.tools == []
+        mock_tool_schema_resolver.resolve_tool_schema.assert_not_called()
 
     def test_build_payload_passthrough_appends_opencode_bridge(
         self, builder, mock_connector, mock_prompt_resolver, sample_context
@@ -472,18 +589,84 @@ class TestPayloadBuilder:
         first_content = payload.input[0].content
         assert isinstance(first_content, list)
         assert "OpenCode compatibility mode" in str(first_content[0]["text"])
-        assert all(item.type != "item_reference" for item in payload.input)
-        assert all(
-            "id" not in item.model_dump(exclude_none=True) for item in payload.input
+        assert any(item.type == "item_reference" for item in payload.input)
+        assert payload.input[1].model_dump(exclude_none=True)["id"] == "ref-1"
+        assert any(
+            item.model_dump(exclude_none=True).get("id") == "msg-2"
+            for item in payload.input
         )
         normalized_text = "\n".join(str(item.content) for item in payload.input)
         assert "OpenCode tool environment prompt" not in normalized_text
         assert "Prior tool output" in normalized_text
 
-    def test_build_payload_passthrough_generates_uuid(
+    def test_convert_dict_to_payload_preserves_responses_item_fields(
+        self, builder, sample_context
+    ):
+        """Native Responses items should keep IDs, metadata, and references."""
+        payload = builder.convert_dict_to_payload(
+            {
+                "model": "gpt-5.1-codex",
+                "input": [
+                    {
+                        "type": "message",
+                        "id": "msg-1",
+                        "role": "user",
+                        "metadata": {"source": "responses"},
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "hello",
+                            }
+                        ],
+                    },
+                    {
+                        "type": "function_call_output",
+                        "id": "out-1",
+                        "call_id": "call-1",
+                        "item_reference": {
+                            "type": "function_call",
+                            "id": "call-1",
+                        },
+                        "output": {"status": "ok"},
+                    },
+                    {
+                        "type": "item_reference",
+                        "id": "ref-1",
+                        "item": {
+                            "type": "function_call",
+                            "id": "call-1",
+                        },
+                    },
+                ],
+                "previous_response_id": "resp-456",
+                "stream": True,
+            },
+            sample_context,
+        )
+
+        assert payload.previous_response_id == "resp-456"
+        first_item = payload.input[0].model_dump(exclude_none=True)
+        assert first_item["id"] == "msg-1"
+        assert first_item["metadata"] == {"source": "responses"}
+        assert first_item["content"][0]["text"] == "hello"
+
+        second_item = payload.input[1].model_dump(exclude_none=True)
+        assert second_item["id"] == "out-1"
+        assert second_item["item_reference"] == {
+            "type": "function_call",
+            "id": "call-1",
+        }
+        assert second_item["output"] == {"status": "ok"}
+
+        third_item = payload.input[2].model_dump(exclude_none=True)
+        assert third_item["type"] == "item_reference"
+        assert third_item["id"] == "ref-1"
+        assert third_item["item"] == {"type": "function_call", "id": "call-1"}
+
+    def test_build_payload_passthrough_uses_proxy_session_id_when_no_request_key_exists(
         self, builder, mock_connector, sample_context
     ):
-        """Test passthrough generates UUID when no ID available."""
+        """Passthrough should fall back to the proxy session id before UUID."""
         passthrough_dict = {
             "model": "gpt-5.1-codex",
             "input": [],
@@ -494,9 +677,7 @@ class TestPayloadBuilder:
 
         payload = builder.build_payload(sample_context)
 
-        assert payload.prompt_cache_key is not None
-        # Should be a valid UUID format
-        uuid.UUID(payload.prompt_cache_key)
+        assert payload.prompt_cache_key == sample_context.session_id
 
     def test_build_translated_payload_includes_tools(
         self,
@@ -667,14 +848,12 @@ class TestPayloadBuilder:
     def test_build_translated_payload_conversation_id(
         self, builder, mock_connector, sample_context
     ):
-        """Test that conversation ID is generated for translated payload."""
+        """Translated payloads should use the proxy session id as conversation key."""
         mock_connector._is_native_responses_payload.return_value = False
 
         payload = builder.build_payload(sample_context)
 
-        assert payload.prompt_cache_key is not None
-        # Should be a valid UUID format
-        uuid.UUID(payload.prompt_cache_key)
+        assert payload.prompt_cache_key == sample_context.session_id
 
     def test_build_translated_payload_tool_choice(
         self, builder, mock_connector, sample_context

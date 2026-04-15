@@ -29,6 +29,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.tool_text_renderer import (
     OverrideRenderer,
@@ -518,6 +519,28 @@ async def test_codex_passthrough_skips_translation(
 
     # The key assertion: translation was bypassed
     build_input_items_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_codex_passthrough_preserves_previous_response_id(
+    connector: OpenAICodexConnector,
+) -> None:
+    native_payload = {
+        "model": "gpt-5.1-codex",
+        "input": [{"role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
+        "previous_response_id": "resp-123",
+        "stream": True,
+    }
+
+    capabilities = CodexClientCapabilities(codex_passthrough=True)
+    payload, _ = connector._build_codex_payload(
+        native_payload,
+        [],
+        "gpt-5.1-codex",
+        capabilities=capabilities,
+    )
+
+    assert payload.previous_response_id == "resp-123"
 
 
 @pytest.mark.asyncio
@@ -1126,7 +1149,11 @@ async def test_codex_retries_after_token_refresh(
                     "total_tokens": 12,
                 },
             },
-            usage={"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+            usage=UsageSummary(
+                prompt_tokens=10,
+                completion_tokens=2,
+                total_tokens=12,
+            ),
             metadata={"done": True},
         )
 
@@ -1229,11 +1256,11 @@ async def test_call_codex_responses_api_accumulates_stream_for_non_stream_client
                         "total_tokens": 12,
                     },
                 },
-                usage={
-                    "prompt_tokens": 10,
-                    "completion_tokens": 2,
-                    "total_tokens": 12,
-                },
+                usage=UsageSummary(
+                    prompt_tokens=10,
+                    completion_tokens=2,
+                    total_tokens=12,
+                ),
                 metadata={"done": True},
             )
 
