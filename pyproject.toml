@@ -91,6 +91,7 @@ dev = [
     "respx",
     "dependency-injector",
     "vulture",
+    "pycycle==0.0.8",
     "pytest-snapshot==0.9.0",
     "mypy==1.10.0",
     "hypothesis==6.112.1",
@@ -447,6 +448,16 @@ ignore_names = [
     "context_element",
     "tool_name"
 ]
+
+# Circular import scan (bndr/pycycle). Upstream does not read this table; dev/scripts/run_pycycle.py does.
+# Note: `pycycle --source <path>` is broken with modern Click (option is inferred as boolean), so the
+# wrapper runs `pycycle --here` with cwd set to `resolve_dir`.
+[tool.pycycle]
+resolve_dir = "src"
+encoding = "utf-8"
+# Comma-separated directory basenames excluded during traversal (passed to pycycle --ignore).
+ignore = ""
+verbose = false
 
 [tool.testmon]
 run_variant_expression = "','.join(sorted(str(v) for v in [sys.version_info[:2], sys.platform]))"

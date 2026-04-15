@@ -110,6 +110,55 @@ async def test_get_next_account_returns_none_when_all_rate_limited_and_polls_exh
 
 
 @pytest.mark.asyncio
+async def test_get_next_account_skip_recovery_wait_returns_immediately_when_all_rl() -> (
+    None
+):
+    """Rotation path must not sleep while every account is locally rate-limited."""
+    with tempfile.TemporaryDirectory() as tmp:
+        storage_path = Path(tmp) / "oauth"
+        storage = ManagedOAuthStorageService(str(storage_path))
+        exp = 9_999_999_999_999
+        await storage.save_account(
+            ManagedOAuthAccount(
+                account_id="only_a",
+                access_token="ta",
+                refresh_token="ra",
+                expiry_date=exp,
+            )
+        )
+        await storage.save_account(
+            ManagedOAuthAccount(
+                account_id="only_b",
+                access_token="tb",
+                refresh_token="rb",
+                expiry_date=exp,
+            )
+        )
+        refresh = ManagedOAuthRefreshService(storage, http_client=None)
+        selector = ManagedOAuthAccountSelector(
+            storage,
+            refresh,
+            max_rate_limit_wait_seconds=300.0,
+            max_rate_limit_idle_polls=48,
+            rate_limit_local_cooldown_cap_seconds=3600.0,
+        )
+        await selector.reload_accounts()
+        first = await selector.get_next_account(ignore_session_affinity=True)
+        assert first is not None
+        await selector.mark_current_account_rate_limited(86_400.0)
+        second = await selector.get_next_account(ignore_session_affinity=True)
+        assert second is not None
+        await selector.mark_current_account_rate_limited(86_400.0)
+        t0 = time.monotonic()
+        third = await selector.get_next_account(
+            ignore_session_affinity=True,
+            wait_for_rate_limit_recovery=False,
+        )
+        assert third is None
+        assert time.monotonic() - t0 < 0.5
+
+
+@pytest.mark.asyncio
 @real_time(
     reason="Compare rate_limited_until from selector against wall clock for cap span."
 )

@@ -21,6 +21,7 @@ from src.core.config.sources.backend_instances import BackendInstanceEnvSource
 
 # ── 1. Windows persistent env fallback for GEMINI_API_KEY ───────────────────
 
+
 class TestGeminiWindowsPersistentFallback:
     """Ensure Gemini base key reads from the Windows persistent registry
     when the process-level snapshot is stale."""
@@ -52,7 +53,10 @@ class TestGeminiWindowsPersistentFallback:
             HKEY_CURRENT_USER="HKCU",
             HKEY_LOCAL_MACHINE="HKLM",
             OpenKey=lambda hive, subkey: _Key(hive, subkey),
-            QueryValueEx=lambda key, name: (persistent_values[(key.hive, key.subkey, name)], 1),
+            QueryValueEx=lambda key, name: (
+                persistent_values[(key.hive, key.subkey, name)],
+                1,
+            ),
         )
         monkeypatch.setitem(sys.modules, "winreg", fake_winreg)
 
@@ -129,6 +133,7 @@ class TestGeminiWindowsPersistentFallback:
 
 # ── 2. _has_numbered_env_variants helper ────────────────────────────────────
 
+
 class TestHasNumberedEnvVariants:
     def test_no_variants_returns_false(self) -> None:
         assert _has_numbered_env_variants({}, "GEMINI_API_KEY") is False
@@ -147,6 +152,7 @@ class TestHasNumberedEnvVariants:
 
 
 # ── 3. BackendInstanceEnvSource discovers Gemini numbered keys ──────────────
+
 
 class TestGeminiInstanceEnvDiscovery:
     def test_discovers_gemini_1(self) -> None:
@@ -214,6 +220,7 @@ class TestGeminiInstanceEnvDiscovery:
 
 # ── 4. Full AppConfig integration: numbered keys create instances ───────────
 
+
 class TestGeminiAppConfigNumberedInstances:
     def test_single_numbered_key_creates_one_instance(self) -> None:
         env = {
@@ -227,7 +234,7 @@ class TestGeminiAppConfigNumberedInstances:
                 return_value=["gemini"],
             ),
             patch(
-                "src.core.config.models.backends.backend_registry.get_registered_backends",
+                "src.core.services.backend_registry.backend_registry.get_registered_backends",
                 return_value=["gemini"],
             ),
         ):
@@ -251,7 +258,7 @@ class TestGeminiAppConfigNumberedInstances:
                 return_value=["gemini"],
             ),
             patch(
-                "src.core.config.models.backends.backend_registry.get_registered_backends",
+                "src.core.services.backend_registry.backend_registry.get_registered_backends",
                 return_value=["gemini"],
             ),
         ):
@@ -281,7 +288,7 @@ class TestGeminiAppConfigNumberedInstances:
                 return_value=["gemini"],
             ),
             patch(
-                "src.core.config.models.backends.backend_registry.get_registered_backends",
+                "src.core.services.backend_registry.backend_registry.get_registered_backends",
                 return_value=["gemini"],
             ),
         ):
@@ -318,7 +325,7 @@ class TestGeminiAppConfigNumberedInstances:
                 return_value=["gemini"],
             ),
             patch(
-                "src.core.config.models.backends.backend_registry.get_registered_backends",
+                "src.core.services.backend_registry.backend_registry.get_registered_backends",
                 return_value=["gemini"],
             ),
         ):
@@ -341,7 +348,7 @@ class TestGeminiAppConfigNumberedInstances:
                 return_value=["gemini"],
             ),
             patch(
-                "src.core.config.models.backends.backend_registry.get_registered_backends",
+                "src.core.services.backend_registry.backend_registry.get_registered_backends",
                 return_value=["gemini"],
             ),
         ):
@@ -370,7 +377,7 @@ class TestGeminiAppConfigNumberedInstances:
                 return_value=["gemini"],
             ),
             patch(
-                "src.core.config.models.backends.backend_registry.get_registered_backends",
+                "src.core.services.backend_registry.backend_registry.get_registered_backends",
                 return_value=["gemini"],
             ),
         ):
@@ -389,13 +396,12 @@ class TestGeminiAppConfigNumberedInstances:
 
 # ── 5. End-to-end: Windows stale env + numbered keys ────────────────────────
 
+
 class TestGeminiStaleEnvEndToEnd:
     """Simulate the exact bug scenario: stale process GEMINI_API_KEY,
     fresh numbered keys in Windows registry."""
 
-    def test_stale_base_key_ignored_when_numbered_exist(
-        self, monkeypatch
-    ) -> None:
+    def test_stale_base_key_ignored_when_numbered_exist(self, monkeypatch) -> None:
         monkeypatch.setattr(sys, "platform", "win32")
 
         old_leaked_key = "old-leaked-gemini-key-AIzaSy"
@@ -439,7 +445,7 @@ class TestGeminiStaleEnvEndToEnd:
                 return_value=["gemini"],
             ),
             patch(
-                "src.core.config.models.backends.backend_registry.get_registered_backends",
+                "src.core.services.backend_registry.backend_registry.get_registered_backends",
                 return_value=["gemini"],
             ),
         ):
@@ -455,6 +461,6 @@ class TestGeminiStaleEnvEndToEnd:
         assert instance_2.api_key == fresh_key_2
 
         if base_cfg is not None:
-            assert base_cfg.api_key != old_leaked_key, (
-                "Base gemini must not use stale leaked key when numbered variants exist"
-            )
+            assert (
+                base_cfg.api_key != old_leaked_key
+            ), "Base gemini must not use stale leaked key when numbered variants exist"

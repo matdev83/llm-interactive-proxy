@@ -237,8 +237,17 @@ class ManagedOAuthAccountSelector:
         *,
         session_id: str | None = None,
         ignore_session_affinity: bool = False,
+        wait_for_rate_limit_recovery: bool = True,
     ) -> ManagedOAuthAccount | None:
-        """Return next usable account and perform proactive refresh."""
+        """Return next usable account and perform proactive refresh.
+
+        When every available account is currently rate-limited, the default
+        behaviour is to sleep (bounded by ``max_rate_limit_wait_seconds``) and
+        poll until one becomes eligible again or ``max_rate_limit_idle_polls``
+        is exceeded. Callers that must not block in-flight requests (for example
+        :meth:`rotate_on_rate_limit`) should pass ``wait_for_rate_limit_recovery=False``
+        to return ``None`` immediately in that situation.
+        """
         await self._ensure_accounts_loaded()
 
         rate_limit_idle_polls = 0
@@ -250,6 +259,8 @@ class ManagedOAuthAccountSelector:
                 return None
 
             if not eligible:
+                if not wait_for_rate_limit_recovery:
+                    return None
                 rate_limit_idle_polls += 1
                 if rate_limit_idle_polls > self._max_rate_limit_idle_polls:
                     return None
@@ -381,6 +392,7 @@ class ManagedOAuthAccountSelector:
         return await self.get_next_account(
             session_id=session_id,
             ignore_session_affinity=True,
+            wait_for_rate_limit_recovery=False,
         )
 
     async def rotate_on_auth_failure(
@@ -398,4 +410,5 @@ class ManagedOAuthAccountSelector:
         return await self.get_next_account(
             session_id=session_id,
             ignore_session_affinity=True,
+            wait_for_rate_limit_recovery=False,
         )

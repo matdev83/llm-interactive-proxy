@@ -541,12 +541,21 @@ class CredentialManager(ICredentialManager):
         if not self._managed_enabled():
             return False
 
+        # Skip managed path when nothing is on disk — avoids selector/refresh work
+        # and prevents long rate-limit polling loops during bootstrap (tests/CI).
+        if not await self._managed_has_accounts():
+            return False
+
         if force_reload:
             await self._managed_selector.reload_accounts()
 
         account = self._managed_selector.get_current_account()
         if account is None or account.needs_reauth:
-            account = await self._managed_selector.get_next_account()
+            # Initial bootstrap must not block on rate-limit recovery sleeps
+            # (see ManagedOAuthAccountSelector.get_next_account); fall back to legacy.
+            account = await self._managed_selector.get_next_account(
+                wait_for_rate_limit_recovery=False,
+            )
 
         if account is None:
             return False
@@ -862,7 +871,10 @@ class CredentialManager(ICredentialManager):
     async def _refresh_managed_access_token(self) -> bool:
         account = self._managed_selector.get_current_account()
         if account is None:
-            account = await self._managed_selector.get_next_account()
+            # Refresh path should also avoid blocking on rate-limit recovery sleeps.
+            account = await self._managed_selector.get_next_account(
+                wait_for_rate_limit_recovery=False,
+            )
         if account is None:
             return False
 

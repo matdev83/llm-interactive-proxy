@@ -975,11 +975,14 @@ async def test_cleanup_after_streaming_cancellation(
 async def test_cleanup_after_successful_non_streaming_completion(
     codex_connector: OpenAICodexConnector,
 ):
-    """Test that cleanup happens after successful non-streaming completion (Req 3.3, 7.3)."""
-    from unittest.mock import MagicMock
+    """Test cleanup after a client non-stream request (payload.stream=False).
 
+    ResponseExecutor always uses the streaming transport; cleanup runs in the
+    stream iterator's ``finally`` after the envelope is consumed.
+    """
     from src.connectors.openai_codex.contracts import CompatibilityState
     from src.core.domain.chat import ChatMessage
+    from src.core.interfaces.response_processor_interface import ProcessedResponse
 
     # Create compatibility state
     state = CompatibilityState()
@@ -996,43 +999,45 @@ async def test_cleanup_after_successful_non_streaming_completion(
 
         codex_connector._compatibility_layer.cleanup_state = tracked_cleanup
 
-    # Create context with compatibility state
-    from src.connectors._openai_codex_capabilities import CodexClientCapabilities
-    from src.connectors.openai_codex.contracts import (
-        CodexRequestContext,
-        ProcessedMessage,
-    )
+    chunks = [
+        ProcessedResponse(content={"choices": [{"delta": {"content": "Hello"}}]}),
+        ProcessedResponse(
+            content={"choices": [{"delta": {}, "finish_reason": "stop"}]}
+        ),
+    ]
 
-    request = CanonicalChatRequest(
-        model="gpt-5-codex",
-        messages=[ChatMessage(role="user", content="Test")],
-        stream=False,
-    )
+    async def mock_streaming_response(*args, **kwargs):
+        from tests.integration.test_codex_streaming_retry_parity import MockStreamHandle
 
-    context = CodexRequestContext(
-        request=request,
-        processed_messages=[ProcessedMessage(role="user", content="Test")],
-        effective_model="gpt-5-codex",
-        session_id="test_session",
-        capabilities=CodexClientCapabilities(),
-        metadata={"compatibility_state": state},
-    )
-
-    # Mock HTTP response
-    mock_response = MagicMock()
-    mock_response.status_code = 200
-    mock_response.json.return_value = {
-        "id": "test",
-        "choices": [{"message": {"role": "assistant", "content": "Hello"}}],
-    }
-    mock_response.headers = {}
+        return MockStreamHandle(chunks)
 
     with patch.object(
-        codex_connector._response_executor._base_connector.client,
-        "post",
-        return_value=mock_response,
+        codex_connector._response_executor._base_connector,
+        "_handle_streaming_response",
+        side_effect=mock_streaming_response,
     ):
-        # Execute via executor
+        # Create context with compatibility state
+        from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+        from src.connectors.openai_codex.contracts import (
+            CodexRequestContext,
+            ProcessedMessage,
+        )
+
+        request = CanonicalChatRequest(
+            model="gpt-5-codex",
+            messages=[ChatMessage(role="user", content="Test")],
+            stream=False,
+        )
+
+        context = CodexRequestContext(
+            request=request,
+            processed_messages=[ProcessedMessage(role="user", content="Test")],
+            effective_model="gpt-5-codex",
+            session_id="test_session",
+            capabilities=CodexClientCapabilities(),
+            metadata={"compatibility_state": state},
+        )
+
         from src.connectors.openai_codex.contracts import CodexPayload
 
         payload = CodexPayload(
@@ -1047,9 +1052,10 @@ async def test_cleanup_after_successful_non_streaming_completion(
             prompt_cache_key="test_key",
         )
 
-        await codex_connector._response_executor.execute(payload, context)
+        result = await codex_connector._response_executor.execute(payload, context)
+        async for _ in result.content:
+            pass
 
-        # Verify cleanup was called
         if codex_connector._compatibility_layer:
             assert (
                 len(cleanup_called) == 1
@@ -1061,7 +1067,7 @@ async def test_cleanup_after_successful_non_streaming_completion(
 async def test_cleanup_after_non_streaming_error(
     codex_connector: OpenAICodexConnector,
 ):
-    """Test that cleanup happens after non-streaming error/exception (Req 3.3, 7.3)."""
+    """Cleanup runs after transport error when consuming a non-stream payload envelope."""
     from src.connectors.openai_codex.contracts import CompatibilityState
     from src.core.domain.chat import ChatMessage
 
@@ -1102,13 +1108,14 @@ async def test_cleanup_after_non_streaming_error(
         metadata={"compatibility_state": state},
     )
 
-    # Mock HTTP response that raises exception
+    async def failing_streaming_response(*args, **kwargs):
+        raise Exception("Request error")
+
     with patch.object(
-        codex_connector._response_executor._base_connector.client,
-        "post",
-        side_effect=Exception("Request error"),
+        codex_connector._response_executor._base_connector,
+        "_handle_streaming_response",
+        side_effect=failing_streaming_response,
     ):
-        # Execute via executor
         from src.connectors.openai_codex.contracts import CodexPayload
 
         payload = CodexPayload(
@@ -1123,11 +1130,11 @@ async def test_cleanup_after_non_streaming_error(
             prompt_cache_key="test_key",
         )
 
-        # Should raise exception, but cleanup should still happen
-        with contextlib.suppress(Exception):  # Expected
-            await codex_connector._response_executor.execute(payload, context)
+        result = await codex_connector._response_executor.execute(payload, context)
+        with contextlib.suppress(Exception):
+            async for _ in result.content:
+                pass
 
-        # Verify cleanup was called even on error
         if codex_connector._compatibility_layer:
             assert len(cleanup_called) == 1, "Cleanup should be called even on error"
 

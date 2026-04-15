@@ -227,7 +227,8 @@ class ManagedOAuthConfig(BaseModel):
     #: when upstream sends very large ``resets_in_seconds``. Full upstream metadata is
     #: still stored on ``last_codex_usage_limit``.
     rate_limit_local_cooldown_cap_seconds: float = 1800.0
-    #: Max idle polls (sleeps) while all accounts are rate-limited before giving up.
+    #: Max idle polls (sleeps) while all accounts are rate-limited before giving up
+    #: (only when ``get_next_account`` is invoked with ``wait_for_rate_limit_recovery=True``).
     max_rate_limit_idle_polls: int = 48
 
     @classmethod

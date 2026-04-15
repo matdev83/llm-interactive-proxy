@@ -5,7 +5,6 @@ This module provides payload construction with passthrough detection.
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from copy import deepcopy
@@ -665,75 +664,12 @@ class PayloadBuilder(IPayloadBuilder):
     @staticmethod
     def _sanitize_responses_input(input_value: Any) -> list[dict[str, Any] | Any]:
         """Make a Responses `input` array safe for ChatGPT Codex backend.
-
-        - Removes `item_reference` entries (AI SDK/OpenCode server-state references)
-        - Strips per-item `id` fields for stateless mode (`store: false`)
-        - Removes unsupported per-item `metadata` blocks
-        - Converts orphaned `function_call_output` entries into assistant messages
-          to preserve context while avoiding backend validation errors
+        
+        Note: We must NOT strip `id`, `metadata`, or `item_reference` fields, nor 
+        modify `function_call_output` entries. The Codex backend relies on the exact 
+        shape of these messages (including `id`s) to perform context (write) caching.
+        Stripping them causes cache misses and rapid quota exhaustion.
         """
         if not isinstance(input_value, list):
             return []
-
-        filtered: list[dict[str, Any]] = []
-        for item in input_value:
-            if not isinstance(item, dict):
-                continue
-
-            item_type = item.get("type")
-            if item_type == "item_reference":
-                continue
-
-            item_dict = dict(item)
-            item_dict.pop("id", None)
-            item_dict.pop("metadata", None)
-            filtered.append(item_dict)
-
-        function_call_ids: set[str] = set()
-        for item in filtered:
-            if item.get("type") == "function_call":
-                call_id = item.get("call_id")
-                if isinstance(call_id, str) and call_id:
-                    function_call_ids.add(call_id)
-
-        safe: list[dict[str, Any]] = []
-        for item in filtered:
-            if item.get("type") == "function_call_output":
-                call_id = item.get("call_id")
-                if (
-                    isinstance(call_id, str)
-                    and call_id
-                    and call_id not in function_call_ids
-                ):
-                    tool_name = item.get("name")
-                    if not isinstance(tool_name, str) or not tool_name:
-                        tool_name = "tool"
-                    output_val = item.get("output")
-                    if isinstance(output_val, str):
-                        output_text = output_val
-                    else:
-                        try:
-                            output_text = json.dumps(output_val)
-                        except Exception:
-                            output_text = str(output_val)
-
-                    if len(output_text) > 16000:
-                        output_text = output_text[:16000] + "\n...[truncated]"
-
-                    safe.append(
-                        {
-                            "type": "message",
-                            "role": "assistant",
-                            "content": [
-                                {
-                                    "type": "output_text",
-                                    "text": f"[Previous {tool_name} result; call_id={call_id}]: {output_text}",
-                                }
-                            ],
-                        }
-                    )
-                    continue
-
-            safe.append(item)
-
-        return safe
+        return [dict(item) if isinstance(item, dict) else item for item in input_value]

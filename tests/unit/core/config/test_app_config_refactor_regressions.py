@@ -24,7 +24,7 @@ def test_from_env_discovers_numbered_backend_instances() -> None:
             return_value=["openai"],
         ),
         patch(
-            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            "src.core.services.backend_registry.backend_registry.get_registered_backends",
             return_value=["openai"],
         ),
     ):
@@ -48,7 +48,7 @@ def test_resolution_tracks_numbered_backend_instance_origin() -> None:
             return_value=["openai"],
         ),
         patch(
-            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            "src.core.services.backend_registry.backend_registry.get_registered_backends",
             return_value=["openai"],
         ),
     ):
@@ -72,7 +72,7 @@ def test_from_env_discovers_numbered_opencode_go_backend_instances() -> None:
             return_value=["opencode-go"],
         ),
         patch(
-            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            "src.core.services.backend_registry.backend_registry.get_registered_backends",
             return_value=["opencode-go"],
         ),
     ):
@@ -96,7 +96,7 @@ def test_opencode_go_numbered_instances_take_precedence_over_base_env_key() -> N
             return_value=["opencode-go"],
         ),
         patch(
-            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            "src.core.services.backend_registry.backend_registry.get_registered_backends",
             return_value=["opencode-go"],
         ),
     ):
@@ -123,7 +123,7 @@ def test_load_config_unsupported_suffix_raises_configuration_error(
             return_value=[],
         ),
         patch(
-            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            "src.core.services.backend_registry.backend_registry.get_registered_backends",
             return_value=[],
         ),
         pytest.raises(ConfigurationError),
@@ -148,7 +148,7 @@ def test_backend_config_provider_missing_backend_returns_default_without_mutatio
     None
 ):
     with patch(
-        "src.core.config.models.backends.backend_registry.get_registered_backends",
+        "src.core.services.backend_registry.backend_registry.get_registered_backends",
         return_value=[],
     ):
         cfg = AppConfig()

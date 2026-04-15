@@ -84,6 +84,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 | **Lint/Fix** | `./.venv/Scripts/python.exe -m ruff check --fix .` |
 | **Format** | `./.venv/Scripts/python.exe -m black .` |
 | **Boundary Type Check** | `./.venv/Scripts/python.exe dev/scripts/check_boundary_types.py` |
+| **Circular import scan (pycycle)** | `./.venv/Scripts/python.exe dev/scripts/run_pycycle.py` |
 | **Inspect CBOR wire captures** | `./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py <file> --detect-issues` |
 
 ## Quality & Testing Standards

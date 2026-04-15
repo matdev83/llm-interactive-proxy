@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 _CODEX_QUOTA_NOTIFICATION_TITLE = "OpenAI Codex: Quota reached"
 
+# Dedupe key component when every managed account is simultaneously unavailable:
+# one desktop alert per quota window, not one per account that hits 429 last.
+_CODEX_QUOTA_ALL_ACCOUNTS_DEDUPE_ID = "__all_managed_accounts__"
+
 _EXTENDED_WINDOW = "extended (~weekly_or_plan_quota)"
 
 
@@ -96,7 +100,12 @@ async def maybe_notify_codex_quota_reached(
     until_display = until_iso if until_iso else "unknown"
     dedupe_until = until_iso if until_iso else "none"
 
-    key = (managed_account_id, quota_type, dedupe_until)
+    dedupe_account_id = (
+        _CODEX_QUOTA_ALL_ACCOUNTS_DEDUPE_ID
+        if all_accounts_exhausted
+        else managed_account_id
+    )
+    key = (dedupe_account_id, quota_type, dedupe_until)
     if key in dedupe_keys:
         return
 

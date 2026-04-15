@@ -153,7 +153,7 @@ def demo_full_integration(monkeypatch) -> None:
             return_value=["gemini"],
         ),
         patch(
-            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            "src.core.services.backend_registry.backend_registry.get_registered_backends",
             return_value=["gemini"],
         ),
     ):
@@ -232,7 +232,7 @@ def demo_single_base_key_only(monkeypatch) -> None:
             return_value=["gemini"],
         ),
         patch(
-            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            "src.core.services.backend_registry.backend_registry.get_registered_backends",
             return_value=["gemini"],
         ),
     ):
@@ -271,7 +271,7 @@ def demo_single_numbered_key_only(monkeypatch) -> None:
             return_value=["gemini"],
         ),
         patch(
-            "src.core.config.models.backends.backend_registry.get_registered_backends",
+            "src.core.services.backend_registry.backend_registry.get_registered_backends",
             return_value=["gemini"],
         ),
     ):
