@@ -60,7 +60,10 @@ async def generate_report(config_path: str | None = None) -> None:
     try:
         import cbor2
 
-        from scripts.inspect_cbor_capture import load_capture_file, parse_all_sse_events
+        from src.core.wire_capture.inspection import (
+            load_capture_file,
+            parse_all_sse_events,
+        )
 
         cbor_available = True
     except ImportError:
@@ -144,7 +147,7 @@ async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None
     from pathlib import Path
 
     # Import here to ensure they are available
-    from scripts.inspect_cbor_capture import load_capture_file, parse_all_sse_events
+    from src.core.wire_capture.inspection import load_capture_file, parse_all_sse_events
 
     capture_dir = Path("var/wire_captures_cbor")
     if not capture_dir.exists():

@@ -117,7 +117,7 @@ async def _cmd_from_capture(args: argparse.Namespace) -> int:
 
     # Load via the capture inspection loader (no MAX_CAPTURE_ENTRIES limit) so we can
     # replay real-world captures that commonly exceed 10k entries.
-    from scripts.inspect_cbor_capture import load_capture_file
+    from src.core.wire_capture.inspection import load_capture_file
 
     header, entries = load_capture_file(capture_path)
 
@@ -261,7 +261,7 @@ async def _cmd_detect_repeats(args: argparse.Namespace) -> int:
     capture_path = Path(args.capture)
     direction = _parse_direction(args.direction)
 
-    from scripts.inspect_cbor_capture import load_capture_file
+    from src.core.wire_capture.inspection import load_capture_file
 
     _header, entries = load_capture_file(capture_path)
 
@@ -404,7 +404,7 @@ async def _cmd_summarize_streams(args: argparse.Namespace) -> int:
     capture_path = Path(args.capture)
     direction = _parse_direction(args.direction)
 
-    from scripts.inspect_cbor_capture import load_capture_file
+    from src.core.wire_capture.inspection import load_capture_file
 
     header, entries = load_capture_file(capture_path)
 

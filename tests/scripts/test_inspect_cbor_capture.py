@@ -3,22 +3,13 @@ import json
 import subprocess
 import sys
 from contextlib import redirect_stdout
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 import cbor2
 import pytest
+import src.core.wire_capture.inspection as inspector
 
 SCRIPT_PATH = Path("scripts/inspect_cbor_capture.py")
-
-
-def _load_inspector_module():
-    """Load inspect_cbor_capture.py as a module for direct unit testing."""
-    spec = spec_from_file_location("inspect_cbor_capture", SCRIPT_PATH)
-    assert spec is not None and spec.loader is not None
-    module = module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
 
 
 def _write_capture_file(capture_file: Path, entries: list[dict[str, object]]) -> None:
@@ -126,7 +117,6 @@ def test_script_analysis(tmp_path):
 
 def test_load_capture_file_rejects_unsupported_version(tmp_path):
     """The inspector should reject old capture versions before reading entries."""
-    inspector = _load_inspector_module()
     capture_file = tmp_path / "v1_capture.cbor"
 
     header = {
@@ -146,7 +136,6 @@ def test_load_capture_file_rejects_unsupported_version(tmp_path):
 
 def test_detect_issues_correlates_by_request_id_before_session_ids():
     """Regression: avoid false missing response when asid/bsid differ across legs."""
-    inspector = _load_inspector_module()
 
     entries = [
         {
@@ -187,7 +176,6 @@ def test_detect_issues_correlates_by_request_id_before_session_ids():
 
 def test_detect_issues_falls_back_to_asid_when_bsid_missing_on_response():
     """Regression: sid fallback should check both asid and bsid."""
-    inspector = _load_inspector_module()
 
     entries = [
         {
@@ -224,7 +212,6 @@ def test_detect_issues_falls_back_to_asid_when_bsid_missing_on_response():
 
 def test_print_summary_uses_v2_http_status_metadata(capsys):
     """Status summary should read compact V2 HTTP metadata keys."""
-    inspector = _load_inspector_module()
 
     header = {
         "magic": "LLMPROXY-CAPTURE-V2",
@@ -262,7 +249,6 @@ def test_print_summary_uses_v2_http_status_metadata(capsys):
 
 def test_print_entries_verbose_expands_compact_v2_metadata(capsys):
     """Verbose entry output should expand compact metadata keys to readable names."""
-    inspector = _load_inspector_module()
 
     entries = [
         {
@@ -299,7 +285,6 @@ def test_print_entries_verbose_expands_compact_v2_metadata(capsys):
 
 def test_analyze_request_response_pairs_uses_v2_stream_timing_metadata():
     """Analysis timing should prefer V2 stream timing metadata over marker timestamps."""
-    inspector = _load_inspector_module()
 
     entries = [
         {
@@ -349,7 +334,6 @@ def test_analyze_request_response_pairs_uses_v2_stream_timing_metadata():
 
 def test_analyze_request_response_pairs_handles_interleaved_requests_by_request_id():
     """Interleaved requests should not steal each other's backend chunks."""
-    inspector = _load_inspector_module()
 
     entries = [
         {
@@ -399,7 +383,6 @@ def test_analyze_request_response_pairs_handles_interleaved_requests_by_request_
 
 def test_analyze_streaming_handles_interleaved_requests_by_request_id():
     """Streaming analysis should correlate chunks by request_id, not next request boundary."""
-    inspector = _load_inspector_module()
 
     entries = [
         {
@@ -458,7 +441,6 @@ def test_analyze_streaming_handles_interleaved_requests_by_request_id():
 
 def test_load_capture_file_decompresses_zlib_payload(tmp_path):
     """Compressed V2 payloads should be transparently decompressed on load."""
-    inspector = _load_inspector_module()
     capture_file = tmp_path / "compressed_capture.cbor"
 
     with open(capture_file, "wb") as f:
@@ -493,7 +475,6 @@ def test_load_capture_file_decompresses_zlib_payload(tmp_path):
 
 def test_export_to_json_normalizes_metadata_and_honors_backend_filter(capsys):
     """JSON export should include readable V2 metadata and backend filtering."""
-    inspector = _load_inspector_module()
 
     header = {
         "magic": "LLMPROXY-CAPTURE-V2",
@@ -533,7 +514,6 @@ def test_export_to_json_normalizes_metadata_and_honors_backend_filter(capsys):
 
 def test_print_timeline_marks_slow_gaps_and_respects_backend_filter(capsys):
     """Timeline output should show backend filtering and highlight large gaps."""
-    inspector = _load_inspector_module()
 
     entries = [
         {"seq": 1, "dir": 2, "ts": 1000.0, "data": b"a", "meta": {"be": "openai"}},
@@ -560,7 +540,6 @@ def test_print_timeline_marks_slow_gaps_and_respects_backend_filter(capsys):
 
 def test_track_request_handles_interleaved_flows_by_request_id():
     """Tracked request flow should not stop at an unrelated interleaved client request."""
-    inspector = _load_inspector_module()
 
     entries = [
         {

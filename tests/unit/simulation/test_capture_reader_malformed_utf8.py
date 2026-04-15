@@ -67,8 +67,7 @@ def test_inspect_script_loader_best_effort_does_not_crash(
     a prefix rather than raising.
     """
 
-    # Import here so the script's sys.path manipulation doesn't affect collection.
-    import scripts.inspect_cbor_capture as inspector
+    import src.core.wire_capture.inspection as inspector
 
     capture_path = tmp_path / "bad.cbor"
 
