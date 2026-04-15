@@ -84,7 +84,11 @@ class AcpStreamPiece:
 
 @dataclass(frozen=True, slots=True)
 class HistoryState:
-    """Tracks how much of ``processed_messages`` has been applied to the ACP agent."""
+    """Tracks how much of ``processed_messages`` has been applied to the ACP agent.
+
+    ``prefix_hash`` is an opaque SHA-256 hex digest of the acknowledged prefix; it is
+    computed only inside the ACP base connector and must not be interpreted elsewhere.
+    """
 
     message_count: int
     prefix_hash: str

@@ -58,6 +58,36 @@ ACP_AGENT_MESSAGE_CHUNK = "agent_message_chunk"
 ACP_AGENT_THOUGHT_CHUNK = "agent_thought_chunk"
 ACP_CANCEL_METHODS = ("session/cancel", "session/stop", "session/end")
 ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS = 12.0
+# Increment when the canonicalization used for ACP history prefix hashes changes.
+HISTORY_PREFIX_HASH_VERSION = 2
+
+
+def _canonical_chat_message_for_history_hash(message: ChatMessage) -> dict[str, Any]:
+    """Return stable identity fields for divergence detection.
+
+    Uses :meth:`ChatMessage.to_dict` so fields such as ``metadata`` that are not
+    part of the visible transcript do not spuriously invalidate the prefix hash.
+    """
+
+    return message.to_dict()
+
+
+def _hash_chat_messages_prefix_stable(
+    messages: Sequence[ChatMessage],
+    end_exclusive: int,
+) -> str:
+    """SHA-256 hex digest of the first ``end_exclusive`` messages (conversation prefix)."""
+
+    if end_exclusive <= 0:
+        return hashlib.sha256(b"").hexdigest()
+    slice_msgs = messages[:end_exclusive]
+    payload = [_canonical_chat_message_for_history_hash(m) for m in slice_msgs]
+    canonical = json.dumps(
+        {"m": payload, "v": HISTORY_PREFIX_HASH_VERSION},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class _RuntimeCancellable:
@@ -175,6 +205,15 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     @staticmethod
     def _resolve_client_session_id(request: ConnectorChatCompletionsRequest) -> str:
+        """Resolve the logical client session used to key ACP subprocess pools.
+
+        When neither ``ConnectorRequestContext.session_id`` nor
+        ``request.request.session_id`` is set, callers share the pool key
+        ``"default"`` (one ACP runtime per ``(project_dir, model)`` for all
+        such traffic). Upstream layers should set a stable session id when
+        isolation between clients or tabs is required.
+        """
+
         sid: str | None = None
         if request.context is not None and request.context.session_id:
             sid = request.context.session_id
@@ -190,12 +229,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
     def _hash_messages_prefix(
         messages: Sequence[ChatMessage], end_exclusive: int
     ) -> str:
-        if end_exclusive <= 0:
-            return hashlib.sha256(b"").hexdigest()
-        slice_msgs = messages[:end_exclusive]
-        payload = [m.model_dump(mode="json", exclude_none=True) for m in slice_msgs]
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return _hash_chat_messages_prefix_stable(messages, end_exclusive)
 
     async def _acquire_runtime(
         self, request: ConnectorChatCompletionsRequest
@@ -218,8 +252,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 )
                 self._runtimes[runtime_key] = runtime
 
-        await self._reap_idle_runtime(runtime)
-        return runtime
+        return await self._reap_idle_runtime(runtime_key, runtime)
 
     def _resolve_project_dir_override(
         self, request: ConnectorChatCompletionsRequest
@@ -259,18 +292,45 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
         return self._default_project_dir
 
-    async def _reap_idle_runtime(self, runtime: ACPProcessRuntime) -> None:
+    async def _reap_idle_runtime(
+        self,
+        runtime_key: tuple[str, str, str],
+        runtime: ACPProcessRuntime,
+    ) -> ACPProcessRuntime:
+        """Drop idle subprocesses and swap in a fresh :class:`ACPProcessRuntime` slot.
+
+        Replacing the pool entry (instead of only clearing ``runtime.process``)
+        avoids unbounded growth of dead :class:`ACPProcessRuntime` objects while
+        ensuring concurrent acquirers always resolve to the canonical instance
+        currently registered for ``runtime_key``.
+        """
+
         if self._idle_timeout <= 0:
-            return
+            return runtime
         if runtime.request_lock is None or runtime.request_lock.locked():
-            return
+            return runtime
         if runtime.process is None:
-            return
+            return runtime
         if runtime.last_activity <= 0:
-            return
+            return runtime
         if (time.monotonic() - runtime.last_activity) < self._idle_timeout:
-            return
+            return runtime
+
         await self._kill_runtime(runtime)
+
+        async with self._runtime_pool_lock:
+            current = self._runtimes.get(runtime_key)
+            if current is runtime:
+                replacement = self._create_runtime(
+                    runtime.project_dir,
+                    runtime.model,
+                    runtime.client_session_id,
+                )
+                self._runtimes[runtime_key] = replacement
+                return replacement
+            if current is not None:
+                return current
+        return runtime
 
     async def _spawn_process(self, runtime: ACPProcessRuntime) -> None:
         assert runtime.process_lock is not None
@@ -800,6 +860,13 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         runtime: ACPProcessRuntime,
         request: ConnectorChatCompletionsRequest,
     ) -> tuple[int, str]:
+        """Build ``session/prompt`` text and JSON-RPC id under ``runtime.request_lock``.
+
+        History is tracked with :class:`HistoryState` so we can send a compact
+        tail transcript on append-only turns, resend the full transcript after
+        detected divergence, or send only the last user line on idempotent retries.
+        """
+
         await self._spawn_process(runtime)
         await self._initialize_runtime(runtime)
 
@@ -811,6 +878,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         new_history_state: HistoryState
         user_message: str
 
+        # First prompt for this subprocess: full Markdown transcript + state seed.
         if state is None:
             user_message = ACPTranscriptSerializer.serialize(messages)
             new_history_state = HistoryState(
@@ -825,6 +893,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 or self._hash_messages_prefix(messages, n) != prefix_hash
             )
 
+            # Prefix edit, branch switch, or truncated history vs. what ACP saw.
             if diverged:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
@@ -842,9 +911,11 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                     message_count=len(messages),
                     prefix_hash=self._hash_messages_prefix(messages, len(messages)),
                 )
+            # Same message list as last successful prompt (e.g. client retry).
             elif len(messages) == n:
                 user_message = self._extract_user_message_as_string(messages)
                 new_history_state = state
+            # Append-only: agent already saw messages[:n]; ship incremental context.
             else:
                 user_message = ACPTranscriptSerializer.serialize_tail(messages, n)
                 if not user_message.strip():
@@ -1035,6 +1106,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         if runtime.request_lock is None:
             raise BackendError(message="ACP runtime is missing request lock")
 
+        # Streaming holds the per-runtime lock for the full SSE response so idle reap
+        # cannot swap the pool entry until the stream completes (see ``_reap_idle_runtime``).
         if bool(getattr(request.request, "stream", False)):
             await runtime.request_lock.acquire()
             try:

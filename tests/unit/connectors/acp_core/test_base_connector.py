@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
@@ -321,6 +322,61 @@ def test_hash_messages_prefix_detects_edit(connector: DummyAcpConnector) -> None
     h1 = connector._hash_messages_prefix(a, 1)
     h2 = connector._hash_messages_prefix(b, 1)
     assert h1 != h2
+
+
+def test_hash_messages_prefix_stable_ignores_metadata_only_changes(
+    connector: DummyAcpConnector,
+) -> None:
+    a = [ChatMessage(role="user", content="hi", metadata={"a": 1})]
+    b = [ChatMessage(role="user", content="hi", metadata={"b": 2})]
+    assert connector._hash_messages_prefix(a, 1) == connector._hash_messages_prefix(
+        b, 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_parallel_acquire_after_idle_reap_uses_same_pool_runtime(
+    connector: DummyAcpConnector,
+) -> None:
+    connector._default_project_dir = Path("/tmp/dummy")
+    connector._idle_timeout = 5.0
+    rid = "sess-par"
+    key = connector._build_runtime_key(Path("/tmp/dummy"), "model", rid)
+    stale = connector._create_runtime(Path("/tmp/dummy"), "model", rid)
+    stale.process = MagicMock()
+    stale.process.poll.return_value = None
+    stale.last_activity = 1.0
+    async with connector._runtime_pool_lock:
+        connector._runtimes[key] = stale
+
+    with (
+        patch(
+            "src.connectors.acp_core.base_connector.time.monotonic",
+            return_value=100.0,
+        ),
+        patch.object(connector, "_terminate_process", AsyncMock()),
+    ):
+        r1, r2 = await asyncio.gather(
+            connector._acquire_runtime(_make_request(session_id=rid)),
+            connector._acquire_runtime(_make_request(session_id=rid)),
+        )
+
+    assert r1 is r2
+    assert r1 is not stale
+    assert connector._runtimes[key] is r1
+
+
+@pytest.mark.asyncio
+async def test_kill_all_runtimes_next_acquire_creates_new_runtime_object(
+    connector: DummyAcpConnector,
+) -> None:
+    connector._default_project_dir = Path("/tmp/dummy")
+    r_before = await connector._acquire_runtime(_make_request(session_id="recycle"))
+    await connector._kill_all_runtimes()
+    assert len(connector._runtimes) == 0
+    r_after = await connector._acquire_runtime(_make_request(session_id="recycle"))
+    assert r_after is not r_before
+    assert r_after.history_state is None
 
 
 @pytest.mark.asyncio
