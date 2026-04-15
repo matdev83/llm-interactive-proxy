@@ -622,6 +622,7 @@ async def test_streaming_refresh_rebuilds_authorization_header(
             request_headers: dict[str, str],
             request_session_id: str,
             stream_format: str,
+            **kwargs: Any,
         ) -> StreamingResponseHandle:
             nonlocal call_count
             headers_seen.append(request_headers.get("Authorization"))
@@ -752,6 +753,7 @@ async def test_streaming_auth_failure_chunk_triggers_retry(
             request_headers: dict[str, str],
             request_session_id: str,
             stream_format: str,
+            **kwargs: Any,
         ) -> StreamingResponseHandle:
             headers_seen.append(request_headers.get("Authorization"))
             return stream_handles.pop(0)
@@ -849,6 +851,7 @@ async def test_streaming_handshake_exceeds_retry_limit(
             request_headers: dict[str, str],
             request_session_id: str,
             stream_format: str,
+            **kwargs: Any,
         ) -> StreamingResponseHandle:
             headers_seen.append(request_headers.get("Authorization"))
             raise HTTPException(status_code=401, detail="expired")
@@ -936,6 +939,7 @@ async def test_streaming_auth_failure_chunk_unrecoverable(
             request_headers: dict[str, str],
             request_session_id: str,
             stream_format: str,
+            **kwargs: Any,
         ) -> StreamingResponseHandle:
             return stream_handle
 

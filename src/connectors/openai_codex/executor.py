@@ -141,7 +141,12 @@ class _CodexTransportAdapter:
 
         # Default to HTTP/SSE
         return await self._connector._handle_streaming_response(  # type: ignore[misc]
-            url, payload, headers, session_id, "responses"
+            url,
+            payload,
+            headers,
+            session_id,
+            "responses",
+            context=context,
         )
 
     async def _initiate_websocket_streaming(

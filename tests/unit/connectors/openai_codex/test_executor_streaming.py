@@ -815,7 +815,9 @@ class TestResponseExecutor:
 
         captured_payloads: list[dict[str, object]] = []
 
-        async def streaming_side_effect(url, payload_dict, headers, session_id, *args):
+        async def streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
             captured_payloads.append(dict(payload_dict))
             if len(captured_payloads) == 1:
                 return first_handle

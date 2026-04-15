@@ -143,9 +143,9 @@ class TestCodexTransportAdapterWebSocket:
             url, payload, headers, session_id
         )
 
-        # Verify HTTP/SSE method was called
+        # Verify HTTP/SSE method was called with wire-capture context slot
         mock_connector._handle_streaming_response.assert_called_once_with(
-            url, payload, headers, session_id, "responses"
+            url, payload, headers, session_id, "responses", context=None
         )
         assert isinstance(handle, StreamingResponseHandle)
 
@@ -183,7 +183,12 @@ class TestCodexTransportAdapterWebSocket:
         )
 
         mock_connector._handle_streaming_response.assert_called_once_with(
-            url, payload, headers, session_id, "responses"
+            url,
+            payload,
+            headers,
+            session_id,
+            "responses",
+            context=request_context,
         )
         assert isinstance(handle, StreamingResponseHandle)
 
