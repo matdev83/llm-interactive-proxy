@@ -134,6 +134,23 @@ def test_continuation_key_uses_user_agent_header_family_signal() -> None:
     assert coordinator.resolve_previous_response_id(generic_context) is None
 
 
+def test_continuation_key_does_not_treat_android_user_agent_as_droid() -> None:
+    coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
+    android_context = _context("session-1")
+    generic_context = _context("session-1")
+    metadata = cast(dict[str, object], android_context.metadata)
+    metadata["headers"] = {
+        "User-Agent": (
+            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+        )
+    }
+
+    coordinator.record_response_id(android_context, "resp-generic")
+
+    assert coordinator.resolve_previous_response_id(generic_context) == "resp-generic"
+
+
 def test_continuation_key_separates_different_client_families_in_same_session() -> None:
     coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
     opencode_context = _context("session-1")

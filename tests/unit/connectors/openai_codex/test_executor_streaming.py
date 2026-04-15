@@ -1297,6 +1297,126 @@ class TestResponseExecutor:
         assert captured_payloads[1]["instructions"] == "Full Codex bootstrap"
 
     @pytest.mark.asyncio
+    async def test_execute_streaming_replays_when_history_diverges_mid_conversation(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+    ) -> None:
+        continuation = InMemoryCodexContinuationCoordinator()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+        from src.connectors.openai_codex.contracts import CodexInputItem, CodexPayload
+
+        first_payload = CodexPayload(
+            model="gpt-5.1-codex",
+            input=[
+                CodexInputItem.model_validate(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "A"}],
+                    }
+                ),
+                CodexInputItem.model_validate(
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "B"}],
+                    }
+                ),
+                CodexInputItem.model_validate(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "C"}],
+                    }
+                ),
+            ],
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            stream=True,
+            include=[],
+            prompt_cache_key="test-key",
+            instructions="Full Codex bootstrap",
+        )
+        diverged_payload = first_payload.model_copy(
+            update={
+                "input": [
+                    first_payload.input[0],
+                    first_payload.input[1],
+                    CodexInputItem.model_validate(
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "X"}],
+                        }
+                    ),
+                    CodexInputItem.model_validate(
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "D"}],
+                        }
+                    ),
+                    CodexInputItem.model_validate(
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "E"}],
+                        }
+                    ),
+                ]
+            }
+        )
+
+        async def done_iterator(response_id: str):
+            yield ProcessedResponse(
+                content={"id": response_id, "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        captured_payloads: list[dict[str, object]] = []
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            captured_payloads.append(dict(payload_dict))
+            stream_handle = MagicMock()
+            stream_handle.headers = {}
+            stream_handle.cancel_callback = AsyncMock()
+            stream_handle.iterator = done_iterator(
+                "resp_first" if len(captured_payloads) == 1 else "resp_second"
+            )
+            return stream_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        first_result = await executor.execute(first_payload, sample_context)
+        assert first_result.content is not None
+        async for _ in first_result.content:
+            pass
+
+        second_result = await executor.execute(diverged_payload, sample_context)
+        assert second_result.content is not None
+        async for _ in second_result.content:
+            pass
+
+        assert len(captured_payloads) == 2
+        assert "previous_response_id" not in captured_payloads[1]
+        assert captured_payloads[1]["instructions"] == "Full Codex bootstrap"
+        assert captured_payloads[1]["input"] == [
+            item.model_dump(exclude_none=True) for item in diverged_payload.input
+        ]
+
+    @pytest.mark.asyncio
     async def test_execute_streaming_records_terminal_response_id_in_continuation(
         self,
         mock_base_connector,

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from src.connectors.contracts import ConnectorRequestContext
 from src.connectors.openai_codex.executor import _CodexTransportAdapter
 from src.core.common.exceptions import AuthenticationError
 from src.core.domain.responses import ProcessedResponse, StreamingResponseHandle
@@ -63,8 +65,10 @@ class TestCodexTransportAdapterWebSocket:
         # Verify chunks
         assert len(chunks) == 2
         # Websocket transport adapter yields ProcessedResponse objects directly
-        assert chunks[0].content["message"]["content"] == "Hello"
-        assert chunks[1].content["message"]["content"] == "World"
+        first_content = cast(dict[str, Any], chunks[0].content)
+        second_content = cast(dict[str, Any], chunks[1].content)
+        assert cast(dict[str, Any], first_content["message"])["content"] == "Hello"
+        assert cast(dict[str, Any], second_content["message"])["content"] == "World"
 
     async def test_recreates_websocket_client_when_auth_token_changes(self) -> None:
         """Auth refresh retries must not reuse stale WebSocket credentials."""
@@ -113,7 +117,7 @@ class TestCodexTransportAdapterWebSocket:
 
         url = "https://chatgpt.com/backend-api/codex/responses"
         payload = {"model": "gpt-4", "input": []}
-        headers = {}  # No authorization header
+        headers: dict[str, str] = {}  # No authorization header
         session_id = "test_session"
 
         with pytest.raises(AuthenticationError, match="No API key"):
@@ -140,6 +144,44 @@ class TestCodexTransportAdapterWebSocket:
         )
 
         # Verify HTTP/SSE method was called
+        mock_connector._handle_streaming_response.assert_called_once_with(
+            url, payload, headers, session_id, "responses"
+        )
+        assert isinstance(handle, StreamingResponseHandle)
+
+    async def test_http_fallback_accepts_transport_metadata_kwargs(self) -> None:
+        """Transport adapter should accept the executor's keyword metadata contract."""
+        mock_connector = MagicMock()
+        mock_connector._handle_streaming_response = AsyncMock(
+            return_value=StreamingResponseHandle(
+                iterator=AsyncMock(), headers={}, cancel_callback=AsyncMock()
+            )
+        )
+
+        adapter = _CodexTransportAdapter(mock_connector, use_websocket=False)
+
+        url = "https://chatgpt.com/backend-api/codex/responses"
+        payload = {"model": "gpt-4", "input": []}
+        headers = {"Authorization": "Bearer test_key"}
+        session_id = "test_session"
+        request_context = ConnectorRequestContext(
+            request_id="req-1",
+            session_id="sess-1",
+            client_host="127.0.0.1",
+            extensions={},
+        )
+
+        handle = await adapter.initiate_streaming_request(
+            url,
+            payload,
+            headers,
+            session_id,
+            context=request_context,
+            backend="openai-codex",
+            model="gpt-4",
+            key_name="openai-codex",
+        )
+
         mock_connector._handle_streaming_response.assert_called_once_with(
             url, payload, headers, session_id, "responses"
         )

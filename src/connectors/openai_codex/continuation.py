@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -32,7 +33,6 @@ _DROID_USER_AGENT_PATTERNS = (
     "factory-cli",
     "factory_cli",
     "factorydroid",
-    "droid",
 )
 
 
@@ -253,9 +253,16 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
             "clinelike",
         }:
             return "cline_like"
-        if any(pattern in lowered for pattern in _DROID_USER_AGENT_PATTERNS):
+        if cls._is_droid_candidate(lowered):
             return "droid"
         return "generic"
+
+    @staticmethod
+    def _is_droid_candidate(lowered: str) -> bool:
+        if any(pattern in lowered for pattern in _DROID_USER_AGENT_PATTERNS):
+            return True
+        tokens = {token for token in re.split(r"[^a-z0-9]+", lowered) if token}
+        return "droid" in tokens
 
     @classmethod
     def _fingerprint_component(cls, value: Any) -> str | None:
