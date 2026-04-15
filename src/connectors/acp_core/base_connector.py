@@ -579,8 +579,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             tc = update.get("toolCall")
             if isinstance(tc, dict):
                 name = tc.get("name") or tc.get("toolName") or tc.get("title") or "tool"
-                return f"[tool] {name}"
-            return "[tool]"
+                return f"[tool] {name}\n"
+            return "[tool]\n"
         if session_update_kind == "tool_call_update":
             tcu = update.get("toolCallUpdate")
             if not isinstance(tcu, dict):
@@ -589,19 +589,19 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 name = tcu.get("name") or tcu.get("toolName") or "tool"
                 status = tcu.get("status") or tcu.get("state")
                 if isinstance(status, str) and status:
-                    return f"[tool] {name}: {status}"
-                return f"[tool] {name} …"
-            return "[tool] …"
+                    return f"[tool] {name}: {status}\n"
+                return f"[tool] {name} …\n"
+            return "[tool] …\n"
         if session_update_kind == "plan":
             title = update.get("title")
             if isinstance(title, str) and title.strip():
-                return f"[plan] {title.strip()}"
-            return "[plan]"
+                return f"[plan] {title.strip()}\n"
+            return "[plan]\n"
         if session_update_kind == "current_mode_update":
             mode = update.get("modeId") or update.get("mode")
             if isinstance(mode, str) and mode:
-                return f"[mode] {mode}"
-            return "[mode]"
+                return f"[mode] {mode}\n"
+            return "[mode]\n"
         return None
 
     def _session_update_to_stream_piece(
@@ -1009,12 +1009,18 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 cancellable_registered = True
             try:
                 fragments: list[str] = []
+                reasoning_fragments: list[str] = []
                 async for piece in self._iter_acp_stream_pieces(
                     runtime, prompt_request_id, requested_model
                 ):
                     if piece.content:
                         fragments.append(piece.content)
+                    if piece.reasoning_content:
+                        reasoning_fragments.append(piece.reasoning_content)
                 full_response = "".join(fragments)
+                full_reasoning = (
+                    "".join(reasoning_fragments) if reasoning_fragments else None
+                )
 
                 response = CanonicalChatResponse(
                     id=str(uuid.uuid4()),
@@ -1027,6 +1033,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                             message=ChatCompletionChoiceMessage(
                                 role="assistant",
                                 content=full_response,
+                                reasoning_content=full_reasoning,
                             ),
                             finish_reason="stop",
                         )

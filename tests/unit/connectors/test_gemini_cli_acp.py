@@ -254,6 +254,43 @@ class TestGeminiCliAcpProtocol:
 
 
 class TestGeminiCliAcpChatCompletions:
+    async def test_non_streaming_chat_completions_preserve_reasoning_content(
+        self, connector: GeminiCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector.is_functional = True
+        connector._default_project_dir = temp_workspace
+        runtime = connector._create_runtime(temp_workspace, "gemini-2.5-flash")
+
+        async def _mock_iter(
+            _: ACPProcessRuntime, __: int, ___: str
+        ) -> AsyncGenerator[AcpStreamPiece, None]:
+            yield AcpStreamPiece(reasoning_content="[tool] read_file\n")
+            yield AcpStreamPiece(content="Hello")
+            yield AcpStreamPiece(reasoning_content="[tool] read_file: complete\n")
+            yield AcpStreamPiece(content=" world")
+
+        with (
+            patch.object(
+                connector, "_acquire_runtime", AsyncMock(return_value=runtime)
+            ),
+            patch.object(
+                connector,
+                "_prepare_prompt_request_locked",
+                AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
+            ),
+            patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
+        ):
+            response = await connector.chat_completions(_make_request())
+
+        assert isinstance(response, ResponseEnvelope)
+        assert isinstance(response.content, dict)
+        message = response.content["choices"][0]["message"]
+        assert message["content"] == "Hello world"
+        assert (
+            message["reasoning_content"]
+            == "[tool] read_file\n[tool] read_file: complete\n"
+        )
+
     async def test_non_streaming_chat_completions(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path
     ) -> None:

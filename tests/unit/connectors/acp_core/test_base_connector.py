@@ -1,18 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.acp_core.base_connector import BaseAcpConnector
-from src.connectors.acp_core.types import (
-    ACPNotification,
-    ACPProcessRuntime,
-    AcpStreamPiece,
-)
+from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
+from src.connectors.acp_core.types import AcpStreamPiece as AcpStreamPiece
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.responses import ResponseEnvelope
 
 
 class DummyAcpConnector(BaseAcpConnector):
@@ -112,7 +111,7 @@ def test_session_update_tool_call_maps_to_progress_piece(
         },
     )
     piece = connector._session_update_to_stream_piece(msg)
-    assert piece == AcpStreamPiece(reasoning_content="[tool] read_file")
+    assert piece == AcpStreamPiece(reasoning_content="[tool] read_file\n")
 
 
 def test_resolve_stream_keepalive_interval_from_config(
@@ -162,3 +161,36 @@ async def test_base_acp_connector_history_injected_logic(
         prompt_text_2 = sent_params_2["prompt"][0]["text"]
         assert "System Note:" not in prompt_text_2
         assert prompt_text_2 == "hello"
+
+
+@pytest.mark.asyncio
+async def test_non_streaming_chat_completions_preserve_reasoning_content(
+    connector: DummyAcpConnector,
+) -> None:
+    connector.is_functional = True
+    connector._default_project_dir = Path("/tmp/dummy")
+    runtime = connector._create_runtime(Path("/tmp/dummy"), "dummy/model")
+
+    async def _mock_iter(
+        _: ACPProcessRuntime, __: int, ___: str
+    ) -> AsyncGenerator[AcpStreamPiece, None]:
+        yield AcpStreamPiece(reasoning_content="plan step\n")
+        yield AcpStreamPiece(content="Answer")
+        yield AcpStreamPiece(reasoning_content="tool finished\n")
+
+    with (
+        patch.object(connector, "_acquire_runtime", AsyncMock(return_value=runtime)),
+        patch.object(
+            connector,
+            "_prepare_prompt_request_locked",
+            AsyncMock(return_value=(5, "dummy/model")),
+        ),
+        patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
+    ):
+        response = await connector.chat_completions(_make_request())
+
+    assert isinstance(response, ResponseEnvelope)
+    assert isinstance(response.content, dict)
+    message = response.content["choices"][0]["message"]
+    assert message["content"] == "Answer"
+    assert message["reasoning_content"] == "plan step\ntool finished\n"
