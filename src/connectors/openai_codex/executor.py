@@ -454,17 +454,17 @@ class ResponseExecutor(IResponseExecutor):
                         attempt=attempts_used + 1,
                     )
                     try:
-                        stream_handle = await cast(
-                            Any, self._transport
-                        ).initiate_streaming_request(
-                            url,
-                            current_payload_dict,
-                            current_headers,
-                            context.session_id,
-                            context=request_context,
-                            backend="openai-codex",
-                            model=context.effective_model,
-                            key_name=capture_key_name,
+                        stream_handle = (
+                            await self._transport.initiate_streaming_request(
+                                url,
+                                current_payload_dict,
+                                current_headers,
+                                context.session_id,
+                                context=request_context,
+                                backend="openai-codex",
+                                model=context.effective_model,
+                                key_name=capture_key_name,
+                            )
                         )
                         # Fall through to consume the stream iterator below
                     except (HTTPException, LLMProxyError) as exc:
@@ -1082,6 +1082,8 @@ class ResponseExecutor(IResponseExecutor):
                 break
             common_prefix_len += 1
 
+        if common_prefix_len < len(prior_fingerprints):
+            return None
         if common_prefix_len <= 0 or common_prefix_len >= len(current_input):
             return None
         return list(current_input[common_prefix_len:])

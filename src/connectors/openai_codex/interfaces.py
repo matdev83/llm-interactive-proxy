@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+from src.connectors.contracts import ConnectorRequestContext
 from src.connectors.openai_codex.contracts import (
     CodexConnectorSettings,
     CodexInputItem,
@@ -690,6 +691,11 @@ class ICodexTransport(Protocol):
         payload: dict[str, Any],
         headers: dict[str, str],
         session_id: str,
+        *,
+        context: ConnectorRequestContext | None = None,
+        backend: str = "openai-codex",
+        model: str = "unknown",
+        key_name: str | None = None,
     ) -> StreamingResponseHandle:
         """Initiate a streaming request to Codex API.
 
@@ -698,6 +704,10 @@ class ICodexTransport(Protocol):
             payload: Request payload as dictionary
             headers: HTTP headers including Authorization
             session_id: Session identifier for logging and cancellation
+            context: Optional proxy request context for wire capture
+            backend: Backend key used for websocket capture metadata
+            model: Effective model name for websocket capture metadata
+            key_name: Optional capture key name override
 
         Returns:
             StreamingResponseHandle with iterator and cancel callback
