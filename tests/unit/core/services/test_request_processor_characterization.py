@@ -62,6 +62,9 @@ def mock_session_manager() -> ISessionManager:
     mock.update_session_agent.return_value = session
     mock.update_session_history.return_value = None
     mock.record_command_in_session.return_value = None
+    mock.apply_openai_codex_history_compaction_gate = AsyncMock(
+        side_effect=lambda s, _b: s
+    )
 
     return mock
 
@@ -72,7 +75,7 @@ def mock_backend_request_manager() -> IBackendRequestManager:
     mock = AsyncMock(spec=IBackendRequestManager)
 
     # Default: return a backend request
-    async def prepare_backend_request(request, processed_result):
+    async def prepare_backend_request(request, processed_result, **_kwargs):
         return request
 
     mock.prepare_backend_request.side_effect = prepare_backend_request
@@ -167,7 +170,7 @@ def mock_backend_preparer():
     from unittest.mock import AsyncMock
 
     preparer = AsyncMock()
-    preparer.prepare = AsyncMock(side_effect=lambda ctx, sid, req, cmd: req)
+    preparer.prepare = AsyncMock(side_effect=lambda ctx, sid, req, cmd, **kw: req)
     return preparer
 
 

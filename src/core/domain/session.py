@@ -89,6 +89,9 @@ class SessionState(ValueObject):
     quality_verifier_eligible_turn_count: int = 0
     auto_append_first_prompt_applied: bool = False
     weighted_first_request_consumed: bool = False
+    # When False, history (stale tool output) context compaction is skipped for this session
+    # (e.g. after openai-codex has been used — see SessionManager gate).
+    history_compaction_allowed: bool = True
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
@@ -176,6 +179,10 @@ class SessionState(ValueObject):
     def with_weighted_first_request_consumed(self, consumed: bool) -> SessionState:
         """Create a new session state with updated weighted_first_request_consumed flag."""
         return self.model_copy(update={"weighted_first_request_consumed": consumed})
+
+    def with_history_compaction_allowed(self, allowed: bool) -> SessionState:
+        """Create a new session state with updated history_compaction_allowed flag."""
+        return self.model_copy(update={"history_compaction_allowed": allowed})
 
     def with_multiple_updates(self, **updates: Any) -> SessionState:
         """Create a new session state with multiple field updates in a single model_copy operation.
@@ -342,6 +349,11 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         return self._state.vtc_enabled
 
     @property
+    def history_compaction_allowed(self) -> bool:
+        """Whether history (context) compaction is allowed for this session."""
+        return bool(getattr(self._state, "history_compaction_allowed", True))
+
+    @property
     def auto_append_first_prompt_applied(self) -> bool:
         """Whether the per-session first user-message append has already run."""
         return bool(getattr(self._state, "auto_append_first_prompt_applied", False))
@@ -440,6 +452,13 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
     def with_vtc_enabled(self, enabled: bool) -> ISessionState:
         """Create a new session state with updated vtc_enabled flag."""
         new_state = cast(SessionState, self._state).with_vtc_enabled(enabled)
+        return SessionStateAdapter(new_state)
+
+    def with_history_compaction_allowed(self, allowed: bool) -> ISessionState:
+        """Create a new session state with updated history_compaction_allowed flag."""
+        new_state = cast(SessionState, self._state).with_history_compaction_allowed(
+            allowed
+        )
         return SessionStateAdapter(new_state)
 
     def with_planning_phase_config(self, config: IPlanningPhaseConfig) -> ISessionState:
@@ -713,6 +732,11 @@ class Session(ISession):
     def vtc_enabled(self) -> bool:
         """Check if Virtual Tool Calling mode is enabled for this session."""
         return self.state.vtc_enabled
+
+    @property
+    def history_compaction_allowed(self) -> bool:
+        """Whether history (context) compaction is allowed for this session."""
+        return self.state.history_compaction_allowed
 
     def add_interaction(self, interaction: SessionInteraction) -> None:
         """Add an interaction to the session history."""

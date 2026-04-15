@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -179,6 +180,43 @@ def coerce_float_sequence(value: Any) -> tuple[float, ...] | None:
         else:
             return coerce_float_sequence(parsed)
     return None
+
+
+def json_default(value: Any) -> Any:
+    """Default JSON encoder for pydantic models and other objects."""
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return model_dump(mode="json")
+    return str(value)
+
+
+def fingerprint_component(value: Any) -> str | None:
+    """Create a stable SHA256 hash of a JSON-serializable component."""
+    if value is None:
+        return None
+    encoded = json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=json_default,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def fingerprint_input_items(value: Any) -> tuple[str, ...]:
+    """Create stability fingerprints for a list of input items."""
+    if not isinstance(value, list):
+        return ()
+    fingerprints: list[str] = []
+    for item in value:
+        encoded = json.dumps(
+            item,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=json_default,
+        ).encode("utf-8")
+        fingerprints.append(hashlib.sha256(encoded).hexdigest())
+    return tuple(fingerprints)
 
 
 def to_string_list(value: Any) -> list[str]:

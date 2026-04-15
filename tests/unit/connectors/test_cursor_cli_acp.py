@@ -185,6 +185,21 @@ class TestCursorCliAcpInitialization:
 
         assert connector.is_backend_functional() is False
 
+    async def test_initialize_rejects_without_workspace_config(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        fake = str(temp_workspace / "fake-agent")
+        Path(fake).write_text("noop", encoding="utf-8")
+        with (
+            patch.object(connector, "_check_agent_available", return_value=True),
+            patch.object(connector, "_discover_models", return_value=["cursor/x"]),
+            pytest.raises(ConfigurationError) as exc_info,
+        ):
+            await connector.initialize(cursor_cli_executable=fake)
+
+        assert connector.is_backend_functional() is False
+        assert "CURSOR_CLI_WORKSPACE" in exc_info.value.message
+
 
 class TestCursorCliAcpProtocol:
     async def test_prepare_prompt_sends_initialize_authenticate_session(

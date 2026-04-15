@@ -33,6 +33,17 @@ The compaction mechanism follows these steps:
 
 6. **Fail-Open**: If compaction encounters any error, the original message history is forwarded unchanged with appropriate logging.
 
+## Session scope and the openai-codex backend
+
+History context compaction (this feature: stale tool-output stubs in the message history) is evaluated **per proxy session**, not only per request.
+
+- **Default**: For a new session, compaction follows global settings (`compaction.enabled`, `--enable-context-compaction`, and related options).
+- **After Codex is used**: The first time a request in that session is routed to the **openai-codex** backend (including multi-instance names such as `openai-codex.1`), the proxy **turns off history context compaction for the rest of that session** and persists that in session state. A **single** `WARNING` is logged on that transition (not on every later request).
+- **Later requests**: Even if you switch to another backend in the same session, history compaction **stays off** for that session once it has been disabled for Codex.
+- **Not affected**: **Dynamic tool-output compression** (`dynamic_compression` in config) is a separate pipeline step and is **not** disabled by this rule.
+
+For backend-specific notes, see [OpenAI Codex Backend](../backends/openai-codex.md#history-context-compaction).
+
 ## Configuration
 
 ### Basic Setup

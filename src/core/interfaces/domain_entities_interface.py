@@ -298,3 +298,12 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def with_client_os(self, client_os: str | None) -> ISessionState:
         """Create a new state with updated client OS."""
+
+    @property
+    @abstractmethod
+    def history_compaction_allowed(self) -> bool:
+        """Whether history (context) compaction is allowed for this session."""
+
+    @abstractmethod
+    def with_history_compaction_allowed(self, allowed: bool) -> ISessionState:
+        """Create a new state with updated history_compaction_allowed flag."""

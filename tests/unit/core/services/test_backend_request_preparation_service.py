@@ -249,6 +249,44 @@ class TestCompactionMessageReplacement:
         mock_compaction_service.compact_history.assert_called_once()
 
 
+class TestHistoryCompactionSessionDisallowed:
+    """When session disallows history compaction, skip compaction service entirely."""
+
+    @pytest.mark.asyncio
+    async def test_skips_compact_history_when_session_disallows(
+        self,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+    ) -> None:
+        mock_config.compaction = CompactionConfig(enabled=True, token_threshold=100)
+        service = BackendRequestPreparationService(
+            history_compaction_service=mock_compaction_service,
+            config=mock_config,
+        )
+        original_content = "x" * 5000
+        original_request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content=original_content)],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+        mock_compaction_service.compact_history = AsyncMock()
+
+        result = await service.prepare(
+            original_request,
+            command_result,
+            history_compaction_session_allowed=False,
+        )
+
+        assert result is not None
+        assert len(result.messages) == 1
+        assert result.messages[0].content == original_content
+        mock_compaction_service.compact_history.assert_not_called()
+
+
 class TestMaxTokensOverflowWarning:
     """Tests for max tokens overflow warning (Req 3.2)."""
 

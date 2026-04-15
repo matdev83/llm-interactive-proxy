@@ -117,6 +117,8 @@ class IBackendPreparer(ABC):
         session_id: str,
         request: ChatRequest,
         processed: ProcessedResult,
+        *,
+        history_compaction_session_allowed: bool = True,
     ) -> ChatRequest | None:
         """
         Prepare backend request and enforce validation limits.

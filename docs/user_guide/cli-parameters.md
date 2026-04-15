@@ -220,7 +220,7 @@ When no CLI override applies and `notifications.enabled` is omitted in YAML, the
 
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
-| `--enable-context-compaction` | `ENABLE_CONTEXT_COMPACTION=true` | Enable history compaction to reduce stale tool outputs. (Default: Disabled) |
+| `--enable-context-compaction` | `ENABLE_CONTEXT_COMPACTION=true` | Enable history compaction to reduce stale tool outputs. (Default: Disabled.) If a session ever uses the **openai-codex** backend, history compaction is **disabled for the rest of that session** (one-time warning in logs); see [Context Compaction](features/context-compaction.md#session-scope-and-the-openai-codex-backend). |
 | `--compaction-min-tokens N` | `COMPACTION_MIN_TOKENS` | Minimum tokens required to trigger compaction. (Default: 100,000) |
 
 ### Dynamic Tool Output Compression

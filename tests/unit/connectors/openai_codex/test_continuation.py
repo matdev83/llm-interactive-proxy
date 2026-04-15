@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
-from typing import cast
+from typing import Any
 
+import pytest
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.openai_codex.continuation import (
     CodexContinuationSnapshot,
@@ -20,11 +21,13 @@ def _context(
     *,
     model: str = "gpt-5.1-codex",
     prompt_cache_key: str = "prompt-a",
+    extra_body: dict[str, Any] | None = None,
 ) -> CodexRequestContext:
     request = CanonicalChatRequest(
         model=model,
         messages=[ChatMessage(role="user", content="hello")],
         stream=True,
+        extra_body=extra_body,
     )
     return CodexRequestContext(
         request=request,
@@ -39,42 +42,45 @@ def _context(
     )
 
 
-def test_in_memory_continuation_records_and_invalidates() -> None:
+@pytest.mark.asyncio
+async def test_in_memory_continuation_records_and_invalidates() -> None:
     coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
     context = _context("session-1")
 
-    assert coordinator.resolve_previous_response_id(context) is None
+    assert await coordinator.resolve_previous_response_id(context) is None
 
-    coordinator.record_response_id(context, "resp-1")
-    assert coordinator.resolve_previous_response_id(context) == "resp-1"
+    await coordinator.record_response_id(context, "resp-1")
+    assert await coordinator.resolve_previous_response_id(context) == "resp-1"
 
-    coordinator.invalidate(context, reason="test")
-    assert coordinator.resolve_previous_response_id(context) is None
+    await coordinator.invalidate(context, reason="test")
+    assert await coordinator.resolve_previous_response_id(context) is None
 
 
-def test_in_memory_continuation_expires_and_evicts_oldest() -> None:
+@pytest.mark.asyncio
+async def test_in_memory_continuation_expires_and_evicts_oldest() -> None:
     coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=1, max_entries=1)
     first = _context("session-1", prompt_cache_key="prompt-a")
     second = _context("session-2", prompt_cache_key="prompt-b")
 
-    coordinator.record_response_id(first, "resp-1")
-    coordinator.record_response_id(second, "resp-2")
+    await coordinator.record_response_id(first, "resp-1")
+    await coordinator.record_response_id(second, "resp-2")
 
-    assert coordinator.resolve_previous_response_id(first) is None
-    assert coordinator.resolve_previous_response_id(second) == "resp-2"
+    assert await coordinator.resolve_previous_response_id(first) is None
+    assert await coordinator.resolve_previous_response_id(second) == "resp-2"
 
     expiring = InMemoryCodexContinuationCoordinator(ttl_seconds=1, max_entries=2)
-    expiring.record_response_id(first, "resp-expire")
+    await expiring.record_response_id(first, "resp-expire")
     time.sleep(1.05)
 
-    assert expiring.resolve_previous_response_id(first) is None
+    assert await expiring.resolve_previous_response_id(first) is None
 
 
-def test_in_memory_continuation_records_payload_snapshot() -> None:
+@pytest.mark.asyncio
+async def test_in_memory_continuation_records_payload_snapshot() -> None:
     coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
     context = _context("session-1")
 
-    coordinator.record_turn(
+    await coordinator.record_turn(
         context,
         response_id="resp-snap",
         payload_dict={
@@ -87,7 +93,7 @@ def test_in_memory_continuation_records_payload_snapshot() -> None:
         },
     )
 
-    snapshot = coordinator.get_snapshot(context)
+    snapshot = await coordinator.get_snapshot(context)
 
     assert isinstance(snapshot, CodexContinuationSnapshot)
     assert snapshot.response_id == "resp-snap"
@@ -96,69 +102,90 @@ def test_in_memory_continuation_records_payload_snapshot() -> None:
     assert snapshot.tools_fingerprint is not None
 
 
-def test_continuation_key_uses_request_agent_family_signal() -> None:
+@pytest.mark.asyncio
+async def test_continuation_key_uses_request_agent_family_signal() -> None:
     coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
-    opencode_context = _context("session-1")
-    generic_context = _context("session-1")
-    object.__setattr__(opencode_context.request, "agent", "opencode/1.0")
+    # Simulate agent via extra_body
+    context = _context("session-1", extra_body={"agent": "kilocode/1.2.3"})
 
-    coordinator.record_response_id(opencode_context, "resp-opencode")
+    await coordinator.record_response_id(context, "resp-kilo")
+    assert await coordinator.resolve_previous_response_id(context) == "resp-kilo"
 
-    assert coordinator.resolve_previous_response_id(generic_context) is None
+    # Generic context in same session should NOT see it
+    generic = _context("session-1")
+    assert await coordinator.resolve_previous_response_id(generic) is None
 
 
-def test_continuation_key_uses_extra_body_agent_family_signal() -> None:
-    coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
-    cline_like_context = _context("session-1")
-    generic_context = _context("session-1")
-    object.__setattr__(
-        cline_like_context.request,
-        "extra_body",
-        {"agent": "kilocode/2.0"},
+@pytest.mark.asyncio
+async def test_continuation_key_uses_extra_body_agent_family_signal() -> None:
+    coordinator = InMemoryCodexContinuationCoordinator()
+    context = _context("s1", extra_body={"agent": "roo-cline/0.1.0"})
+
+    await coordinator.record_response_id(context, "id1")
+
+    # Cline-like should find it
+    cline = _context("s1")
+    cline.metadata["agent"] = "cline"
+    assert await coordinator.resolve_previous_response_id(cline) == "id1"
+
+
+@pytest.mark.asyncio
+async def test_continuation_key_uses_user_agent_header_family_signal() -> None:
+    coordinator = InMemoryCodexContinuationCoordinator()
+    context = _context("s1")
+    context.metadata["headers"] = {"User-Agent": "factory_cli/v1"}
+
+    await coordinator.record_response_id(context, "id1")
+
+    # Droid should find it
+    droid = _context("s1")
+    droid.metadata["headers"] = {"user-agent": "factorydroid"}
+    assert await coordinator.resolve_previous_response_id(droid) == "id1"
+
+
+@pytest.mark.asyncio
+async def test_continuation_key_does_not_treat_android_user_agent_as_droid() -> None:
+    coordinator = InMemoryCodexContinuationCoordinator()
+    context = _context("s1")
+    context.metadata["headers"] = {"User-Agent": "Mozilla/5.0 (Android 10)"}
+
+    await coordinator.record_response_id(context, "id1")
+
+    # Generic should find it (since both are generic)
+    generic = _context("s1")
+    assert await coordinator.resolve_previous_response_id(generic) == "id1"
+
+    # Droid should NOT
+    droid = _context("s1")
+    droid.metadata["headers"] = {"User-Agent": "factorydroid"}
+    assert await coordinator.resolve_previous_response_id(droid) is None
+
+
+@pytest.mark.asyncio
+async def test_continuation_key_separates_different_client_families_in_same_session() -> (
+    None
+):
+    coordinator = InMemoryCodexContinuationCoordinator()
+    s1 = "session-1"
+
+    # Register 3 different ID lineages for the same session ID but different client families
+    await coordinator.record_response_id(
+        _context(s1, prompt_cache_key="a"), "id-generic"
     )
 
-    coordinator.record_response_id(cline_like_context, "resp-cline")
+    opencode = _context(s1, prompt_cache_key="a", extra_body={"agent": "opencode-go"})
+    await coordinator.record_response_id(opencode, "id-opencode")
 
-    assert coordinator.resolve_previous_response_id(generic_context) is None
+    droid = _context(s1, prompt_cache_key="a")
+    droid.metadata["headers"] = {"user-agent": "factory-cli"}
+    await coordinator.record_response_id(droid, "id-droid")
 
-
-def test_continuation_key_uses_user_agent_header_family_signal() -> None:
-    coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
-    droid_context = _context("session-1")
-    generic_context = _context("session-1")
-    metadata = cast(dict[str, object], droid_context.metadata)
-    metadata["headers"] = {"User-Agent": "factory-cli/1.0"}
-
-    coordinator.record_response_id(droid_context, "resp-droid")
-
-    assert coordinator.resolve_previous_response_id(generic_context) is None
-
-
-def test_continuation_key_does_not_treat_android_user_agent_as_droid() -> None:
-    coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
-    android_context = _context("session-1")
-    generic_context = _context("session-1")
-    metadata = cast(dict[str, object], android_context.metadata)
-    metadata["headers"] = {
-        "User-Agent": (
-            "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
+    # Verify isolation
+    assert (
+        await coordinator.resolve_previous_response_id(
+            _context(s1, prompt_cache_key="a")
         )
-    }
-
-    coordinator.record_response_id(android_context, "resp-generic")
-
-    assert coordinator.resolve_previous_response_id(generic_context) == "resp-generic"
-
-
-def test_continuation_key_separates_different_client_families_in_same_session() -> None:
-    coordinator = InMemoryCodexContinuationCoordinator(ttl_seconds=60, max_entries=4)
-    opencode_context = _context("session-1")
-    droid_context = _context("session-1")
-    object.__setattr__(opencode_context.request, "agent", "opencode/1.0")
-    metadata = cast(dict[str, object], droid_context.metadata)
-    metadata["headers"] = {"User-Agent": "factory-cli/1.0"}
-
-    coordinator.record_response_id(opencode_context, "resp-opencode")
-
-    assert coordinator.resolve_previous_response_id(droid_context) is None
+        == "id-generic"
+    )
+    assert await coordinator.resolve_previous_response_id(opencode) == "id-opencode"
+    assert await coordinator.resolve_previous_response_id(droid) == "id-droid"

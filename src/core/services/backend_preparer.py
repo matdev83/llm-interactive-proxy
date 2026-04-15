@@ -95,6 +95,8 @@ class BackendPreparer(IBackendPreparer):
         session_id: str,
         request: ChatRequest,
         processed: ProcessedResult,
+        *,
+        history_compaction_session_allowed: bool = True,
     ) -> ChatRequest | None:
         """
         Prepare backend request and enforce validation limits.
@@ -113,7 +115,9 @@ class BackendPreparer(IBackendPreparer):
         """
         # Prepare backend request
         backend_request = await self._backend_request_manager.prepare_backend_request(
-            request, processed
+            request,
+            processed,
+            history_compaction_session_allowed=history_compaction_session_allowed,
         )
         self._propagate_dynamic_compression_correlation(
             context=context,

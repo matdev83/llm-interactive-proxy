@@ -39,6 +39,18 @@ These flags govern **in-repo** backend connectors that happen to be OAuth-based.
 
 Follow-up work should converge all deferred sites on the same capability metadata after headline paths are complete.
 
+## Capability signals and discovery timing (normative)
+
+`src/connectors/__init__.py` calls `is_oauth_connector(module_name)` **before** `importlib.import_module` for in-repo connector packages when multi-user mode skips OAuth modules. At that moment there is **no** loaded connector class and **no** parsed `BackendCapabilityDescriptor` from YAML, so requirement 1.3’s “capability metadata instead of naming conventions” must be satisfied using **equivalent declared signals** that are available **without** importing connector implementation code.
+
+Acceptable patterns (pick **one** coherent approach per implementation; document the choice in `design.md` and `plugin_api.md`):
+
+1. **Entry-point plugins**: declare OAuth-related booleans on `BackendPluginDefinition` (or an adjacent metadata object registered during `discover_plugin_backends`) so the core never needs extracted logical names inside `oauth_detector.py` for classification.
+2. **In-repo connectors**: a **core-owned** lightweight map or small manifest keyed by module / `backend_type`, generated or maintained from the same source as YAML `capability_descriptor` templates, readable before heavy module import; **or** a documented **reorder** of discovery that preserves security expectations if connector code may run before the skip decision.
+3. **Neutral structural signals** that are not marketing names (for example `has_static_credentials` on a class) remain valid **only** when the connector is already imported or the signal is exposed through one of the mechanisms above.
+
+Interpretation: requirement 1.3 applies to **behavioral classification** in in-scope modules. Where YAML descriptors are not yet loaded, “declared capability metadata” includes plugin-definition flags and manifest-equivalent data derived from the same templates, **not** ad hoc substring checks on `backend_type` for extracted plugins.
+
 ## Requirements
 
 ### 1. Core Independence from Plugin Names
@@ -51,7 +63,7 @@ Follow-up work should converge all deferred sites on the same capability metadat
 
 2. The core shall not use the optional OAuth plugin **import path** or **module name** as a runtime discriminator in **execution** paths (request processing, streaming, token refresh, backend instance selection). **Allowed**: the centralized string constants in `backend_discovery_state.py` (`_oauth_install_command`, `_optional_oauth_package_name`) used only for **operator-facing** diagnostics (for example “install optional package X”, `pip install …[oauth]`) and for **packaging contract tests** listed under requirement 5; those strings must not drive conditional behavior beyond reporting/discovery diagnostics.
 
-3. When filtering or categorizing connectors for behavior described in this spec’s **in-scope** modules, the system shall rely on `BackendCapabilityDescriptor` (and related declared metadata) rather than naming conventions (for example `-oauth-` suffixes) or static lists of connector names.
+3. When filtering or categorizing connectors for behavior described in this spec’s **in-scope** modules, the system shall rely on declared capability metadata: primarily `BackendCapabilityDescriptor` where configuration is loaded, and **equivalent** capability signals described under [Capability signals and discovery timing](#capability-signals-and-discovery-timing-normative) where descriptors are not yet available (for example pre-import discovery). The system shall not use naming conventions (for example `-oauth-` suffixes) or static lists of **extracted** connector logical names for that purpose.
 
 ### 2. Capability Declaration
 
@@ -65,6 +77,8 @@ Follow-up work should converge all deferred sites on the same capability metadat
 
 3. If a backend requires personal authentication, the system shall use the generic capability flag to trigger the appropriate auth flows for in-scope flows, rather than checking the backend’s marketing name or module slug.
 
+4. For entry-point plugins, OAuth-related capability flags needed for in-scope discovery or filtering shall be readable from the plugin’s **registration-time** metadata (for example fields on `BackendPluginDefinition` populated when the entry point is evaluated), so core code does not infer OAuth behavior from optional package import paths or connector nicknames.
+
 ### 3. Execution Decoupling
 
 **Objective:** As an architect, I want core execution logic to interact with plugins via generic interfaces, so that the core remains agnostic to plugin-specific implementations.
@@ -73,7 +87,7 @@ Follow-up work should converge all deferred sites on the same capability metadat
 
 #### Acceptance Criteria
 
-1. The system shall define generic interfaces (for example `ICredentialRotator`, `IOAuthAccountSelector`) for behaviors currently accessed via duck-typing. Where an existing protocol covers the same concern (for example `ITokenRefresher` for credential refresh), the system shall extend or reconcile rather than create parallel interfaces. The `record_rate_limit` duck-typed access pattern must also be covered by a protocol method.
+1. The system shall define generic interfaces (for example `ICredentialRotator`, `IOAuthAccountSelector`) for behaviors currently accessed via duck-typing. Where an existing protocol covers the same concern (for example `ITokenRefresher` for credential refresh), the system shall extend or reconcile rather than create parallel interfaces. The `record_rate_limit` duck-typed access pattern must also be covered by a **synchronous** protocol method on `ICredentialRotator` (callers invoke it without `await`; implementations perform fast bookkeeping only).
 
 2. The system shall expose these generic interfaces through the stable plugin API (`src/core/plugin_api.py`) to prevent circular dependencies.
 

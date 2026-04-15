@@ -31,6 +31,7 @@ async def test_process_request_basic(session_service: MockSessionService) -> Non
     # Mock the session manager to return our test session
     session_manager.resolve_session_id.return_value = "test-session"
     session_manager.get_session.return_value = AsyncMock(id="test-session", agent=None)
+    session_manager.apply_openai_codex_history_compaction_gate = AsyncMock()
 
     # Create request data
     request_data = create_mock_request()

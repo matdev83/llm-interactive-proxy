@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,10 +11,12 @@ import pytest
 from src.connectors.acp_core.base_connector import BaseAcpConnector
 from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
 from src.connectors.acp_core.types import AcpStreamPiece as AcpStreamPiece
+from src.connectors.acp_core.workspace_policy import ACP_MISSING_PROJECT_WORKSPACE_CODE
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope
 
@@ -40,6 +43,10 @@ class DummyAcpConnector(BaseAcpConnector):
     async def initialize(self, **kwargs: Any) -> None:
         self._default_project_dir = Path("/tmp/dummy")
         self.is_functional = True
+
+
+class StrictWorkspaceDummy(DummyAcpConnector):
+    requires_explicit_workspace = True
 
 
 def _make_request(
@@ -410,3 +417,26 @@ async def test_non_streaming_chat_completions_preserve_reasoning_content(
     message = response.content["choices"][0]["message"]
     assert message["content"] == "Answer"
     assert message["reasoning_content"] == "plan step\ntool finished\n"
+
+
+@pytest.mark.asyncio
+async def test_requires_explicit_workspace_raises_without_override() -> None:
+    connector = StrictWorkspaceDummy(MagicMock(), MagicMock())
+    await connector.initialize()
+    with pytest.raises(BackendError) as exc_info:
+        connector._resolve_project_dir_for_request(_make_request())
+    assert exc_info.value.details.get("code") == ACP_MISSING_PROJECT_WORKSPACE_CODE
+
+
+@pytest.mark.asyncio
+async def test_requires_explicit_workspace_accepts_options_project_dir(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    connector = StrictWorkspaceDummy(MagicMock(), MagicMock())
+    await connector.initialize()
+    base = _make_request()
+    req = replace(base, options={"project_dir": str(workspace)})
+    resolved = connector._resolve_project_dir_for_request(req)
+    assert resolved == workspace.resolve()

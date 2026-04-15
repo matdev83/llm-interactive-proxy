@@ -152,7 +152,7 @@ def integrated_processor(
     
     # Setup backend preparer to simulate OAuth refresh failure on first attempt
     
-    async def mock_prepare(ctx, sid, req, cmd):
+    async def mock_prepare(ctx, sid, req, cmd, **_kwargs):
         if "gemini-oauth-auto" in str(req.model):
             # First attempt (or any attempt with replacement model): fail due to OAuth rate limit
             raise AuthenticationError(

@@ -225,19 +225,21 @@ class ICodexContinuationCoordinator(ABC):
     """
 
     @abstractmethod
-    def resolve_previous_response_id(self, context: CodexRequestContext) -> str | None:
+    async def resolve_previous_response_id(
+        self, context: CodexRequestContext
+    ) -> str | None:
         """Return the upstream response id to continue from, if any."""
         ...
 
     @abstractmethod
-    def record_response_id(
+    async def record_response_id(
         self, context: CodexRequestContext, response_id: str
     ) -> None:
         """Persist the latest upstream response id for later turns."""
         ...
 
     @abstractmethod
-    def invalidate(
+    async def invalidate(
         self, context: CodexRequestContext, *, reason: str | None = None
     ) -> None:
         """Clear continuation lineage for the given context."""

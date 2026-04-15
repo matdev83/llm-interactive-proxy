@@ -129,6 +129,7 @@ def create_test_processor(
     session_manager.resolve_session_id.return_value = "test-session-123"
     session_manager.get_session.return_value = mock_session
     session_manager.update_session_agent.return_value = mock_session
+    session_manager.apply_openai_codex_history_compaction_gate = AsyncMock()
 
     backend_request_manager = AsyncMock()
     response_manager = AsyncMock()
@@ -166,7 +167,7 @@ def create_test_processor(
 
     backend_preparer = AsyncMock(spec=IBackendPreparer)
     # Make backend_preparer pass through request with tools preserved
-    backend_preparer.prepare.side_effect = lambda ctx, sid, req, cmd: req
+    backend_preparer.prepare.side_effect = lambda ctx, sid, req, cmd, **kw: req
 
     # Create a mock transform_pipeline that actually applies tool filtering
     async def mock_transform(ctx, sess, sid, req):

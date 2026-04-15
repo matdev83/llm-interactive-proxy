@@ -26,6 +26,18 @@ from src.core.services.fingerprint_request_transformer import (
 
 logger = logging.getLogger(__name__)
 
+_OPENAI_CODEX_BACKEND_FAMILY = "openai-codex"
+
+
+def _normalize_backend_family_for_history_compaction(backend: str | None) -> str:
+    """Match multi-instance backends (e.g. openai-codex.1) to their family name."""
+    if not isinstance(backend, str) or not backend.strip():
+        return ""
+    normalized = backend.strip().lower().replace("_", "-")
+    if "." in normalized:
+        normalized = normalized.split(".", 1)[0]
+    return normalized
+
 
 class SessionManager(ISessionManager):
     """Implementation of the session manager."""
@@ -50,6 +62,31 @@ class SessionManager(ISessionManager):
     async def get_session(self, session_id: str) -> Session:
         """Get session by ID."""
         return await self._session_service.get_session(session_id)
+
+    async def apply_openai_codex_history_compaction_gate(
+        self, session: Session, resolved_backend: str | None
+    ) -> Session:
+        """See ``ISessionManager.apply_openai_codex_history_compaction_gate``."""
+        # Unit/integration tests often pass lightweight stand-ins instead of ``Session``.
+        if not isinstance(session, Session):
+            return session
+
+        family = _normalize_backend_family_for_history_compaction(resolved_backend)
+        if family != _OPENAI_CODEX_BACKEND_FAMILY:
+            return session
+        if not session.state.history_compaction_allowed:
+            return session
+
+        new_state = session.state.with_history_compaction_allowed(False)
+        session.update_state(new_state)
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Disabled history context compaction for the remainder of this session "
+                "because the openai-codex backend was selected (session_id=%s).",
+                session.session_id,
+            )
+        await self._session_service.update_session(session)
+        return session
 
     async def update_session_agent(
         self, session: Session, agent: str | None

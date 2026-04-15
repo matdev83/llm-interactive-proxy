@@ -279,10 +279,18 @@ class BackendRequestManager(IBackendRequestManager):
         return False
 
     async def prepare_backend_request(
-        self, request_data: ChatRequest, command_result: ProcessedResult
+        self,
+        request_data: ChatRequest,
+        command_result: ProcessedResult,
+        *,
+        history_compaction_session_allowed: bool = True,
     ) -> ChatRequest | None:
         """Prepare backend request based on command processing results."""
-        return await self._request_preparation.prepare(request_data, command_result)
+        return await self._request_preparation.prepare(
+            request_data,
+            command_result,
+            history_compaction_session_allowed=history_compaction_session_allowed,
+        )
 
     async def process_backend_request(
         self,

@@ -25,7 +25,7 @@ def mock_backend_request_manager() -> IBackendRequestManager:
     """Create a mock backend request manager."""
     mock = AsyncMock(spec=IBackendRequestManager)
 
-    async def prepare_backend_request(request, processed_result):
+    async def prepare_backend_request(request, processed_result, **_kwargs):
         return request
 
     mock.prepare_backend_request.side_effect = prepare_backend_request
@@ -88,7 +88,9 @@ async def test_prepare_successful_backend_request(
     assert result is not None
     assert result.model == "gpt-4"
     mock_backend_request_manager.prepare_backend_request.assert_called_once_with(
-        request, processed
+        request,
+        processed,
+        history_compaction_session_allowed=True,
     )
 
 
@@ -168,7 +170,7 @@ async def test_prepare_total_token_limit_exceeded_raises_error(
     )
 
     # Prepare backend request with max_tokens
-    async def prepare_with_max_tokens(req, proc):
+    async def prepare_with_max_tokens(req, proc, **_kwargs):
         return req.model_copy(update={"max_tokens": 500})
 
     mock_backend_request_manager.prepare_backend_request.side_effect = (
@@ -261,7 +263,7 @@ async def test_prepare_without_app_state_skips_validation(backend_preparer_no_st
     # Arrange
     mock_brm = AsyncMock(spec=IBackendRequestManager)
 
-    async def prepare_backend_request(request, processed_result):
+    async def prepare_backend_request(request, processed_result, **_kwargs):
         return request
 
     mock_brm.prepare_backend_request.side_effect = prepare_backend_request
@@ -318,7 +320,7 @@ async def test_prepare_propagates_dynamic_compression_correlation_to_context(
         }
     )
 
-    async def prepare_with_correlation(req, proc):
+    async def prepare_with_correlation(req, proc, **_kwargs):
         return backend_request
 
     prepare_backend_request_mock = cast(

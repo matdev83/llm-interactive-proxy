@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
+import asyncio
+import logging
 import re
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from threading import Lock
 from typing import Any
 
 from src.connectors.openai_codex.contracts import CodexRequestContext
 from src.connectors.openai_codex.interfaces import ICodexContinuationCoordinator
+from src.connectors.openai_codex.utils import (
+    fingerprint_component,
+    fingerprint_input_items,
+)
+
+logger = logging.getLogger(__name__)
 
 _CLINE_LIKE_ALIASES = {
     "kilocode",
@@ -62,12 +67,14 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
         self._ttl_seconds = max(1.0, float(ttl_seconds))
         self._max_entries = max(1, int(max_entries))
         self._entries: OrderedDict[tuple[str, ...], _ContinuationEntry] = OrderedDict()
-        self._lock = Lock()
+        self._lock = asyncio.Lock()
 
-    def resolve_previous_response_id(self, context: CodexRequestContext) -> str | None:
+    async def resolve_previous_response_id(
+        self, context: CodexRequestContext
+    ) -> str | None:
         key = self._build_key(context)
         now = time.monotonic()
-        with self._lock:
+        async with self._lock:
             self._purge_expired(now)
             entry = self._entries.get(key)
             if entry is None:
@@ -78,7 +85,7 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
             self._entries.move_to_end(key)
             return entry.snapshot.response_id
 
-    def record_response_id(
+    async def record_response_id(
         self, context: CodexRequestContext, response_id: str
     ) -> None:
         normalized = response_id.strip()
@@ -86,10 +93,14 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
             return
         key = self._build_key(context)
         now = time.monotonic()
-        with self._lock:
+        async with self._lock:
             self._purge_expired(now)
             existing = self._entries.get(key)
             prior_snapshot = existing.snapshot if existing is not None else None
+
+            # L2: If we are recording just a response_id (e.g. from a partial stream
+            # or terminal sync), we preserve prior fingerprints if available,
+            # otherwise we start with empty fingerprints.
             self._entries[key] = _ContinuationEntry(
                 snapshot=CodexContinuationSnapshot(
                     response_id=normalized,
@@ -115,12 +126,12 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
             while len(self._entries) > self._max_entries:
                 self._entries.popitem(last=False)
 
-    def get_snapshot(
+    async def get_snapshot(
         self, context: CodexRequestContext
     ) -> CodexContinuationSnapshot | None:
         key = self._build_key(context)
         now = time.monotonic()
-        with self._lock:
+        async with self._lock:
             self._purge_expired(now)
             entry = self._entries.get(key)
             if entry is None:
@@ -128,7 +139,7 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
             self._entries.move_to_end(key)
             return entry.snapshot
 
-    def record_turn(
+    async def record_turn(
         self,
         context: CodexRequestContext,
         *,
@@ -140,15 +151,17 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
             return
         key = self._build_key(context)
         now = time.monotonic()
+
+        # M1: Uses shared fingerprinting utilities
         snapshot = CodexContinuationSnapshot(
             response_id=normalized,
-            input_fingerprints=self._fingerprint_input_items(payload_dict.get("input")),
-            instructions_fingerprint=self._fingerprint_component(
+            input_fingerprints=fingerprint_input_items(payload_dict.get("input")),
+            instructions_fingerprint=fingerprint_component(
                 payload_dict.get("instructions")
             ),
-            tools_fingerprint=self._fingerprint_component(payload_dict.get("tools")),
+            tools_fingerprint=fingerprint_component(payload_dict.get("tools")),
         )
-        with self._lock:
+        async with self._lock:
             self._purge_expired(now)
             self._entries[key] = _ContinuationEntry(
                 snapshot=snapshot,
@@ -158,12 +171,20 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
             while len(self._entries) > self._max_entries:
                 self._entries.popitem(last=False)
 
-    def invalidate(
+    async def invalidate(
         self, context: CodexRequestContext, *, reason: str | None = None
     ) -> None:
-        del reason
+        # N1: Improved logging for invalidation
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Codex continuation lineage invalidated.",
+                extra={
+                    "session_id": context.session_id,
+                    "reason": reason or "unspecified",
+                },
+            )
         key = self._build_key(context)
-        with self._lock:
+        async with self._lock:
             self._entries.pop(key, None)
 
     def _build_key(self, context: CodexRequestContext) -> tuple[str, ...]:
@@ -263,37 +284,3 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
             return True
         tokens = {token for token in re.split(r"[^a-z0-9]+", lowered) if token}
         return "droid" in tokens
-
-    @classmethod
-    def _fingerprint_component(cls, value: Any) -> str | None:
-        if value is None:
-            return None
-        encoded = json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=cls._json_default,
-        ).encode("utf-8")
-        return hashlib.sha256(encoded).hexdigest()
-
-    @classmethod
-    def _fingerprint_input_items(cls, value: Any) -> tuple[str, ...]:
-        if not isinstance(value, list):
-            return ()
-        fingerprints: list[str] = []
-        for item in value:
-            encoded = json.dumps(
-                item,
-                sort_keys=True,
-                separators=(",", ":"),
-                default=cls._json_default,
-            ).encode("utf-8")
-            fingerprints.append(hashlib.sha256(encoded).hexdigest())
-        return tuple(fingerprints)
-
-    @staticmethod
-    def _json_default(value: Any) -> Any:
-        model_dump = getattr(value, "model_dump", None)
-        if callable(model_dump):
-            return model_dump(mode="json")
-        return value

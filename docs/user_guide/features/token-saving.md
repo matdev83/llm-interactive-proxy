@@ -17,6 +17,8 @@ Context Compaction scans message history and replaces stale tool outputs with ex
 - Preserves transparency by keeping clear replacement stubs
 - Reduces repeated historical payload in long sessions
 
+**Constraint:** If the **openai-codex** backend handles a request in a given proxy session, **history** context compaction is **disabled for the remainder of that session** (with a one-time warning in logs). Dynamic tool-output compression is unchanged. Details: [Context Compaction — Session scope and the openai-codex backend](context-compaction.md#session-scope-and-the-openai-codex-backend).
+
 Read more: [Context Compaction](context-compaction.md)
 
 ### 2) Dynamic Tool Output Compression (output-level)

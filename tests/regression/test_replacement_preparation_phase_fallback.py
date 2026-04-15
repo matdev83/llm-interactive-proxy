@@ -138,7 +138,7 @@ async def test_preparation_phase_error_triggers_fallback(
     # Second prepare() call (original model) succeeds
     prepare_call_count = 0
 
-    async def mock_prepare(ctx, sid, req, cmd):
+    async def mock_prepare(ctx, sid, req, cmd, **_kwargs):
         nonlocal prepare_call_count
         prepare_call_count += 1
         if prepare_call_count == 1:
@@ -411,7 +411,7 @@ async def test_fallback_updates_request_model_to_original(
     # Track prepare calls by inspecting context (not request due to async wrapping)
     prepare_call_count = 0
 
-    async def mock_prepare(ctx, sid, req, cmd):
+    async def mock_prepare(ctx, sid, req, cmd, **_kwargs):
         nonlocal prepare_call_count
         prepare_call_count += 1
         if prepare_call_count == 1:
@@ -513,7 +513,7 @@ async def test_fallback_context_reverted_to_original_backend(
 
     prepare_call_count = 0
 
-    async def mock_prepare(ctx, sid, req, cmd):
+    async def mock_prepare(ctx, sid, req, cmd, **_kwargs):
         nonlocal prepare_call_count
         prepare_call_count += 1
         if prepare_call_count == 1:

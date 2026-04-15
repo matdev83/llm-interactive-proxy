@@ -11,7 +11,7 @@ The technical design addresses decoupling of OAuth-oriented backends from core e
 
 | Issue | Resolution in `design.md` |
 |-------|---------------------------|
-| CLI hook timing vs parser build | **Lifecycle ordering** documented: `backend_imports.py` / `discover_plugin_backends` completes synchronously before `ArgumentParserBuilder.build()` in `cli.py`. |
+| CLI hook timing vs parser build | **Lifecycle ordering** documented: `cli.py` import pulls in `backend_imports`, which runs `discover_backends()` (including `discover_plugin_backends()`) **before** `main()` → `parse_cli_args()` → `ArgumentParserBuilder.build()`; alternate imports called out for tests/tools. |
 | Plugin dependency direction for protocols | **`ITokenRefresher` / `ICredentialRotator` / `IOAuthAccountSelector`**: definitions live under `src/core/interfaces/` for core use; **must be re-exported** from `src/core/plugin_api.py` so external packages never deep-import `src.core.interfaces`. |
 | Parsed CLI args not applied to config | **`config_applicator_hook`** on `BackendPluginDefinition`; **`ConfigurationApplicator`** iterates hooks as post-applicator phase via domain-specific applicator pipeline. |
 
@@ -47,11 +47,12 @@ Tracked in `design.md` and `requirements.md` rather than as gate items:
 - **REQ 4.3**: Plugin-owned config schema extension is specified at the design level (hook + documentation); full dynamic Pydantic merge may evolve during implementation.
 - **`Protocol` runtime checks**: Prefer methods over `@property` on `@runtime_checkable` protocols (see `design.md`). `IOAuthAccountSelector` `@runtime_checkable` is optional.
 - **Cross-repo versioning**: `PluginCompatibility` has `core_min_version`/`core_max_version` but runtime version comparison is not yet defined.
+- **Pre-import OAuth filter vs YAML**: Normative section in `requirements.md` plus `design.md` pre-import table and optional `BackendPluginDefinition` registration flags document how `connectors/__init__.py` can honor capability semantics before module import.
 
 ## Final assessment
 
-**Decision**: **GO** (design phase -- subject to normal `spec.json` task approval before implementation).
+**Decision**: **GO** for implementation (`spec.json` marks requirements, design, and tasks **approved**; `ready_for_implementation` is **true**).
 
-**Rationale**: Critical lifecycle, plugin API boundary, ITokenRefresher reconciliation, and configuration application concerns are fully captured in the current design. All P0/P1 audit findings resolved. Remaining items are scope documentation and implementation-detail hardening, not architectural blockers.
+**Rationale**: Critical lifecycle, plugin API boundary, ITokenRefresher reconciliation, configuration application, pre-import capability equivalence, and CLI ordering (default vs alternate paths) are captured. Earlier P0/P1 audit findings remain resolved. Residual items are follow-up scope (deferred modules, runtime semver checks) and normal implementation hardening.
 
-**Next steps**: Approve `tasks.md` in `spec.json` when satisfied; run `/kiro:validate-design` or project checks if the workflow requires a fresh validation stamp after spec edits.
+**Next steps**: Execute `tasks.md` under the project’s Kiro `/kiro:spec-impl` or standard engineering workflow; run `/kiro:validate-design` or repository checks if the team requires a fresh validation stamp after substantive spec edits.

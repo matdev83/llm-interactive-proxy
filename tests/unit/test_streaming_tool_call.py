@@ -102,6 +102,7 @@ async def test_streaming_tool_call_in_first_chunk():
     mock_session_manager.get_session = AsyncMock(return_value=MagicMock())
     mock_session_manager.update_session_agent = AsyncMock(return_value=MagicMock())
     mock_session_manager.update_session_history = AsyncMock()
+    mock_session_manager.apply_openai_codex_history_compaction_gate = AsyncMock()
     mock_response_manager = MagicMock()
     MagicMock(spec=IResponseProcessor)
 
@@ -191,7 +192,7 @@ async def test_streaming_tool_call_in_first_chunk():
 
     # backend_preparer should build the request from command_result
     async def prepare_backend_request(
-        context, session_id, request_data, command_result
+        context, session_id, request_data, command_result, **_kwargs
     ):
         # Use modified messages from command result if available
         messages = (

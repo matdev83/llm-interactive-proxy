@@ -17,13 +17,14 @@
   - Update YAML backend config templates for **in-repo** backends that are OAuth-based or require personal auth (e.g., `gemini-oauth-plan`, `gemini-oauth-free`, `gemini-cli-cloud-project`, `openai-codex`, `antigravity-oauth`, `qwen-oauth`) to declare the new flags in their `capability_descriptor` sections.
   - _Requirements: 2.1, 2.2, 2.3_
 
-- [ ] 1.3 Extend `BackendPluginDefinition` with CLI and config hooks
+- [ ] 1.3 Extend `BackendPluginDefinition` with registration-time capability hints, CLI hooks, and config hooks
+  - Add registration-time booleans aligned with `BackendCapabilityDescriptor` (illustrative names in `design.md`: `is_oauth_based`, `requires_personal_auth`) so entry-point metadata is available **before** connector factories run and can back pre-import logic without hardcoded extracted names. Keep values consistent with each plugin’s YAML `capability_descriptor` where both exist.
   - Add `cli_arguments_hook: Callable[[argparse.ArgumentParser], None] | None = None`.
   - Add `config_applicator_hook: Callable[[argparse.Namespace, AppConfig], AppConfig] | None = None`.
   - Update `src/core/common/backend_discovery_state.py` to store and retrieve these hooks alongside existing `_plugin_post_build_hooks`:
     - Add `_plugin_cli_hooks: dict[str, Callable]` and `_plugin_config_hooks: dict[str, Callable]` module-level dicts (guarded by existing `_lock`).
     - Add `register_plugin_cli_hook` / `get_plugin_cli_hooks` / `clear_plugin_cli_hooks` (mirroring existing post-build hook pattern). Same for config hooks.
-  - _Requirements: 4.1, 4.2_
+  - _Requirements: 2.4, 4.1, 4.2_
 
 - [ ] 1.4 REQ 4.3 — Plugin-owned configuration extension
   - Implement **one** documented approach from `design.md` (narrow config-model hook **or** strict `extra`-only validation in plugins) and wire it from discovery/plugin registration.
@@ -34,8 +35,9 @@
 
 - [ ] 2. Refactor Core Discovery and Execution Logic
 - [ ] 2.1 Remove hardcoded extracted-plugin names from `oauth_detector.py`
-  - Refactor `is_oauth_connector` / related classification to rely on `BackendCapabilityDescriptor.is_oauth_based` (and neutral class signals such as `has_static_credentials` when available) instead of `KNOWN_OAUTH_CONNECTORS` / spelling rules for **in-scope** behavior.
-  - _Requirements: 1.1, 1.3, 2.1, 2.2, 2.3_
+  - Refactor `is_oauth_connector` / related classification to rely on declared capability metadata (`BackendCapabilityDescriptor` when available, plus registration-time plugin flags and/or a core manifest per `requirements.md` **Capability signals and discovery timing**) instead of `KNOWN_OAUTH_CONNECTORS` / spelling rules for **in-scope** behavior.
+  - Update `src/connectors/__init__.py` (pre-import skip logic) so it stays consistent with the same signals—**no** dependency on extracted logical name literals in core code.
+  - _Requirements: 1.1, 1.3, 2.1, 2.2, 2.3, 2.4_
 
 - [ ] 2.2 Remove hardcoded backend name lists from `scope.py`
   - Refactor resilience scoping to use `BackendCapabilityDescriptor.requires_personal_auth` (and related flags) instead of hardcoded backend IDs.
@@ -55,7 +57,7 @@
 - [ ] 3.1 Integrate `cli_arguments_hook` into `argument_parser_builder.py`
   - Remove hardcoded extracted-plugin debug flags from `_add_debugging_override_arguments` (or equivalent).
   - Add `_add_plugin_arguments` that reads hooks from `backend_discovery_state` and invokes them.
-  - Verify `backend_imports.py` / discovery runs synchronously before `ArgumentParserBuilder.build()` in `cli.py`.
+  - Verify the **default** `cli.py` path: import-time `backend_imports` / `discover_backends()` runs before `parse_cli_args()` → `ArgumentParserBuilder.build()`; document or fixture-test alternate paths that build the parser without importing `cli`.
   - _Requirements: 4.1, 4.4_
 
 - [ ] 3.2 Integrate `config_applicator_hook` into `ConfigurationApplicator`

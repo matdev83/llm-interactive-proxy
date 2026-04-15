@@ -780,8 +780,19 @@ class RequestProcessor(IRequestProcessor):
         # automatic fallback to the original model (B2BUA-aware fallback pattern).
         fallback_attempted = False
         try:
+            await self._session_manager.apply_openai_codex_history_compaction_gate(
+                session, context.backend
+            )
+            _hca = getattr(session, "history_compaction_allowed", True)
+            history_compaction_session_allowed = (
+                _hca if isinstance(_hca, bool) else True
+            )
             backend_request = await self._backend_preparer.prepare(
-                context, session_id, request_data, command_result
+                context,
+                session_id,
+                request_data,
+                command_result,
+                history_compaction_session_allowed=history_compaction_session_allowed,
             )
             if backend_request is None:
                 if logger.isEnabledFor(logging.DEBUG):
@@ -915,8 +926,19 @@ class RequestProcessor(IRequestProcessor):
                     # Prepare new backend request for fallback
                     # This triggers a NEW B2BUA identity allocation for the fallback attempt,
                     # ensuring proper session isolation per the B2BUA pattern
+                    await self._session_manager.apply_openai_codex_history_compaction_gate(
+                        session, context.backend
+                    )
+                    _hca_fb = getattr(session, "history_compaction_allowed", True)
+                    history_compaction_session_allowed_fb = (
+                        _hca_fb if isinstance(_hca_fb, bool) else True
+                    )
                     fallback_backend_request = await self._backend_preparer.prepare(
-                        context, session_id, request_data_fallback, command_result
+                        context,
+                        session_id,
+                        request_data_fallback,
+                        command_result,
+                        history_compaction_session_allowed=history_compaction_session_allowed_fb,
                     )
 
                     if fallback_backend_request:

@@ -114,6 +114,19 @@ class TestGeminiCliAcpInitialization:
 
         assert connector.is_backend_functional() is False
 
+    async def test_initialize_rejects_without_workspace_config(
+        self,
+        connector: GeminiCliAcpConnector,
+    ) -> None:
+        with (
+            patch.object(connector, "_check_gemini_cli_available", return_value=True),
+            pytest.raises(ConfigurationError) as exc_info,
+        ):
+            await connector.initialize()
+
+        assert connector.is_backend_functional() is False
+        assert "GEMINI_CLI_WORKSPACE" in exc_info.value.message
+
 
 class TestGeminiCliAcpHelpers:
     def test_extract_user_message_last_user_wins(
@@ -150,16 +163,15 @@ class TestGeminiCliAcpHelpers:
         _runtime_locks(runtime)
         assert runtime.project_dir == second_workspace.resolve()
 
-    async def test_acquire_runtime_ignores_invalid_override_and_uses_default(
+    async def test_acquire_runtime_rejects_unusable_override(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path, tmp_path: Path
     ) -> None:
         connector._default_project_dir = temp_workspace
 
-        runtime = await connector._acquire_runtime(
-            _make_request(options={"project_dir": str(tmp_path / "missing")})
-        )
-
-        assert runtime.project_dir == temp_workspace.resolve()
+        with pytest.raises(BackendError):
+            await connector._acquire_runtime(
+                _make_request(options={"project_dir": str(tmp_path / "missing")})
+            )
 
 
 class TestGeminiCliAcpProtocol:

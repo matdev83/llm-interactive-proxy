@@ -18,7 +18,11 @@ class IBackendRequestManager(Protocol):
     """Interface for backend request management operations."""
 
     async def prepare_backend_request(
-        self, request_data: ChatRequest, command_result: ProcessedResult
+        self,
+        request_data: ChatRequest,
+        command_result: ProcessedResult,
+        *,
+        history_compaction_session_allowed: bool = True,
     ) -> ChatRequest | None:
         """Prepare backend request based on command processing results."""
         ...

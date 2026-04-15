@@ -44,6 +44,9 @@ def base_request_processor() -> tuple[RequestProcessor, MagicMock, AsyncMock]:
     mock_session_manager.get_session.return_value = session
     mock_session_manager.resolve_session_id.return_value = "session-123"
     mock_session_manager.update_session_agent.return_value = session
+    mock_session_manager.apply_openai_codex_history_compaction_gate = AsyncMock(
+        side_effect=lambda s, _b: s
+    )
 
     mock_backend_request_manager = AsyncMock(spec=IBackendRequestManager)
     mock_backend_request_manager.prepare_backend_request.return_value = MagicMock()
@@ -67,7 +70,7 @@ def base_request_processor() -> tuple[RequestProcessor, MagicMock, AsyncMock]:
     )
 
     mock_backend_preparer = AsyncMock()
-    mock_backend_preparer.prepare.side_effect = lambda ctx, sid, req, cmd: req
+    mock_backend_preparer.prepare.side_effect = lambda ctx, sid, req, cmd, **kw: req
 
     mock_transform_pipeline = AsyncMock()
     mock_transform_pipeline.transform.side_effect = lambda ctx, sess, sid, req: req

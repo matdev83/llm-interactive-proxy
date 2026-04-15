@@ -37,12 +37,16 @@ class IBackendRequestPreparation(ABC):
         self,
         request: ChatRequest,
         command_result: ProcessedResult,
+        *,
+        history_compaction_session_allowed: bool = True,
     ) -> ChatRequest | None:
         """Return a new request with normalized messages or None to skip backend.
 
         Args:
             request: The original backend request
             command_result: Result of command processing
+            history_compaction_session_allowed: When False, skip history (stale tool
+                output) compaction for this request even if globally enabled.
 
         Returns:
             A new request with normalized messages, or None to skip backend execution

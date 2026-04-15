@@ -114,6 +114,7 @@ class CursorCliAcpConnector(BaseAcpConnector):
 
     backend_type: str = "cursor-cli-acp"
     VENDOR_PREFIX: str = "cursor"
+    requires_explicit_workspace: bool = True
 
     def __init__(
         self,
@@ -148,8 +149,17 @@ class CursorCliAcpConnector(BaseAcpConnector):
                 kwargs.get("project_dir")
                 or kwargs.get("workspace_path")
                 or os.getenv("CURSOR_CLI_WORKSPACE")
-                or os.getcwd()
             )
+            if not configured_project_dir:
+                raise ConfigurationError(
+                    message=(
+                        "cursor-cli-acp requires project_dir, workspace_path, "
+                        "or CURSOR_CLI_WORKSPACE (no implicit server cwd default)."
+                    ),
+                    details={
+                        "error_code": "cursor_cli_acp_workspace_required",
+                    },
+                )
             project_dir = Path(str(configured_project_dir)).resolve()
             if not self._is_usable_directory(project_dir):
                 raise ConfigurationError(

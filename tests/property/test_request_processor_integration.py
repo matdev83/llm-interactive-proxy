@@ -50,6 +50,9 @@ def create_mock_session_manager() -> AsyncMock:
     manager.get_session = AsyncMock(return_value=mock_session)
     manager.update_session_agent = AsyncMock(return_value=mock_session)
     manager.update_session_history = AsyncMock()
+    manager.apply_openai_codex_history_compaction_gate = AsyncMock(
+        side_effect=lambda s, _b: s
+    )
     return manager
 
 
@@ -58,7 +61,7 @@ def create_mock_backend_request_manager() -> AsyncMock:
     manager = AsyncMock()
 
     # Mock prepare_backend_request to return a ChatRequest
-    async def mock_prepare(request_data, command_result):
+    async def mock_prepare(request_data, command_result, **_kwargs):
         return request_data
 
     manager.prepare_backend_request = AsyncMock(side_effect=mock_prepare)
@@ -283,7 +286,9 @@ async def test_property_26_command_processing_order(
 
     backend_preparer = AsyncMock(spec=IBackendPreparer)
 
-    async def track_backend_preparer(context, session_id, request, command_result):
+    async def track_backend_preparer(
+        context, session_id, request, command_result, **_kwargs
+    ):
         operation_order.append("backend_request_preparation")
         return ChatRequest(model=original_model, messages=[default_message])
 

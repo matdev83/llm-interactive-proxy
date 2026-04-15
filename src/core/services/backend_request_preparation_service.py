@@ -117,6 +117,8 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         self,
         request: ChatRequest,
         command_result: ProcessedResult,
+        *,
+        history_compaction_session_allowed: bool = True,
     ) -> ChatRequest | None:
         """Return a new request with normalized messages or None to skip backend.
 
@@ -202,9 +204,14 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         # Apply history compaction to reduce stale tool outputs
         # This is done after command processing but before connector translation
         # Use history compaction if available and we have a token count
-        compaction_feature_enabled = self._is_compaction_enabled()
+        compaction_feature_enabled = (
+            self._is_compaction_enabled() and history_compaction_session_allowed
+        )
         compaction_mutated_messages = False
-        if self._history_compaction_service is not None:
+        if (
+            self._history_compaction_service is not None
+            and history_compaction_session_allowed
+        ):
             # Fast approximate token estimate using character count / 4
             # This is O(n) and avoids expensive tokenization for threshold checking
             # Actual tokenization happens later in the pipeline if needed

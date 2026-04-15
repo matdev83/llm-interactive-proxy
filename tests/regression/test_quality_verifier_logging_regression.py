@@ -139,9 +139,10 @@ def processor_with_quality_verifier_only(
     async def mock_transform(c, s, sid, req):
         return req
 
-    async def mock_prepare(c, s, req, cmd):
+    async def mock_prepare(c, s, req, cmd, **_kwargs):
         return req
 
+    processor._session_manager.apply_openai_codex_history_compaction_gate = AsyncMock()
     processor._transform_pipeline.transform = AsyncMock(side_effect=mock_transform)
     processor._backend_preparer.prepare = AsyncMock(side_effect=mock_prepare)
 
@@ -191,6 +192,7 @@ def processor_with_quality_verifier_and_replacement(
     # Setup session manager
     processor._session_manager.resolve_session_id.return_value = "session-123"
     processor._session_manager.get_session.return_value = session
+    processor._session_manager.apply_openai_codex_history_compaction_gate = AsyncMock()
 
     # Setup command handler
     processor._command_handler.handle.return_value = ProcessedResult(

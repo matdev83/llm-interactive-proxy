@@ -90,6 +90,7 @@ def request_processor(mock_replacement_service):
     )
     processor._session_manager.resolve_session_id.return_value = "test-session"
     processor._session_manager.get_session.return_value = session
+    processor._session_manager.apply_openai_codex_history_compaction_gate = AsyncMock()
     processor._command_handler.handle.return_value = ProcessedResult(
         command_executed=False, modified_messages=[], command_results=[]
     )
@@ -98,7 +99,7 @@ def request_processor(mock_replacement_service):
     async def mock_transform(c, s, sid, req):
         return req
 
-    async def mock_prepare(c, s, req, cmd):
+    async def mock_prepare(c, s, req, cmd, **_kwargs):
         return req
 
     processor._transform_pipeline.transform = AsyncMock(side_effect=mock_transform)

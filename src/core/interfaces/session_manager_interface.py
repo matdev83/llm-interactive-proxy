@@ -25,6 +25,20 @@ class ISessionManager(Protocol):
         """Get session by ID."""
         ...
 
+    async def apply_openai_codex_history_compaction_gate(
+        self, session: Session, resolved_backend: str | None
+    ) -> Session:
+        """Disable persisted history compaction for the session when openai-codex is used.
+
+        When the resolved backend family is ``openai-codex`` and the session still
+        allows history compaction, flips ``history_compaction_allowed`` to False,
+        persists the session, and emits a single warning (no per-request spam).
+
+        Returns:
+            The same ``session`` instance (mutated + persisted when applicable).
+        """
+        ...
+
     async def update_session_agent(
         self, session: Session, agent: str | None
     ) -> Session:

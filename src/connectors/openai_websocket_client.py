@@ -15,6 +15,7 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import websockets  # type: ignore[import-untyped]
+from cachetools import TTLCache
 from websockets.exceptions import WebSocketException  # type: ignore[import-untyped]
 
 from src.connectors.contracts import ConnectorRequestContext
@@ -66,7 +67,10 @@ class OpenAIWebSocketClient:
         self.connection_timeout = connection_timeout
         self._connection: Any = None  # WebSocketClientProtocol | None
         self._connection_start_time: float | None = None
-        self._response_cache: dict[str, Any] = {}
+        # L4: Use bounded TTL cache to prevent memory leaks in long sessions
+        self._response_cache: TTLCache[str, Any] = TTLCache(
+            maxsize=128, ttl=connection_timeout
+        )
         self._lock = asyncio.Lock()
 
     async def connect(self) -> None:
@@ -263,13 +267,13 @@ class OpenAIWebSocketClient:
                         )
                     continue
 
-                event_type = event_data.get("type")
+                event_data_type = event_data.get("type")
 
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Received event type: %s", event_type)
+                    logger.debug("Received event type: %s", event_data_type)
 
                 # Handle error events
-                if event_type == "error":
+                if event_data_type == "error":
                     error_info = event_data.get("error", {})
                     error_code = error_info.get("code", "unknown_error")
                     error_message = error_info.get("message", "Unknown WebSocket error")
@@ -305,7 +309,7 @@ class OpenAIWebSocketClient:
                     yield processed
 
                 # Stop on done event
-                if event_type == "response.done":
+                if event_data_type == "response.done":
                     break
 
         except Exception as e:

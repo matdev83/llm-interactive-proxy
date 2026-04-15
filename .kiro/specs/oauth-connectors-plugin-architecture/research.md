@@ -9,7 +9,7 @@
   - `resilience/scope.py` maintains a hardcoded `_PERSONAL_BACKEND_TYPES` set and fallback `"oauth"` / `"codex"` substring logic.
   - `argument_parser_builder.py` contains many hardcoded debugging override flags for OAuth backends (e.g. `--enable-gemini-oauth-auto-backend-debugging-override`).
   - Core test suite still imports `llm_proxy_oauth_connectors` in several connector-behavior tests (`test_qwen_oauth_retry.py` and similar), violating desired isolation (except for narrow packaging contract tests).
-  - CLI lifecycle: `parse_cli_args()` / `ArgumentParserBuilder.build()` currently runs **before** full plugin discovery in application stages.
+  - CLI lifecycle (**default** `python -m src.core.cli`): `src/core/cli.py` imports `backend_imports` at module import time, which calls `discover_backends()` (built-in connectors + `discover_plugin_backends()`) **before** `main()` invokes `parse_cli_args()` → `ArgumentParserBuilder.build()`. A later `discover_backends()` from `ApplicationBuilder` is idempotent. **Risk path**: code that builds `ArgumentParserBuilder` without importing `cli` first skips discovery and therefore skips plugin CLI hooks unless tests call `discover_backends()` explicitly.
 
 ## Research Log
 
@@ -20,7 +20,7 @@
   - `BackendCapabilityDescriptor` is the established pattern for declaring capabilities (`supports_streaming`, `supports_tool_calls`, etc.).
   - `oauth_detector.py` already combines naming, explicit list, and `has_static_credentials` property.
   - `backend_discovery_state.py` provides mature plugin metadata and entry-point infrastructure (`llm_proxy_backends` group).
-- **Implications**: Extend `BackendCapabilityDescriptor` with `requires_personal_auth: bool = False` and `is_oauth_based: bool = False`. Update `oauth_detector.py` and `scope.py` to consult these flags **in addition to** existing neutral signals. This removes the need for core to maintain plugin-specific name lists.
+- **Implications**: Extend `BackendCapabilityDescriptor` with `requires_personal_auth: bool = False` and `is_oauth_based: bool = False`. Update `oauth_detector.py` and `scope.py` to consult these flags **in addition to** existing neutral signals. For `connectors/__init__.py` **pre-import** filtering, mirror those semantics using registration-time plugin metadata (`BackendPluginDefinition` fields) and/or a core manifest derived from YAML (see `requirements.md` capability timing section). This removes the need for core to maintain plugin-specific name lists in code.
 
 ### Execution Decoupling
 - **Context**: How to eliminate remaining duck-typing and name-based decisions in `streaming_executor.py`.
@@ -35,15 +35,15 @@
 - **Context**: How to allow plugins to register their own CLI arguments and configuration applicators **without** core knowing plugin names.
 - **Sources Consulted**: `src/core/cli_support/argument_parser_builder.py`, `src/core/cli.py`, `src/core/common/backend_discovery_state.py`, `src/core/services/backend_plugin_discovery.py`.
 - **Findings**:
-  - `backend_imports` (plugin discovery + hook registration) runs during application stage wiring.
-  - `parse_cli_args()` / `ArgumentParserBuilder.build()` currently happens **earlier** in `cli.py:main()`.
-  - `BackendPluginDefinition` already supports `post_build_hook`. CLI hooks would be a natural extension.
+  - `backend_imports` runs at **`cli.py` import time** (side effect: `discover_backends()`), which is **before** `parse_cli_args()` in the normal executable path.
+  - `ApplicationBuilder` also calls `discover_backends()`; second call is a no-op unless tests reset discovery state.
+  - `BackendPluginDefinition` already supports `post_build_hook`. CLI hooks are a natural extension.
   - `ConfigurationApplicator` exists but does not yet invoke plugin hooks.
-- **Implications**: Two viable paths:
-  1. **Preferred**: Move plugin discovery earlier (before CLI parsing) or use a two-phase approach (parse minimal args → discover plugins → re-parse with plugin hooks).
-  2. Alternative: Use post-parse configuration hooks instead of pre-build argument registration.
-  - Add `cli_arguments_hook` and `config_applicator_hook` to `BackendPluginDefinition` (extending existing post-build pattern).
-  - Document lifecycle contract clearly in `plugin_api.py` and `docs/development_guide/plugin-api.md`.
+- **Implications**:
+  1. **Default path**: Preserve import-time discovery so `ArgumentParserBuilder.build()` can iterate registered `cli_arguments_hook`s without reordering `main()`.
+  2. **Non-default paths / tests**: Document that consumers must import `src.core.cli` (or call `discover_backends()`) before building the parser when hooks matter; optionally add a thin test helper if duplication becomes noisy.
+  3. Add `cli_arguments_hook` and `config_applicator_hook` to `BackendPluginDefinition` (extending existing post-build pattern).
+  4. Document lifecycle contract clearly in `plugin_api.py` and `docs/development_guide/plugin-api.md`.
 
 ### Test Isolation
 - **Context**: How to ensure the core test suite does not depend on the plugin package.
@@ -97,7 +97,7 @@
 
 - **Packaging strings**: Centralized optional-distribution names (`llm-interactive-proxy-oauth-connectors`) and `pip install …[oauth]` text may remain **for diagnostics and packaging contract tests only** (see `requirements.md` §1.2 and §5). They must not drive execution or classification logic.
 - **Interface reconciliation**: Proposed `ICredentialRotator`/`IOAuthAccountSelector` must be reconciled with existing `ITokenRefresher` protocol in `streaming_executor.py`. Prefer extending current patterns.
-- **CLI lifecycle**: Critical gap identified — `ArgumentParserBuilder.build()` runs before full plugin discovery. This must be resolved as part of this spec (not deferred).
+- **CLI lifecycle**: Default entry point already discovers plugins before parser build; spec text previously contradicted this. Remaining work is **hook wiring** plus **documentation/test discipline** for alternate imports (see `design.md`).
 - **Deferred coupling**: Many `gemini-oauth` / name-based substring checks remain outside headline in-scope files. These stay as explicit follow-up work.
 - **Steering alignment**: New plugin contracts (`BackendCapabilityDescriptor` extensions, CLI hooks, protocol usage) should be captured in `.kiro/steering/tech.md` and/or `structure.md`.
 - **Cross-repo note**: Codex connector redesign (active in `dev/codex_connector_fixes_2026-04-15.md`) is a major OAuth backend. Coordination with this work is required.

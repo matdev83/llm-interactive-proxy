@@ -2,6 +2,16 @@
 
 The OpenAI Codex backend connector is a specialized integration designed to route requests through the OpenAI Codex / Responses API infrastructure using OAuth tokens. It mimics the authentication and request patterns of the Codex CLI to facilitate development and compatibility testing.
 
+## History context compaction
+
+When **history context compaction** is enabled server-wide (`compaction` / `--enable-context-compaction`; see [Context Compaction](../features/context-compaction.md)), the proxy applies an extra **session-level** rule for this backend:
+
+- The **first** time a request in a given **session** is routed to **`openai-codex`** (any instance in the `openai-codex` family, e.g. `openai-codex:…` or weighted `openai-codex.N`), history compaction is **turned off for the rest of that session** and stored in session state.
+- The operator sees **one** warning log line for that session when the switch happens; later requests do not repeat it.
+- **Dynamic tool-output compression** is not part of this rule and keeps following its own config.
+
+If you rely on compaction for long mixed-backend sessions, plan for **Codex turns** to permanently disable **history** compaction for that session once Codex is used.
+
 ## Configuration
 
 To use the OpenAI Codex backend, you can configure it via environment variables or the `config.yaml` file.

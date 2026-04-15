@@ -51,8 +51,13 @@ async def test_request_processor_uses_app_state_command_prefix(monkeypatch) -> N
         ):
             return None
 
+        async def apply_openai_codex_history_compaction_gate(
+            self, session, resolved_backend
+        ):
+            return session
+
     class DummyBackendRequestManager:
-        async def prepare_backend_request(self, request_data, command_result):
+        async def prepare_backend_request(self, request_data, command_result, **_kwargs):
             return request_data
 
         async def process_backend_request(self, backend_request, session_id, context):
@@ -216,8 +221,13 @@ async def test_request_processor_prefers_session_command_prefix(monkeypatch) -> 
         ):
             return None
 
+        async def apply_openai_codex_history_compaction_gate(
+            self, session, resolved_backend
+        ):
+            return session
+
     class DummyBackendRequestManager:
-        async def prepare_backend_request(self, request_data, command_result):
+        async def prepare_backend_request(self, request_data, command_result, **_kwargs):
             return request_data
 
         async def process_backend_request(self, backend_request, session_id, context):

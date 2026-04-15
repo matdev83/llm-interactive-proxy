@@ -12,6 +12,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pydantic.types import JsonValue
 
+from src.connectors.acp_core.workspace_policy import (
+    ACP_BACKEND_TYPES,
+    ACP_MISSING_PROJECT_WORKSPACE_CODE,
+    first_usable_workspace_dir,
+    is_usable_workspace_directory,
+)
 from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
 from src.core.domain.backend_target import BackendTarget
@@ -393,6 +399,32 @@ class BackendModelResolver(IBackendModelResolver):
                 )
 
         self._persist_uri_params_in_context(context, uri_params)
+
+        if backend_type in ACP_BACKEND_TYPES:
+            extra = request.extra_body if isinstance(request.extra_body, dict) else None
+            session_workspace: dict[str, str] | None = None
+            if session is not None and session.state is not None:
+                pd = getattr(session.state, "project_dir", None)
+                if isinstance(pd, str) and pd.strip():
+                    session_workspace = {"project_dir": pd.strip()}
+            workspace = first_usable_workspace_dir(
+                extra,
+                session_workspace,
+                is_usable=is_usable_workspace_directory,
+            )
+            if workspace is None:
+                raise RoutingError(
+                    message=(
+                        "ACP backends require a usable workspace directory "
+                        "(session project_dir or request extra_body "
+                        "project_dir/workspace_path/cwd/project)."
+                    ),
+                    details={
+                        "category": "validation",
+                        "code": ACP_MISSING_PROJECT_WORKSPACE_CODE,
+                        "backend_type": backend_type,
+                    },
+                )
 
         return BackendTarget(
             backend=backend_type,

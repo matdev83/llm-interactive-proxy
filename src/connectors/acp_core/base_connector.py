@@ -23,6 +23,12 @@ from src.connectors.acp_core.types import (
     ACPUpdateContent,
     HistoryState,
 )
+from src.connectors.acp_core.workspace_policy import (
+    ACP_MISSING_PROJECT_WORKSPACE_CODE,
+    first_usable_workspace_dir,
+    first_workspace_hint_str,
+    is_usable_workspace_directory,
+)
 from src.connectors.base import LLMBackend, add_vendor_prefix, strip_vendor_prefix
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.mixins.usage_calculation_mixin import UsageCalculationMixin
@@ -125,6 +131,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
     """Base class for ACP-based connectors."""
 
     VENDOR_PREFIX: str
+    requires_explicit_workspace: bool = False
 
     def __init__(
         self, config: Any, translation_service: Any = None, **kwargs: Any
@@ -183,7 +190,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     @staticmethod
     def _is_usable_directory(path: Path) -> bool:
-        return path.exists() and path.is_dir() and os.access(path, os.R_OK)
+        return is_usable_workspace_directory(path)
 
     def _build_runtime_key(
         self, project_dir: Path, model: str, client_session_id: str
@@ -254,36 +261,45 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
         return await self._reap_idle_runtime(runtime_key, runtime)
 
-    def _resolve_project_dir_override(
-        self, request: ConnectorChatCompletionsRequest
-    ) -> str | None:
-        candidates: list[dict[str, Any]] = []
-        extra_body = getattr(request.request, "extra_body", None)
-        if isinstance(extra_body, dict):
-            candidates.append(extra_body)
-        if isinstance(request.options, dict):
-            candidates.append(request.options)
-
-        for candidate in candidates:
-            for key in ("project_dir", "workspace_path", "cwd", "project"):
-                value = candidate.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value
-        return None
-
     def _resolve_project_dir_for_request(
         self, request: ConnectorChatCompletionsRequest
     ) -> Path:
-        override = self._resolve_project_dir_override(request)
-        if override is not None:
-            candidate = Path(override).expanduser().resolve()
-            if self._is_usable_directory(candidate):
-                return candidate
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Ignoring unusable ACP project_dir override: %s",
-                    override,
+        extra_body = getattr(request.request, "extra_body", None)
+        extra_dict = extra_body if isinstance(extra_body, dict) else None
+        options = request.options if isinstance(request.options, dict) else None
+
+        usable = first_usable_workspace_dir(
+            extra_dict,
+            options,
+            is_usable=is_usable_workspace_directory,
+        )
+        if usable is not None:
+            return usable
+
+        if self.requires_explicit_workspace:
+            hint = first_workspace_hint_str(extra_dict, options)
+            if hint is not None:
+                raise BackendError(
+                    message=f"Unusable ACP workspace directory: {hint}",
+                    details={
+                        "code": ACP_MISSING_PROJECT_WORKSPACE_CODE,
+                        "hint": hint,
+                    },
                 )
+            raise BackendError(
+                message=(
+                    "ACP backend requires an explicit workspace directory "
+                    "(session project_dir or request project_dir/workspace_path/cwd/project)."
+                ),
+                details={"code": ACP_MISSING_PROJECT_WORKSPACE_CODE},
+            )
+
+        hint = first_workspace_hint_str(extra_dict, options)
+        if hint is not None and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Ignoring unusable ACP project_dir override: %s",
+                hint,
+            )
 
         if self._default_project_dir is None:
             raise ConfigurationError(

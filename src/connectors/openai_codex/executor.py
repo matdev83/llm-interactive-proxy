@@ -39,7 +39,12 @@ from src.connectors.openai_codex.interfaces import (
     ICredentialManager,
     IResponseExecutor,
 )
-from src.connectors.openai_codex.utils import build_codex_user_agent
+from src.connectors.openai_codex.utils import (
+    build_codex_user_agent,
+    fingerprint_component,
+    fingerprint_input_items,
+    json_default,
+)
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
@@ -375,11 +380,13 @@ class ResponseExecutor(IResponseExecutor):
         )
         payload_dict = payload.model_dump(exclude_none=True)
         full_payload_dict = dict(payload_dict)
-        continuation_snapshot = self._get_continuation_snapshot(continuation_context)
+        continuation_snapshot = await self._get_continuation_snapshot(
+            continuation_context
+        )
         proxy_managed_previous_response_id = False
         if "previous_response_id" not in payload_dict:
             previous_response_id = (
-                self._continuation_coordinator.resolve_previous_response_id(
+                await self._continuation_coordinator.resolve_previous_response_id(
                     continuation_context
                 )
             )
@@ -398,13 +405,13 @@ class ResponseExecutor(IResponseExecutor):
                         payload_dict["input"] = sliced_input
                         proxy_managed_previous_response_id = True
                     else:
-                        self._continuation_coordinator.invalidate(
+                        await self._continuation_coordinator.invalidate(
                             continuation_context,
                             reason="continuation_input_drift",
                         )
                         continuation_snapshot = None
                 else:
-                    self._continuation_coordinator.invalidate(
+                    await self._continuation_coordinator.invalidate(
                         continuation_context,
                         reason="continuation_static_fingerprint_changed",
                     )
@@ -479,7 +486,7 @@ class ResponseExecutor(IResponseExecutor):
                                 session_id=context.session_id
                             )
                             if rotated:
-                                self._invalidate_continuation_on_rotation(
+                                await self._invalidate_continuation_on_rotation(
                                     continuation_context,
                                     reason="auth_rotation",
                                 )
@@ -568,7 +575,7 @@ class ResponseExecutor(IResponseExecutor):
                                     response_headers=None,
                                 )
                                 if rotated:
-                                    self._invalidate_continuation_on_rotation(
+                                    await self._invalidate_continuation_on_rotation(
                                         continuation_context,
                                         reason="rate_limit_rotation",
                                     )
@@ -756,7 +763,7 @@ class ResponseExecutor(IResponseExecutor):
                                 yield processed_chunk
                     except Exception as exc:
                         if self._is_previous_response_not_found_error(exc):
-                            self._continuation_coordinator.invalidate(
+                            await self._continuation_coordinator.invalidate(
                                 continuation_context,
                                 reason="previous_response_not_found",
                             )
@@ -790,11 +797,11 @@ class ResponseExecutor(IResponseExecutor):
                     if not restart_stream:
                         await self._mark_account_used()
                         if terminal_response_id:
-                            self._continuation_coordinator.record_response_id(
+                            await self._continuation_coordinator.record_response_id(
                                 continuation_context,
                                 terminal_response_id,
                             )
-                            self._record_continuation_turn(
+                            await self._record_continuation_turn(
                                 continuation_context,
                                 terminal_response_id,
                                 replay_payload_dict,
@@ -1020,16 +1027,20 @@ class ResponseExecutor(IResponseExecutor):
             return candidate.strip()
         return "openai-codex"
 
-    def _get_continuation_snapshot(
+    async def _get_continuation_snapshot(
         self, context: CodexRequestContext
     ) -> CodexContinuationSnapshot | None:
         getter = getattr(self._continuation_coordinator, "get_snapshot", None)
         if not callable(getter):
             return None
-        snapshot = getter(context)
+        # Support both sync and async getters for backward compatibility during migration
+        if inspect.iscoroutinefunction(getter):
+            snapshot = await getter(context)
+        else:
+            snapshot = getter(context)
         return snapshot if isinstance(snapshot, CodexContinuationSnapshot) else None
 
-    def _record_continuation_turn(
+    async def _record_continuation_turn(
         self,
         context: CodexRequestContext,
         response_id: str,
@@ -1037,31 +1048,34 @@ class ResponseExecutor(IResponseExecutor):
     ) -> None:
         recorder = getattr(self._continuation_coordinator, "record_turn", None)
         if callable(recorder):
-            recorder(
-                context,
-                response_id=response_id,
-                payload_dict=payload_dict,
-            )
+            if inspect.iscoroutinefunction(recorder):
+                await recorder(
+                    context,
+                    response_id=response_id,
+                    payload_dict=payload_dict,
+                )
+            else:
+                recorder(
+                    context,
+                    response_id=response_id,
+                    payload_dict=payload_dict,
+                )
 
-    def _invalidate_continuation_on_rotation(
+    async def _invalidate_continuation_on_rotation(
         self, context: CodexRequestContext, *, reason: str
     ) -> None:
-        self._continuation_coordinator.invalidate(context, reason=reason)
+        await self._continuation_coordinator.invalidate(context, reason=reason)
 
     @staticmethod
     def _is_compatible_continuation_snapshot(
         snapshot: CodexContinuationSnapshot,
         payload_dict: dict[str, Any],
     ) -> bool:
-        return (
-            snapshot.instructions_fingerprint
-            == InMemoryCodexContinuationCoordinator._fingerprint_component(
-                payload_dict.get("instructions")
-            )
-            and snapshot.tools_fingerprint
-            == InMemoryCodexContinuationCoordinator._fingerprint_component(
-                payload_dict.get("tools")
-            )
+        # M1: Uses shared fingerprinting utilities instead of concrete class method
+        return snapshot.instructions_fingerprint == fingerprint_component(
+            payload_dict.get("instructions")
+        ) and snapshot.tools_fingerprint == fingerprint_component(
+            payload_dict.get("tools")
         )
 
     @staticmethod
@@ -1072,9 +1086,8 @@ class ResponseExecutor(IResponseExecutor):
         current_input = payload_dict.get("input")
         if not isinstance(current_input, list) or not current_input:
             return None
-        current_fingerprints = (
-            InMemoryCodexContinuationCoordinator._fingerprint_input_items(current_input)
-        )
+        # M1: Uses shared fingerprinting utilities
+        current_fingerprints = fingerprint_input_items(current_input)
         prior_fingerprints = snapshot.input_fingerprints
         if not prior_fingerprints:
             return None
@@ -1097,9 +1110,11 @@ class ResponseExecutor(IResponseExecutor):
     def _prune_continuation_bootstrap_fields(
         payload_dict: dict[str, Any],
     ) -> dict[str, Any]:
-        payload_dict.pop("instructions", None)
-        payload_dict.pop("tools", None)
-        return payload_dict
+        """Remove bootstrap fields that should not be sent on continued turns."""
+        pruned = dict(payload_dict)
+        pruned.pop("instructions", None)
+        pruned.pop("tools", None)
+        return pruned
 
     @staticmethod
     def _resolve_request_mode(
@@ -1157,7 +1172,7 @@ class ResponseExecutor(IResponseExecutor):
                     value,
                     sort_keys=True,
                     separators=(",", ":"),
-                    default=ResponseExecutor._json_default,
+                    default=json_default,
                 ).encode("utf-8")
             )
         except (TypeError, ValueError):
@@ -1165,10 +1180,8 @@ class ResponseExecutor(IResponseExecutor):
 
     @staticmethod
     def _json_default(value: Any) -> Any:
-        model_dump = getattr(value, "model_dump", None)
-        if callable(model_dump):
-            return model_dump(mode="json")
-        return str(value)
+        # L1: Delegate to shared utility
+        return json_default(value)
 
     def _detect_incompatible_tool_calls(
         self,

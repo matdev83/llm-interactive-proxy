@@ -16,8 +16,8 @@
 
 ## 2. Requirements Feasibility Analysis
 
-- **Core Independence from Plugin Names**: Feasible. Requires replacing hardcoded lists in `oauth_detector.py` and `scope.py` with **capability flags** on `BackendCapabilityDescriptor` (not a separate global registry). Note: `oauth_detector.py` already has partial dynamic capability via entry-point discovery; the refactor formalizes and completes this.
-- **Capability Declaration**: Feasible. The `BackendCapabilityDescriptor` needs to be extended with `requires_personal_auth` and `is_oauth_based` flags. Pydantic v2 `model_validate` handles new fields with defaults automatically.
+- **Core Independence from Plugin Names**: Feasible. Requires replacing hardcoded lists in `oauth_detector.py` and `scope.py` with **declared capability metadata** (`BackendCapabilityDescriptor` where YAML is loaded; registration-time plugin fields and/or a core manifest for pre-import `connectors/__init__.py` paths — see `requirements.md`). Note: `oauth_detector.py` already has partial dynamic capability via entry-point discovery; the refactor formalizes and completes this.
+- **Capability Declaration**: Feasible. Extend `BackendCapabilityDescriptor` with `requires_personal_auth` and `is_oauth_based`. Mirror OAuth semantics on `BackendPluginDefinition` (or equivalent) for entry points evaluated before connector import. Pydantic v2 `model_validate` handles new descriptor fields with defaults automatically.
 - **Execution Decoupling**: Feasible. `streaming_executor.py` already defines `ITokenRefresher` protocol. New `ICredentialRotator` (extending `ITokenRefresher`) and `IOAuthAccountSelector` protocols must be defined in `src/core/interfaces/`. `ICredentialRotator` also adds `get_current_access_token()` and `record_rate_limit()` to replace remaining duck-typed access patterns. `ITokenRefresher` must be relocated from `streaming_executor.py` to `src/core/interfaces/`.
 - **Configuration and CLI Independence**: Feasible but requires architectural changes. The `ConfigurationApplicator` uses a domain-specific applicator delegation pattern (15+ applicators); plugin hooks should be invoked as a post-applicator phase. The 9 debug override flags and 3 deferred CLI flags need careful classification.
 - **Test Isolation**: Highly feasible. Requires moving OAuth-specific tests (`test_qwen_oauth_retry.py`, relevant cases in `test_vendor_prefix.py`) to the `llm-interactive-proxy-oauth-connectors` repository and using mock plugins for testing discovery in the core repo.
@@ -47,12 +47,12 @@
 
 ## 4. Implementation Complexity & Risk
 
-- **Effort**: **L (1-2 weeks)**. Requires significant refactoring of core execution paths (`streaming_executor.py`), CLI building, and moving a large number of tests across repository boundaries.
+- **Effort**: **L (on the order of one to two weeks)**. Touches core execution (`streaming_executor.py`), discovery/CLI wiring, and a **focused** set of cross-repo test moves (see `tasks.md` Phase 4 — not a bulk test migration).
 - **Risk**: **Medium**. The changes touch critical paths (streaming execution, CLI startup), but the goal is to formalize existing implicit contracts into explicit interfaces, which is a known and safe pattern.
 
 ## 5. Recommendations for Design Phase
 
 - **Preferred Approach**: Option A (Extend Existing Plugin Discovery). Focus on relocating/extending existing `ITokenRefresher`, defining `ICredentialRotator` (extending `ITokenRefresher`) and `IOAuthAccountSelector`, and extending `BackendCapabilityDescriptor`.
 - **Research Needed**:
-  - How to safely allow plugins to register CLI arguments without causing conflicts or breaking the `argparse` lifecycle.
-  - The exact shape of the generic interfaces needed by `streaming_executor.py` to replace `_oauth_credentials`, `_account_selector`, and `record_rate_limit` access. (Largely resolved in `design.md` migration path table.)
+  - Namespace / collision rules for plugin CLI flags (documentation + optional guardrails).
+  - Runtime semver comparison for `PluginCompatibility` if plugins start enforcing `core_max_version` strictly. (Interface shapes for `streaming_executor.py` are resolved in `design.md` migration table.)

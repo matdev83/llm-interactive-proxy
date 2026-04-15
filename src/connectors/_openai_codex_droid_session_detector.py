@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -69,7 +70,8 @@ class DroidSessionDetector:
 
     def detect(
         self,
-        headers: dict[str, str] | None = None,
+        *,
+        headers: Mapping[str, str] | None = None,
         messages: list[dict[str, Any]] | None = None,
         tools: list[dict[str, Any]] | None = None,
     ) -> DroidDetectionResult:
@@ -104,7 +106,7 @@ class DroidSessionDetector:
         # No detection
         return DroidDetectionResult(is_droid=False)
 
-    def _detect_from_user_agent(self, headers: dict[str, str]) -> DroidDetectionResult:
+    def _detect_from_user_agent(self, headers: Mapping[str, str]) -> DroidDetectionResult:
         """Detect Droid from User-Agent header using token-based matching.
 
         Tokenizes the user agent to avoid false positives from substring matches

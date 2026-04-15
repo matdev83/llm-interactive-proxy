@@ -236,7 +236,7 @@ class TestResponseExecutor:
         sample_context,
         streaming_payload,
     ) -> None:
-        continuation = MagicMock()
+        continuation = AsyncMock()
         continuation.resolve_previous_response_id.return_value = "resp-prev"
 
         async def empty_iterator():
@@ -282,7 +282,7 @@ class TestResponseExecutor:
         sample_context,
         streaming_payload,
     ) -> None:
-        continuation = MagicMock()
+        continuation = AsyncMock()
         continuation.resolve_previous_response_id.return_value = "resp-prev"
 
         async def empty_iterator():
@@ -907,7 +907,7 @@ class TestResponseExecutor:
         sample_context,
         streaming_payload,
     ) -> None:
-        continuation = MagicMock()
+        continuation = AsyncMock()
         continuation.resolve_previous_response_id.return_value = "resp_prev_123"
 
         async def done_iterator():
@@ -954,7 +954,7 @@ class TestResponseExecutor:
         sample_context,
         streaming_payload,
     ) -> None:
-        continuation = MagicMock()
+        continuation = AsyncMock()
         continuation.resolve_previous_response_id.return_value = "resp_prev_123"
         streaming_payload.instructions = "Full Codex bootstrap"
         streaming_payload.tools = [
@@ -1012,7 +1012,7 @@ class TestResponseExecutor:
         streaming_payload,
         caplog,
     ) -> None:
-        continuation = MagicMock()
+        continuation = AsyncMock()
         continuation.resolve_previous_response_id.return_value = "resp_prev_123"
         streaming_payload.instructions = "Full Codex bootstrap"
         streaming_payload.tools = [
@@ -1426,7 +1426,7 @@ class TestResponseExecutor:
         sample_context,
         streaming_payload,
     ) -> None:
-        continuation = MagicMock()
+        continuation = AsyncMock()
         continuation.resolve_previous_response_id.return_value = None
 
         async def done_iterator():
@@ -1466,7 +1466,7 @@ class TestResponseExecutor:
         sample_context,
         streaming_payload,
     ) -> None:
-        continuation = MagicMock()
+        continuation = AsyncMock()
         continuation.resolve_previous_response_id.return_value = "resp_prev_missing"
 
         async def failing_iterator():
@@ -1511,7 +1511,7 @@ class TestResponseExecutor:
         sample_context,
         streaming_payload,
     ) -> None:
-        continuation = MagicMock()
+        continuation = AsyncMock()
         continuation.resolve_previous_response_id.return_value = "resp_prev_missing"
         streaming_payload.instructions = "Full Codex bootstrap"
         streaming_payload.tools = [
