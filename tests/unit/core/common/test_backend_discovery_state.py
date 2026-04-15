@@ -35,7 +35,7 @@ def test_filter_oauth_style_backend_names_uses_pattern_only_no_hardcoding() -> N
     result = filter_oauth_style_backend_names(
         ["openai", "qwen-oauth", "custom_oauth_bar", "gemini-oauth-auto", "x"]
     )
-    assert result == ["qwen-oauth", "custom_oauth_bar", "gemini-oauth-auto"]
+    assert result == ["custom_oauth_bar", "gemini-oauth-auto", "qwen-oauth"]
 
 
 def test_normalize_backend_name_normalizes_instance_and_case() -> None:

@@ -70,12 +70,18 @@ Backend routing and completion flow are centralized in service orchestration:
 - Backend completion collaborator contracts:
   `src/core/interfaces/backend_completion_collaborators.py`
 
-Discovery pattern:
+**Plugin architecture pattern** (stabilized via oauth-connectors-plugin-architecture):
 
-- In-repo connectors are imported via `src/core/services/backend_imports.py`
-- External connectors are discovered via Python entry points in group
-  `llm_proxy_backends` through `src/core/services/backend_plugin_discovery.py`
-- Public plugin contract is intentionally stable in `src/core/plugin_api.py`
+- **In-repo connectors**: Live under `src/connectors/` and are imported directly via `src/core/services/backend_imports.py`
+- **External plugins**: Discovered via Python entry points in group `llm_proxy_backends` through `src/core/services/backend_plugin_discovery.py`
+- **Public contract**: Intentionally stable and narrow — only import from `src/core/plugin_api.py` (never deep-import `src.core.interfaces.*` or internal modules)
+- **Capability-driven classification**: Use `BackendCapabilityDescriptor` (`requires_personal_auth`, `is_oauth_based`, `supports_streaming`, etc.) rather than name-based heuristics (`-oauth-` suffixes, hardcoded lists, or `backend_type` string matching)
+- **Execution decoupling**: Core execution logic (e.g. `streaming_executor.py`) must interact with plugins only through explicit protocols such as `ITokenRefresher` (with methods like `refresh_token_if_needed()`). Avoid duck-typing on private attributes (`_oauth_credentials`, `_account_selector`)
+
+**OAuth connector boundary lessons**:
+- Core must not depend on specific plugin distribution names (`llm-interactive-proxy-oauth-connectors`) or individual backend names for control flow
+- Test isolation is mandatory: core tests must not import optional plugin packages for behavior testing (narrow packaging contract tests are allowed)
+- CLI extensibility: Plugins register arguments and config applicators via hooks on `BackendPluginDefinition` (`cli_arguments_hook`, `config_applicator_hook`)
 
 Optional OAuth connector families are provided via extra dependency
 `llm-interactive-proxy-oauth-connectors` (`[project.optional-dependencies].oauth`).
@@ -83,15 +89,16 @@ Optional OAuth connector families are provided via extra dependency
 Capability declaration pattern:
 
 - Backends declare protocol- and tool-related capabilities through typed configuration
-  (`BackendCapabilityDescriptor`) rather than implicit connector attributes.
+  (`BackendCapabilityDescriptor`) rather than implicit connector attributes or naming conventions.
   - Model: `src/core/domain/backend_capability_descriptor.py`
   - Config wiring: `src/core/config/models/backends.py`
+  - Extension pattern: Add new capability flags only when they represent cross-cutting concerns (not backend-specific quirks)
 
 Stability expectations:
 
-- Backend and plugin discovery are intended to be safe to run more than once
-  (idempotent, duplicate/invalid plugins skipped with warnings rather than failing
-  core startup).
+- Backend and plugin discovery must be idempotent and safe to run more than once (duplicate/invalid plugins are skipped with warnings)
+- Plugin API surface (`plugin_api.py`) must remain stable — breaking changes require coordinated major version bumps
+- Core should "fail open" on plugin issues where possible to protect core proxy functionality
 
 ## Error Model
 
@@ -166,18 +173,21 @@ Use the in-repo venv interpreter:
 ./.venv/Scripts/python.exe -m mypy src/
 ```
 
-## Near-Term Technical Priorities (from current planning)
+## Near-Term Technical Priorities
 
-- Keep compatibility contracts explicit and test-pinned on core protocol surfaces
+- Keep compatibility contracts explicit and test-pinned on core protocol surfaces (`ITokenRefresher`, `BackendCapabilityDescriptor`, plugin API)
+- Eliminate remaining name-based heuristics and duck-typing in core OAuth paths (follow-up from oauth-connectors-plugin-architecture work)
 - Reduce coupling between core proxy path and optional/non-core features
 - Improve resilience and diagnostics without widening architectural fragility
 - Maintain plugin compatibility boundaries so external connector changes fail open
+- Ensure CLI/plugin discovery lifecycle is correctly ordered (plugin hooks must be available during argument parsing)
 
 ## Further Reading
 
 - `docs/development_guide/architecture.md`
 - `docs/development_guide/code-organization.md`
 - `docs/development_guide/plugin-api.md`
+- oauth-connectors-plugin-architecture spec (for detailed plugin boundary and capability patterns)
 
 ---
 
@@ -188,4 +198,7 @@ _Updated: 2026-01-01_
 _Reason: Document ports/adapters split added during refactors_
 
 _Updated: 2026-04-06_
-_Reason: Sync with current stage order, plugin discovery contract, and actual tooling posture from `pyproject.toml` and `.planning/`_
+_Reason: Sync with current stage order, plugin discovery contract, and actual tooling posture from `pyproject.toml`_
+
+_Updated: 2026-04-15_
+_Reason: Incorporate lessons from oauth-connectors-plugin-architecture work — capability-driven classification, ITokenRefresher protocol usage, CLI/plugin discovery lifecycle, test isolation rules, and avoidance of name-based heuristics_

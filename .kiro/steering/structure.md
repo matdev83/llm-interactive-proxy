@@ -29,14 +29,15 @@ contracts where possible.
 
 ### 2. Backend adapters (`src/connectors/`)
 
-Connector modules implement provider-specific behavior behind shared backend contracts.
+Connector modules implement provider-specific behavior behind shared backend contracts and protocols.
 
-Two extension patterns coexist:
+**Two extension patterns coexist** (see `tech.md` for details):
 
-- **In-repo connectors** under `src/connectors/`
+- **In-repo connectors** under `src/connectors/` (first-party, always available)
 - **External plugin connectors** discovered via entry points (`llm_proxy_backends`)
-  using `src/core/plugin_api.py` and
-  `src/core/services/backend_plugin_discovery.py`
+  using `src/core/plugin_api.py` and `src/core/services/backend_plugin_discovery.py`
+
+**Key boundary rule**: Core must not depend on plugin-specific names, private attributes, or distribution details. Classification and execution must be driven by `BackendCapabilityDescriptor` and explicit protocols (`ITokenRefresher`, etc.). The oauth-connectors-plugin-architecture work formalized this boundary.
 
 ### 3. Top-level subsystem packages (`src/`)
 
@@ -100,14 +101,16 @@ ad-hoc startup hooks.
   - interfaces: `I*` prefix
 - Keep transport/framework-specific symbols out of domain contracts when avoidable
 
-## Structural Guardrails (Current Planning Alignment)
+## Structural Guardrails
 
-Current brownfield planning (`.planning/`) reinforces these structure-level rules:
+The oauth-connectors-plugin-architecture work and current architectural priorities reinforce these structure-level rules:
 
-- Core proxy behavior should stay insulated from optional/non-core features
-- Connector-specific enhancements must not leak into core contracts
+- Core proxy behavior must stay insulated from optional/non-core features (especially extracted OAuth plugins)
+- Connector-specific enhancements and name-based heuristics must not leak into core contracts
+- Use capability metadata (`BackendCapabilityDescriptor`) and explicit protocols instead of string matching or duck-typing
 - Streaming and non-streaming paths should converge where practical
 - Session/user isolation boundaries should be explicit and testable
+- Plugin API surface (`plugin_api.py`) is the only stable contract for external packages
 
 ---
 
@@ -118,4 +121,7 @@ _Updated: 2026-01-01_
 _Reason: Reflect ports/adapters split introduced by refactors_
 
 _Updated: 2026-04-06_
-_Reason: Sync with plugin extension pattern, current top-level subsystem layout, and brownfield structural priorities from `.planning/`_
+_Reason: Sync with plugin extension pattern, current top-level subsystem layout, and brownfield structural priorities_
+
+_Updated: 2026-04-15_
+_Reason: Incorporate oauth-connectors-plugin-architecture lessons — capability-driven classification, protocol boundaries (`ITokenRefresher`), prohibition on name-based heuristics in core, and plugin API surface rules_

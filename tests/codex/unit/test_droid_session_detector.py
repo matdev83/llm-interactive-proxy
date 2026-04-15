@@ -131,3 +131,17 @@ class TestDroidSessionDetector:
             ]
         )
         assert result.is_droid is True
+
+    def test_not_detect_similar_but_not_matching_user_agent(self):
+        """User agents with similar substrings should not false-positive.
+
+        For example, 'my_factory_client' should not match 'factory_cli'
+        because token-based matching requires whole-token matches.
+        """
+        from src.connectors._openai_codex_droid_session_detector import (
+            DroidSessionDetector,
+        )
+
+        detector = DroidSessionDetector()
+        result = detector.detect(headers={"User-Agent": "my_factory_client/1.0"})
+        assert result.is_droid is False

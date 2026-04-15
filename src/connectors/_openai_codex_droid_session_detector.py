@@ -7,6 +7,7 @@ Used to enable Droid-specific tool translation when routing through Codex backen
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -104,16 +105,26 @@ class DroidSessionDetector:
         return DroidDetectionResult(is_droid=False)
 
     def _detect_from_user_agent(self, headers: dict[str, str]) -> DroidDetectionResult:
-        """Detect Droid from User-Agent header."""
+        """Detect Droid from User-Agent header using token-based matching.
+
+        Tokenizes the user agent to avoid false positives from substring matches
+        (e.g., 'my_factory_client' should not match 'factory_cli').
+        """
         user_agent = headers.get("User-Agent", "")
         if not user_agent:
             # Try lowercase key
             user_agent = headers.get("user-agent", "")
 
         user_agent_lower = user_agent.lower()
+        user_agent_tokens = {
+            token for token in re.split(r"[^a-z0-9]+", user_agent_lower) if token
+        }
 
         for pattern in self.DROID_USER_AGENT_PATTERNS:
-            if pattern in user_agent_lower:
+            pattern_tokens = {
+                token for token in re.split(r"[^a-z0-9]+", pattern) if token
+            }
+            if pattern_tokens.issubset(user_agent_tokens):
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL,

@@ -52,7 +52,9 @@ Use `docs/user_guide/frontends/overview.md` for exhaustive endpoint details.
 ### 6. Extensibility
 
 - In-repo connector model for first-party provider adapters
-- Entry-point plugin contract (`llm_proxy_backends`) for external connector packages
+- Stable entry-point plugin contract (`llm_proxy_backends`) for external connector packages
+- **Capability-driven architecture**: Backends declare capabilities (`BackendCapabilityDescriptor`) and implement narrow protocols (`ITokenRefresher`, etc.) rather than relying on name-based classification or private state access
+- Core remains agnostic to specific plugin implementations and distribution names (`llm-interactive-proxy-oauth-connectors`)
 
 ## Primary Use Cases
 
@@ -63,12 +65,13 @@ Use `docs/user_guide/frontends/overview.md` for exhaustive endpoint details.
 
 ## Current Product Direction (Brownfield)
 
-Planning artifacts under `.planning/` currently emphasize:
+Current architectural priorities and the oauth-connectors-plugin-architecture work emphasize:
 
 - Stabilize protocol compatibility on core frontend surfaces (OpenAI/Anthropic/Gemini)
-- Isolate core proxy behavior from optional or connector-specific enhancements
+- **Isolate core proxy behavior** from optional or connector-specific enhancements (no name-based heuristics, no duck-typing on plugin internals)
 - Reduce fragility in streaming/non-streaming and low-frequency failure paths
 - Strengthen session/user isolation and regression detection quality
+- Maintain clean plugin boundaries so external OAuth connectors can evolve independently
 - Prioritize revenue-aligned capabilities only after stability/security baselines hold
 
 ## Non-Goals
@@ -90,3 +93,6 @@ _Reason: Align product memory with then-current safety/quality feature set_
 
 _Updated: 2026-04-06_
 _Reason: Sync with current compatibility surfaces, plugin extensibility, and brownfield stabilization direction from `.planning/`_
+
+_Updated: 2026-04-15_
+_Reason: Incorporate oauth-connectors-plugin-architecture outcomes — capability-driven design, protocol-first execution, isolation of core from plugin name/implementation details, and strengthened extensibility pillar_
