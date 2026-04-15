@@ -136,7 +136,6 @@ src/connectors/
 ├── openai_codex.py         # OpenAI Codex (OAuth) connector
 ├── openai_responses.py     # OpenAI Responses API connector
 ├── anthropic.py            # [Anthropic](../user_guide/backends/anthropic.md) connector
-├── anthropic_oauth.py      # Anthropic OAuth connector
 ├── gemini.py               # [Gemini](../user_guide/backends/gemini.md) API key connector
 ├── gemini_oauth_base.py    # Base for Gemini OAuth connectors
 ├── gemini_oauth_free.py    # Gemini OAuth free tier

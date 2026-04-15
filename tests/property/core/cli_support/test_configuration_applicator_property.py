@@ -218,7 +218,6 @@ class TestArgumentParsingRoundTripConsistency:
             enable_gemini_oauth_plan_backend_debugging_override=False,
             enable_qwen_oauth_backend_debugging_override=False,
             enable_openai_codex_backend_debugging_override=False,
-            enable_anthropic_oauth_backend_debugging_override=False,
         )
 
         with patch("src.core.config.app_config.load_config") as mock_load_config:
@@ -419,7 +418,6 @@ class TestParameterSourceRecordingCompleteness:
             enable_gemini_oauth_plan_backend_debugging_override=False,
             enable_qwen_oauth_backend_debugging_override=False,
             enable_openai_codex_backend_debugging_override=False,
-            enable_anthropic_oauth_backend_debugging_override=False,
         )
 
         with patch("src.core.config.app_config.load_config") as mock_load_config:

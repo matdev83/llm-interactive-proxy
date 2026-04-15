@@ -328,6 +328,5 @@ anthropic_port: 8001
 ## Related Documentation
 
 - [Anthropic Backend](../backends/anthropic.md) - Configure Anthropic as a backend
-- [Anthropic OAuth Backend](../backends/anthropic-oauth.md) - OAuth authentication
 - [Frontend Overview](overview.md) - All available frontends
 

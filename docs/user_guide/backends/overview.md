@@ -4,35 +4,46 @@ The LLM Interactive Proxy supports multiple backend providers, allowing you to r
 
 ## Supported Backends
 
-The proxy supports the following backend providers out of the box:
+Backend IDs are the `type:` values in YAML and the `backend_type` carried on requests. **Core connectors** live in this repository and are always import-registered. **OAuth plugin connectors** ship in the sibling package **`llm-interactive-proxy-oauth-connectors`** and register when you install the optional extra, for example `pip install "llm-interactive-proxy[oauth]"` (see `pyproject.toml` optional dependency `oauth`).
+
+### Core connectors (this repository)
 
 | Backend ID | Provider | Authentication | Best For |
 |------------|----------|----------------|----------|
 | `openai` | OpenAI | API Key | Production applications, standard OpenAI models |
-| `openai-codex` | OpenAI (ChatGPT/Codex OAuth) | Local OAuth token | Using ChatGPT login instead of API key |
-| `anthropic` | Anthropic | API Key | Claude models via standard API |
-| `anthropic-oauth` | Anthropic (OAuth) | Local OAuth token | Claude via OAuth credential flow |
-| `cline` | Cline | Local OAuth token | Internal development & debugging |
+| `openai-responses` | OpenAI | API Key | Same credentials as OpenAI; targets `/v1/responses` for structured outputs (see [OpenAI backend](openai.md#openai-responses-backend)) |
+| `openai-codex` | OpenAI (ChatGPT / Codex CLI) | Local OAuth token | ChatGPT login instead of an API key |
+| `anthropic` | Anthropic | API Key | Claude via the standard Anthropic API |
 | `gemini` | Google Gemini | API Key | Metered API usage, production apps |
-| `gemini-oauth-plan` | Google Gemini (CLI) | OAuth | Users with Google One subscription |
-| `gemini-oauth-free` | Google Gemini (CLI) | OAuth | Free tier users |
-| `gemini-cli-acp` | Google Gemini (ACP via Gemini CLI) | Local OAuth token | Quality verifier agents, file-search sub-agents, web-search sub-agents using Google Search |
+| `gemini-cli-acp` | Google Gemini (ACP via Gemini CLI) | Local OAuth token | Sub-agents and tooling via Gemini CLI |
 | `cursor-cli-acp` | Cursor (ACP via Cursor CLI `agent acp`) | Local Cursor login (`agent login`) | Cursor-hosted models through the official CLI; requires `agent` on PATH or `CURSOR_AGENT_BIN` |
-| `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + GCP Project | Enterprise, team workflows, central billing |
-| `openrouter` | OpenRouter | API Key | Access to many hosted models |
-| `nvidia` | NVIDIA (NIM / OpenAI-compatible) | API Key (`NVIDIA_API_KEY`) | Hosted NVIDIA integrator or self-hosted NIM |
+| `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + GCP project | Enterprise / team billing on Vertex-style flows |
+| `openrouter` | OpenRouter | API Key | Many third-party hosted models behind one API |
+| `nvidia` | NVIDIA (NIM / OpenAI-compatible) | API Key (`NVIDIA_API_KEY`) | NVIDIA integrator or self-hosted NIM |
 | `zenmux` | ZenMux | API Key | OpenAI-compatible ZenMux router |
-| `zai` | ZAI | API Key | Zhipu/Z.ai access |
-| `zai-coding-plan` | ZAI Coding Plan | API Key | Coding-specific workflows |
+| `zai` | ZAI | API Key | Zhipu / Z.ai |
+| `zai-coding-plan` | ZAI Coding Plan | API Key | Coding-plan SKU / workflows |
 | `kimi-code` | Kimi | API Key | Kimi For Coding (OpenAI-compatible) |
-| `opencode-go` | OpenCode Go | API Key | OpenCode Go models with internal OpenAI/Anthropic protocol routing |
-| `minimax` | Minimax | API Key | Minimax AI models |
-| `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
-| `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
-| `internlm` | InternLM AI | API Key | InternLM models with key rotation |
-| `ollama` | Ollama (Local) | None (local server) | Locally-hosted models + cloud via Ollama app |
-| `hybrid` | Virtual (orchestrates two models) | Inherits from sub-backends | Two-phase reasoning + execution |
-| `antigravity-oauth` | Google Gemini (Antigravity) | Antigravity Token | Internal debugging (Gemini models) |
+| `opencode-go` | OpenCode Go | API Key | OpenCode Go with internal OpenAI/Anthropic-style routing |
+| `minimax` | Minimax | API Key | Minimax models |
+| `internlm` | InternLM | API Key (rotation supported) | InternLM with optional key rotation |
+| `ollama` | Ollama | None (local) | Local and remote models via Ollama |
+| `hybrid` | Virtual (two backends) | Inherits from sub-backends | Two-phase reasoning + execution |
+
+### OAuth plugin connectors (`llm-interactive-proxy-oauth-connectors`)
+
+These entry points are defined in the sibling repo’s `pyproject.toml` under `[project.entry-points."llm_proxy_backends"]`. They are **not** present unless the optional package is installed.
+
+| Backend ID | Provider | Authentication | Best For |
+|------------|----------|----------------|----------|
+| `antigravity-oauth` | Google Gemini (Antigravity) | Antigravity token | Internal / debugging (Gemini-shaped traffic) |
+| `cline` | Cline | Local OAuth token | Internal development and compatibility testing |
+| `gemini-oauth-auto` | Google Gemini (CLI) | Multi-account OAuth | Automatic account rotation across Google logins |
+| `gemini-oauth-plan` | Google Gemini (CLI) | OAuth | Google One / paid CLI tier |
+| `gemini-oauth-free` | Google Gemini (CLI) | OAuth | Free-tier CLI usage |
+| `kiro-oauth-auto` | Amazon Kiro / Q Developer | Self-managed OAuth | Kiro streaming via local OAuth tokens |
+| `opencode-zen` | OpenCode Zen | OAuth | OpenCode Zen API (distinct from `opencode-go`) |
+| `qwen-oauth` | Alibaba Qwen (CLI) | Local OAuth token | Qwen CLI OAuth |
 
 ## Frontend APIs
 
@@ -123,19 +134,36 @@ Or use one-off commands for a single request:
 
 For detailed configuration and usage information for each backend, see:
 
-- [OpenAI Backend](openai.md)
-- [Anthropic Backend](anthropic.md)
-- [Gemini Backends](gemini.md)
-- [Cline Backend](cline.md)
-- [OpenRouter Backend](openrouter.md)
-- [Nvidia Backend](nvidia.md)
-- [ZAI Backend](zai.md)
-- [Qwen Backend](qwen.md)
-- [MiniMax Backend](minimax.md)
-- [ZenMux Backend](zenmux.md)
-- [Kimi Code Backend](kimi-code.md)
-- [OpenCode Go Backend](opencode-go.md)
-- [Ollama Backend (Local)](ollama.md)
+**Core**
+
+- [OpenAI and OpenAI Responses](openai.md) (`openai`, `openai-responses`)
+- [OpenAI Codex](openai-codex.md) (`openai-codex`)
+- [Anthropic](anthropic.md)
+- [Gemini](gemini.md) (API keys, CLI OAuth variants, `gemini-cli-acp`, and `gemini-cli-cloud-project`)
+- **Cursor CLI ACP** (`cursor-cli-acp`): same idea as Gemini CLI ACP but via Cursor’s `agent acp` CLI; install and log in with Cursor’s agent tooling, ensure `agent` is on `PATH` or set `CURSOR_AGENT_BIN`. There is no separate backend guide page yet.
+- [OpenRouter](openrouter.md)
+- [NVIDIA](nvidia.md)
+- [ZAI](zai.md)
+- [Kimi Code](kimi-code.md)
+- [OpenCode Go](opencode-go.md)
+- [Ollama](ollama.md)
+- [InternLM](internlm.md)
+- [MiniMax](minimax.md)
+- [ZenMux](zenmux.md)
+- [Hybrid backend](../features/hybrid-backend.md) (`hybrid`)
+
+**OAuth plugin (`llm-interactive-proxy-oauth-connectors`)**
+
+- [Antigravity OAuth](antigravity-oauth.md)
+- [Cline](cline.md)
+- [Gemini OAuth Auto](gemini-oauth-auto.md) (`gemini-oauth-auto`; overview also in [Gemini backends](gemini.md))
+- [Kiro OAuth Auto](kiro-oauth-auto.md)
+- [OpenCode Zen](opencode-zen.md)
+- [Qwen OAuth](qwen.md)
+- [Gemini OAuth plan / free](gemini.md) (`gemini-oauth-plan`, `gemini-oauth-free`)
+
+**Extensibility**
+
 - [Custom Backends](custom-backends.md)
 
 ## Related Features

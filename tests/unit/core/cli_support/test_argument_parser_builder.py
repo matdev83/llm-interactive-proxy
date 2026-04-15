@@ -367,7 +367,6 @@ class TestBackendDebuggingFlags:
             "--enable-gemini-oauth-free-backend-debugging-override",
             "--enable-gemini-oauth-plan-backend-debugging-override",
             "--enable-qwen-oauth-backend-debugging-override",
-            "--enable-anthropic-oauth-backend-debugging-override",
             "--enable-kiro-oauth-auto-backend-debugging-override",
             "--enable-droid-path-fix",
         ],

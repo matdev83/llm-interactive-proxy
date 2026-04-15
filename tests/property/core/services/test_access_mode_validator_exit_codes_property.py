@@ -36,7 +36,6 @@ OAUTH_FLAGS = [
     "enable_gemini_oauth_free_backend_debugging_override",
     "enable_gemini_oauth_plan_backend_debugging_override",
     "enable_qwen_oauth_backend_debugging_override",
-    "enable_anthropic_oauth_backend_debugging_override",
     "enable_opencode_zen_backend_debugging_override",
     "enable_kiro_oauth_auto_backend_debugging_override",
     "enable_openai_codex_backend_debugging_override",

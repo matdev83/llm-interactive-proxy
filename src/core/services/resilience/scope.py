@@ -11,7 +11,6 @@ from src.core.domain.request_context import RequestContext
 
 _PERSONAL_BACKEND_TYPES = frozenset(
     [
-        "anthropic-oauth",
         "antigravity-oauth",
         "gemini-cli-cloud-project",
         "gemini-oauth-free",

@@ -466,7 +466,7 @@ Resilience scoping controls whether rate-limit and cooldown state is shared acro
 Defaults (no config required):
 
 - Any backend type containing `oauth` or `codex` is treated as personal.
-- The built-in personal list includes: `anthropic-oauth`, `antigravity-oauth`,
+- The built-in personal list includes: `antigravity-oauth`,
   `gemini-oauth-free`, `gemini-oauth-plan`, `gemini-cli-cloud-project`,
   `qwen-oauth`, `openai-codex`.
 

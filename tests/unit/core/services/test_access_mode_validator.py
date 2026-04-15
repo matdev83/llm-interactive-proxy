@@ -118,7 +118,6 @@ class TestSingleUserModeOAuthSupport:
             enable_gemini_oauth_free_backend_debugging_override=True,
             enable_gemini_oauth_plan_backend_debugging_override=True,
             enable_qwen_oauth_backend_debugging_override=True,
-            enable_anthropic_oauth_backend_debugging_override=True,
             enable_openai_codex_backend_debugging_override=True,
         )
 
@@ -218,7 +217,6 @@ class TestMultiUserModeOAuthFlags:
             "enable_gemini_oauth_free_backend_debugging_override",
             "enable_gemini_oauth_plan_backend_debugging_override",
             "enable_qwen_oauth_backend_debugging_override",
-            "enable_anthropic_oauth_backend_debugging_override",
             "enable_opencode_zen_backend_debugging_override",
             "enable_kiro_oauth_auto_backend_debugging_override",
             "enable_openai_codex_backend_debugging_override",
@@ -250,7 +248,6 @@ class TestMultiUserModeOAuthFlags:
         args = argparse.Namespace(
             enable_gemini_oauth_auto_backend_debugging_override=True,
             enable_qwen_oauth_backend_debugging_override=True,
-            enable_anthropic_oauth_backend_debugging_override=True,
         )
 
         with pytest.raises(ValueError) as exc_info:

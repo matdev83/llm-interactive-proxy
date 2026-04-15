@@ -25,7 +25,7 @@ Access modes prevent common misconfigurations that could:
 
 ### Allowed Behaviors
 
-- **OAuth Connectors**: Full access to OAuth-based connectors (e.g., `gemini-oauth-auto`, `anthropic-oauth`, `qwen-oauth`, `openai-codex`)
+- **OAuth Connectors**: Full access to OAuth-based connectors (e.g., `gemini-oauth-auto`, `qwen-oauth`, `openai-codex`)
 - **Host Binding**: Must bind to `127.0.0.1` only (localhost)
 - **Authentication**: Optional - can be disabled for convenience
 - **OAuth Debugging Flags**: Allowed (e.g., `--enable-gemini-oauth-auto-backend-debugging-override`)
@@ -247,7 +247,7 @@ In Multi User Mode, the following connectors are automatically filtered during s
 
 **By Naming Pattern:**
 - Connectors containing `-oauth-` (e.g., `gemini-oauth-auto`, `gemini-oauth-free`, `gemini-oauth-plan`)
-- Connectors ending with `-oauth` (e.g., `anthropic-oauth`, `qwen-oauth`)
+- Connectors ending with `-oauth` (e.g., `qwen-oauth`)
 
 **By Property:**
 - Connectors with `has_static_credentials = False`
@@ -256,7 +256,6 @@ In Multi User Mode, the following connectors are automatically filtered during s
 - `gemini-oauth-auto`
 - `gemini-oauth-free`
 - `gemini-oauth-plan`
-- `anthropic-oauth`
 - `qwen-oauth`
 - `openai-codex` (uses OAuth via auth.json)
 
@@ -265,11 +264,11 @@ In Multi User Mode, the following connectors are automatically filtered during s
 ```
 # Single User Mode startup logs
 INFO: Starting LLM Proxy in Single User Mode (default)
-DEBUG: Loaded OAuth connectors: gemini-oauth-auto, anthropic-oauth, qwen-oauth, openai-codex
+DEBUG: Loaded OAuth connectors: gemini-oauth-auto, qwen-oauth, openai-codex
 
 # Multi User Mode startup logs
 INFO: Starting LLM Proxy in Multi User Mode
-INFO: Skipped 4 OAuth connectors in Multi User Mode (OAuth not allowed in production)
+INFO: Skipped OAuth connectors in Multi User Mode (OAuth not allowed in production)
 ```
 
 ### Backend Registry Impact
@@ -325,7 +324,6 @@ Replace OAuth backends with API key-based alternatives:
 | OAuth Connector | Static Credential Alternative |
 |----------------|-------------------------------|
 | `gemini-oauth-auto` | `gemini` (requires `GEMINI_API_KEY`) |
-| `anthropic-oauth` | `anthropic` (requires `ANTHROPIC_API_KEY`) |
 | `qwen-oauth` | `qwen` (requires API key configuration) |
 | `openai-codex` | `openai` (requires `OPENAI_API_KEY`) |
 

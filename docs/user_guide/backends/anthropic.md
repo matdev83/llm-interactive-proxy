@@ -369,16 +369,9 @@ Use Claude models for:
 - Validating instruction following
 - Long context window testing
 
-## Anthropic OAuth Backend
+## Anthropic accounts and API keys
 
-The proxy also supports an `anthropic-oauth` backend that uses OAuth tokens instead of API keys:
-
-```bash
-# Configure OAuth token location
-python -m src.core.cli --default-backend anthropic-oauth
-```
-
-This is useful for using personal Anthropic accounts without API keys.
+Use the `anthropic` backend with a normal [Anthropic API key](https://docs.anthropic.com/en/api/getting-started). Do not route production traffic through unofficial OAuth-token or Claude-Code credential paths; those conflict with Anthropic’s terms and are not documented here.
 
 ## Dedicated Anthropic Port
 

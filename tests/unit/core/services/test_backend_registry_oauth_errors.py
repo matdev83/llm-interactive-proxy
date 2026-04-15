@@ -70,7 +70,7 @@ os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
 import src.connectors  # noqa: F401
 from src.core.services.backend_registry import backend_registry
 
-for name in ["gemini-oauth-auto", "anthropic-oauth", "qwen-oauth"]:
+for name in ["gemini-oauth-auto", "qwen-oauth", "openai-codex"]:
     try:
         backend_registry.get_backend_factory(name)
         print(f"{name}||NO_ERROR")
@@ -146,7 +146,7 @@ class TestBackendRegistryOAuthErrors:
         self, multi_user_oauth_errors: dict[str, str]
     ) -> None:
         """Test error message provides guidance on alternatives (Requirement 6.5)."""
-        error_msg = multi_user_oauth_errors.get("anthropic-oauth", "").lower()
+        error_msg = multi_user_oauth_errors.get("qwen-oauth", "").lower()
         has_guidance = any(
             p in error_msg
             for p in [
@@ -164,7 +164,7 @@ class TestBackendRegistryOAuthErrors:
         self, multi_user_oauth_errors: dict[str, str]
     ) -> None:
         """Test error message includes the specific backend name requested."""
-        error_msg = multi_user_oauth_errors.get("qwen-oauth", "")
+        error_msg = multi_user_oauth_errors.get("openai-codex", "")
         assert (
-            "qwen-oauth" in error_msg
+            "openai-codex" in error_msg
         ), "Error should reference the requested backend name"

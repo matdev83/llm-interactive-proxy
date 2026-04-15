@@ -90,9 +90,9 @@ class TestIsOAuthConnectorNamingPatterns:
         """Test -oauth- pattern: kiro-oauth-auto."""
         assert is_oauth_connector("kiro_oauth_auto") is True
 
-    def test_detects_oauth_suffix_pattern_anthropic_oauth(self) -> None:
-        """Test -oauth suffix: anthropic-oauth."""
-        assert is_oauth_connector("anthropic_oauth") is True
+    def test_detects_oauth_suffix_pattern_cursor_oauth(self) -> None:
+        """Test -oauth suffix: cursor-oauth (module filename convention)."""
+        assert is_oauth_connector("cursor_oauth") is True
 
     def test_detects_oauth_suffix_pattern_qwen_oauth(self) -> None:
         """Test -oauth suffix: qwen-oauth."""
@@ -122,7 +122,7 @@ class TestIsOAuthConnectorNamingPatterns:
         """Test that module names with underscores are handled (module uses underscore, pattern uses dash)."""
         # Module filenames use underscores, but logical names use dashes
         assert is_oauth_connector("gemini_oauth_auto") is True
-        assert is_oauth_connector("anthropic_oauth") is True
+        assert is_oauth_connector("cursor_oauth") is True
 
 
 class TestIsOAuthConnectorKnownList:
@@ -193,7 +193,7 @@ class TestIsOAuthConnectorEdgeCases:
 
     def test_module_name_only_without_class(self) -> None:
         """Test detection works with module name only (no class)."""
-        assert is_oauth_connector("anthropic_oauth") is True
+        assert is_oauth_connector("cursor_oauth") is True
         assert is_oauth_connector("openai") is False
 
     def test_module_name_with_class_both_used(self) -> None:

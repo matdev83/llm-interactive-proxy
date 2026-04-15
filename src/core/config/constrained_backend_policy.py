@@ -12,8 +12,8 @@ from collections import defaultdict
 from collections.abc import Iterable
 
 # Constrained families are defined by naming contract rather than static catalog.
-# Any oauth-style backend family (for example gemini-oauth-plan, qwen-oauth,
-# anthropic-oauth) is constrained to a single configured proxy instance.
+# Any oauth-style backend family (for example gemini-oauth-plan, qwen-oauth)
+# is constrained to a single configured proxy instance.
 _CONSTRAINED_FAMILY_PATTERNS: tuple[str, ...] = (
     "*-oauth",
     "*-oauth-*",

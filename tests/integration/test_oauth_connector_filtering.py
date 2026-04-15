@@ -102,7 +102,7 @@ from src.core.services.backend_registry import backend_registry
 backends = backend_registry.get_registered_backends()
 oauth_backends = [b for b in backends if any(p in b for p in ["oauth", "codex"])]
 known_oauth = ["gemini-oauth-auto", "gemini-oauth-plan", "gemini-oauth-free",
-               "anthropic-oauth", "qwen-oauth", "openai-codex"]
+               "qwen-oauth", "openai-codex", "cursor-oauth"]
 found_oauth = [n for n in known_oauth if n in backends]
 print(f"TOTAL_BACKENDS:{len(backends)}")
 print(f"OAUTH_BACKENDS:{len(oauth_backends)}")
@@ -123,8 +123,8 @@ from src.core.services.backend_registry import backend_registry
 backends = backend_registry.get_registered_backends()
 oauth_backends = [b for b in backends if any(p in b for p in ["oauth", "codex"])]
 known_oauth = ["gemini-oauth-auto", "gemini-oauth-plan", "gemini-oauth-free",
-               "anthropic-oauth", "qwen-oauth", "openai-codex", "antigravity-oauth",
-               "kiro-oauth-auto"]
+               "qwen-oauth", "openai-codex", "antigravity-oauth",
+               "kiro-oauth-auto", "cursor-oauth"]
 found_oauth = [n for n in known_oauth if n in backends]
 non_oauth = ["openai", "anthropic", "gemini"]
 found_non_oauth = [n for n in non_oauth if n in backends]

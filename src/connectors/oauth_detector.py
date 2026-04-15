@@ -18,7 +18,7 @@ from src.core.common.backend_discovery_state import get_extracted_backend_names
 # OAuth connector naming patterns (converted to underscore for module filenames)
 OAUTH_CONNECTOR_PATTERNS: list[str] = [
     "_oauth_",  # Matches: gemini_oauth_auto, gemini_oauth_free, kiro_oauth_auto
-    "_oauth",  # Matches: anthropic_oauth, qwen_oauth, antigravity_oauth
+    "_oauth",  # Matches: qwen_oauth, cursor_oauth, antigravity_oauth
 ]
 
 # Keep extracted OAuth family names sourced from shared discovery state.
@@ -60,7 +60,7 @@ def is_oauth_connector(
     Examples:
         >>> is_oauth_connector("gemini_oauth_auto")
         True
-        >>> is_oauth_connector("anthropic_oauth")
+        >>> is_oauth_connector("cursor_oauth")
         True
         >>> is_oauth_connector("openai")
         False

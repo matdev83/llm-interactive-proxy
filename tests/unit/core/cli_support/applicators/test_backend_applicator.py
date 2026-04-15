@@ -58,7 +58,6 @@ class TestBackendApplicator:
             enable_gemini_oauth_plan_backend_debugging_override=False,
             enable_qwen_oauth_backend_debugging_override=False,
             enable_openai_codex_backend_debugging_override=False,
-            enable_anthropic_oauth_backend_debugging_override=False,
         )
 
     @pytest.fixture

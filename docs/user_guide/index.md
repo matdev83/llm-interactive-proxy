@@ -105,8 +105,7 @@ Backend provider configuration and usage:
 - **[Backend Overview](backends/overview.md)** - Supported backends, choosing a backend, and switching between providers
 - **[OpenAI Backend](backends/openai.md)** - OpenAI API and ChatGPT OAuth configuration
 - **[OpenAI Codex Backend](backends/openai-codex.md)** - Codex CLI authentication and debugging-only usage
-- **[Anthropic Backend](backends/anthropic.md)** - Claude API and OAuth configuration
-- **[Anthropic OAuth Backend](backends/anthropic-oauth.md)** - Claude Code OAuth configuration
+- **[Anthropic Backend](backends/anthropic.md)** - Claude API key configuration
 - **[Cline Backend](backends/cline.md)** - Internal development & debugging backend
 - **[Gemini Backends](backends/gemini.md)** - Google Gemini API, OAuth, and GCP configurations
 - **[Gemini OAuth Auto Backend](backends/gemini-oauth-auto.md)** - Multi-account Google Gemini with automatic rotation

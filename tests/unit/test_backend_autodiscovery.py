@@ -76,7 +76,6 @@ class TestBackendAutoDiscovery:
 
             # Extracted OAuth connectors must not be loaded from core auto-discovery.
             extracted_oauth_backends = {
-                "anthropic-oauth",
                 "antigravity-oauth",
                 "gemini-oauth-auto",
                 "gemini-oauth-free",
@@ -156,7 +155,6 @@ class TestBackendAutoDiscovery:
             "openai_codex_config",  # Configuration file, not a backend
             "openai_websocket_client",  # WebSocket client utility, not a backend
             # Extracted OAuth connectors are loaded through plugin entry points.
-            "anthropic_oauth",
             "antigravity_oauth",
             "gemini_oauth_auto",
             "gemini_oauth_free",

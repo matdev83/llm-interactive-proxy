@@ -24,7 +24,7 @@ class TestOAuthPackageStatusLogging:
             ),
             patch(
                 "src.core.services.backend_discovery.discover_plugin_backends",
-                return_value=["gemini-oauth-auto", "anthropic-oauth"],
+                return_value=["gemini-oauth-auto", "qwen-oauth"],
             ),
             patch.object(
                 backend_registry, "get_registered_backends"
@@ -38,13 +38,13 @@ class TestOAuthPackageStatusLogging:
                 "openai",
                 "anthropic",
                 "gemini-oauth-auto",
-                "anthropic-oauth",
+                "qwen-oauth",
             ]
             discover_backends(force=True)
 
         assert "OAuth connectors package installed" in caplog.text
         assert "Supported backends:" in caplog.text
-        assert "anthropic-oauth" in caplog.text
+        assert "qwen-oauth" in caplog.text
         assert "gemini-oauth-auto" in caplog.text
 
     def test_logs_not_installed_when_no_oauth_backends(

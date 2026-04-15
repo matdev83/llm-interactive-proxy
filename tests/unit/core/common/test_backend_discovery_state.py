@@ -33,9 +33,9 @@ def test_get_extracted_connector_module_names_are_underscore_form() -> None:
 def test_filter_oauth_style_backend_names_uses_pattern_only_no_hardcoding() -> None:
     """OAuth list derived from input; any *-oauth or *-oauth-* name included."""
     result = filter_oauth_style_backend_names(
-        ["openai", "anthropic-oauth", "custom_oauth_bar", "gemini-oauth-auto", "x"]
+        ["openai", "qwen-oauth", "custom_oauth_bar", "gemini-oauth-auto", "x"]
     )
-    assert result == ["anthropic-oauth", "custom_oauth_bar", "gemini-oauth-auto"]
+    assert result == ["qwen-oauth", "custom_oauth_bar", "gemini-oauth-auto"]
 
 
 def test_normalize_backend_name_normalizes_instance_and_case() -> None:

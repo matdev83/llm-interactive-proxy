@@ -216,8 +216,10 @@ class ErrorHandler:
             lines.append("  - Run: qwen auth\n")
             lines.append("  - Follow the authentication flow in your browser\n")
         elif "anthropic" in error_msg.lower():
-            lines.append("  - Re-authenticate with Claude Code\n")
-            lines.append("  - Or authenticate with the Anthropic OAuth client\n")
+            lines.append(
+                "  - For official Anthropic API access, use the `anthropic` backend with "
+                "`ANTHROPIC_API_KEY` (see Anthropic API documentation)\n"
+            )
         elif "openai" in error_msg.lower():
             lines.append("  - Run: codex login\n")
             lines.append("  - Follow the authentication flow in your browser\n")
@@ -226,7 +228,6 @@ class ErrorHandler:
             lines.append("  - For Gemini: run 'gemini auth'\n")
             lines.append("  - For Qwen: run 'qwen auth'\n")
             lines.append("  - For OpenAI: run 'codex login'\n")
-            lines.append("  - For Anthropic: authenticate with Claude Code\n")
         lines.append("  - Then try starting the proxy again\n")
 
         return "".join(lines)
@@ -246,10 +247,9 @@ class ErrorHandler:
 
         if "anthropic" in error_msg.lower():
             lines.append(
-                "  - Authenticate using Claude Code or similar Anthropic OAuth client\n"
+                "  - Use the official `anthropic` backend with `ANTHROPIC_API_KEY` "
+                "(Anthropic API key from console.anthropic.com)\n"
             )
-            lines.append("  - Or provide a valid oauth_creds.json file\n")
-            lines.append("  - Default location: ~/.anthropic/oauth_credentials.json\n")
         elif "openai" in error_msg.lower():
             lines.append("  - Run: codex login\n")
             lines.append("  - Or provide a valid auth.json file\n")
@@ -265,7 +265,6 @@ class ErrorHandler:
             lines.append("  - For Gemini: run 'gemini auth'\n")
             lines.append("  - For Qwen: run 'qwen auth'\n")
             lines.append("  - For OpenAI: run 'codex login'\n")
-            lines.append("  - For Anthropic: use Claude Code or similar OAuth client\n")
 
         return "".join(lines)
 
@@ -285,7 +284,9 @@ class ErrorHandler:
         lines.append("  - For Gemini: run 'gemini auth'\n")
         lines.append("  - For Qwen: run 'qwen auth'\n")
         lines.append("  - For OpenAI: run 'codex login'\n")
-        lines.append("  - For Anthropic: re-authenticate with Claude Code\n")
+        lines.append(
+            "  - For Anthropic: use the `anthropic` backend with `ANTHROPIC_API_KEY`\n"
+        )
 
         return "".join(lines)
 
@@ -312,7 +313,6 @@ class ErrorHandler:
         lines.append("    * gemini-oauth-plan (uses gemini CLI auth for paid tier)\n")
         lines.append("    * gemini-oauth-free (uses gemini CLI auth for free tier)\n")
         lines.append("    * qwen-oauth (uses qwen CLI auth)\n")
-        lines.append("    * anthropic-oauth (uses Claude Code auth)\n")
         lines.append("    * openai-codex (uses codex CLI auth)\n")
 
         return "".join(lines)
@@ -352,7 +352,9 @@ class ErrorHandler:
         lines.append("    * For Gemini: gemini auth\n")
         lines.append("    * For Qwen: qwen auth\n")
         lines.append("    * For OpenAI: codex login\n")
-        lines.append("    * For Anthropic: re-authenticate with Claude Code\n")
+        lines.append(
+            "    * For Anthropic: verify `ANTHROPIC_API_KEY` for the `anthropic` backend\n"
+        )
         lines.append("  - Check the logs above for specific error details\n")
 
         return "".join(lines)

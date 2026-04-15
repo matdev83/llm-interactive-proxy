@@ -340,12 +340,13 @@ class TestOAuthMissingMessages:
     def test_oauth_missing_anthropic_instructions(
         self, error_handler_with_output: tuple[ErrorHandler, io.StringIO]
     ) -> None:
-        """OAuth missing for Anthropic includes Claude Code instructions."""
+        """OAuth missing for Anthropic-shaped errors points to the official API key path."""
         handler, output = error_handler_with_output
         error_msg = "Stage 'backends' validation error: oauth_credentials_unavailable for anthropic"
         handler.handle_build_error(error_msg)
         result = output.getvalue()
-        assert "Claude Code" in result or "Anthropic OAuth" in result
+        assert "ANTHROPIC_API_KEY" in result
+        assert "`anthropic`" in result or "anthropic" in result
 
     def test_oauth_missing_openai_instructions(
         self, error_handler_with_output: tuple[ErrorHandler, io.StringIO]

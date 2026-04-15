@@ -13,7 +13,6 @@ By default, the proxy treats backends as:
 
 The built-in personal list includes:
 
-- `anthropic-oauth`
 - `antigravity-oauth`
 - `gemini-oauth-free`
 - `gemini-oauth-plan`

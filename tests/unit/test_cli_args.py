@@ -59,10 +59,10 @@ def test_parse_cli_args_host_and_port():
 def test_parse_cli_args_resilience_personal_backends():
     """Test parsing resilience personal backend overrides."""
     result = parse_cli_args(
-        ["--resilience-personal-backends", "openai-codex,anthropic-oauth"]
+        ["--resilience-personal-backends", "openai-codex,qwen-oauth"]
     )
     assert result == {
-        "resilience_personal_backends": ["openai-codex", "anthropic-oauth"],
+        "resilience_personal_backends": ["openai-codex", "qwen-oauth"],
     }
 
 
@@ -122,12 +122,12 @@ def test_apply_cli_overrides_resilience_backends():
     """Test applying resilience backend overrides."""
     env_dict: dict[str, str] = {}
     cli_args = {
-        "resilience_personal_backends": ["openai-codex", "anthropic-oauth"],
+        "resilience_personal_backends": ["openai-codex", "qwen-oauth"],
         "resilience_shared_backends": ["openai", "openrouter"],
     }
     apply_cli_overrides(env_dict, cli_args)
     assert (
-        env_dict["RESILIENCE_PERSONAL_BACKEND_TYPES"] == "openai-codex,anthropic-oauth"
+        env_dict["RESILIENCE_PERSONAL_BACKEND_TYPES"] == "openai-codex,qwen-oauth"
     )
     assert env_dict["RESILIENCE_SHARED_BACKEND_TYPES"] == "openai,openrouter"
 
