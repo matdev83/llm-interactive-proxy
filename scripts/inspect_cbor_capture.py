@@ -155,6 +155,8 @@ META_FIELD_NAMES = {
     "http_reason": "http_reason_phrase",
     "http_version": "http_version",
     "ws_message_type": "websocket_message_type",
+    "ccid": "compression_correlation_id",
+    "crc": "compression_records_count",
 }
 
 
@@ -276,6 +278,12 @@ def _compute_backend_duration(
     for entry in reversed(backend_entries):
         meta = entry.get("meta", {})
         if _meta_is_stream_end(meta):
+            sdur = meta.get("sdur")
+            if isinstance(sdur, int | float):
+                return float(sdur) / 1000.0
+            lat = meta.get("lat")
+            if isinstance(lat, int | float):
+                return float(lat) / 1000.0
             return _entry_timestamp(entry) - _entry_timestamp(request_entry)
 
     payload_entries = _backend_payload_entries(backend_entries)
@@ -293,6 +301,284 @@ def _meta_request_id(meta: dict[str, Any]) -> str | None:
     request_id = meta.get("rid")
     if isinstance(request_id, str) and request_id:
         return request_id
+    return None
+
+
+def _cp_window_end_index(
+    entries: list[dict[str, Any]], client_idx: int, client_meta: dict[str, Any]
+) -> int:
+    """Exclusive end index: entries belonging to the client request at client_idx.
+
+    With B2BUA metadata, bounds to the next CLIENT_TO_PROXY on the same A-leg
+    (asid or legacy sid). Without an A-leg id, the window is unbounded (caller
+    correlates by request id / other heuristics).
+    """
+    a_sid = _meta_a_session_id(client_meta)
+    if not a_sid:
+        return len(entries)
+    for k in range(client_idx + 1, len(entries)):
+        if entries[k].get("dir") != 0:
+            continue
+        next_meta = entries[k].get("meta", {})
+        if _meta_a_session_id(next_meta) == a_sid:
+            return k
+    return len(entries)
+
+
+def _pb_candidates_after_cp(
+    entries: list[dict[str, Any]],
+    client_idx: int,
+    client_meta: dict[str, Any],
+) -> list[int]:
+    """Indices of P->B entries that forward this client request (B2BUA-aware).
+
+    Prefer same request id within the client window (legacy / single-leg captures).
+    When no P->B shares the client rid (typical B2BUA: new rid on the B-leg), fall
+    back to every PROXY_TO_BACKEND on the same A-leg session within the window.
+    """
+    client_rid = _meta_request_id(client_meta)
+    end = _cp_window_end_index(entries, client_idx, client_meta)
+    by_rid: list[int] = []
+    for i in range(client_idx + 1, end):
+        if entries[i].get("dir") != 2:
+            continue
+        if client_rid and _meta_request_id(entries[i].get("meta", {})) == client_rid:
+            by_rid.append(i)
+    if by_rid:
+        return by_rid
+
+    a_sid = _meta_a_session_id(client_meta)
+    if not a_sid:
+        return []
+
+    result: list[int] = []
+    for i in range(client_idx + 1, end):
+        if entries[i].get("dir") != 2:
+            continue
+        if _meta_a_session_id(entries[i].get("meta", {})) == a_sid:
+            result.append(i)
+    return result
+
+
+def _pb_has_response_by_rid(
+    pb_indices_by_rid: dict[str, list[int]],
+    bp_indices_by_rid: dict[str, list[int]],
+    request_id: str,
+    pb_idx: int,
+) -> bool:
+    """True when some B->P for the same rid occurs after this P->B before the next."""
+    pb_list = pb_indices_by_rid.get(request_id)
+    bp_list = bp_indices_by_rid.get(request_id)
+    if not pb_list or not bp_list:
+        return False
+
+    pos = bisect.bisect_right(pb_list, pb_idx)
+    next_pb_idx = pb_list[pos] if pos < len(pb_list) else None
+
+    bp_pos = bisect.bisect_right(bp_list, pb_idx)
+    if bp_pos >= len(bp_list):
+        return False
+    if next_pb_idx is None:
+        return True
+    return bp_list[bp_pos] < next_pb_idx
+
+
+def _pb_has_response_for_pb(
+    pb_indices_by_sid: dict[str, list[int]],
+    bp_indices_by_sid: dict[str, list[int]],
+    pb_indices_by_rid: dict[str, list[int]],
+    bp_indices_by_rid: dict[str, list[int]],
+    pb_meta: dict[str, Any],
+    pb_idx: int,
+) -> bool:
+    """Whether this P->B sees a correlated B->P (rid first, then B-leg / A-leg sid)."""
+    rid = _meta_request_id(pb_meta)
+    if rid and _pb_has_response_by_rid(
+        pb_indices_by_rid, bp_indices_by_rid, rid, pb_idx
+    ):
+        return True
+
+    b_session_id = _meta_b_session_id(pb_meta)
+    if (
+        isinstance(b_session_id, str)
+        and b_session_id
+        and _pb_has_response_by_session(
+            pb_indices_by_sid, bp_indices_by_sid, pb_idx, b_session_id
+        )
+    ):
+        return True
+
+    for session_id in _pb_candidate_session_ids(pb_meta):
+        if session_id == b_session_id:
+            continue
+        if _pb_has_response_by_session(
+            pb_indices_by_sid, bp_indices_by_sid, pb_idx, session_id
+        ):
+            return True
+    return False
+
+
+def _pb_candidate_session_ids(pb_meta: dict[str, Any]) -> list[str]:
+    """Session ids carried on a P->B entry for B->P correlation (A-leg and B-leg)."""
+    candidate_ids: list[str] = []
+    a_session_id = _meta_a_session_id(pb_meta)
+    b_session_id = _meta_b_session_id(pb_meta)
+    if isinstance(a_session_id, str) and a_session_id:
+        candidate_ids.append(a_session_id)
+    if isinstance(b_session_id, str) and b_session_id and b_session_id != a_session_id:
+        candidate_ids.append(b_session_id)
+    return candidate_ids
+
+
+def _pb_has_response_by_session(
+    pb_indices_by_sid: dict[str, list[int]],
+    bp_indices_by_sid: dict[str, list[int]],
+    pb_idx: int,
+    sid: str,
+) -> bool:
+    pb_list = pb_indices_by_sid.get(sid)
+    bp_list = bp_indices_by_sid.get(sid)
+    if not pb_list or not bp_list:
+        return False
+
+    pos = bisect.bisect_right(pb_list, pb_idx)
+    next_pb_idx = pb_list[pos] if pos < len(pb_list) else None
+
+    bp_pos = bisect.bisect_right(bp_list, pb_idx)
+    if bp_pos >= len(bp_list):
+        return False
+    if next_pb_idx is None:
+        return True
+    return bp_list[bp_pos] < next_pb_idx
+
+
+def _collect_backend_response_for_pb(
+    entries: list[dict[str, Any]], pb_idx: int
+) -> list[dict[str, Any]]:
+    """B->P chunks for one P->B hop.
+
+    With a B-leg session id, ends at the next PROXY_TO_BACKEND on the same bsid.
+    Otherwise correlates by backend request id (rid), skipping interleaved P->B
+    rows for other requests (same as global rid correlation).
+    """
+    pb_meta = entries[pb_idx].get("meta", {})
+    b_rid = _meta_request_id(pb_meta)
+    b_sid = _meta_b_session_id(pb_meta)
+    chunks: list[dict[str, Any]] = []
+
+    for j in range(pb_idx + 1, len(entries)):
+        e = entries[j]
+        if e.get("dir") == 0:
+            break
+        if e.get("dir") == 2:
+            next_meta = e.get("meta", {})
+            if b_sid and _meta_b_session_id(next_meta) == b_sid:
+                break
+            continue
+        if e.get("dir") == 3:
+            m = e.get("meta", {})
+            if (
+                b_rid
+                and _meta_request_id(m) == b_rid
+                or b_sid
+                and _meta_b_session_id(m) == b_sid
+                or not b_rid
+                and not b_sid
+            ):
+                chunks.append(e)
+
+    return chunks
+
+
+def _collect_backend_chunks_for_cp(
+    entries: list[dict[str, Any]], cp_idx: int
+) -> list[dict[str, Any]]:
+    """All B->P payload flow for the client request at cp_idx (rid or B2BUA window)."""
+    cp_meta = entries[cp_idx].get("meta", {})
+    rid = _meta_request_id(cp_meta)
+    if rid:
+        correlated = _collect_correlated_entries(
+            entries, start_index=cp_idx, request_id=rid, direction=3
+        )
+        if correlated:
+            return correlated
+
+    seen_seq: set[Any] = set()
+    ordered: list[dict[str, Any]] = []
+    for pb_idx in _pb_candidates_after_cp(entries, cp_idx, cp_meta):
+        for chunk in _collect_backend_response_for_pb(entries, pb_idx):
+            seq = chunk.get("seq")
+            if seq in seen_seq:
+                continue
+            seen_seq.add(seq)
+            ordered.append(chunk)
+
+    ordered.sort(key=lambda e: (e.get("seq", 0), _entry_timestamp(e)))
+    if ordered:
+        return ordered
+
+    return _collect_correlated_entries(
+        entries, start_index=cp_idx, request_id=None, direction=3
+    )
+
+
+def _collect_proxy_to_client_after_cp(
+    entries: list[dict[str, Any]], cp_idx: int
+) -> list[dict[str, Any]]:
+    """P->C entries for this client request when rid correlation fails (B2BUA)."""
+    cp_meta = entries[cp_idx].get("meta", {})
+    a_sid = _meta_a_session_id(cp_meta)
+    cp_rid = _meta_request_id(cp_meta)
+    out: list[dict[str, Any]] = []
+
+    if a_sid:
+        end = _cp_window_end_index(entries, cp_idx, cp_meta)
+        for j in range(cp_idx + 1, end):
+            e = entries[j]
+            if e.get("dir") != 1:
+                continue
+            em = e.get("meta", {})
+            if _meta_a_session_id(em) == a_sid:
+                out.append(e)
+        return out
+
+    for j in range(cp_idx + 1, len(entries)):
+        e = entries[j]
+        if e.get("dir") == 0:
+            break
+        if e.get("dir") != 1:
+            continue
+        if cp_rid and _meta_request_id(e.get("meta", {})) != cp_rid:
+            continue
+        out.append(e)
+    return out
+
+
+def _collect_client_chunks_for_cp(
+    entries: list[dict[str, Any]], cp_idx: int
+) -> list[dict[str, Any]]:
+    rid = _meta_request_id(entries[cp_idx].get("meta", {}))
+    correlated = _collect_correlated_entries(
+        entries, start_index=cp_idx, request_id=rid, direction=1
+    )
+    if correlated:
+        return correlated
+    return _collect_proxy_to_client_after_cp(entries, cp_idx)
+
+
+def _find_enclosing_cp_index(
+    entries: list[dict[str, Any]], from_idx: int
+) -> int | None:
+    """Nearest CLIENT_TO_PROXY at or before from_idx on the same A-leg, if any."""
+    meta = entries[from_idx].get("meta", {})
+    a_sid = _meta_a_session_id(meta)
+    for k in range(from_idx, -1, -1):
+        if entries[k].get("dir") != 0:
+            continue
+        if not a_sid:
+            return k
+        if _meta_a_session_id(entries[k].get("meta", {})) == a_sid:
+            return k
     return None
 
 
@@ -337,6 +623,14 @@ def _collect_request_flow_entries(
             if _meta_request_id(entry.get("meta", {})) == request_id
         ]
 
+    def _passes_backend_filter(entry: dict[str, Any], bf: str | None) -> bool:
+        if bf is None:
+            return True
+        if bf.strip().lower() == "client":
+            return entry.get("dir") in (0, 1)
+        be = entry.get("meta", {}).get("be")
+        return be == bf or entry.get("dir") in (0, 1)
+
     related: list[dict[str, Any]] = []
     req_backend = start_entry.get("meta", {}).get("be")
     for entry in entries[start_index + 1 :]:
@@ -344,10 +638,7 @@ def _collect_request_flow_entries(
             break
         if entry.get("dir") == 2 and entry.get("meta", {}).get("be") == req_backend:
             break
-        if (
-            backend_filter is not None
-            and entry.get("meta", {}).get("be") != backend_filter
-        ):
+        if not _passes_backend_filter(entry, backend_filter):
             continue
         related.append(entry)
     return related
@@ -739,9 +1030,9 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # next C->P request.
     #
     # Strategy:
-    # 1) Correlate C->P to P->B using request id (rid)
-    # 2) For each P->B, verify there is at least one B->P response chunk before the
-    #    next P->B on the same backend correlation id (bsid/asid)
+    # 1) Correlate C->P to P->B using rid when it matches on the B-leg, else same
+    #    A-leg session (asid) within the client request window (B2BUA).
+    # 2) For each correlated P->B, verify B->P exists (rid and/or bsid/asid indices).
 
     # Index proxy->backend requests and backend->proxy responses by rid/session.
     pb_indices_by_rid: dict[str, list[int]] = {}
@@ -784,114 +1075,58 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for _sid, idxs in bp_indices_by_sid.items():
         idxs.sort()
 
-    # Helper: does a backend response with the same rid exist for this P->B index?
-    def _pb_has_response_by_rid(request_id: str, pb_idx: int) -> bool:
-        pb_list = pb_indices_by_rid.get(request_id)
-        bp_list = bp_indices_by_rid.get(request_id)
-        if not pb_list or not bp_list:
-            return False
-
-        # Next P->B index for this request id bounds this backend attempt.
-        pos = bisect.bisect_right(pb_list, pb_idx)
-        next_pb_idx = pb_list[pos] if pos < len(pb_list) else None
-
-        # Any B->P index strictly after pb_idx and before next_pb_idx counts.
-        bp_pos = bisect.bisect_right(bp_list, pb_idx)
-        if bp_pos >= len(bp_list):
-            return False
-        if next_pb_idx is None:
-            return True
-        return bp_list[bp_pos] < next_pb_idx
-
-    # Helper: does a backend response exist for this P->B index?
-    def _pb_has_response(pb_idx: int, sid: str) -> bool:
-        pb_list = pb_indices_by_sid.get(sid)
-        bp_list = bp_indices_by_sid.get(sid)
-        if not pb_list or not bp_list:
-            return False
-
-        # Next P->B index for this backend session bounds this request
-        pos = bisect.bisect_right(pb_list, pb_idx)
-        next_pb_idx = pb_list[pos] if pos < len(pb_list) else None
-
-        # Any B->P index strictly after pb_idx and before next_pb_idx counts
-        bp_pos = bisect.bisect_right(bp_list, pb_idx)
-        if bp_pos >= len(bp_list):
-            return False
-        if next_pb_idx is None:
-            return True
-        return bp_list[bp_pos] < next_pb_idx
-
-    # Helper: collect all possible session ids from a P->B entry for fallback
-    # correlation. Some captures include both asid/bsid on P->B but only asid on
-    # B->P; checking both avoids false "missing response" reports.
-    def _pb_candidate_session_ids(pb_meta: dict[str, Any]) -> list[str]:
-        candidate_ids: list[str] = []
-        a_session_id = _meta_a_session_id(pb_meta)
-        b_session_id = _meta_b_session_id(pb_meta)
-        if isinstance(a_session_id, str) and a_session_id:
-            candidate_ids.append(a_session_id)
-        if (
-            isinstance(b_session_id, str)
-            and b_session_id
-            and b_session_id != a_session_id
-        ):
-            candidate_ids.append(b_session_id)
-        return candidate_ids
-
     for client_idx, e in enumerate(entries):
         if e.get("dir") != 0:
             continue
         meta = e.get("meta", {})
         rid = meta.get("rid")
-        if not isinstance(rid, str) or not rid:
+        if (not isinstance(rid, str) or not rid) and not _meta_a_session_id(meta):
             continue
 
-        pb_candidates = pb_indices_by_rid.get(rid, [])
-        # Use only backend requests that occur after this client request.
-        pb_candidates = [idx for idx in pb_candidates if idx > client_idx]
+        pb_candidates = _pb_candidates_after_cp(entries, client_idx, meta)
         if not pb_candidates:
-            # Proxy never forwarded this request to any backend.
-            # This can happen if the client disconnects early or retries quickly.
             issues.append(
                 {
                     "type": "missing_response",
                     "severity": "warning",
                     "entry": e.get("seq"),
-                    "description": f"Request at [{e.get('seq')}] has no backend request (not forwarded)",
+                    "description": (
+                        f"Request at [{e.get('seq')}] has no backend request "
+                        f"(not forwarded)"
+                    ),
                 }
             )
             continue
 
-        # Primary correlation: same request id across backend legs.
-        if any(_pb_has_response_by_rid(rid, pb_idx) for pb_idx in pb_candidates):
-            continue
-
-        # Fallback correlation: session ids for captures where rid is absent on B->P.
-        missing_session_id_for_all_candidates = True
-        has_response_via_session_id = False
+        missing_correlation_meta = True
+        all_answered = True
         for pb_idx in pb_candidates:
             pb_meta = entries[pb_idx].get("meta", {})
-            candidate_session_ids = _pb_candidate_session_ids(pb_meta)
-            if candidate_session_ids:
-                missing_session_id_for_all_candidates = False
-            if any(
-                _pb_has_response(pb_idx, session_id)
-                for session_id in candidate_session_ids
+            if _pb_candidate_session_ids(pb_meta) or _meta_request_id(pb_meta):
+                missing_correlation_meta = False
+            if not _pb_has_response_for_pb(
+                pb_indices_by_sid,
+                bp_indices_by_sid,
+                pb_indices_by_rid,
+                bp_indices_by_rid,
+                pb_meta,
+                pb_idx,
             ):
-                has_response_via_session_id = True
-                break
+                all_answered = False
 
-        if has_response_via_session_id:
+        if all_answered:
             continue
 
-        if missing_session_id_for_all_candidates:
+        if missing_correlation_meta:
             issues.append(
                 {
                     "type": "missing_response",
                     "severity": "warning",
                     "entry": e.get("seq"),
-                    "description": f"Request at [{e.get('seq')}] missing backend session id for correlation",
+                    "description": (
+                        f"Request at [{e.get('seq')}] missing backend session/request "
+                        f"id for correlation"
+                    ),
                 }
             )
             continue
@@ -901,7 +1136,10 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "type": "missing_response",
                 "severity": "error",
                 "entry": e.get("seq"),
-                "description": f"Request at [{e.get('seq')}] has no backend response",
+                "description": (
+                    f"Request at [{e.get('seq')}] has incomplete or missing "
+                    f"backend response"
+                ),
             }
         )
 
@@ -1005,6 +1243,40 @@ def print_issues_summary(issues: list[dict[str, Any]]) -> None:
             )
 
 
+def print_b2bua_leg_summary(entries: list[dict[str, Any]]) -> None:
+    """Summarize A-leg / B-leg pairings seen on PROXY_TO_BACKEND hops."""
+    print()
+    print("=" * 70)
+    print("B2BUA LEG CORRELATION (from P->B metadata)")
+    print("=" * 70)
+
+    pair_counts: dict[tuple[str, str], int] = {}
+    for e in entries:
+        if e.get("dir") != 2:
+            continue
+        meta = e.get("meta", {})
+        a_sid = _meta_a_session_id(meta)
+        b_sid = _meta_b_session_id(meta)
+        if not a_sid or not b_sid:
+            continue
+        key = (a_sid, b_sid)
+        pair_counts[key] = pair_counts.get(key, 0) + 1
+
+    if not pair_counts:
+        print(
+            "No A/B session pairs found on P->B entries (non-B2BUA or missing metadata)."
+        )
+        return
+
+    print(f"\nFound {len(pair_counts)} distinct (a_session, b_session) pair(s):\n")
+    for (a_sid, b_sid), count in sorted(
+        pair_counts.items(), key=lambda x: (-x[1], x[0][0], x[0][1])
+    ):
+        print(f"  A-leg: {a_sid}")
+        print(f"  B-leg: {b_sid}")
+        print(f"  P->B entries: {count}\n")
+
+
 def group_by_session(entries: list[dict[str, Any]]) -> None:
     """Group and display entries by session ID."""
     print()
@@ -1047,49 +1319,72 @@ def track_request(
         print(f"(Filtered to backend: {backend_filter})")
         print("=" * 70)
 
-    # Find the Nth request (looking at PROXY_TO_BACKEND with backend filter)
-    req_count = 0
-    req_idx = None
-    for i, e in enumerate(entries):
-        # For backend filtering, look at proxy-to-backend entries
-        if e["dir"] == 2 and (
-            backend_filter is None or e.get("meta", {}).get("be") == backend_filter
-        ):  # PROXY_TO_BACKEND
-            req_count += 1
-            if req_count == request_num:
-                req_idx = i
-                break
+    bf_norm = backend_filter.strip().lower() if backend_filter else ""
+    is_client = bf_norm == "client"
 
-    # If no backend filter, also accept CLIENT_TO_PROXY
-    if req_idx is None and backend_filter is None:
+    req_idx: int | None = None
+    if is_client:
         req_count = 0
         for i, e in enumerate(entries):
-            if e["dir"] == 0:  # CLIENT_TO_PROXY
+            if e.get("dir") == 0:
                 req_count += 1
                 if req_count == request_num:
                     req_idx = i
                     break
+    else:
+        req_count = 0
+        for i, e in enumerate(entries):
+            if e.get("dir") == 2 and (
+                backend_filter is None or e.get("meta", {}).get("be") == backend_filter
+            ):
+                req_count += 1
+                if req_count == request_num:
+                    req_idx = i
+                    break
+        if req_idx is None and backend_filter is None:
+            req_count = 0
+            for i, e in enumerate(entries):
+                if e.get("dir") == 0:
+                    req_count += 1
+                    if req_count == request_num:
+                        req_idx = i
+                        break
 
     if req_idx is None:
         print(f"Request #{request_num} not found")
         return
 
-    # Collect all related entries
     req_entry = entries[req_idx]
-    related = [
-        req_entry,
-        *_collect_request_flow_entries(
-            entries,
-            start_index=req_idx,
-            backend_filter=backend_filter,
-        ),
-    ]
+    anchor_rid = _meta_request_id(req_entry.get("meta", {}))
 
-    # Display flow
+    def passes_filter(ent: dict[str, Any]) -> bool:
+        if backend_filter is None:
+            return True
+        if is_client:
+            return ent.get("dir") in (0, 1)
+        direction = ent.get("dir")
+        if direction in (0, 1):
+            return True
+        if anchor_rid:
+            ent_rid = _meta_request_id(ent.get("meta", {}))
+            if ent_rid and ent_rid != anchor_rid:
+                return False
+        ent_meta = ent.get("meta", {})
+        be = ent_meta.get("be") if isinstance(ent_meta, dict) else None
+        return bool(be == backend_filter)
+
+    cp_idx = _find_enclosing_cp_index(entries, req_idx)
+    flow_start = cp_idx if cp_idx is not None else req_idx
+    anchor_meta = entries[flow_start].get("meta", {})
+    flow_end = _cp_window_end_index(entries, flow_start, anchor_meta)
+
+    prefix = [e for e in entries[flow_start:req_idx] if passes_filter(e)]
+    suffix = [e for e in entries[req_idx + 1 : flow_end] if passes_filter(e)]
+    flow = [*prefix, req_entry, *suffix]
+
     print(f"\nRequest initiated at entry [{req_entry.get('seq')}]")
     start_ts = req_entry.get("ts", 0)
 
-    # Try to parse request details
     try:
         req_data = json.loads(req_entry.get("data", b"").decode("utf-8"))
         print(f"Model: {req_data.get('model', 'N/A')}")
@@ -1098,27 +1393,26 @@ def track_request(
         pass
 
     print("\nFlow timeline:")
-    start_direction = DIRECTION_SYMBOLS.get(req_entry["dir"], f"?{req_entry['dir']}")
-    start_desc = "Request received" if req_entry["dir"] == 0 else "Forwarded to backend"
-    print(
-        f"  [START] [{req_entry.get('seq')}] {start_direction}  {start_desc} (t=0.000s)"
-    )
-
-    for e in related[1:]:
+    for e in flow:
         seq = e.get("seq", "?")
         direction = DIRECTION_SYMBOLS.get(e["dir"], f"?{e['dir']}")
         ts = e.get("ts", 0)
         delta = ts - start_ts
         data_len = len(e.get("data", b""))
 
-        # Try to describe the entry
+        if e is req_entry:
+            start_desc = (
+                "Request received" if e.get("dir") == 0 else "Forwarded to backend"
+            )
+            print(f"  [START] [{seq}] {direction}  {start_desc} (t={delta:.3f}s)")
+            continue
+
         desc = f"{data_len:,} bytes"
-        if e["dir"] == 2:  # PROXY_TO_BACKEND
+        if e["dir"] == 2:
             desc = "Forwarded to backend"
-        elif e["dir"] == 3:  # BACKEND_TO_PROXY
+        elif e["dir"] == 3:
             events = parse_all_sse_events(e.get("data", b""))
             if events:
-                # Describe based on the most interesting event in the chunk
                 descriptions = []
                 for parsed in events:
                     if parsed.get("error"):
@@ -1138,7 +1432,6 @@ def track_request(
                     else:
                         descriptions.append("Meta")
 
-                # Summarize descriptions
                 if any(d.startswith("ERROR") for d in descriptions):
                     desc = next(d for d in descriptions if d.startswith("ERROR"))
                 elif "Tool call" in descriptions:
@@ -1157,10 +1450,9 @@ def track_request(
                     desc = "Metadata chunk"
             else:
                 desc = f"{len(e.get('data', b''))} bytes (Raw)"
-        elif e["dir"] == 1:  # PROXY_TO_CLIENT
+        elif e["dir"] == 1:
             desc = "Forwarded to client"
 
-        # Highlight slow steps
         if delta > 10:
             desc += " !!! SLOW !!!"
 
@@ -1179,31 +1471,35 @@ def analyze_streaming(
         print(f"(Filtered to backend: {backend_filter})")
         print("=" * 70)
 
-    # Find all backend streaming sessions
+    seen_backend_request_ids: set[str] = set()
     i = 0
     stream_num = 0
     while i < len(entries):
         e = entries[i]
 
-        # Skip if backend filter doesn't match
         if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
             i += 1
             continue
 
-        # Look for PROXY_TO_BACKEND (start of request)
         if e["dir"] == 2:
+            request_id = _meta_request_id(e.get("meta", {}))
+            if request_id:
+                if request_id in seen_backend_request_ids:
+                    i += 1
+                    continue
+                seen_backend_request_ids.add(request_id)
+
             stream_num += 1
             print(f"\n--- Stream #{stream_num} (Entry [{e.get('seq')}]) ---")
 
-            request_id = _meta_request_id(e.get("meta", {}))
-
-            # Collect backend response chunks
-            chunks = _collect_correlated_entries(
-                entries,
-                start_index=i,
-                request_id=request_id,
-                direction=3,
-            )
+            chunks = _collect_backend_response_for_pb(entries, i)
+            if not chunks and request_id:
+                chunks = _collect_correlated_entries(
+                    entries,
+                    start_index=i,
+                    request_id=request_id,
+                    direction=3,
+                )
 
             if not chunks:
                 print("  No backend response chunks")
@@ -1467,17 +1763,21 @@ def analyze_request_response_pairs(
     while i < len(entries):
         e = entries[i]
 
-        # Skip if backend filter is set and doesn't match
-        if backend_filter is not None and e.get("meta", {}).get("be") != backend_filter:
-            i += 1
-            continue
-
         if e["dir"] == 0:  # CLIENT_TO_PROXY (new request)
+            backend_entries = _collect_backend_chunks_for_cp(entries, i)
+            if backend_filter is not None:
+                backend_entries = [
+                    entry
+                    for entry in backend_entries
+                    if entry.get("meta", {}).get("be") == backend_filter
+                ]
+            if backend_filter is not None and not backend_entries:
+                i += 1
+                continue
+
             request_num += 1
             print(f"\n--- REQUEST #{request_num} ---")
-            request_id = _meta_request_id(e.get("meta", {}))
 
-            # Parse request
             try:
                 req = json.loads(e["data"].decode("utf-8"))
                 model = req.get("model", "N/A")
@@ -1485,19 +1785,7 @@ def analyze_request_response_pairs(
             except (json.JSONDecodeError, UnicodeDecodeError):
                 print("Model: (could not parse)")
 
-            # Collect related entries
-            backend_entries = _collect_correlated_entries(
-                entries,
-                start_index=i,
-                request_id=request_id,
-                direction=3,
-            )
-            client_entries = _collect_correlated_entries(
-                entries,
-                start_index=i,
-                request_id=request_id,
-                direction=1,
-            )
+            client_entries = _collect_client_chunks_for_cp(entries, i)
             client_chunks = [entry.get("data", b"") for entry in client_entries]
 
             # Analyze backend responses
@@ -1838,6 +2126,11 @@ def main() -> int:
         help="Group entries by session ID",
     )
     parser.add_argument(
+        "--b2bua",
+        action="store_true",
+        help="Show A-leg/B-leg session correlation summary (from P->B metadata)",
+    )
+    parser.add_argument(
         "--track-request",
         type=int,
         metavar="N",
@@ -1994,6 +2287,9 @@ def main() -> int:
     # Handle session grouping
     if args.group_by_session:
         group_by_session(entries)
+
+    if args.b2bua:
+        print_b2bua_leg_summary(entries)
 
     # Handle request tracking
     if args.track_request:
