@@ -191,6 +191,7 @@ def register_session_services(services: ServiceCollection) -> None:
                     cast(Any, IB2buaMappingStore)
                 ),
                 session_id_factory=provider.get_required_service(B2BUASessionIdFactory),
+                config=config,
             )
         return provider.get_required_service(DefaultSessionResolver)
 
