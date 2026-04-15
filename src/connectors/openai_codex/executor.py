@@ -43,6 +43,9 @@ from src.core.domain.responses import (
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.tool_text_renderer import OverrideRenderer
+from src.core.transport.fastapi.exception_adapters import (
+    map_domain_exception_to_http_exception,
+)
 
 if TYPE_CHECKING:
     from src.connectors.openai import OpenAIConnector
@@ -469,6 +472,8 @@ class ResponseExecutor(IResponseExecutor):
                                 upstream_detail=rd or {},
                                 retry_after_seconds=retry_after_seconds,
                             )
+                        if isinstance(exc, LLMProxyError):
+                            raise map_domain_exception_to_http_exception(exc) from exc
                         raise HTTPException(status_code=status_code, detail=detail)
 
                     current_cancel[0] = stream_handle.cancel_callback
