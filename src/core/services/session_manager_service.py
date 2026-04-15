@@ -79,13 +79,26 @@ class SessionManager(ISessionManager):
 
         new_state = session.state.with_history_compaction_allowed(False)
         session.update_state(new_state)
+        try:
+            await self._session_service.update_session(session)
+        except Exception as exc:
+            session.update_state(session.state.with_history_compaction_allowed(True))
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to persist history compaction disable for session %s; "
+                    "reverted in-memory flag so storage stays consistent "
+                    "(openai-codex gate will retry on a later request): %s",
+                    session.session_id,
+                    exc,
+                    exc_info=True,
+                )
+            return session
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "Disabled history context compaction for the remainder of this session "
                 "because the openai-codex backend was selected (session_id=%s).",
                 session.session_id,
             )
-        await self._session_service.update_session(session)
         return session
 
     async def update_session_agent(

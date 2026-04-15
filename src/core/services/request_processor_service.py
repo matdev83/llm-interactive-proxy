@@ -47,6 +47,21 @@ from src.core.interfaces.session_manager_interface import ISessionManager
 
 logger = logging.getLogger(__name__)
 
+
+def _coerce_history_compaction_session_allowed(session: Any) -> bool:
+    """Read session flag for history compaction; default permissive for test mocks.
+
+    Honors built-in ``bool`` and NumPy ``bool_`` (not a ``bool`` subclass in older NumPy).
+    """
+    raw = getattr(session, "history_compaction_allowed", True)
+    if isinstance(raw, bool):
+        return raw
+    t = type(raw)
+    if t.__name__ == "bool_" and getattr(t, "__module__", "").startswith("numpy"):
+        return bool(raw)
+    return True
+
+
 MAX_QUALITY_VERIFIER_TURN_STATES = 10_000
 _ROUTING_CODES_BY_STATUS: dict[int, tuple[str, str, bool]] = {
     400: ("unsupported_on_instance", "availability", False),
@@ -783,9 +798,8 @@ class RequestProcessor(IRequestProcessor):
             await self._session_manager.apply_openai_codex_history_compaction_gate(
                 session, context.backend
             )
-            _hca = getattr(session, "history_compaction_allowed", True)
             history_compaction_session_allowed = (
-                _hca if isinstance(_hca, bool) else True
+                _coerce_history_compaction_session_allowed(session)
             )
             backend_request = await self._backend_preparer.prepare(
                 context,
@@ -929,9 +943,8 @@ class RequestProcessor(IRequestProcessor):
                     await self._session_manager.apply_openai_codex_history_compaction_gate(
                         session, context.backend
                     )
-                    _hca_fb = getattr(session, "history_compaction_allowed", True)
                     history_compaction_session_allowed_fb = (
-                        _hca_fb if isinstance(_hca_fb, bool) else True
+                        _coerce_history_compaction_session_allowed(session)
                     )
                     fallback_backend_request = await self._backend_preparer.prepare(
                         context,

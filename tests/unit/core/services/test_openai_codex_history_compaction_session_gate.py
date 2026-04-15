@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.domain.configuration.backend_config import BackendConfiguration
@@ -14,6 +14,9 @@ from src.core.domain.configuration.reasoning_config import ReasoningConfiguratio
 from src.core.domain.session import Session, SessionState
 from src.core.services.conversation_fingerprint_service import (
     ConversationFingerprintService,
+)
+from src.core.services.request_processor_service import (
+    _coerce_history_compaction_session_allowed,
 )
 from src.core.services.session_manager_service import SessionManager
 
@@ -115,3 +118,47 @@ async def test_already_disabled_skips_persist_and_log(
         )
     session_service.update_session.assert_not_awaited()
     assert not caplog.records
+
+
+@pytest.mark.asyncio
+async def test_codex_gate_reverts_state_when_persist_fails(
+    session_manager: SessionManager,
+    session_service: AsyncMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = _make_session("sess-persist-fail")
+    session_service.update_session = AsyncMock(side_effect=RuntimeError("db down"))
+    with caplog.at_level(logging.WARNING):
+        await session_manager.apply_openai_codex_history_compaction_gate(
+            session, "openai-codex"
+        )
+    assert session.state.history_compaction_allowed is True
+    session_service.update_session.assert_awaited_once()
+    assert any(
+        "Failed to persist history compaction disable" in r.message
+        for r in caplog.records
+    )
+    assert not any(
+        "Disabled history context compaction for the remainder" in r.message
+        for r in caplog.records
+    )
+
+
+def test_coerce_history_compaction_session_allowed_numpy_false() -> None:
+    np = pytest.importorskip("numpy")
+    m = MagicMock()
+    m.history_compaction_allowed = np.bool_(False)
+    assert _coerce_history_compaction_session_allowed(m) is False
+
+
+def test_coerce_history_compaction_session_allowed_numpy_true() -> None:
+    np = pytest.importorskip("numpy")
+    m = MagicMock()
+    m.history_compaction_allowed = np.bool_(True)
+    assert _coerce_history_compaction_session_allowed(m) is True
+
+
+def test_coerce_history_compaction_session_allowed_mock_defaults_true() -> None:
+    m = MagicMock(spec=["history_compaction_allowed"])
+    m.history_compaction_allowed = MagicMock()
+    assert _coerce_history_compaction_session_allowed(m) is True
