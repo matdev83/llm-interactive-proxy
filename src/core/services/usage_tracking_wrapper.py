@@ -10,6 +10,11 @@ import time
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from src.core.domain.translation_utils.processed_response_usage import (
+    usage_summary_from_processed_response,
+)
+from src.core.domain.usage_summary import UsageSummary
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
 
@@ -46,8 +51,6 @@ class UsageTrackingWrapper(IUsageTrackingWrapper):
             return self._stream_formatting_service.is_valid_completion_token(chunk)
 
         # Fallback: simple check when service not available
-        from src.core.interfaces.response_processor_interface import ProcessedResponse
-
         content = chunk.content if isinstance(chunk, ProcessedResponse) else chunk
         if isinstance(content, bytes | bytearray):
             text = content.decode("utf-8", errors="ignore").strip()
@@ -94,11 +97,8 @@ class UsageTrackingWrapper(IUsageTrackingWrapper):
         if not usage_service or (not ctp_record_id and not ptb_record_id):
             return stream
 
-        from src.core.interfaces.response_processor_interface import ProcessedResponse
-        from src.core.ports.streaming_contracts import StopChunkWithUsage
-
         async def _usage_wrapper() -> AsyncIterator[Any]:
-            accumulated_usage = None
+            accumulated_usage: Any = None
             first_token_time: float | None = None
             end_time: float | None = None
 
@@ -110,17 +110,34 @@ class UsageTrackingWrapper(IUsageTrackingWrapper):
                     ):
                         first_token_time = time.time()
 
-                    content = (
-                        chunk.content if isinstance(chunk, ProcessedResponse) else chunk
+                    if isinstance(chunk, ProcessedResponse):
+                        pr: ProcessedResponse | None = chunk
+                    elif isinstance(chunk, dict):
+                        pr = ProcessedResponse(content=chunk)
+                    else:
+                        pr = None
+
+                    summary = (
+                        usage_summary_from_processed_response(pr)
+                        if pr is not None
+                        else None
                     )
-
-                    if isinstance(content, StopChunkWithUsage):
-                        accumulated_usage = content.get("usage")
-                    elif isinstance(content, dict) and "usage" in content:
-                        accumulated_usage = content["usage"]
-
-                    if isinstance(chunk, ProcessedResponse) and chunk.usage:
-                        accumulated_usage = chunk.usage
+                    if summary is not None:
+                        # Match legacy behavior: keep ``ProcessedResponse.usage`` objects
+                        # intact so ``record_response`` still sees ``to_dict()``-style payloads
+                        # with extensions when callers attached a ``UsageSummary`` directly.
+                        # For usage parsed only from ``content["usage"]``, flatten to the
+                        # legacy OpenAI-style dict shape (same as the pre-refactor path).
+                        if isinstance(summary, UsageSummary):
+                            if (
+                                isinstance(chunk, ProcessedResponse)
+                                and chunk.usage is summary
+                            ):
+                                accumulated_usage = summary
+                            else:
+                                accumulated_usage = summary.to_legacy_dict()
+                        else:
+                            accumulated_usage = summary
 
                     yield chunk
 

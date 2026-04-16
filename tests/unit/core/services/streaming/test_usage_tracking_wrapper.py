@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.stream_formatting_service import StreamFormattingService
 from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
@@ -269,6 +270,40 @@ class TestUsageDataAccumulation:
             call = mock_service.record_response.call_args
             assert call.kwargs["backend_reported_usage"] == usage
             assert call.kwargs["completion_tokens"] == 50
+
+    @pytest.mark.asyncio
+    async def test_usage_summary_on_chunk_recorded_via_to_dict_shape(self) -> None:
+        """Canonical ``UsageSummary`` on ``chunk.usage`` keeps ``to_dict()`` DB shape."""
+        mock_service = AsyncMock()
+        mock_service.record_response = AsyncMock()
+        wrapper = UsageTrackingWrapper(
+            usage_tracking_service=mock_service,
+            stream_formatting_service=StreamFormattingService(),
+        )
+
+        usage = UsageSummary.from_dict(
+            {"prompt_tokens": 11, "completion_tokens": 22, "total_tokens": 33}
+        )
+
+        async def gen():
+            yield ProcessedResponse(
+                content={"choices": [{"delta": {"content": "hello"}}]},
+                usage=usage,
+            )
+
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
+
+            _ = [chunk async for chunk in wrapped]
+
+            call = mock_service.record_response.call_args
+            assert call.kwargs["backend_reported_usage"] == usage.to_dict()
+            assert call.kwargs["completion_tokens"] == 22
 
     @pytest.mark.asyncio
     async def test_usage_from_content_dict_usage_field(self) -> None:

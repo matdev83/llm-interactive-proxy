@@ -45,6 +45,9 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
+from src.core.domain.translation_utils.processed_response_usage import (
+    usage_summary_from_processed_response,
+)
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
@@ -1896,7 +1899,17 @@ class OpenAIConnector(LLMBackend):
                         chunk_id = _extract_chunk_id(chunk)
                         if chunk_id:
                             response_id_future.set_result(chunk_id)
-                    yield ProcessedResponse(content=chunk)
+                    if stream_format in {
+                        "responses",
+                        "openai-responses",
+                    } and isinstance(chunk, dict):
+                        pr = ProcessedResponse(content=chunk)
+                        yield ProcessedResponse(
+                            content=chunk,
+                            usage=usage_summary_from_processed_response(pr),
+                        )
+                    else:
+                        yield ProcessedResponse(content=chunk)
             except ServiceUnavailableError as exc:
                 pending_error = exc
             except httpx.HTTPError as exc:

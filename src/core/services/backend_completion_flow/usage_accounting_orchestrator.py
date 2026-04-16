@@ -22,6 +22,9 @@ from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.traffic_leg import TrafficLeg
+from src.core.domain.translation_utils.processed_response_usage import (
+    usage_summary_from_processed_response,
+)
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.backend_completion_collaborators import (
     IUsageAccountingOrchestrator,
@@ -552,9 +555,10 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         if b2bua_usage_metadata is not None and "b2bua" not in metadata:
                             metadata["b2bua"] = dict(b2bua_usage_metadata)
 
-                        # Track usage from chunks
-                        if chunk.usage:
-                            accumulated_usage = _to_usage_summary(chunk.usage)
+                        # Track usage from chunks (``chunk.usage`` or OpenAI-style ``content["usage"]``)
+                        observed_usage = usage_summary_from_processed_response(chunk)
+                        if observed_usage is not None:
+                            accumulated_usage = observed_usage
 
                         # Check for error metadata (take precedence over exception-based classification)
                         error_info = metadata.get("error")
@@ -580,10 +584,13 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                             chunk.content
                         )
                         normalized_metadata = self._normalize_metadata(metadata)
+                        usage_for_yield = observed_usage
+                        if usage_for_yield is None:
+                            usage_for_yield = _to_usage_summary(chunk.usage)
                         yield ProcessedResponse(
                             content=normalized_content,
                             metadata=normalized_metadata,
-                            usage=_to_usage_summary(chunk.usage),
+                            usage=usage_for_yield,
                         )
 
                 # Stream completed. If we observed an explicit error chunk, treat the

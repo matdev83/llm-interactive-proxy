@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -7,6 +9,7 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.stream_session_id_resolver_interface import (
     IStreamSessionIdResolver,
 )
@@ -358,3 +361,113 @@ class TestUsageAccountingOrchestrator:
             "llm-b2bua-a-9999",
             response,
         )
+
+    @pytest.mark.asyncio
+    async def test_handle_streaming_response_canonical_uses_usage_embedded_in_content_dict(
+        self,
+        usage_tracking_service,
+        usage_tracking_wrapper,
+        stream_session_id_resolver,
+        planning_phase_manager,
+        resilience_coordinator,
+    ) -> None:
+        """Terminal OpenAI-style chunks carry usage on content dict; canonical must see it."""
+        from src.core.domain.chat import CanonicalChatRequest
+        from src.core.domain.request_context import ProcessingContext
+        from src.core.domain.usage_canonical_record import CanonicalUsageRecord
+        from src.core.domain.usage_summary import UsageSummary
+        from src.core.interfaces.usage_normalization_service_interface import (
+            IUsageNormalizationService,
+        )
+
+        mock_norm = Mock(spec=IUsageNormalizationService)
+        mock_norm.build_canonical_record = AsyncMock(
+            return_value=CanonicalUsageRecord()
+        )
+        orch = UsageAccountingOrchestrator(
+            usage_tracking_service=usage_tracking_service,
+            usage_tracking_wrapper=usage_tracking_wrapper,
+            stream_session_id_resolver=stream_session_id_resolver,
+            planning_phase_manager=planning_phase_manager,
+            resilience_coordinator=resilience_coordinator,
+            usage_normalization_service=mock_norm,
+        )
+
+        async def _stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content={
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "test_fn",
+                                            "arguments": "{}",
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+                metadata={},
+            )
+            yield ProcessedResponse(
+                content={
+                    "id": "resp-terminal",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 20,
+                        "completion_tokens": 5,
+                        "total_tokens": 25,
+                    },
+                },
+                metadata={},
+            )
+
+        response = StreamingResponseEnvelope(content=_stream())
+        stream_session_id_resolver.resolve_stream_session_id.return_value = "sess_1"
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=SimpleNamespace(app_config=None),
+            session_id="sess_1",
+            processing_context=ProcessingContext(),
+        )
+
+        result = await orch.handle_streaming_response(
+            result=response,
+            backend_type="openai-codex",
+            effective_model="gpt-5-codex",
+            context=context,
+            request=Mock(spec=CanonicalChatRequest),
+            session_id_for_backend="sess_1",
+        )
+
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        mock_norm.build_canonical_record.assert_awaited()
+        await_info = mock_norm.build_canonical_record.await_args
+        assert await_info is not None
+        passed_usage = await_info.kwargs["usage"]
+        assert passed_usage is not None
+        expected = UsageSummary.from_dict(
+            {"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25}
+        )
+        assert passed_usage.prompt_tokens == expected.prompt_tokens
+        assert passed_usage.completion_tokens == expected.completion_tokens
+        assert passed_usage.total_tokens == expected.total_tokens
