@@ -1005,7 +1005,7 @@ class ResponseExecutor(IResponseExecutor):
                         ):
                             await self._codex_ws_lineage.record_completed_websocket_turn(
                                 continuation_context,
-                                sent_payload=dict(initial_payload_dict),
+                                sent_payload=copy.deepcopy(replay_payload_dict),
                                 response_id=final_rid,
                                 items_added=ws_output_items,
                             )
@@ -1549,7 +1549,7 @@ class ResponseExecutor(IResponseExecutor):
         if not content_dict:
             return chunk
 
-        if event_type == "response.done":
+        if event_type in ("response.done", "response.completed"):
             content_dict = {"type": "response.completed", "response": content_dict}
         elif "choices" in content_dict or not str(
             content_dict.get("type") or ""

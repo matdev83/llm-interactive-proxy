@@ -329,8 +329,9 @@ class OpenAIWebSocketClient:
                 if processed:
                     yield processed
 
-                # Stop on done event
-                if event_data_type == "response.done":
+                # Stop on terminal completion (v1 uses response.done; v2 may emit
+                # response.completed without response.done on a persistent socket).
+                if event_data_type in ("response.done", "response.completed"):
                     break
 
         except Exception as e:
@@ -380,8 +381,9 @@ class OpenAIWebSocketClient:
                 metadata={"event_type": event_type},
             )
 
-        # Handle response.done
-        if event_type == "response.done":
+        # Terminal completion: v1 uses response.done; v2 websocket mode may use
+        # response.completed with the same response payload shape.
+        if event_type in ("response.done", "response.completed"):
             response_obj = event_data.get("response", {})
             return ProcessedResponse(
                 content=response_obj,

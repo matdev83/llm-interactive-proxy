@@ -326,6 +326,52 @@ async def test_event_to_processed_response_done(ws_client):
 
 
 @pytest.mark.asyncio
+async def test_event_to_processed_response_completed(ws_client):
+    """Websocket v2 may emit response.completed instead of response.done."""
+    event_data = {
+        "type": "response.completed",
+        "response": {"id": "resp_v2", "output": []},
+    }
+
+    result = ws_client._event_to_processed_response(event_data)
+
+    assert result is not None
+    assert result.metadata["done"] is True
+    assert result.metadata["event_type"] == "response.completed"
+    assert result.content["id"] == "resp_v2"
+
+
+@pytest.mark.asyncio
+async def test_send_response_create_terminates_on_response_completed(ws_client):
+    """Stream loop must finish when the server sends response.completed."""
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+
+        completed = {
+            "type": "response.completed",
+            "response": {"id": "resp_ws2", "output": []},
+        }
+
+        async def mock_aiter(self):
+            yield json.dumps(completed)
+
+        mock_ws.__aiter__ = lambda self: mock_aiter(self)
+        mock_connect.return_value = mock_ws
+
+        await ws_client.connect()
+
+        payload = {"model": "gpt-4o", "input": "Test message"}
+        responses = []
+        async for response in ws_client.send_response_create(payload):
+            responses.append(response)
+
+        assert responses
+        assert responses[-1].metadata.get("done") is True
+        assert responses[-1].metadata.get("event_type") == "response.completed"
+
+
+@pytest.mark.asyncio
 async def test_event_to_processed_response_preserves_output_item_done_payload(
     ws_client,
 ):

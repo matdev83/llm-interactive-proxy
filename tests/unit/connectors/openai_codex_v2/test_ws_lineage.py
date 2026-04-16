@@ -145,3 +145,83 @@ async def test_non_input_drift_forces_bootstrap() -> None:
     assert "drift" in reason
     assert "previous_response_id" not in out
     assert out["input"] == full["input"]
+
+
+@pytest.mark.asyncio
+async def test_multi_turn_delta_requires_full_logical_last_sent() -> None:
+    """Wire-only delta in lineage breaks turn 3+; full logical input preserves deltas."""
+    coord = InMemoryCodexContinuationCoordinator()
+    lineage = CodexWebsocketV2Lineage(coord)
+    ctx = _ctx()
+    u1 = {"role": "user", "content": "a"}
+    m1 = {"type": "message", "id": "m1", "role": "assistant", "content": "A"}
+    u2 = {"role": "user", "content": "b"}
+    m2 = {"type": "message", "id": "m2", "role": "assistant", "content": "B"}
+    u3 = {"role": "user", "content": "c"}
+    tools = [{"type": "function", "name": "t"}]
+    base = {"model": "gpt-5.4", "instructions": "sys", "tools": tools}
+
+    await coord.record_turn(ctx, response_id="resp1", payload_dict={"input": [u1]})
+    await lineage.record_completed_websocket_turn(
+        ctx,
+        sent_payload={**base, "input": [u1]},
+        response_id="resp1",
+        items_added=[m1],
+    )
+    full2 = {**base, "input": [u1, m1, u2]}
+    p2 = dict(full2)
+    handled2, out2, reason2, proxy2 = await lineage.try_prepare_websocket_continuation(
+        continuation_context=ctx,
+        payload_dict=p2,
+        full_payload_dict=full2,
+    )
+    assert handled2 and proxy2 and reason2.startswith("ws_v2_delta")
+    assert out2["input"] == [u2]
+
+    await coord.record_turn(
+        ctx,
+        response_id="resp2",
+        payload_dict={"input": [u1, m1, u2]},
+    )
+    # Bug-shaped record: only the wire suffix — turn 3 cannot match prefix.
+    await lineage.record_completed_websocket_turn(
+        ctx,
+        sent_payload={**base, "input": [u2]},
+        response_id="resp2",
+        items_added=[m2],
+    )
+    full3 = {**base, "input": [u1, m1, u2, m2, u3]}
+    p3 = dict(full3)
+    handled3, out3, reason3, proxy3 = await lineage.try_prepare_websocket_continuation(
+        continuation_context=ctx,
+        payload_dict=p3,
+        full_payload_dict=full3,
+    )
+    assert handled3 and proxy3 is False
+    assert "prefix" in reason3
+    assert out3["input"] == full3["input"]
+
+    # Prefix mismatch invalidates coordinator + lineage; re-seed like a new turn.
+    await coord.record_turn(
+        ctx,
+        response_id="resp2",
+        payload_dict={"input": [u1, m1, u2]},
+    )
+    # Correct-shaped record: full logical input for turn 2.
+    await lineage.record_completed_websocket_turn(
+        ctx,
+        sent_payload={**base, "input": [u1, m1, u2]},
+        response_id="resp2",
+        items_added=[m2],
+    )
+    p3b = dict(full3)
+    handled3b, out3b, reason3b, proxy3b = (
+        await lineage.try_prepare_websocket_continuation(
+            continuation_context=ctx,
+            payload_dict=p3b,
+            full_payload_dict=full3,
+        )
+    )
+    assert handled3b and proxy3b and reason3b.startswith("ws_v2_delta")
+    assert out3b["previous_response_id"] == "resp2"
+    assert out3b["input"] == [u3]

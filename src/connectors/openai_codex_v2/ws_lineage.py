@@ -130,6 +130,15 @@ class CodexWebsocketV2Lineage:
         response_id: str,
         items_added: list[Any],
     ) -> None:
+        """Persist lineage for the next continuation.
+
+        ``sent_payload`` must be the **full logical** ``response.create`` envelope for
+        this turn (full ``input`` list as built before websocket delta trimming), not
+        the on-wire body after ``try_prepare_websocket_continuation`` applied a
+        suffix-only ``input``. Baseline matching in ``try_prepare_websocket_continuation``
+        compares the next turn's full ``input`` against ``last_sent['input']`` plus
+        ``items_added``.
+        """
         normalized = response_id.strip()
         if not normalized:
             return
