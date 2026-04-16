@@ -158,6 +158,12 @@ class TestResponseExecutor:
         assert exc_info.value.status_code == 429
         mock_credential_manager.notify_codex_usage_limit_unrecovered.assert_awaited_once()
         mock_base_connector._handle_rate_limit_rotation.assert_awaited_once()
+        assert (
+            mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs[
+                "all_accounts_exhausted"
+            ]
+            is True
+        )
 
     @pytest.mark.asyncio
     async def test_non_streaming_payload_uses_prompt_cache_key_for_conversation_id(

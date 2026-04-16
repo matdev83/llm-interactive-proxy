@@ -598,7 +598,15 @@ class ResponseExecutor(IResponseExecutor):
                             retry_after_seconds = (
                                 self._extract_retry_after_from_payload(rd)
                             )
-                            if attempts_used < max_retries:
+                            # Quota failover must get at least one handshake attempt even when
+                            # streaming.max_retries is 0 or managed effective budget is 0 (n<=1),
+                            # without changing 401/403 retry limits (same loop uses ``max_retries``).
+                            rl_rotation_cap = max(1, max_retries)
+                            rate_limit_rotation_attempted = (
+                                attempts_used < rl_rotation_cap
+                            )
+                            rotated = False
+                            if rate_limit_rotation_attempted:
                                 rotated = await self._handle_rate_limit_rotation(
                                     retry_after_seconds=retry_after_seconds,
                                     session_id=context.session_id,
@@ -621,6 +629,9 @@ class ResponseExecutor(IResponseExecutor):
                             await self._notify_codex_quota_unrecovered(
                                 upstream_detail=rd or {},
                                 retry_after_seconds=retry_after_seconds,
+                                all_accounts_exhausted=(
+                                    rate_limit_rotation_attempted and not rotated
+                                ),
                             )
                         if isinstance(exc, LLMProxyError):
                             raise map_domain_exception_to_http_exception(exc) from exc
@@ -1702,6 +1713,7 @@ class ResponseExecutor(IResponseExecutor):
         *,
         upstream_detail: Any,
         retry_after_seconds: float | None,
+        all_accounts_exhausted: bool = True,
     ) -> None:
         fn = getattr(
             self._credential_manager, "notify_codex_usage_limit_unrecovered", None
@@ -1711,7 +1723,7 @@ class ResponseExecutor(IResponseExecutor):
         res = fn(
             upstream_detail=upstream_detail,
             retry_after_seconds=retry_after_seconds,
-            all_accounts_exhausted=True,
+            all_accounts_exhausted=all_accounts_exhausted,
         )
         if inspect.isawaitable(res):
             await res

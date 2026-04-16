@@ -390,6 +390,106 @@ class TestResponseExecutor:
         )
 
     @pytest.mark.asyncio
+    async def test_execute_streaming_handshake_429_rotates_when_effective_max_retries_zero(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        """429 quota rotation must run once even when effective streaming retry budget is 0."""
+        mock_credential_manager.effective_max_rate_limit_retries = AsyncMock(
+            return_value=0
+        )
+
+        async def empty_iterator():
+            return
+            yield  # pragma: no cover
+
+        success_handle = MagicMock()
+        success_handle.headers = {}
+        success_handle.cancel_callback = AsyncMock()
+        success_handle.iterator = empty_iterator()
+
+        call_count = [0]
+
+        async def handle_streaming_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise HTTPException(
+                    status_code=429,
+                    detail={"error": {"retry_after_seconds": 30}},
+                )
+            return success_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=True)
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            max_retries=0,
+            retry_backoff_seconds=(0.01,),
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        mock_base_connector._handle_rate_limit_rotation.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_second_handshake_429_marks_accounts_not_exhausted_when_no_budget(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        """After one 429 rotation, a second 429 with no remaining budget is not 'all exhausted'."""
+        mock_credential_manager.effective_max_rate_limit_retries = AsyncMock(
+            return_value=0
+        )
+        mock_credential_manager.notify_codex_usage_limit_unrecovered = AsyncMock()
+
+        async def handle_streaming_side_effect(*args, **kwargs):
+            raise HTTPException(
+                status_code=429,
+                detail={"error": {"retry_after_seconds": 10}},
+            )
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=True)
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            max_retries=0,
+            retry_backoff_seconds=(0.01,),
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        with pytest.raises(HTTPException) as exc_info:
+            async for _ in result.content:
+                pass
+
+        assert exc_info.value.status_code == 429
+        mock_base_connector._handle_rate_limit_rotation.assert_awaited_once()
+        mock_credential_manager.notify_codex_usage_limit_unrecovered.assert_awaited_once()
+        assert (
+            mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs[
+                "all_accounts_exhausted"
+            ]
+            is False
+        )
+
+    @pytest.mark.asyncio
     async def test_execute_streaming_handshake_429_usage_limit_notifies_when_rotation_exhausted(
         self,
         mock_base_connector,
@@ -435,6 +535,7 @@ class TestResponseExecutor:
             mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs
         )
         assert notify_kw["upstream_detail"] == detail
+        assert notify_kw["all_accounts_exhausted"] is True
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_auth_retry_exhausted(

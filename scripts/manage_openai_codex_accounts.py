@@ -23,8 +23,14 @@ Authentication Flow:
     For remote/headless environments, use --no-browser to manually open the URL.
 
 Account Management:
-    Accounts can be listed, inspected, updated (re-authorized), or removed
-    using the respective subcommands (list, show, update, remove).
+    Accounts can be listed, inspected, updated (re-authorized), removed, or
+    cleared of local rate-limit cooldown timestamps using the respective
+    subcommands (list, show, update, remove, reset).
+
+    Clear only persisted local rate-limit timers (does not change tokens):
+
+        ./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py reset all
+        ./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py reset user@example.com
 """
 
 from __future__ import annotations
@@ -44,6 +50,7 @@ from src.connectors.openai_codex.managed_oauth_flow import (
     ManagedOAuthFlowError,
     ManagedOAuthFlowService,
 )
+from src.connectors.openai_codex.managed_oauth_models import ManagedOAuthAccount
 from src.connectors.openai_codex.managed_oauth_storage import ManagedOAuthStorageService
 
 
@@ -178,6 +185,87 @@ async def cmd_remove(
     print(f"Removed account '{args.account_id}'.")
 
 
+def _account_without_local_rate_limit(
+    account: ManagedOAuthAccount,
+) -> ManagedOAuthAccount:
+    """Return a copy with ``rate_limited_until`` cleared; other fields unchanged."""
+    if account.rate_limited_until is None:
+        return account
+    return account.model_copy(update={"rate_limited_until": None})
+
+
+async def cmd_reset(
+    storage: ManagedOAuthStorageService,
+    args: argparse.Namespace,
+) -> None:
+    """Unset ``rate_limited_until`` only (OAuth tokens and other fields unchanged)."""
+    target_raw = args.target.strip()
+    if not target_raw:
+        print(
+            "Invalid usage: reset requires a target. "
+            'Use "all" or an account email, e.g. reset all / reset user@example.com'
+        )
+        sys.exit(1)
+
+    if target_raw.casefold() == "all":
+        accounts = await storage.load_all_accounts()
+        if not accounts:
+            print("No managed OpenAI Codex accounts found; nothing to reset.")
+            return
+        cleared = 0
+        for account in accounts:
+            if account.rate_limited_until is None:
+                continue
+            updated = _account_without_local_rate_limit(account)
+            await storage.save_account(updated)
+            cleared += 1
+            email = account.email or "-"
+            print(
+                f"Cleared local rate-limit cooldown for "
+                f"{account.account_id} ({email})."
+            )
+        skipped = len(accounts) - cleared
+        if cleared == 0:
+            print(
+                "No accounts had a local rate-limit cooldown set "
+                f"({skipped} checked)."
+            )
+        else:
+            print(f"Done. Cleared {cleared} account(s); {skipped} already clear.")
+        return
+
+    needle = target_raw.casefold()
+    accounts = await storage.load_all_accounts()
+    matches = [
+        account for account in accounts if (account.email or "").casefold() == needle
+    ]
+    if not matches:
+        print(f"No managed account found with email matching {target_raw!r}.")
+        sys.exit(1)
+    if len(matches) > 1:
+        ids = ", ".join(sorted(account.account_id for account in matches))
+        print(
+            "Multiple accounts share that email; cannot pick one. "
+            f"Matching account_id values: {ids}"
+        )
+        sys.exit(1)
+
+    account = matches[0]
+    updated = _account_without_local_rate_limit(account)
+    if account.rate_limited_until is None:
+        print(
+            f"Account {account.account_id} "
+            f"({account.email or '-'}) has no local rate-limit cooldown set."
+        )
+        return
+
+    await storage.save_account(updated)
+    print(
+        f"Cleared local rate-limit cooldown for "
+        f"{account.account_id} ({account.email or '-'})."
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage OpenAI Codex OAuth accounts")
     parser.add_argument(
@@ -248,6 +336,18 @@ def main() -> None:
         help="Skip confirmation prompt",
     )
 
+    reset_parser = subparsers.add_parser(
+        "reset",
+        help=(
+            "Clear persisted local rate-limit cooldown (rate_limited_until only); "
+            "does not modify OAuth tokens"
+        ),
+    )
+    reset_parser.add_argument(
+        "target",
+        help='Use the literal word "all" for every account, or the account email',
+    )
+
     args = parser.parse_args()
     storage = ManagedOAuthStorageService(args.storage_path)
 
@@ -261,6 +361,8 @@ def main() -> None:
         asyncio.run(cmd_update(storage, args))
     elif args.command == "remove":
         asyncio.run(cmd_remove(storage, args))
+    elif args.command == "reset":
+        asyncio.run(cmd_reset(storage, args))
 
 
 if __name__ == "__main__":
