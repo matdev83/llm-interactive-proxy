@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import AsyncIterator
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -840,6 +839,78 @@ class TestResponseExecutor:
         first_handle.cancel_callback.assert_awaited()
         compatibility_layer.append_incompatible_tool_steering.assert_called_once()
 
+    async def test_execute_streaming_logs_retry_cancellation_reason(
+        self, executor, sample_context, streaming_payload, caplog
+    ) -> None:
+        compatibility_layer = MagicMock(spec=ICompatibilityLayer)
+        compatibility_layer.detect_incompatible_tool_calls.return_value = [
+            "apply_patch"
+        ]
+        compatibility_layer.append_incompatible_tool_steering.side_effect = (
+            lambda payload_dict, incompatible_tools, context: {
+                **payload_dict,
+                "instructions": "retry steering",
+            }
+        )
+        executor._compatibility_layer = compatibility_layer
+
+        first_handle = MagicMock()
+        first_handle.headers = {}
+        first_handle.cancel_callback = AsyncMock()
+
+        async def first_iterator():
+            yield ProcessedResponse(
+                content={
+                    "id": "resp_retry_123",
+                    "type": "response.output_item.added",
+                    "item": {"type": "function_call", "name": "apply_patch"},
+                }
+            )
+
+        first_handle.iterator = first_iterator()
+
+        second_handle = MagicMock()
+        second_handle.headers = {}
+        second_handle.cancel_callback = AsyncMock()
+
+        async def second_iterator():
+            yield ProcessedResponse(
+                content={"choices": [{"delta": {"content": "ok"}}]},
+                metadata={},
+            )
+
+        second_handle.iterator = second_iterator()
+
+        async def streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            if payload_dict.get("instructions") == "retry steering":
+                return second_handle
+            return first_handle
+
+        executor._base_connector._handle_streaming_response = AsyncMock(
+            side_effect=streaming_side_effect
+        )
+
+        with caplog.at_level(logging.INFO):
+            result = await executor.execute(streaming_payload, sample_context)
+            chunks = [
+                chunk
+                async for chunk in cast(
+                    AsyncIterator[ProcessedResponse], result.content
+                )
+            ]
+
+        assert len(chunks) == 1
+        matching = [
+            record
+            for record in caplog.records
+            if str(record.msg).startswith("Cancelling active Codex stream for retry")
+        ]
+        assert matching
+        assert matching[-1].retry_reason == "incompatible_tools"
+        assert matching[-1].response_id == "resp_retry_123"
+
     async def test_conversation_id_preserved_across_streaming_retries(
         self,
         executor,
@@ -900,7 +971,7 @@ class TestResponseExecutor:
         ), f"Expected all conversation_ids to be 'retry-conversation-key-456', got {conversation_ids}"
 
     @pytest.mark.asyncio
-    async def test_execute_streaming_injects_previous_response_id_from_continuation(
+    async def test_execute_streaming_http_omits_previous_response_id_from_continuation(
         self,
         mock_base_connector,
         mock_credential_manager,
@@ -943,11 +1014,11 @@ class TestResponseExecutor:
         async for _ in result.content:
             pass
 
-        assert captured_payloads[0]["previous_response_id"] == "resp_prev_123"
-        continuation.resolve_previous_response_id.assert_called_once()
+        assert "previous_response_id" not in captured_payloads[0]
+        continuation.resolve_previous_response_id.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_execute_streaming_proxy_continuation_omits_bootstrap_fields(
+    async def test_execute_streaming_http_full_replay_keeps_bootstrap_fields(
         self,
         mock_base_connector,
         mock_credential_manager,
@@ -999,9 +1070,11 @@ class TestResponseExecutor:
         async for _ in result.content:
             pass
 
-        assert captured_payloads[0]["previous_response_id"] == "resp_prev_123"
-        assert "instructions" not in captured_payloads[0]
-        assert "tools" not in captured_payloads[0]
+        assert "previous_response_id" not in captured_payloads[0]
+        assert captured_payloads[0]["instructions"] == "Full Codex bootstrap"
+        tools = captured_payloads[0]["tools"]
+        assert isinstance(tools, list)
+        assert tools[0]["name"] == "read_file"
 
     @pytest.mark.asyncio
     async def test_execute_streaming_logs_continuation_mode_metrics(
@@ -1053,16 +1126,66 @@ class TestResponseExecutor:
         matching = [
             record
             for record in caplog.records
-            if record.msg == "Submitting Codex request."
+            if str(record.msg).startswith("Submitting Codex request")
         ]
         assert matching
-        assert matching[-1].continuation_mode == "continued_delta"
+        assert matching[-1].continuation_mode == "http_bootstrap"
+        assert matching[-1].continuation_reason == "http_bootstrap"
+        assert matching[-1].codex_transport == "http_sse"
         assert matching[-1].input_item_count == 0
-        assert matching[-1].instructions_bytes == 0
-        assert matching[-1].tools_bytes == 0
+        assert matching[-1].instructions_bytes > 0
+        assert matching[-1].tools_bytes > 0
 
     @pytest.mark.asyncio
-    async def test_execute_streaming_uses_delta_suffix_for_translated_continuation(
+    async def test_execute_streaming_logs_bootstrap_reason_when_no_continuation_exists(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        caplog,
+    ) -> None:
+        continuation = AsyncMock()
+        continuation.resolve_previous_response_id.return_value = None
+
+        async def done_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_new_456", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = done_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        with caplog.at_level(logging.INFO):
+            result = await executor.execute(streaming_payload, sample_context)
+            assert result.content is not None
+            async for _ in result.content:
+                pass
+
+        matching = [
+            record
+            for record in caplog.records
+            if str(record.msg).startswith("Submitting Codex request")
+        ]
+        assert matching
+        assert matching[-1].continuation_mode == "http_bootstrap"
+        assert matching[-1].continuation_reason == "http_bootstrap"
+        assert matching[-1].codex_transport == "http_sse"
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_http_second_turn_full_replay_without_previous_response_id(
         self,
         mock_base_connector,
         mock_credential_manager,
@@ -1180,17 +1303,16 @@ class TestResponseExecutor:
 
         assert len(captured_payloads) == 2
         assert "previous_response_id" not in captured_payloads[0]
-        assert captured_payloads[1]["previous_response_id"] == "resp_first"
-        assert "instructions" not in captured_payloads[1]
-        assert "tools" not in captured_payloads[1]
+        assert "previous_response_id" not in captured_payloads[1]
+        assert captured_payloads[1]["instructions"] == "Full Codex bootstrap"
+        tools = captured_payloads[1]["tools"]
+        assert isinstance(tools, list)
+        assert tools[0]["name"] == "read_file"
         second_input = captured_payloads[1]["input"]
         assert isinstance(second_input, list)
-        assert len(second_input) == 2
-        full_second_size = len(
-            json.dumps(second_payload.model_dump(exclude_none=True), sort_keys=True)
-        )
-        delta_second_size = len(json.dumps(captured_payloads[1], sort_keys=True))
-        assert delta_second_size < full_second_size
+        assert second_input == [
+            item.model_dump(exclude_none=True) for item in second_payload.input
+        ]
 
     @pytest.mark.asyncio
     async def test_execute_streaming_invalidates_proxy_lineage_on_tool_change(
@@ -1459,6 +1581,258 @@ class TestResponseExecutor:
         assert record_call.args[1] == "resp_terminal_789"
 
     @pytest.mark.asyncio
+    async def test_execute_streaming_records_terminal_response_id_from_translated_http_stop_chunk(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        continuation = AsyncMock()
+        continuation.resolve_previous_response_id.return_value = None
+
+        async def done_iterator():
+            yield ProcessedResponse(
+                content={
+                    "choices": [{"delta": {}, "finish_reason": "stop"}],
+                    "response_id": "resp_http_terminal_456",
+                }
+            )
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = done_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        continuation.record_response_id.assert_called_once()
+        record_call = continuation.record_response_id.call_args
+        assert record_call.args[1] == "resp_http_terminal_456"
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_preserves_observed_response_id_when_stream_ends_without_terminal_chunk(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        caplog,
+    ) -> None:
+        continuation = AsyncMock()
+        continuation.resolve_previous_response_id.return_value = None
+
+        async def truncated_iterator():
+            yield ProcessedResponse(
+                content={
+                    "id": "resp_observed_123",
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_123",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "read",
+                                            "arguments": "",
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = truncated_iterator()
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        with caplog.at_level(logging.INFO):
+            result = await executor.execute(streaming_payload, sample_context)
+            assert result.content is not None
+            async for _ in result.content:
+                pass
+
+        continuation.record_response_id.assert_called_once()
+        assert continuation.record_response_id.call_args.args[1] == "resp_observed_123"
+        continuation.record_turn.assert_called_once()
+        assert (
+            continuation.record_turn.call_args.kwargs["response_id"]
+            == "resp_observed_123"
+        )
+        matching = [
+            record
+            for record in caplog.records
+            if "observed response id remains available for continuation"
+            in str(record.msg)
+        ]
+        assert matching
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_persists_observed_response_id_immediately_for_followup_turn(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+    ) -> None:
+        continuation = InMemoryCodexContinuationCoordinator()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+        )
+
+        from src.connectors.openai_codex.contracts import CodexInputItem, CodexPayload
+
+        first_payload = CodexPayload(
+            model="gpt-5.4-mini",
+            input=[
+                CodexInputItem.model_validate(
+                    {
+                        "type": "message",
+                        "role": "developer",
+                        "content": [{"type": "input_text", "text": "bootstrap"}],
+                    }
+                ),
+                CodexInputItem.model_validate(
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "turn one"}],
+                    }
+                ),
+            ],
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            stream=True,
+            include=[],
+            prompt_cache_key="test-key",
+            instructions="Full Codex bootstrap",
+        )
+        second_payload = first_payload.model_copy(
+            update={
+                "input": [
+                    *first_payload.input,
+                    CodexInputItem.model_validate(
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [{"type": "output_text", "text": "tool call"}],
+                        }
+                    ),
+                    CodexInputItem.model_validate(
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "turn two"}],
+                        }
+                    ),
+                ]
+            }
+        )
+
+        first_handle = MagicMock()
+        first_handle.headers = {}
+        first_handle.cancel_callback = AsyncMock()
+
+        async def first_iterator():
+            yield ProcessedResponse(
+                content={
+                    "id": "resp_observed_midstream",
+                    "choices": [
+                        {
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "read",
+                                            "arguments": "",
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+
+        first_handle.iterator = first_iterator()
+
+        second_handle = MagicMock()
+        second_handle.headers = {}
+        second_handle.cancel_callback = AsyncMock()
+
+        async def second_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_second", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        second_handle.iterator = second_iterator()
+
+        captured_payloads: list[dict[str, object]] = []
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            captured_payloads.append(dict(payload_dict))
+            return first_handle if len(captured_payloads) == 1 else second_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        first_result = await executor.execute(first_payload, sample_context)
+        assert first_result.content is not None
+        first_stream = cast(AsyncIterator[ProcessedResponse], first_result.content)
+        first_chunk = await anext(first_stream)
+        assert isinstance(first_chunk, ProcessedResponse)
+        await cast(Any, first_stream).aclose()
+
+        second_result = await executor.execute(second_payload, sample_context)
+        assert second_result.content is not None
+        async for _ in second_result.content:
+            pass
+
+        assert len(captured_payloads) == 2
+        assert "previous_response_id" not in captured_payloads[1]
+        second_wire_input = captured_payloads[1]["input"]
+        assert isinstance(second_wire_input, list)
+        assert len(second_wire_input) == len(second_payload.input)
+
+    @pytest.mark.asyncio
     async def test_execute_streaming_invalidates_continuation_on_missing_previous_response(
         self,
         mock_base_connector,
@@ -1504,7 +1878,7 @@ class TestResponseExecutor:
         assert continuation.invalidate.call_count >= 1
 
     @pytest.mark.asyncio
-    async def test_execute_streaming_replays_once_after_proxy_continuation_miss(
+    async def test_execute_streaming_http_does_not_retry_previous_response_miss(
         self,
         mock_base_connector,
         mock_credential_manager,
@@ -1530,21 +1904,10 @@ class TestResponseExecutor:
             )
             yield  # pragma: no cover
 
-        async def success_iterator():
-            yield ProcessedResponse(
-                content={"id": "resp_recovered_001", "output": []},
-                metadata={"event_type": "response.done", "done": True},
-            )
-
         first_handle = MagicMock()
         first_handle.headers = {}
         first_handle.cancel_callback = AsyncMock()
         first_handle.iterator = failing_iterator()
-
-        second_handle = MagicMock()
-        second_handle.headers = {}
-        second_handle.cancel_callback = AsyncMock()
-        second_handle.iterator = success_iterator()
 
         captured_payloads: list[dict[str, object]] = []
 
@@ -1552,9 +1915,7 @@ class TestResponseExecutor:
             url, payload_dict, headers, session_id, *args, **kwargs
         ):
             captured_payloads.append(dict(payload_dict))
-            if len(captured_payloads) == 1:
-                return first_handle
-            return second_handle
+            return first_handle
 
         mock_base_connector._handle_streaming_response = AsyncMock(
             side_effect=handle_streaming_side_effect
@@ -1568,21 +1929,169 @@ class TestResponseExecutor:
 
         result = await executor.execute(streaming_payload, sample_context)
         assert result.content is not None
-        chunks = [chunk async for chunk in result.content]
+        with pytest.raises(InvalidRequestError):
+            async for _ in result.content:
+                pass
 
-        assert len(chunks) == 1
-        assert chunks[0].metadata["event_type"] == "response.done"
-        assert captured_payloads[0]["previous_response_id"] == "resp_prev_missing"
-        assert "instructions" not in captured_payloads[0]
-        assert "tools" not in captured_payloads[0]
-        assert "previous_response_id" not in captured_payloads[1]
-        assert captured_payloads[1]["instructions"] == "Full Codex bootstrap"
-        restored_tools = captured_payloads[1]["tools"]
-        assert isinstance(restored_tools, list)
-        assert restored_tools
-        assert restored_tools[0]["name"] == "read_file"
+        assert len(captured_payloads) == 1
+        assert "previous_response_id" not in captured_payloads[0]
+        continuation.resolve_previous_response_id.assert_not_called()
         continuation.invalidate.assert_called_once()
-        continuation.record_response_id.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_http_strips_client_supplied_previous_response_id(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        streaming_payload.previous_response_id = "client-should-not-hit-wire"
+
+        async def done_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_ok", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        captured: list[dict[str, object]] = []
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {}
+        mock_stream_handle.cancel_callback = AsyncMock()
+        mock_stream_handle.iterator = done_iterator()
+
+        async def capture(url, payload_dict, headers, session_id, *args, **kwargs):
+            captured.append(dict(payload_dict))
+            return mock_stream_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(side_effect=capture)
+
+        executor = ResponseExecutor(mock_base_connector, mock_credential_manager)
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        assert len(captured) == 1
+        assert "previous_response_id" not in captured[0]
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_websocket_resolves_previous_response_id(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        monkeypatch,
+    ) -> None:
+        continuation = AsyncMock()
+        continuation.resolve_previous_response_id = AsyncMock(
+            return_value="resp_ws_prev"
+        )
+
+        async def ws_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_ws_terminal", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        ws_client = MagicMock()
+        ws_client.disconnect = AsyncMock()
+        ws_client.send_response_create = MagicMock(return_value=ws_iterator())
+
+        monkeypatch.setattr(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            MagicMock(return_value=ws_client),
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+            use_websocket=True,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        continuation.resolve_previous_response_id.assert_awaited_once()
+        send_kwargs = ws_client.send_response_create.call_args.kwargs
+        assert send_kwargs["previous_response_id"] == "resp_ws_prev"
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_websocket_replays_after_previous_response_miss(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        monkeypatch,
+    ) -> None:
+        continuation = AsyncMock()
+        continuation.resolve_previous_response_id = AsyncMock(
+            return_value="resp_prev_missing"
+        )
+        streaming_payload.instructions = "Full Codex bootstrap"
+        streaming_payload.tools = [
+            CodexToolSchema(
+                name="read_file",
+                description="Read a file",
+                type="function",
+                parameters={"type": "object", "properties": {}},
+            )
+        ]
+
+        async def gen_fail():
+            if True:
+                raise InvalidRequestError(
+                    message="Previous response not found",
+                    details={"code": "previous_response_not_found"},
+                )
+            yield ProcessedResponse(content={})  # pragma: no cover
+
+        async def gen_ok():
+            yield ProcessedResponse(
+                content={"id": "resp_recovered_ws", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        calls = {"n": 0}
+
+        def send_side_effect(*args: object, **kwargs: object):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return gen_fail()
+            return gen_ok()
+
+        ws_client = MagicMock()
+        ws_client.disconnect = AsyncMock()
+        ws_client.send_response_create = MagicMock(side_effect=send_side_effect)
+
+        monkeypatch.setattr(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            MagicMock(return_value=ws_client),
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+            use_websocket=True,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        chunks = [c async for c in result.content]
+        assert len(chunks) == 1
+        assert chunks[0].metadata.get("event_type") == "response.done"
+        assert ws_client.send_response_create.call_count == 2
+        first_kw = ws_client.send_response_create.call_args_list[0].kwargs
+        second_kw = ws_client.send_response_create.call_args_list[1].kwargs
+        assert first_kw["previous_response_id"] == "resp_prev_missing"
+        assert second_kw.get("previous_response_id") is None
+        continuation.invalidate.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_execute_streaming_websocket_transport_passes_capture_context(

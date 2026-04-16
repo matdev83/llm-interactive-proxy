@@ -285,7 +285,11 @@ class TestPayloadBuilder:
     def test_build_payload_passthrough_preserves_previous_response_id(
         self, builder, mock_connector, sample_context
     ):
-        """Responses passthrough should keep previous_response_id intact."""
+        """Passthrough keeps previous_response_id on CodexPayload (in-memory contract).
+
+        HTTP /responses execution strips this field before the upstream request;
+        WebSocket transport may forward it as a separate argument to response.create.
+        """
         passthrough_request = CanonicalChatRequest(
             model="gpt-5.1-codex",
             messages=[ChatMessage(role="user", content="Test message")],

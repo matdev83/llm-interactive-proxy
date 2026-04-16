@@ -114,18 +114,15 @@ class TestGeminiCliAcpInitialization:
 
         assert connector.is_backend_functional() is False
 
-    async def test_initialize_rejects_without_workspace_config(
+    async def test_initialize_without_workspace_config_uses_runtime_project_dir(
         self,
         connector: GeminiCliAcpConnector,
     ) -> None:
-        with (
-            patch.object(connector, "_check_gemini_cli_available", return_value=True),
-            pytest.raises(ConfigurationError) as exc_info,
-        ):
+        with patch.object(connector, "_check_gemini_cli_available", return_value=True):
             await connector.initialize()
 
-        assert connector.is_backend_functional() is False
-        assert "GEMINI_CLI_WORKSPACE" in exc_info.value.message
+        assert connector.is_backend_functional() is True
+        assert connector._default_project_dir is None
 
 
 class TestGeminiCliAcpHelpers:

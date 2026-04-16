@@ -191,7 +191,7 @@ def classify_request_shape(payload: dict[str, Any]) -> str:
     )
     tools = payload.get("tools")
     has_tools = isinstance(tools, list) and len(tools) > 0
-    if has_prev and not has_instr and not has_tools:
+    if has_prev and not has_tools:
         return "continued_delta"
     if has_prev:
         return "continued_with_bootstrap"
@@ -397,7 +397,11 @@ if continued_with_bootstrap:
         "[WARN]  continued requests still carrying bootstrap fields were detected; inspect those turns."
     )
 elif continued_delta:
-    print("[OK]    continued delta-style requests detected without bootstrap fields.")
+    print(
+        "[INFO]  HTTP captures with continued_delta shape (previous_response_id, no tools). "
+        "Codex HTTP /responses rejects previous_response_id; if seen on openai-codex HTTP, "
+        "investigate stale captures or non-Codex backends."
+    )
 
 # Check 7: Are there duplicate-sized payloads (retries)?
 for conv_id, reqs in conversations.items():

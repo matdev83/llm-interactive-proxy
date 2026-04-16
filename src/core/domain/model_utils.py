@@ -79,6 +79,9 @@ def parse_model_backend(model: str, default_backend: str = "") -> ParsedModel:
     - model (e.g., "gpt-4" - uses default_backend)
     - vendor/model (e.g., "openai/gpt-4o" - treated as a model identifier, not backend selection)
 
+    A ``?query`` suffix on the model route is stripped from ``model_name`` so registry and
+    limit lookups match catalog keys; use ``parse_model_with_params`` when URI params matter.
+
     Args:
         model: Model string in various formats
         default_backend: Default backend to use if no prefix is specified
@@ -90,10 +93,12 @@ def parse_model_backend(model: str, default_backend: str = "") -> ParsedModel:
     # the first "/" in the route portion. This keeps selectors like
     # "vendor/model:free" in model-only mode.
     if has_explicit_backend_selector(model):
-        backend, model_name = model.split(":", 1)
-        return ParsedModel(backend_type=backend, model_name=model_name)
+        backend, model_tail = model.split(":", 1)
+        route_model, _, _ = model_tail.partition("?")
+        return ParsedModel(backend_type=backend, model_name=route_model)
 
-    return ParsedModel(backend_type=default_backend, model_name=model)
+    route_only, _, _ = model.partition("?")
+    return ParsedModel(backend_type=default_backend, model_name=route_only)
 
 
 def parse_model_with_params(

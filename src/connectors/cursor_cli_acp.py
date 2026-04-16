@@ -17,6 +17,7 @@ import httpx
 
 from src.connectors.acp_core.base_connector import BaseAcpConnector
 from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
+from src.connectors.acp_core.workspace_policy import resolve_backend_init_acp_workspace
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.core.common.exceptions import BackendError, ConfigurationError
 from src.core.config.app_config import AppConfig
@@ -145,32 +146,19 @@ class CursorCliAcpConnector(BaseAcpConnector):
     async def initialize(self, **kwargs: Any) -> None:
         self._ensure_mutable_state()
         try:
-            configured_project_dir = (
-                kwargs.get("project_dir")
-                or kwargs.get("workspace_path")
-                or os.getenv("CURSOR_CLI_WORKSPACE")
+            workspace, cfg_err = resolve_backend_init_acp_workspace(
+                project_dir=kwargs.get("project_dir"),
+                workspace_path=kwargs.get("workspace_path"),
+                env_workspace=os.getenv("CURSOR_CLI_WORKSPACE"),
+                env_source_label="CURSOR_CLI_WORKSPACE",
+                is_usable=self._is_usable_directory,
             )
-            if not configured_project_dir:
+            if cfg_err:
                 raise ConfigurationError(
-                    message=(
-                        "cursor-cli-acp requires project_dir, workspace_path, "
-                        "or CURSOR_CLI_WORKSPACE (no implicit server cwd default)."
-                    ),
-                    details={
-                        "error_code": "cursor_cli_acp_workspace_required",
-                    },
+                    message=cfg_err,
+                    details={"error_code": "cursor_cli_acp_workspace_invalid"},
                 )
-            project_dir = Path(str(configured_project_dir)).resolve()
-            if not self._is_usable_directory(project_dir):
-                raise ConfigurationError(
-                    message=(
-                        "Project directory does not exist or is not readable: "
-                        f"{configured_project_dir}"
-                    ),
-                    details={"project_dir": str(configured_project_dir)},
-                )
-
-            self._default_project_dir = project_dir
+            self._default_project_dir = workspace
             exe_kw = kwargs.get("cursor_cli_executable") or kwargs.get(
                 "agent_executable"
             )

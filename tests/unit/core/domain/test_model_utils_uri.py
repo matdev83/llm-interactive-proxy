@@ -312,6 +312,24 @@ def test_has_explicit_backend_selector_uses_colon_before_slash_rule() -> None:
     assert not has_explicit_backend_selector("openrouter/anthropic/claude-3-haiku:free")
 
 
+def test_parse_model_backend_strips_uri_query_from_explicit_backend_model() -> None:
+    parsed = parse_model_backend(
+        "openai-codex:gpt-5.4-mini?reasoning_effort=medium", default_backend=""
+    )
+
+    assert parsed.backend_type == "openai-codex"
+    assert parsed.model_name == "gpt-5.4-mini"
+
+
+def test_parse_model_backend_strips_uri_query_when_using_default_backend() -> None:
+    parsed = parse_model_backend(
+        "gpt-4o-mini?temperature=0.2", default_backend="openai"
+    )
+
+    assert parsed.backend_type == "openai"
+    assert parsed.model_name == "gpt-4o-mini"
+
+
 def test_parse_model_backend_colon_after_slash_uses_default_backend() -> None:
     parsed = parse_model_backend(
         "openrouter/anthropic/claude-3-haiku:free", default_backend="openai"

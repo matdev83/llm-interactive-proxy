@@ -384,38 +384,57 @@ class ResponseExecutor(IResponseExecutor):
             continuation_context
         )
         proxy_managed_previous_response_id = False
-        if "previous_response_id" not in payload_dict:
-            previous_response_id = (
-                await self._continuation_coordinator.resolve_previous_response_id(
-                    continuation_context
-                )
-            )
-            if previous_response_id:
-                if continuation_snapshot is None:
-                    payload_dict["previous_response_id"] = previous_response_id
-                    proxy_managed_previous_response_id = True
-                elif self._is_compatible_continuation_snapshot(
-                    continuation_snapshot, payload_dict
-                ):
-                    sliced_input = self._slice_input_for_continuation(
-                        continuation_snapshot, payload_dict
+        use_websocket_transport = self._use_websocket
+
+        if use_websocket_transport:
+            continuation_reason = "client_previous_response_id_present"
+            if "previous_response_id" not in payload_dict:
+                continuation_reason = "no_previous_response_id_available"
+                previous_response_id = (
+                    await self._continuation_coordinator.resolve_previous_response_id(
+                        continuation_context
                     )
-                    if sliced_input is not None:
+                )
+                if previous_response_id:
+                    if continuation_snapshot is None:
                         payload_dict["previous_response_id"] = previous_response_id
-                        payload_dict["input"] = sliced_input
                         proxy_managed_previous_response_id = True
+                        continuation_reason = "continuation_no_snapshot"
+                    elif self._is_compatible_continuation_snapshot(
+                        continuation_snapshot, payload_dict
+                    ):
+                        sliced_input = self._slice_input_for_continuation(
+                            continuation_snapshot, payload_dict
+                        )
+                        if sliced_input is not None:
+                            payload_dict["previous_response_id"] = previous_response_id
+                            payload_dict["input"] = sliced_input
+                            proxy_managed_previous_response_id = True
+                            continuation_reason = "continuation_delta_applied"
+                        else:
+                            await self._continuation_coordinator.invalidate(
+                                continuation_context,
+                                reason="continuation_input_drift",
+                            )
+                            continuation_snapshot = None
+                            continuation_reason = "continuation_input_drift"
                     else:
                         await self._continuation_coordinator.invalidate(
                             continuation_context,
-                            reason="continuation_input_drift",
+                            reason="continuation_static_fingerprint_changed",
                         )
                         continuation_snapshot = None
-                else:
-                    await self._continuation_coordinator.invalidate(
-                        continuation_context,
-                        reason="continuation_static_fingerprint_changed",
-                    )
-                    continuation_snapshot = None
+                        continuation_reason = "continuation_static_fingerprint_changed"
+        else:
+            # HTTP /responses rejects ``previous_response_id`` with HTTP 400.
+            had_client_previous = "previous_response_id" in payload_dict
+            payload_dict.pop("previous_response_id", None)
+            if had_client_previous:
+                continuation_reason = "http_stripped_client_previous_response_id"
+            elif continuation_snapshot is not None:
+                continuation_reason = "http_full_replay_active"
+            else:
+                continuation_reason = "http_bootstrap"
         replay_payload_dict = dict(full_payload_dict)
         initial_payload_dict = (
             self._prune_continuation_bootstrap_fields(dict(payload_dict))
@@ -423,8 +442,10 @@ class ResponseExecutor(IResponseExecutor):
             else dict(payload_dict)
         )
         initial_request_mode = self._resolve_request_mode(
+            transport="websocket" if use_websocket_transport else "http",
             proxy_managed_previous_response_id=proxy_managed_previous_response_id,
             has_previous_response_id="previous_response_id" in initial_payload_dict,
+            has_continuation_snapshot=continuation_snapshot is not None,
         )
 
         headers_holder: dict[str, str] = {}
@@ -464,6 +485,7 @@ class ResponseExecutor(IResponseExecutor):
                         current_payload_dict,
                         mode=current_request_mode,
                         attempt=attempts_used + 1,
+                        reason=continuation_reason,
                     )
                     try:
                         stream_handle = (
@@ -618,10 +640,41 @@ class ResponseExecutor(IResponseExecutor):
                     retry_for_incompatible_tools = False
                     retry_for_missing_previous_response = False
                     visible_output_emitted = False
+                    observed_response_id: str | None = None
+                    observed_response_id_persisted = False
                     terminal_response_id: str | None = None
                     try:
                         with OverrideRenderer(renderer_key):
                             async for processed_chunk in stream_handle.iterator:
+                                candidate_observed_response_id = (
+                                    self._extract_response_id(processed_chunk)
+                                )
+                                if (
+                                    observed_response_id is None
+                                    and candidate_observed_response_id is not None
+                                ):
+                                    observed_response_id = (
+                                        candidate_observed_response_id
+                                    )
+                                    await self._persist_observed_continuation(
+                                        continuation_context,
+                                        response_id=observed_response_id,
+                                        payload_dict=replay_payload_dict,
+                                    )
+                                    observed_response_id_persisted = True
+                                    logger.info(
+                                        "Observed Codex response id mid-stream and persisted provisional continuation state (response_id=%s, mode=%s).",
+                                        observed_response_id,
+                                        current_request_mode,
+                                        extra={
+                                            "backend": "openai-codex",
+                                            "session_id": context.session_id,
+                                            "model": context.effective_model,
+                                            "continuation_mode": current_request_mode,
+                                            "continuation_reason": continuation_reason,
+                                            "response_id": observed_response_id,
+                                        },
+                                    )
                                 candidate_response_id = (
                                     self._extract_terminal_response_id(processed_chunk)
                                 )
@@ -797,19 +850,75 @@ class ResponseExecutor(IResponseExecutor):
                     if not restart_stream:
                         await self._mark_account_used()
                         if terminal_response_id:
-                            await self._continuation_coordinator.record_response_id(
-                                continuation_context,
-                                terminal_response_id,
+                            if not (
+                                observed_response_id_persisted
+                                and terminal_response_id == observed_response_id
+                            ):
+                                await self._persist_observed_continuation(
+                                    continuation_context,
+                                    response_id=terminal_response_id,
+                                    payload_dict=replay_payload_dict,
+                                )
+                        elif observed_response_id:
+                            if not observed_response_id_persisted:
+                                await self._persist_observed_continuation(
+                                    continuation_context,
+                                    response_id=observed_response_id,
+                                    payload_dict=replay_payload_dict,
+                                )
+                            logger.info(
+                                "Codex stream ended before terminal completion; observed response id remains available for continuation (response_id=%s, mode=%s, reason=%s).",
+                                observed_response_id,
+                                current_request_mode,
+                                continuation_reason,
+                                extra={
+                                    "backend": "openai-codex",
+                                    "session_id": context.session_id,
+                                    "model": context.effective_model,
+                                    "continuation_mode": current_request_mode,
+                                    "continuation_reason": continuation_reason,
+                                    "response_id": observed_response_id,
+                                },
                             )
-                            await self._record_continuation_turn(
-                                continuation_context,
-                                terminal_response_id,
-                                replay_payload_dict,
+                        else:
+                            logger.warning(
+                                "Codex stream completed without a terminal response id; continuation state was not updated.",
+                                extra={
+                                    "backend": "openai-codex",
+                                    "session_id": context.session_id,
+                                    "model": context.effective_model,
+                                    "continuation_mode": current_request_mode,
+                                    "continuation_reason": continuation_reason,
+                                },
                             )
                         break
 
                     if restart_stream:
                         if stream_handle.cancel_callback is not None:
+                            retry_reason = (
+                                "incompatible_tools"
+                                if retry_for_incompatible_tools
+                                else (
+                                    "missing_previous_response"
+                                    if retry_for_missing_previous_response
+                                    else "auth_retry"
+                                )
+                            )
+                            logger.info(
+                                "Cancelling active Codex stream for retry (reason=%s, response_id=%s, mode=%s).",
+                                retry_reason,
+                                observed_response_id or "unknown",
+                                current_request_mode,
+                                extra={
+                                    "backend": "openai-codex",
+                                    "session_id": context.session_id,
+                                    "model": context.effective_model,
+                                    "continuation_mode": current_request_mode,
+                                    "continuation_reason": continuation_reason,
+                                    "response_id": observed_response_id,
+                                    "retry_reason": retry_reason,
+                                },
+                            )
                             with contextlib.suppress(Exception):
                                 await stream_handle.cancel_callback()
 
@@ -1061,6 +1170,23 @@ class ResponseExecutor(IResponseExecutor):
                     payload_dict=payload_dict,
                 )
 
+    async def _persist_observed_continuation(
+        self,
+        context: CodexRequestContext,
+        *,
+        response_id: str,
+        payload_dict: dict[str, Any],
+    ) -> None:
+        await self._continuation_coordinator.record_response_id(
+            context,
+            response_id,
+        )
+        await self._record_continuation_turn(
+            context,
+            response_id,
+            payload_dict,
+        )
+
     async def _invalidate_continuation_on_rotation(
         self, context: CodexRequestContext, *, reason: str
     ) -> None:
@@ -1110,21 +1236,28 @@ class ResponseExecutor(IResponseExecutor):
     def _prune_continuation_bootstrap_fields(
         payload_dict: dict[str, Any],
     ) -> dict[str, Any]:
-        """Remove bootstrap fields that should not be sent on continued turns."""
+        """Remove continued-turn fields that Codex does not require."""
         pruned = dict(payload_dict)
-        pruned.pop("instructions", None)
         pruned.pop("tools", None)
         return pruned
 
     @staticmethod
     def _resolve_request_mode(
-        *, proxy_managed_previous_response_id: bool, has_previous_response_id: bool
+        *,
+        transport: str,
+        proxy_managed_previous_response_id: bool,
+        has_previous_response_id: bool,
+        has_continuation_snapshot: bool,
     ) -> str:
-        if proxy_managed_previous_response_id:
-            return "continued_delta"
-        if has_previous_response_id:
-            return "client_continuation"
-        return "bootstrap"
+        if transport == "websocket":
+            if proxy_managed_previous_response_id:
+                return "ws_continuation_delta"
+            if has_previous_response_id:
+                return "ws_client_continuation"
+            return "ws_bootstrap"
+        if has_continuation_snapshot:
+            return "http_full_replay"
+        return "http_bootstrap"
 
     def _log_request_attempt(
         self,
@@ -1133,6 +1266,7 @@ class ResponseExecutor(IResponseExecutor):
         *,
         mode: str,
         attempt: int,
+        reason: str,
     ) -> None:
         if not logger.isEnabledFor(logging.INFO):
             return
@@ -1140,13 +1274,18 @@ class ResponseExecutor(IResponseExecutor):
         tools = payload_dict.get("tools")
         instructions = payload_dict.get("instructions")
         logger.info(
-            "Submitting Codex request.",
+            "Submitting Codex request (mode=%s, reason=%s, attempt=%s).",
+            mode,
+            reason,
+            attempt,
             extra={
                 "backend": "openai-codex",
                 "session_id": context.session_id,
                 "model": context.effective_model,
                 "attempt": attempt,
+                "codex_transport": ("websocket" if self._use_websocket else "http_sse"),
                 "continuation_mode": mode,
+                "continuation_reason": reason,
                 "has_previous_response_id": "previous_response_id" in payload_dict,
                 "input_item_count": (
                     len(input_items) if isinstance(input_items, list) else 0
@@ -1267,12 +1406,34 @@ class ResponseExecutor(IResponseExecutor):
             "response.done",
             "response.completed",
         }
-        if not is_terminal:
-            return None
-
+        response_id = self._extract_response_id(chunk)
         content = self._coerce_stream_chunk_content(chunk.content)
         if not content:
             return None
+
+        if not is_terminal:
+            finish_reason = None
+            choices = content.get("choices")
+            if isinstance(choices, list) and choices:
+                first_choice = choices[0]
+                if isinstance(first_choice, Mapping):
+                    candidate_finish_reason = first_choice.get("finish_reason")
+                    if isinstance(candidate_finish_reason, str):
+                        finish_reason = candidate_finish_reason
+            is_terminal = finish_reason == "stop" and response_id is not None
+            if not is_terminal:
+                return None
+
+        return response_id
+
+    def _extract_response_id(self, chunk: ProcessedResponse) -> str | None:
+        content = self._coerce_stream_chunk_content(chunk.content)
+        if not content:
+            return None
+
+        response_id = content.get("response_id")
+        if isinstance(response_id, str) and response_id.strip():
+            return response_id.strip()
 
         response_id = content.get("id")
         if isinstance(response_id, str) and response_id.strip():

@@ -51,14 +51,18 @@ logger = logging.getLogger(__name__)
 def _coerce_history_compaction_session_allowed(session: Any) -> bool:
     """Read session flag for history compaction; default permissive for test mocks.
 
-    Honors built-in ``bool`` and NumPy ``bool_`` (not a ``bool`` subclass in older NumPy).
+    Honors built-in ``bool`` and NumPy scalar booleans (``numpy.bool_`` / dtype bool).
     """
     raw = getattr(session, "history_compaction_allowed", True)
     if isinstance(raw, bool):
         return raw
-    t = type(raw)
-    if t.__name__ == "bool_" and getattr(t, "__module__", "").startswith("numpy"):
-        return bool(raw)
+    try:
+        import numpy as np
+
+        if isinstance(raw, np.bool_):
+            return bool(raw)
+    except Exception:
+        pass
     return True
 
 
@@ -756,7 +760,7 @@ class RequestProcessor(IRequestProcessor):
                     logger.debug(
                         "Quality Verifier: counter incremented for tool follow-up "
                         "(scaled=%s logical_floor=%s tool_increment_scaled=%s); "
-                        "stream verification skipped on this request (tool-result continuation — "
+                        "stream verification skipped on this request (tool-result continuation - "
                         "verifier runs on completions that are not tool-follow-ups).",
                         new_scaled,
                         lf,

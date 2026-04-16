@@ -185,7 +185,7 @@ class TestCursorCliAcpInitialization:
 
         assert connector.is_backend_functional() is False
 
-    async def test_initialize_rejects_without_workspace_config(
+    async def test_initialize_without_workspace_config_uses_runtime_project_dir(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         fake = str(temp_workspace / "fake-agent")
@@ -193,12 +193,28 @@ class TestCursorCliAcpInitialization:
         with (
             patch.object(connector, "_check_agent_available", return_value=True),
             patch.object(connector, "_discover_models", return_value=["cursor/x"]),
-            pytest.raises(ConfigurationError) as exc_info,
         ):
             await connector.initialize(cursor_cli_executable=fake)
 
-        assert connector.is_backend_functional() is False
-        assert "CURSOR_CLI_WORKSPACE" in exc_info.value.message
+        assert connector.is_backend_functional() is True
+        assert connector._default_project_dir is None
+
+    async def test_initialize_ignores_dot_workspace_path(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        fake = str(temp_workspace / "fake-agent")
+        Path(fake).write_text("noop", encoding="utf-8")
+        with (
+            patch.object(connector, "_check_agent_available", return_value=True),
+            patch.object(connector, "_discover_models", return_value=["cursor/x"]),
+        ):
+            await connector.initialize(
+                cursor_cli_executable=fake,
+                workspace_path=".",
+            )
+
+        assert connector.is_backend_functional() is True
+        assert connector._default_project_dir is None
 
 
 class TestCursorCliAcpProtocol:
