@@ -477,6 +477,36 @@ backends:
     #     bypass_tool_call_reactor: true
     #     include_environment_context: false
 
+  openai_codex_v2:
+    # Experimental Codex connector: websocket v2 + strict delta continuation.
+    # Shares managed OAuth storage and semantics with ``openai_codex`` by default.
+    timeout: 120
+    extra:
+      codex:
+        websocket:
+          enabled: true
+          beta_mode: v2
+        default_capabilities:
+          protocol: openai-chat
+          codex_passthrough: false
+          prompt_mode: codex_default
+          tool_schema_mode: custom_only
+          tool_text_format: none
+          bypass_tool_call_reactor: true
+          include_environment_context: false
+        managed_oauth:
+          enabled: true
+          storage_path: "var/openai_codex_oauth_accounts"
+          accounts: "all"
+          selection_strategy: "round-robin"
+          refresh_buffer_seconds: 300
+          session_affinity_ttl_seconds: 86400
+          session_affinity_max_entries: 10000
+          allow_legacy_fallback: true
+          max_rate_limit_wait_seconds: 300
+          rate_limit_local_cooldown_cap_seconds: 1800
+          max_rate_limit_idle_polls: 48
+
 # Model-specific defaults
 model_defaults:
   "gpt-4":  # Exact model name

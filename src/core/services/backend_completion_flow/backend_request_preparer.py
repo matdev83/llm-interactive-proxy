@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 _REQUIRES_NON_EMPTY_SESSION_ID_FAMILIES: frozenset[str] = frozenset(
     {
         "openai-codex",
+        "openai-codex-v2",
     }
 )
 _SKIP_STATIC_ROUTE_CONTEXT_KEY = "skip_static_route"

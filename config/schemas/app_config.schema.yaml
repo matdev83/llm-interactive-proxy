@@ -407,6 +407,51 @@ properties:
                       max_rate_limit_idle_polls:
                         type: integer
                         minimum: 1
+      openai_codex_v2:
+        type: object
+        additionalProperties: true
+        properties:
+          timeout: { type: integer, minimum: 1 }
+          extra:
+            type: object
+            additionalProperties: true
+            properties:
+              codex:
+                type: object
+                additionalProperties: true
+                properties:
+                  managed_oauth:
+                    type: object
+                    additionalProperties: false
+                    properties:
+                      enabled: { type: boolean }
+                      storage_path: { type: string, minLength: 1 }
+                      accounts:
+                        oneOf:
+                          - type: string
+                            enum: ["all"]
+                          - type: array
+                            items: { type: string, minLength: 1 }
+                      selection_strategy:
+                        type: string
+                        enum:
+                          - round-robin
+                          - random
+                          - first-available
+                          - session-affinity
+                      refresh_buffer_seconds: { type: integer, minimum: 0 }
+                      session_affinity_ttl_seconds: { type: integer, minimum: 1 }
+                      session_affinity_max_entries: { type: integer, minimum: 1 }
+                      allow_legacy_fallback: { type: boolean }
+                      max_rate_limit_wait_seconds:
+                        type: number
+                        minimum: 0
+                      rate_limit_local_cooldown_cap_seconds:
+                        type: number
+                        minimum: 0
+                      max_rate_limit_idle_polls:
+                        type: integer
+                        minimum: 1
   reasoning_aliases:
     type: object
     additionalProperties: false

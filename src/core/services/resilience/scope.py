@@ -16,6 +16,7 @@ _PERSONAL_BACKEND_TYPES = frozenset(
         "gemini-oauth-free",
         "gemini-oauth-plan",
         "openai-codex",
+        "openai-codex-v2",
         "opencode-zen",
         "qwen-oauth",
     ]

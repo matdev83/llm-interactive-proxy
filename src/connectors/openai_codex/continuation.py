@@ -187,6 +187,10 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
         async with self._lock:
             self._entries.pop(key, None)
 
+    def build_key(self, context: CodexRequestContext) -> tuple[str, ...]:
+        """Public stable key for continuation-scoped state (shared with WS v2 lineage)."""
+        return self._build_key(context)
+
     def _build_key(self, context: CodexRequestContext) -> tuple[str, ...]:
         metadata = context.metadata if isinstance(context.metadata, dict) else {}
         backend = self._coerce_metadata_str(metadata.get("continuation_backend"))

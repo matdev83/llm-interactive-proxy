@@ -39,6 +39,24 @@ logger = logging.getLogger(__name__)
 class SettingsLoader(ISettingsLoader):
     """Service for loading and normalizing Codex connector settings."""
 
+    def __init__(
+        self,
+        *,
+        backend_yaml_attr: str = "openai_codex",
+        backend_registry_lookup: str = "openai-codex",
+        default_websocket_enabled: bool = False,
+        default_websocket_beta_mode: str = "v1",
+    ) -> None:
+        """Configure which ``AppConfig.backends`` entry backs this loader.
+
+        ``openai-codex-v2`` uses a parallel YAML key / registry name with different
+        websocket defaults while reusing the same ``extra.codex`` parsing logic.
+        """
+        self._backend_yaml_attr = backend_yaml_attr
+        self._backend_registry_lookup = backend_registry_lookup
+        self._default_websocket_enabled = default_websocket_enabled
+        self._default_websocket_beta_mode = default_websocket_beta_mode
+
     def load(self, app_config: AppConfig) -> CodexConnectorSettings:  # noqa: C901
         settings: dict[str, Any] = {
             # Default to client-supplied tools only.
@@ -74,7 +92,8 @@ class SettingsLoader(ISettingsLoader):
                 "retry_backoff_seconds": (0.5, 1.5, 3.0),
             },
             "websocket": {
-                "enabled": False,
+                "enabled": self._default_websocket_enabled,
+                "beta_mode": self._default_websocket_beta_mode,
             },
             "managed_oauth": {
                 "enabled": True,
@@ -104,9 +123,9 @@ class SettingsLoader(ISettingsLoader):
             },
         }
 
-        backend_config = getattr(app_config.backends, "openai_codex", None)
+        backend_config = getattr(app_config.backends, self._backend_yaml_attr, None)
         if backend_config is None and hasattr(app_config.backends, "lookup"):
-            backend_config = app_config.backends.lookup("openai-codex")
+            backend_config = app_config.backends.lookup(self._backend_registry_lookup)
         backend_extra: dict[str, Any] = {}
         if backend_config and hasattr(backend_config, "extra"):
             try:
@@ -387,8 +406,15 @@ class SettingsLoader(ISettingsLoader):
         elif ws_enabled is None:
             ws_enabled = settings["websocket"]["enabled"]
 
+        ws_beta_mode = websocket_cfg.get("beta_mode")
+        if ws_beta_mode is not None and isinstance(ws_beta_mode, str):
+            ws_beta_mode = ws_beta_mode.strip().lower()
+        if ws_beta_mode not in ("v1", "v2"):
+            ws_beta_mode = settings["websocket"].get("beta_mode", "v1")
+
         settings["websocket"] = {
             "enabled": bool(ws_enabled),
+            "beta_mode": ws_beta_mode,
         }
 
         # Managed OAuth settings

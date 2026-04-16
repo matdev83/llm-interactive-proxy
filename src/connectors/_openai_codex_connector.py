@@ -318,22 +318,37 @@ class OpenAICodexConnector(OpenAIConnector):
         backoff_seq = streaming_cfg.get("retry_backoff_seconds") or ()
         retry_backoff_seconds = tuple(backoff_seq) if backoff_seq else (0.5, 1.5, 3.0)
 
-        # Check if WebSocket is enabled via settings
-        websocket_cfg = self._connector_settings.get("websocket", {})
-        use_websocket = bool(websocket_cfg.get("enabled", False))
-
         self._response_executor = (
             self._dependencies.response_executor
             if self._dependencies and self._dependencies.response_executor is not None
-            else ResponseExecutor(
-                base_connector=self,
-                credential_manager=self._credential_manager,
+            else self._create_default_response_executor(
                 max_retries=max_retries,
                 retry_backoff_seconds=retry_backoff_seconds,
-                compatibility_layer=self._compatibility_layer,
-                continuation_coordinator=self._continuation_coordinator,
-                use_websocket=use_websocket,
             )
+        )
+
+    def _create_default_response_executor(
+        self,
+        *,
+        max_retries: int,
+        retry_backoff_seconds: tuple[float, ...],
+    ) -> ResponseExecutor:
+        websocket_cfg = self._connector_settings.get("websocket", {})
+        use_websocket = bool(websocket_cfg.get("enabled", False))
+        ws_beta = str(websocket_cfg.get("beta_mode") or "v1").strip().lower()
+        if ws_beta not in ("v1", "v2"):
+            ws_beta = "v1"
+        return ResponseExecutor(
+            base_connector=self,
+            credential_manager=self._credential_manager,
+            max_retries=max_retries,
+            retry_backoff_seconds=retry_backoff_seconds,
+            compatibility_layer=self._compatibility_layer,
+            continuation_coordinator=self._continuation_coordinator,
+            use_websocket=use_websocket,
+            websocket_beta_mode=ws_beta,
+            connector_transport_backend=self.backend_type,
+            continuation_backend_label=self.backend_type,
         )
 
     def _validate_dependencies(self, dependencies: CodexConnectorDependencies) -> None:

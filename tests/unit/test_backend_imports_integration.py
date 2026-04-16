@@ -103,6 +103,7 @@ class TestBackendImportsIntegration:
             "gemini-cli-cloud-project",
             "openai",
             "openai-codex",
+            "openai-codex-v2",
             "openrouter",
             "zai",
             "zai-coding-plan",

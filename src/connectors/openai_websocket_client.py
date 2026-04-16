@@ -54,6 +54,8 @@ class OpenAIWebSocketClient:
         api_key: str,
         api_base: str = "wss://api.openai.com/v1",
         connection_timeout: int = WS_CONNECTION_TIMEOUT,
+        *,
+        responses_websocket_mode: str = "v1",
     ) -> None:
         """Initialize the WebSocket client.
 
@@ -61,35 +63,47 @@ class OpenAIWebSocketClient:
             api_key: OpenAI API key for authentication
             api_base: Base WebSocket URL (default: wss://api.openai.com/v1)
             connection_timeout: Maximum connection duration in seconds (default: 3600)
+            responses_websocket_mode: ``v1`` or ``v2`` for ``OpenAI-Beta: responses-websocket-mode=…``
         """
         self.api_key = api_key
         self.api_base = api_base.rstrip("/")
         self.connection_timeout = connection_timeout
+        self._responses_websocket_mode = (
+            responses_websocket_mode
+            if responses_websocket_mode in ("v1", "v2")
+            else "v1"
+        )
         self._connection: Any = None  # WebSocketClientProtocol | None
         self._connection_start_time: float | None = None
+        self._last_extra_headers: dict[str, str] | None = None
         # L4: Use bounded TTL cache to prevent memory leaks in long sessions
         self._response_cache: TTLCache[str, Any] = TTLCache(
             maxsize=128, ttl=connection_timeout
         )
         self._lock = asyncio.Lock()
 
-    async def connect(self) -> None:
+    async def connect(self, extra_headers: dict[str, str] | None = None) -> None:
         """Establish WebSocket connection to OpenAI.
 
         Raises:
             AuthenticationError: If authentication fails
             ServiceUnavailableError: If connection cannot be established
         """
+        normalized_extra = dict(extra_headers) if extra_headers else {}
         if self._connection and not self._connection.closed:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("WebSocket connection already established")
-            return
+            if normalized_extra == (self._last_extra_headers or {}):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("WebSocket connection already established")
+                return
+            await self.disconnect()
 
         url = f"{self.api_base}/responses"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "OpenAI-Beta": "responses-websocket-mode=v1",
+            "OpenAI-Beta": f"responses-websocket-mode={self._responses_websocket_mode}",
         }
+        headers.update(normalized_extra)
+        self._last_extra_headers = dict(normalized_extra)
 
         try:
             if logger.isEnabledFor(logging.INFO):
@@ -148,6 +162,7 @@ class OpenAIWebSocketClient:
                 finally:
                     self._connection = None
                     self._connection_start_time = None
+                    self._last_extra_headers = None
                     self._response_cache.clear()
 
     def _is_connection_expired(self) -> bool:
@@ -157,7 +172,9 @@ class OpenAIWebSocketClient:
         elapsed = time.time() - self._connection_start_time
         return elapsed >= self.connection_timeout
 
-    async def _ensure_connection(self) -> None:
+    async def _ensure_connection(
+        self, extra_headers: dict[str, str] | None = None
+    ) -> None:
         """Ensure connection is active, reconnecting if necessary.
 
         Raises:
@@ -168,8 +185,7 @@ class OpenAIWebSocketClient:
                 logger.info("Connection timeout reached, reconnecting...")
             await self.disconnect()
 
-        if not self._connection or self._connection.closed:
-            await self.connect()
+        await self.connect(extra_headers=extra_headers)
 
     async def send_response_create(
         self,
@@ -193,7 +209,12 @@ class OpenAIWebSocketClient:
             InvalidRequestError: If request is invalid
             ServiceUnavailableError: If connection fails
         """
-        await self._ensure_connection()
+        extra = None
+        if context is not None and isinstance(context.extensions, dict):
+            candidate = context.extensions.get("codex_ws_extra_headers")
+            if isinstance(candidate, dict):
+                extra = {str(k): str(v) for k, v in candidate.items() if v is not None}
+        await self._ensure_connection(extra_headers=extra)
 
         # Build response.create event
         event = {

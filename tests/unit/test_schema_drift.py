@@ -331,6 +331,21 @@ reasoning_aliases:
                 f"openai_codex.yaml.example failed schema validation: {e}"
             )
 
+    def test_openai_codex_v2_backend_example_validates(self):
+        """Verify openai_codex_v2 backend.example validates against its schema."""
+        example_path = Path("config/backends/openai_codex_v2/backend.example.yaml")
+        schema_path = Path("config/schemas/openai_codex_v2_backend.schema.yaml")
+
+        if not example_path.exists():
+            raise AssertionError(f"Example file not found: {example_path}")
+
+        try:
+            validate_yaml_against_schema(example_path, schema_path)
+        except Exception as e:
+            raise AssertionError(
+                f"openai_codex_v2 backend.example failed schema validation: {e}"
+            )
+
     def test_health_check_schema_matches_code_fields(self):
         """Verify health_check schema includes all fields from HealthCheckConfig."""
         schema_path = Path("config/schemas/health_check.yaml")

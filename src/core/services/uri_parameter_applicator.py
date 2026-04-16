@@ -403,7 +403,7 @@ class URIParameterApplicator(IURIParameterApplicator):
     @staticmethod
     def _backend_supports_xhigh_reasoning_effort(backend_type: str) -> bool:
         normalized = str(backend_type).strip().replace("_", "-").lower()
-        return normalized == "openai-codex"
+        return normalized in ("openai-codex", "openai-codex-v2")
 
     @classmethod
     def _apply_resolved_parameters(

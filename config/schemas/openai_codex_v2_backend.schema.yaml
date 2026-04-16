@@ -1,0 +1,16 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: "OpenAI Codex V2 Backend Configuration Schema"
+description: "Sidecar schema for experimental openai-codex-v2 backend (mirrors Codex v1 shape)."
+type: object
+required:
+  - backend_type
+properties:
+  backend_type:
+    type: string
+    const: "openai-codex-v2"
+  timeout:
+    type: integer
+    minimum: 1
+    maximum: 600
+    default: 120
+additionalProperties: true

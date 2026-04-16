@@ -23,7 +23,7 @@ class WarmupTargetResolver(IWarmupTargetResolver):
         self._backend_lifecycle_manager = backend_lifecycle_manager
 
     async def resolve_target_accounts(self, backend_type: str) -> list[str]:
-        if backend_type != "openai-codex":
+        if backend_type not in ("openai-codex", "openai-codex-v2"):
             return []
         if self._backend_lifecycle_manager is None:
             return []

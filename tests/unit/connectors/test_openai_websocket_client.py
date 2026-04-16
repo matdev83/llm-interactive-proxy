@@ -26,6 +26,25 @@ def ws_client(api_key):
 
 
 @pytest.mark.asyncio
+async def test_connect_sends_v2_beta_header(api_key):
+    client = OpenAIWebSocketClient(
+        api_key=api_key,
+        api_base="wss://api.openai.com/v1",
+        responses_websocket_mode="v2",
+    )
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+        mock_connect.return_value = mock_ws
+
+        await client.connect()
+
+        kwargs = mock_connect.call_args.kwargs
+        headers = kwargs.get("extra_headers") or {}
+        assert headers.get("OpenAI-Beta") == "responses-websocket-mode=v2"
+
+
+@pytest.mark.asyncio
 async def test_connect_success(ws_client):
     """Test successful WebSocket connection."""
     with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:

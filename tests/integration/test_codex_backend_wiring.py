@@ -205,6 +205,66 @@ async def test_backend_factory_resolves_codex_connector(auth_dir: Path):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_openai_codex_v2_backend_factory_and_settings_defaults(auth_dir: Path):
+    """``openai-codex-v2`` is registered, constructible via BackendFactory, and loads WS v2 defaults."""
+    from src.connectors.openai_codex_v2 import OpenAICodexV2Connector
+    from src.connectors.openai_codex_v2.settings_loader import (
+        OpenAICodexV2SettingsLoader,
+    )
+    from src.core.di.registrations._backend.codex import register_codex_services
+    from src.core.di.registrations._backend.factory import register_backend_factory
+    from src.core.services.backend_factory import BackendFactory
+    from src.core.services.backend_registry import BackendRegistry, backend_registry
+    from src.core.services.translation_service import TranslationService
+
+    registered = backend_registry.get_registered_backends()
+    assert "openai-codex-v2" in registered
+    v2_factory = backend_registry.get_backend_factory("openai-codex-v2")
+    assert v2_factory is not None
+    assert callable(v2_factory)
+
+    services = ServiceCollection()
+    services.add_singleton(
+        BackendRegistry, implementation_factory=lambda _: backend_registry
+    )
+    services.add_singleton(
+        httpx.AsyncClient, implementation_factory=lambda _: httpx.AsyncClient()
+    )
+    services.add_singleton(AppConfig, implementation_factory=lambda _: AppConfig())
+    services.add_singleton(
+        TranslationService, implementation_factory=lambda _: TranslationService()
+    )
+    register_codex_services(services)
+    register_backend_factory(services, AppConfig())
+
+    provider = services.build_service_provider()
+    factory = provider.get_service(BackendFactory)
+    assert factory is not None
+
+    base = AppConfig()
+    cfg = base.model_copy(
+        update={
+            "backends": base.backends.model_copy(
+                update={"openai_codex_v2": BackendConfig()}
+            )
+        }
+    )
+
+    connector = factory.create_backend("openai-codex-v2", cfg)
+    try:
+        assert isinstance(connector, OpenAICodexV2Connector)
+        assert connector.backend_type == "openai-codex-v2"
+
+        loader = OpenAICodexV2SettingsLoader()
+        settings = loader.load(cfg)
+        assert settings.websocket["enabled"] is True
+        assert settings.websocket.get("beta_mode") == "v2"
+    finally:
+        await connector.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_connector_initialization_with_dependencies(auth_dir: Path):
     """Test that connector initializes correctly with injected dependencies."""
     from src.core.services.translation_service import TranslationService

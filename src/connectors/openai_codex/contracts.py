@@ -140,7 +140,7 @@ class CodexConnectorSettings(BaseModel):
     streaming: dict[str, Any]
     compatibility_layer: dict[str, Any]
     renderer: dict[str, Any]
-    websocket: dict[str, Any] = {"enabled": False}
+    websocket: dict[str, Any] = {"enabled": False, "beta_mode": "v1"}
     managed_oauth: dict[str, Any] = Field(default_factory=dict)
 
 

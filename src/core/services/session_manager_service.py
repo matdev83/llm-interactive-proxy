@@ -26,7 +26,7 @@ from src.core.services.fingerprint_request_transformer import (
 
 logger = logging.getLogger(__name__)
 
-_OPENAI_CODEX_BACKEND_FAMILY = "openai-codex"
+_OPENAI_CODEX_BACKEND_FAMILIES = frozenset({"openai-codex", "openai-codex-v2"})
 
 
 def _normalize_backend_family_for_history_compaction(backend: str | None) -> str:
@@ -72,7 +72,7 @@ class SessionManager(ISessionManager):
             return session
 
         family = _normalize_backend_family_for_history_compaction(resolved_backend)
-        if family != _OPENAI_CODEX_BACKEND_FAMILY:
+        if family not in _OPENAI_CODEX_BACKEND_FAMILIES:
             return session
         if not session.state.history_compaction_allowed:
             return session

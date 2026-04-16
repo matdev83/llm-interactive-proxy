@@ -199,7 +199,7 @@ class UsageWindowWarmupService:
             return []
         try:
             parsed = parse_model_backend(model)
-            if parsed.backend_type != "openai-codex":
+            if parsed.backend_type not in ("openai-codex", "openai-codex-v2"):
                 return []
             return await self._target_resolver.resolve_target_accounts(
                 parsed.backend_type

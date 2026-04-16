@@ -11,6 +11,7 @@ This module implements the ResponseExecutor service that handles:
 from __future__ import annotations
 
 import contextlib
+import copy
 import inspect
 import json
 import logging
@@ -19,6 +20,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import HTTPException
+from pydantic.types import JsonValue
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.contracts import ConnectorRequestContext
@@ -118,9 +120,22 @@ class _CodexTransportAdapter:
     Supports both HTTP/SSE and WebSocket transport modes based on connector configuration.
     """
 
-    def __init__(self, connector: OpenAIConnector, use_websocket: bool = False) -> None:
+    def __init__(
+        self,
+        connector: OpenAIConnector,
+        use_websocket: bool = False,
+        *,
+        responses_websocket_mode: str = "v1",
+        transport_backend: str = "openai-codex",
+    ) -> None:
         self._connector = connector
         self._use_websocket = use_websocket
+        self._transport_backend = transport_backend
+        self._responses_websocket_mode = (
+            responses_websocket_mode
+            if responses_websocket_mode in ("v1", "v2")
+            else "v1"
+        )
         self._websocket_client: Any = None  # OpenAIWebSocketClient | None
         self._websocket_api_key: str | None = None
 
@@ -132,10 +147,11 @@ class _CodexTransportAdapter:
         session_id: str,
         *,
         context: ConnectorRequestContext | None = None,
-        backend: str = "openai-codex",
+        backend: str | None = None,
         model: str = "unknown",
         key_name: str | None = None,
     ) -> StreamingResponseHandle:
+        wire_backend = backend or self._transport_backend
         # Opportunistically use WebSocket if enabled
         if self._use_websocket:
             return await self._initiate_websocket_streaming(
@@ -144,7 +160,7 @@ class _CodexTransportAdapter:
                 headers,
                 session_id,
                 context=context,
-                backend=backend,
+                backend=wire_backend,
                 model=model,
                 key_name=key_name,
             )
@@ -167,7 +183,7 @@ class _CodexTransportAdapter:
         session_id: str,
         *,
         context: ConnectorRequestContext | None = None,
-        backend: str = "openai-codex",
+        backend: str | None = None,
         model: str = "unknown",
         key_name: str | None = None,
     ) -> StreamingResponseHandle:
@@ -182,6 +198,7 @@ class _CodexTransportAdapter:
         Returns:
             StreamingResponseHandle with WebSocket stream
         """
+        wire_backend = backend or self._transport_backend
         # Convert HTTP URL to WebSocket URL
         ws_url = url.replace("https://", "wss://").replace("http://", "ws://")
 
@@ -215,6 +232,7 @@ class _CodexTransportAdapter:
             self._websocket_client = OpenAIWebSocketClient(
                 api_key=api_key,
                 api_base=ws_base,
+                responses_websocket_mode=self._responses_websocket_mode,
             )
             self._websocket_api_key = api_key
 
@@ -225,7 +243,7 @@ class _CodexTransportAdapter:
                     payload=payload,
                     previous_response_id=payload.get("previous_response_id"),
                     context=context,
-                    backend=backend,
+                    backend=wire_backend,
                     model=model,
                     key_name=key_name,
                 ):
@@ -299,6 +317,12 @@ class ResponseExecutor(IResponseExecutor):
         transport: ICodexTransport | None = None,
         continuation_coordinator: ICodexContinuationCoordinator | None = None,
         use_websocket: bool = False,
+        *,
+        websocket_beta_mode: str = "v1",
+        connector_transport_backend: str | None = None,
+        continuation_backend_label: str | None = None,
+        codex_ws_lineage: Any | None = None,
+        preserve_tools_on_managed_ws_continuation: bool = False,
     ) -> None:
         """Initialize the response executor.
 
@@ -319,6 +343,18 @@ class ResponseExecutor(IResponseExecutor):
         self._codex_url = codex_url
         self._compatibility_layer = compatibility_layer
         self._use_websocket = use_websocket
+        ws_norm = str(websocket_beta_mode).strip().lower()
+        self._websocket_beta_mode = ws_norm if ws_norm in ("v1", "v2") else "v1"
+        self._connector_transport_backend = (
+            connector_transport_backend or "openai-codex"
+        )
+        self._continuation_backend_label = (
+            continuation_backend_label or self._connector_transport_backend
+        )
+        self._codex_ws_lineage = codex_ws_lineage
+        self._preserve_tools_on_managed_ws_continuation = (
+            preserve_tools_on_managed_ws_continuation
+        )
         self._max_incompatible_tool_retries = 2
         self._continuation_coordinator = (
             continuation_coordinator
@@ -328,7 +364,12 @@ class ResponseExecutor(IResponseExecutor):
         self._transport = (
             transport
             if transport is not None
-            else _CodexTransportAdapter(base_connector, use_websocket=use_websocket)
+            else _CodexTransportAdapter(
+                base_connector,
+                use_websocket=use_websocket,
+                responses_websocket_mode=self._websocket_beta_mode,
+                transport_backend=self._connector_transport_backend,
+            )
         )
         self._auth_retry_delay_executor = AsyncRetryExecutor(
             RetryPolicy(
@@ -393,7 +434,20 @@ class ResponseExecutor(IResponseExecutor):
 
         if use_websocket_transport:
             continuation_reason = "client_previous_response_id_present"
-            if "previous_response_id" not in payload_dict:
+            ws_v2_handled = False
+            if self._codex_ws_lineage is not None:
+                handled, payload_dict, ws_reason, ws_proxy = (
+                    await self._codex_ws_lineage.try_prepare_websocket_continuation(
+                        continuation_context=continuation_context,
+                        payload_dict=payload_dict,
+                        full_payload_dict=full_payload_dict,
+                    )
+                )
+                if handled:
+                    ws_v2_handled = True
+                    continuation_reason = ws_reason
+                    proxy_managed_previous_response_id = ws_proxy
+            if not ws_v2_handled and "previous_response_id" not in payload_dict:
                 continuation_reason = "no_previous_response_id_available"
                 previous_response_id = (
                     await self._continuation_coordinator.resolve_previous_response_id(
@@ -485,6 +539,7 @@ class ResponseExecutor(IResponseExecutor):
             stream_handle = None
             try:
                 while True:
+                    ws_output_items: list[Any] = []
                     self._log_request_attempt(
                         context,
                         current_payload_dict,
@@ -496,6 +551,9 @@ class ResponseExecutor(IResponseExecutor):
                         request_context,
                         handshake_attempt_index=attempts_used,
                     )
+                    self._stamp_codex_websocket_handshake_headers(
+                        request_context, current_headers
+                    )
                     try:
                         stream_handle = (
                             await self._transport.initiate_streaming_request(
@@ -504,7 +562,7 @@ class ResponseExecutor(IResponseExecutor):
                                 current_headers,
                                 context.session_id,
                                 context=request_context,
-                                backend="openai-codex",
+                                backend=self._connector_transport_backend,
                                 model=context.effective_model,
                                 key_name=capture_key_name,
                             )
@@ -548,7 +606,7 @@ class ResponseExecutor(IResponseExecutor):
                                         "error": "openai_codex_stream_auth_failed",
                                         "message": "Codex streaming request failed authentication during handshake and could not be recovered.",
                                         "details": {
-                                            "backend": "openai-codex",
+                                            "backend": self._connector_transport_backend,
                                             "attempts": attempts_used,
                                             "max_retries": max_retries,
                                         },
@@ -581,7 +639,7 @@ class ResponseExecutor(IResponseExecutor):
                                         "error": "openai_codex_stream_auth_failed",
                                         "message": "Codex streaming request failed authentication during handshake and could not be recovered.",
                                         "details": {
-                                            "backend": "openai-codex",
+                                            "backend": self._connector_transport_backend,
                                             "attempts": attempts_used,
                                             "max_retries": max_retries,
                                         },
@@ -629,7 +687,7 @@ class ResponseExecutor(IResponseExecutor):
                             await self._notify_codex_quota_unrecovered(
                                 upstream_detail=rd or {},
                                 retry_after_seconds=retry_after_seconds,
-                                all_accounts_exhausted=(
+                                pool_exhaustion_confirmed=(
                                     rate_limit_rotation_attempted and not rotated
                                 ),
                             )
@@ -649,7 +707,7 @@ class ResponseExecutor(IResponseExecutor):
                                 e,
                                 exc_info=True,
                                 extra={
-                                    "backend": "openai-codex",
+                                    "backend": self._connector_transport_backend,
                                     "session_id": context.session_id,
                                     "model": context.effective_model,
                                 },
@@ -687,7 +745,7 @@ class ResponseExecutor(IResponseExecutor):
                                         observed_response_id,
                                         current_request_mode,
                                         extra={
-                                            "backend": "openai-codex",
+                                            "backend": self._connector_transport_backend,
                                             "session_id": context.session_id,
                                             "model": context.effective_model,
                                             "continuation_mode": current_request_mode,
@@ -700,6 +758,25 @@ class ResponseExecutor(IResponseExecutor):
                                 )
                                 if candidate_response_id:
                                     terminal_response_id = candidate_response_id
+                                if (
+                                    self._codex_ws_lineage is not None
+                                    and use_websocket_transport
+                                ):
+                                    meta = processed_chunk.metadata
+                                    if (
+                                        isinstance(meta, dict)
+                                        and meta.get("event_type")
+                                        == "response.output_item.done"
+                                    ):
+                                        raw = self._coerce_stream_chunk_content(
+                                            processed_chunk.content
+                                        )
+                                        if isinstance(raw, dict):
+                                            item = raw.get("item")
+                                            if item is not None:
+                                                ws_output_items.append(
+                                                    copy.deepcopy(item)
+                                                )
                                 processed_chunk = (
                                     self._normalize_processed_stream_chunk(
                                         processed_chunk
@@ -728,7 +805,7 @@ class ResponseExecutor(IResponseExecutor):
                                             "Retrying streaming Codex request after incompatible tool calls: %s",
                                             ", ".join(incompatible_tools),
                                             extra={
-                                                "backend": "openai-codex",
+                                                "backend": self._connector_transport_backend,
                                                 "session_id": context.session_id,
                                                 "model": context.effective_model,
                                                 "retry_count": incompatible_tool_retries,
@@ -738,7 +815,7 @@ class ResponseExecutor(IResponseExecutor):
                                     logger.warning(
                                         "Incompatible streaming tool calls persisted after retries; forwarding final stream.",
                                         extra={
-                                            "backend": "openai-codex",
+                                            "backend": self._connector_transport_backend,
                                             "session_id": context.session_id,
                                             "model": context.effective_model,
                                             "tool_names": incompatible_tools,
@@ -750,7 +827,7 @@ class ResponseExecutor(IResponseExecutor):
                                         logger.warning(
                                             "Skipping stream restart for auth error because visible output was already emitted.",
                                             extra={
-                                                "backend": "openai-codex",
+                                                "backend": self._connector_transport_backend,
                                                 "session_id": context.session_id,
                                                 "model": context.effective_model,
                                             },
@@ -761,7 +838,7 @@ class ResponseExecutor(IResponseExecutor):
                                     logger.info(
                                         "Codex streaming chunk reported authentication failure; attempting token refresh.",
                                         extra={
-                                            "backend": "openai-codex",
+                                            "backend": self._connector_transport_backend,
                                             "session_id": context.session_id,
                                             "model": context.effective_model,
                                             "attempts_used": attempts_used,
@@ -788,7 +865,7 @@ class ResponseExecutor(IResponseExecutor):
                                                 "error": "openai_codex_stream_auth_failed",
                                                 "message": "Codex streaming request failed authentication and could not be recovered.",
                                                 "details": {
-                                                    "backend": "openai-codex",
+                                                    "backend": self._connector_transport_backend,
                                                     "attempts": attempts_used,
                                                     "max_retries": max_retries,
                                                 },
@@ -822,7 +899,7 @@ class ResponseExecutor(IResponseExecutor):
                                                 e,
                                                 exc_info=True,
                                                 extra={
-                                                    "backend": "openai-codex",
+                                                    "backend": self._connector_transport_backend,
                                                     "session_id": context.session_id,
                                                     "model": context.effective_model,
                                                 },
@@ -837,6 +914,10 @@ class ResponseExecutor(IResponseExecutor):
                     except Exception as exc:
                         if self._is_previous_response_not_found_error(exc):
                             await self._continuation_coordinator.invalidate(
+                                continuation_context,
+                                reason="previous_response_not_found",
+                            )
+                            await self._invalidate_ws_lineage(
                                 continuation_context,
                                 reason="previous_response_not_found",
                             )
@@ -855,7 +936,7 @@ class ResponseExecutor(IResponseExecutor):
                                 logger.info(
                                     "Retrying Codex request with full replay after continuation miss.",
                                     extra={
-                                        "backend": "openai-codex",
+                                        "backend": self._connector_transport_backend,
                                         "session_id": context.session_id,
                                         "model": context.effective_model,
                                         "continuation_mode": current_request_mode,
@@ -892,7 +973,7 @@ class ResponseExecutor(IResponseExecutor):
                                 current_request_mode,
                                 continuation_reason,
                                 extra={
-                                    "backend": "openai-codex",
+                                    "backend": self._connector_transport_backend,
                                     "session_id": context.session_id,
                                     "model": context.effective_model,
                                     "continuation_mode": current_request_mode,
@@ -904,12 +985,29 @@ class ResponseExecutor(IResponseExecutor):
                             logger.warning(
                                 "Codex stream completed without a terminal response id; continuation state was not updated.",
                                 extra={
-                                    "backend": "openai-codex",
+                                    "backend": self._connector_transport_backend,
                                     "session_id": context.session_id,
                                     "model": context.effective_model,
                                     "continuation_mode": current_request_mode,
                                     "continuation_reason": continuation_reason,
                                 },
+                            )
+                        final_response_id = terminal_response_id or observed_response_id
+                        final_rid = (
+                            final_response_id.strip()
+                            if isinstance(final_response_id, str)
+                            else ""
+                        )
+                        if (
+                            use_websocket_transport
+                            and self._codex_ws_lineage is not None
+                            and final_rid
+                        ):
+                            await self._codex_ws_lineage.record_completed_websocket_turn(
+                                continuation_context,
+                                sent_payload=dict(initial_payload_dict),
+                                response_id=final_rid,
+                                items_added=ws_output_items,
                             )
                         break
 
@@ -930,7 +1028,7 @@ class ResponseExecutor(IResponseExecutor):
                                 observed_response_id or "unknown",
                                 current_request_mode,
                                 extra={
-                                    "backend": "openai-codex",
+                                    "backend": self._connector_transport_backend,
                                     "session_id": context.session_id,
                                     "model": context.effective_model,
                                     "continuation_mode": current_request_mode,
@@ -969,7 +1067,7 @@ class ResponseExecutor(IResponseExecutor):
                                     "error": "openai_codex_stream_auth_failed",
                                     "message": "Codex streaming request failed authentication and could not be recovered.",
                                     "details": {
-                                        "backend": "openai-codex",
+                                        "backend": self._connector_transport_backend,
                                         "attempts": attempts_used,
                                         "max_retries": max_retries,
                                     },
@@ -1011,7 +1109,7 @@ class ResponseExecutor(IResponseExecutor):
                                     "error": "openai_codex_stream_auth_failed",
                                     "message": "Codex streaming request failed authentication and could not be recovered.",
                                     "details": {
-                                        "backend": "openai-codex",
+                                        "backend": self._connector_transport_backend,
                                         "attempts": attempts_used,
                                         "max_retries": max_retries,
                                     },
@@ -1043,7 +1141,7 @@ class ResponseExecutor(IResponseExecutor):
                                 e,
                                 exc_info=True,
                                 extra={
-                                    "backend": "openai-codex",
+                                    "backend": self._connector_transport_backend,
                                     "session_id": context.session_id,
                                     "model": context.effective_model,
                                 },
@@ -1055,7 +1153,7 @@ class ResponseExecutor(IResponseExecutor):
             headers=headers_holder,
             cancel_callback=cancel_active_stream,
             metadata={
-                "backend": "openai-codex",
+                "backend": self._connector_transport_backend,
                 "model": context.effective_model,
                 "session_id": context.session_id,
             },
@@ -1103,7 +1201,7 @@ class ResponseExecutor(IResponseExecutor):
         prompt_cache_key: str,
     ) -> CodexRequestContext:
         metadata = dict(context.metadata) if isinstance(context.metadata, dict) else {}
-        metadata["continuation_backend"] = "openai-codex"
+        metadata["continuation_backend"] = self._continuation_backend_label
         metadata["continuation_prompt_cache_key"] = prompt_cache_key
         account_id = self._get_account_id()
         if account_id:
@@ -1169,13 +1267,12 @@ class ResponseExecutor(IResponseExecutor):
             extensions={},
         )
 
-    @staticmethod
-    def _resolve_capture_key_name(context: CodexRequestContext) -> str:
+    def _resolve_capture_key_name(self, context: CodexRequestContext) -> str:
         metadata = context.metadata if isinstance(context.metadata, dict) else {}
         candidate = metadata.get("capture_key_name")
         if isinstance(candidate, str) and candidate.strip():
             return candidate.strip()
-        return "openai-codex"
+        return self._connector_transport_backend
 
     async def _get_continuation_snapshot(
         self, context: CodexRequestContext
@@ -1232,6 +1329,40 @@ class ResponseExecutor(IResponseExecutor):
         self, context: CodexRequestContext, *, reason: str
     ) -> None:
         await self._continuation_coordinator.invalidate(context, reason=reason)
+        await self._invalidate_ws_lineage(context, reason=reason)
+
+    async def _invalidate_ws_lineage(
+        self, context: CodexRequestContext, *, reason: str
+    ) -> None:
+        if self._codex_ws_lineage is None:
+            return
+        await self._codex_ws_lineage.invalidate(context, reason=reason)
+
+    _WS_HANDSHAKE_HEADER_ALLOWLIST = frozenset(
+        {
+            "User-Agent",
+            "originator",
+            "version",
+            "conversation_id",
+            "session_id",
+            "Codex-Task-Type",
+            "chatgpt-account-id",
+        }
+    )
+
+    def _stamp_codex_websocket_handshake_headers(
+        self,
+        request_context: ConnectorRequestContext | None,
+        handshake_headers: dict[str, str],
+    ) -> None:
+        if not self._use_websocket or request_context is None:
+            return
+        extra = {
+            k: v
+            for k, v in handshake_headers.items()
+            if k in self._WS_HANDSHAKE_HEADER_ALLOWLIST and isinstance(v, str)
+        }
+        request_context.extensions["codex_ws_extra_headers"] = cast(JsonValue, extra)
 
     @staticmethod
     def _is_compatible_continuation_snapshot(
@@ -1273,13 +1404,15 @@ class ResponseExecutor(IResponseExecutor):
             return None
         return list(current_input[common_prefix_len:])
 
-    @staticmethod
     def _prune_continuation_bootstrap_fields(
-        payload_dict: dict[str, Any],
+        self, payload_dict: dict[str, Any]
     ) -> dict[str, Any]:
         """Remove continued-turn fields that Codex does not require."""
         pruned = dict(payload_dict)
-        pruned.pop("tools", None)
+        pruned.pop("stream", None)
+        pruned.pop("background", None)
+        if not self._preserve_tools_on_managed_ws_continuation:
+            pruned.pop("tools", None)
         return pruned
 
     @staticmethod
@@ -1320,7 +1453,7 @@ class ResponseExecutor(IResponseExecutor):
             reason,
             attempt,
             extra={
-                "backend": "openai-codex",
+                "backend": self._connector_transport_backend,
                 "session_id": context.session_id,
                 "model": context.effective_model,
                 "attempt": attempt,
@@ -1713,7 +1846,7 @@ class ResponseExecutor(IResponseExecutor):
         *,
         upstream_detail: Any,
         retry_after_seconds: float | None,
-        all_accounts_exhausted: bool = True,
+        pool_exhaustion_confirmed: bool = True,
     ) -> None:
         fn = getattr(
             self._credential_manager, "notify_codex_usage_limit_unrecovered", None
@@ -1723,7 +1856,7 @@ class ResponseExecutor(IResponseExecutor):
         res = fn(
             upstream_detail=upstream_detail,
             retry_after_seconds=retry_after_seconds,
-            all_accounts_exhausted=all_accounts_exhausted,
+            pool_exhaustion_confirmed=pool_exhaustion_confirmed,
         )
         if inspect.isawaitable(res):
             await res

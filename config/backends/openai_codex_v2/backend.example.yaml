@@ -1,0 +1,10 @@
+# Example OpenAI Codex V2 Backend Configuration
+# Copy to backend.yaml under this directory if you use sidecar layout.
+#
+# Primary runtime settings live in config.yaml under backends.openai_codex_v2.extra.codex.
+
+backend_type: "openai-codex-v2"
+timeout: 120
+
+compatibility_layer:
+  enabled: false
