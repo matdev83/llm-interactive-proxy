@@ -22,6 +22,15 @@ from src.core.interfaces.model_replacement_service_interface import (
 from src.core.services.request_processor_service import RequestProcessor
 
 
+def _mock_session_manager() -> MagicMock:
+    """Session manager stub with awaitable OpenAI Codex history compaction gate."""
+    m = MagicMock()
+    m.apply_openai_codex_history_compaction_gate = AsyncMock(
+        side_effect=lambda session, _resolved_backend: session
+    )
+    return m
+
+
 @pytest.mark.asyncio
 async def test_replacement_triggers_with_none_context_backend():
     """
@@ -49,7 +58,7 @@ async def test_replacement_triggers_with_none_context_backend():
 
     mock_dependencies = {
         "command_processor": MagicMock(),
-        "session_manager": MagicMock(),
+        "session_manager": _mock_session_manager(),
         "backend_request_manager": MagicMock(),
         "response_manager": MagicMock(),
         "session_enricher": MagicMock(),
@@ -82,7 +91,7 @@ async def test_replacement_triggers_with_none_context_backend():
 
     # Return the request passed to it to simulate preparation
     mock_dependencies["backend_preparer"].prepare = AsyncMock(
-        side_effect=lambda ctx, sid, req, res: req
+        side_effect=lambda ctx, sid, req, res, **_kw: req
     )
     mock_dependencies["transform_pipeline"].transform = AsyncMock(
         side_effect=lambda ctx, sess, sid, req: req
@@ -172,6 +181,9 @@ async def test_replacement_resolves_backend_from_model_prefix():
     mock_deps["backend_executor"].execute = AsyncMock()
     mock_deps["app_state"] = mock_app_state
     mock_deps["replacement_service"] = mock_replacement
+    mock_deps["session_manager"].apply_openai_codex_history_compaction_gate = AsyncMock(
+        side_effect=lambda session, _resolved_backend: session
+    )
 
     processor = RequestProcessor(**mock_deps)
     context = RequestContext(
@@ -207,7 +219,7 @@ async def test_replacement_uses_stable_b2bua_scope_key_without_client_session_id
 
     mock_dependencies = {
         "command_processor": MagicMock(),
-        "session_manager": MagicMock(),
+        "session_manager": _mock_session_manager(),
         "backend_request_manager": MagicMock(),
         "response_manager": MagicMock(),
         "session_enricher": MagicMock(),
@@ -304,7 +316,7 @@ async def test_quality_verifier_eligible_turn_count_continues_across_b2bua_sessi
         session.update_state = MagicMock()
         return session
 
-    session_manager = MagicMock()
+    session_manager = _mock_session_manager()
     session_enricher = MagicMock()
     request_side_effects = MagicMock()
     command_handler = MagicMock()
@@ -326,7 +338,9 @@ async def test_quality_verifier_eligible_turn_count_continues_across_b2bua_sessi
             command_results=[],
         )
     )
-    backend_preparer.prepare = AsyncMock(side_effect=lambda _ctx, _sid, req, _res: req)
+    backend_preparer.prepare = AsyncMock(
+        side_effect=lambda _ctx, _sid, req, _res, **_kw: req
+    )
     transform_pipeline.transform = AsyncMock(
         side_effect=lambda _ctx, _sess, _sid, req: req
     )

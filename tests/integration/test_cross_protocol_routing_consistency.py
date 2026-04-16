@@ -12,7 +12,12 @@ from src.core.app.controllers import (
 )
 from src.core.app.test_builder import build_test_app
 from src.core.common.exceptions import RoutingError
-from src.core.config.app_config import AppConfig, AuthConfig, BackendSettings
+from src.core.config.app_config import (
+    AppConfig,
+    AuthConfig,
+    BackendSettings,
+    SessionConfig,
+)
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 
@@ -275,8 +280,15 @@ def test_openai_surface_preserves_explicit_backend_selector_when_static_route_co
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("DISABLE_AUTH", "true")
+    monkeypatch.setenv("REPLACEMENT_ENABLED", "false")
+    monkeypatch.delenv("REPLACEMENT_RULES", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     config = AppConfig(
         auth=AuthConfig(disable_auth=True),
+        session=SessionConfig(
+            default_interactive_mode=False,
+            project_dir_resolution_mode="disabled",
+        ),
         backends=BackendSettings(
             default_backend="openai",
             static_route="opencode-go:glm-5.1",

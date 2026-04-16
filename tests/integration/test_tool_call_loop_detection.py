@@ -37,7 +37,10 @@ async def test_client():
 
     config = AppConfig(
         auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
-        session={"default_interactive_mode": False},
+        session={
+            "default_interactive_mode": False,
+            "project_dir_resolution_mode": "disabled",
+        },
         # Disable deduplication for these tests so intentional repeat calls
         # exercise the tool-loop detector rather than being short-circuited.
         request_dedup_window=0,

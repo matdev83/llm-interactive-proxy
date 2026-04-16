@@ -51,9 +51,13 @@ async def test_fallback_to_original_on_replacement_error():
         messages=[ChatMessage(role="user", content="hi")],
     )
 
+    session_manager = MagicMock()
+    session_manager.apply_openai_codex_history_compaction_gate = AsyncMock(
+        side_effect=lambda session, _resolved_backend: session
+    )
     mock_dependencies = {
         "command_processor": MagicMock(),
-        "session_manager": MagicMock(),
+        "session_manager": session_manager,
         "backend_request_manager": MagicMock(),
         "response_manager": MagicMock(),
         "session_enricher": MagicMock(),

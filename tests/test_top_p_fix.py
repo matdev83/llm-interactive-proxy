@@ -20,6 +20,9 @@ async def test_top_p_fix_with_actual_request() -> None:
 
     mock_command_processor = MagicMock(spec=ICommandProcessor)
     mock_session_manager = AsyncMock()
+    mock_session_manager.apply_openai_codex_history_compaction_gate = AsyncMock(
+        side_effect=lambda session, _resolved_backend: session
+    )
     mock_backend_processor = MagicMock()
     mock_backend_processor.process_backend_request = AsyncMock()
     mock_response_processor = AsyncMock()
@@ -97,7 +100,7 @@ async def test_top_p_fix_with_actual_request() -> None:
     )
 
     backend_preparer = AsyncMock(spec=IBackendPreparer)
-    backend_preparer.prepare.side_effect = lambda ctx, sid, req, cmd: req
+    backend_preparer.prepare.side_effect = lambda ctx, sid, req, cmd, **_kw: req
 
     transform_pipeline = AsyncMock(spec=IRequestTransformPipeline)
     transform_pipeline.transform.side_effect = lambda ctx, sess, sid, req: req

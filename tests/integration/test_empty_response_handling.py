@@ -36,6 +36,9 @@ class TestEmptyResponseHandlingIntegration:
         """Create mock dependencies for RequestProcessor with decomposed services."""
         command_processor = AsyncMock()
         session_manager = AsyncMock()
+        session_manager.apply_openai_codex_history_compaction_gate = AsyncMock(
+            side_effect=lambda session, _resolved_backend: session
+        )
         backend_request_manager = AsyncMock()
         response_manager = AsyncMock()
 
@@ -160,7 +163,7 @@ class TestEmptyResponseHandlingIntegration:
         )
 
         # Set up backend preparer and executor
-        async def prepare_side_effect(context, session_id, req, command_result):
+        async def prepare_side_effect(context, session_id, req, command_result, **_kw):
             return req
 
         deps["backend_preparer"].prepare.side_effect = prepare_side_effect
@@ -201,7 +204,7 @@ class TestEmptyResponseHandlingIntegration:
         )
 
         # Set up backend preparer and executor
-        async def prepare_side_effect(context, session_id, req, command_result):
+        async def prepare_side_effect(context, session_id, req, command_result, **_kw):
             return req
 
         deps["backend_preparer"].prepare.side_effect = prepare_side_effect
@@ -236,7 +239,7 @@ class TestEmptyResponseHandlingIntegration:
             content=None, media_type="text/event-stream"
         )
 
-        async def prepare_side_effect(context, session_id, req, command_result):
+        async def prepare_side_effect(context, session_id, req, command_result, **_kw):
             return req
 
         deps["backend_preparer"].prepare.side_effect = prepare_side_effect
@@ -286,7 +289,7 @@ class TestEmptyResponseHandlingIntegration:
             }
         )
 
-        async def prepare_side_effect(context, session_id, req, command_result):
+        async def prepare_side_effect(context, session_id, req, command_result, **_kw):
             return req
 
         deps["backend_preparer"].prepare.side_effect = prepare_side_effect
@@ -348,7 +351,7 @@ class TestEmptyResponseHandlingIntegration:
         )
 
         # Set up backend preparer and executor
-        async def prepare_side_effect(context, session_id, req, command_result):
+        async def prepare_side_effect(context, session_id, req, command_result, **_kw):
             return req
 
         deps["backend_preparer"].prepare.side_effect = prepare_side_effect

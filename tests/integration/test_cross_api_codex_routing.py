@@ -44,7 +44,10 @@ def mocked_codex_test_client() -> (
         config = AppConfig(
             auth=auth,
             proxy_timeout=10,
-            session=SessionConfig(default_interactive_mode=False),
+            session=SessionConfig(
+                default_interactive_mode=False,
+                project_dir_resolution_mode="disabled",
+            ),
             command_prefix="!/",
             backends=BackendSettings(default_backend="openai-codex"),
             logging=LoggingConfig(),
