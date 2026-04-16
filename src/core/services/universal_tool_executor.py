@@ -1,4 +1,12 @@
-"""Universal tool execution service for dynamic tool compatibility."""
+"""Universal tool execution service for dynamic tool compatibility.
+
+Subprocess / shell hygiene (Phase 3 audit, ``src/``):
+- ``shell=True``: only ``_execute_shell`` below (intentional shell-tool surface).
+- ``os.system``: none.
+- ``subprocess.Popen`` / ``run``: ACP connector (``shell=False``), Gemini token refresh
+  (``shell=False``), daemon re-exec (``shell=False``), regex worker helpers (argv list,
+  implicit ``shell=False``), CLI version probes (``shell=False``).
+"""
 
 from __future__ import annotations
 
@@ -911,6 +919,15 @@ class UniversalToolExecutor:
         Returns:
             Dictionary with output, exit_code, and error information
         """
+        # Security invariants (shell tool):
+        # - Working directory is always ``subprocess.run(..., cwd=...)``; it is never
+        #   concatenated into the shell string, so path metacharacters in cwd cannot
+        #   break out of quoting in ``command``.
+        # - ``command`` is model-controlled; dangerous-command / policy layers are
+        #   expected to run upstream of this executor.
+        # - If future code builds shell strings that embed paths or other untrusted
+        #   segments, quote each segment with ``shlex.quote`` (POSIX) or avoid the
+        #   shell entirely (``shell=False`` + argv list).
         command = arguments.get("command")
         if not command:
             error_msg = "Error: command is required"

@@ -58,7 +58,18 @@ _COMBINED_DANGEROUS_PATTERN = re.compile(
     r"find\s+[^\n;]*-exec\s+rm\s+-[^\s]*r[^\s]*f[^\s]*\s+\S+\s+(?:\\;|;)|"
     r"(?:rmdir|rd)\s+/s\s+/q\s+\S+|"
     r"del\s+/s\s+/q\s+\S+|"
-    r"Remove-Item\s+[^\n;]+-Recurse",
+    r"Remove-Item\s+[^\n;]+-Recurse|"
+    r"\b(?:python3?|perl|ruby|node)\s+<<|"
+    r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:ba)?sh\b|"
+    r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:python3?|perl|ruby|node)\b|"
+    r"\b(?:curl|wget)\b[^\n|]*-O\s+-\s*\||"
+    r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;:|"
+    r"kill\s+-9\s+-1\b|"
+    r"\bpkill\s+-9\b|"
+    r">\s*/etc/|"
+    r">\s*/dev/sd|"
+    r"\bchmod\s+[^\n]*\+x[^\n]*&&[^\n]*\./|"
+    r"\bkill\s+[^\n]*\$\(\s*pgrep",
     re.IGNORECASE,
 )
 
@@ -262,6 +273,61 @@ def _create_legacy_rules() -> list[DangerousCommandRule]:
             r"Remove-Item\s+[^\n;]+-Recurse",
             "powershell-remove-item-recurse",
             "PowerShell recursive removal of items.",
+        ),
+        (
+            r"\b(?:python3?|perl|ruby|node)\s+<<",
+            "hermes-interpreter-heredoc",
+            "Interpreter heredoc can run arbitrary multi-line code.",
+        ),
+        (
+            r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:ba)?sh\b",
+            "hermes-remote-pipe-shell",
+            "Piping remote download into a shell is high risk.",
+        ),
+        (
+            r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:python3?|perl|ruby|node)\b",
+            "hermes-remote-pipe-interpreter",
+            "Piping remote download into an interpreter is high risk.",
+        ),
+        (
+            r"\b(?:curl|wget)\b[^\n|]*-O\s+-\s*\|",
+            "hermes-remote-dash-o-dash-pipe",
+            "curl/wget writing to stdout (-O -) then piping is often remote code execution.",
+        ),
+        (
+            r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;:",
+            "bash-fork-bomb",
+            "Classic shell fork bomb pattern.",
+        ),
+        (
+            r"kill\s+-9\s+-1\b",
+            "kill-sigkill-all-user-processes",
+            "kill -9 -1 sends SIGKILL to all processes the user can signal.",
+        ),
+        (
+            r"\bpkill\s+-9\b",
+            "pkill-sigkill",
+            "pkill -9 can terminate many processes at once.",
+        ),
+        (
+            r">\s*/etc/",
+            "redirect-overwrite-etc",
+            "Redirect overwrite into /etc can break the system.",
+        ),
+        (
+            r">\s*/dev/sd",
+            "redirect-overwrite-block-device",
+            "Redirect overwrite into block devices can destroy disks.",
+        ),
+        (
+            r"\bchmod\s+[^\n]*\+x[^\n]*&&[^\n]*\./",
+            "hermes-chmod-execute-chain",
+            "chmod executable then run local script chain.",
+        ),
+        (
+            r"\bkill\s+[^\n]*\$\(\s*pgrep",
+            "hermes-kill-pgrep-subshell",
+            "kill with pgrep command substitution can terminate broad processes.",
         ),
     ]
 

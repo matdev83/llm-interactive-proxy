@@ -22,6 +22,11 @@ from fastapi import HTTPException
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.contracts import ConnectorRequestContext
+from src.connectors.contracts.wire_capture_context import (
+    WIRE_CAPTURE_ACCOUNT_ID_KEY,
+    WIRE_CAPTURE_IS_RETRY_KEY,
+    WIRE_CAPTURE_RETRY_ATTEMPT_KEY,
+)
 from src.connectors.openai_codex.continuation import (
     CodexContinuationSnapshot,
     InMemoryCodexContinuationCoordinator,
@@ -486,6 +491,10 @@ class ResponseExecutor(IResponseExecutor):
                         mode=current_request_mode,
                         attempt=attempts_used + 1,
                         reason=continuation_reason,
+                    )
+                    self._stamp_wire_capture_context(
+                        request_context,
+                        handshake_attempt_index=attempts_used,
                     )
                     try:
                         stream_handle = (
@@ -1089,6 +1098,27 @@ class ResponseExecutor(IResponseExecutor):
         if account_id:
             metadata["continuation_account_id"] = account_id
         return context.model_copy(update={"metadata": metadata})
+
+    def _stamp_wire_capture_context(
+        self,
+        connector_context: ConnectorRequestContext | None,
+        *,
+        handshake_attempt_index: int,
+    ) -> None:
+        """Tag connector context for CBOR HTTP boundary capture (account + attempt)."""
+        if connector_context is None:
+            return
+        account_id = self._get_account_id()
+        if isinstance(account_id, str) and account_id.strip():
+            connector_context.extensions[WIRE_CAPTURE_ACCOUNT_ID_KEY] = (
+                account_id.strip()
+            )
+        connector_context.extensions[WIRE_CAPTURE_RETRY_ATTEMPT_KEY] = int(
+            handshake_attempt_index
+        )
+        connector_context.extensions[WIRE_CAPTURE_IS_RETRY_KEY] = (
+            handshake_attempt_index > 0
+        )
 
     @staticmethod
     def _extract_connector_request_context(

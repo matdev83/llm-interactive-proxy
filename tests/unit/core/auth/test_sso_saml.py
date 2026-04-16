@@ -5,7 +5,9 @@ Unit tests for SAML support in SSOService.
 from __future__ import annotations
 
 import base64
+import socket
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -93,7 +95,14 @@ async def test_create_saml_authorization_url_uses_metadata():
     )
     service = SSOService(config)
 
-    with respx.mock:
+    fake_addr = (
+        socket.AF_INET,
+        socket.SOCK_STREAM,
+        0,
+        "",
+        ("203.0.113.1", 443),
+    )
+    with respx.mock, patch("socket.getaddrinfo", return_value=[fake_addr]):
         respx.get("https://idp.example.com/metadata").mock(
             return_value=httpx.Response(200, text=metadata_xml)
         )

@@ -110,6 +110,7 @@ gemini_credentials_path: null  # Path to Gemini credentials JSON
 # Model Registry & Limit Enforcement
 model_registry:
   download_enabled: true        # Download model metadata updates
+  # URL must pass outbound safety checks (no loopback/private targets); see docs/user_guide/features/outbound-url-safety.md
   url: "https://models.dev/api.json"
   update_interval_seconds: 86400
   cache_path: "./var/model_registry/models.dev.json"

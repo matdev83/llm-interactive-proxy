@@ -25,6 +25,10 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.connectors.contracts.wire_capture_context import (
+    WIRE_CAPTURE_IS_RETRY_KEY,
+    WIRE_CAPTURE_RETRY_ATTEMPT_KEY,
+)
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.capture_aware_httpx import (
     CaptureAwareAsyncClient,
@@ -559,6 +563,19 @@ class OpenAIConnector(LLMBackend):
             disable_health_checks_env or disable_health_checks_config
         )
 
+    @staticmethod
+    def _bump_wire_capture_http_transport_resend(
+        capture: HttpxBoundaryCaptureContext,
+    ) -> None:
+        """Increment CBOR ``retry_attempt`` for a second physical send (HTTP/2 resend)."""
+        ctx = capture.context
+        if ctx is None:
+            return
+        cur = ctx.extensions.get(WIRE_CAPTURE_RETRY_ATTEMPT_KEY)
+        base = int(cur) if isinstance(cur, int) else 0
+        ctx.extensions[WIRE_CAPTURE_RETRY_ATTEMPT_KEY] = base + 1
+        ctx.extensions[WIRE_CAPTURE_IS_RETRY_KEY] = True
+
     async def _send_request_with_retry(
         self,
         *,
@@ -583,6 +600,7 @@ class OpenAIConnector(LLMBackend):
                     extra=log_extra if log_extra else None,
                 )
                 retry_request = build_request()
+                self._bump_wire_capture_http_transport_resend(capture)
                 try:
                     return await self._capture_http_client.send(
                         retry_request,

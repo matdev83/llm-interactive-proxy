@@ -16,6 +16,7 @@ import httpx
 from src.core.domain.events.health_events import HttpCheckFailed, HttpCheckSucceeded
 from src.core.interfaces.event_bus_interface import IEventBus
 from src.core.services.health.endpoint_registry import EndpointRegistry
+from src.core.url_safety import ssrf_redirect_guard
 
 if TYPE_CHECKING:
     from src.core.domain.configuration.health_check_config import HttpCheckConfig
@@ -79,6 +80,7 @@ class HTTPHealthChecker:
                     pool=5.0,
                 ),
                 follow_redirects=True,
+                event_hooks={"response": [ssrf_redirect_guard]},
                 # Don't verify SSL for health checks (we just want to know if it's up)
                 verify=True,
             )

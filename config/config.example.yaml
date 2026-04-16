@@ -451,7 +451,9 @@ backends:
         managed_oauth:
           enabled: true
           storage_path: "var/openai_codex_oauth_accounts"
-          accounts: "all"  # "all" or explicit list, e.g. ["work", "personal"]
+          # "all" or explicit list of account_id and/or chatgpt_account_id values
+          # (must match each JSON file's account_id or its chatgpt_account_id field).
+          accounts: "all"
           selection_strategy: "round-robin"  # round-robin|random|first-available|session-affinity
           refresh_buffer_seconds: 300
           session_affinity_ttl_seconds: 86400

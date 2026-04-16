@@ -7,7 +7,7 @@ The LLM Interactive Proxy includes a comprehensive health monitoring system that
 The health check system provides:
 
 - **ICMP Ping Checks** - Network-level reachability monitoring
-- **HTTP Probe Checks** - Application-level health verification  
+- **HTTP Probe Checks** - Application-level health verification (when redirects are followed, each hop is checked so probe traffic cannot be redirected to loopback or private addresses)
 - **Circuit Breaker** - Automatic exclusion of unhealthy backends from routing
 - **Backend Notifications** - Real-time health state updates to backend instances
 - **Health API** - REST endpoint for monitoring health status

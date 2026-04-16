@@ -24,6 +24,7 @@ from authlib.jose.errors import DecodeError, JoseError  # type: ignore
 from src.core.auth.sso.config import ProviderConfig, SSOConfig
 from src.core.auth.sso.exceptions import AuthenticationError, ConfigurationError
 from src.core.auth.sso.models import JWK, JWKS, SAMLMetadata, SSOResult
+from src.core.url_safety import assert_url_safe_for_egress, httpx_redirect_follow_kwargs
 from src.core.utils.xml_safety import safe_xml_parse
 
 logger = logging.getLogger(__name__)
@@ -276,7 +277,11 @@ class SSOService:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Fetching JWKS from %s", jwks_uri)
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            assert_url_safe_for_egress(jwks_uri)
+            async with httpx.AsyncClient(
+                timeout=10.0,
+                **httpx_redirect_follow_kwargs(),
+            ) as client:
                 resp = await client.get(jwks_uri)
                 resp.raise_for_status()
                 data = resp.json()
@@ -499,7 +504,10 @@ class SSOService:
                         "Loading OIDC discovery metadata from %s",
                         provider_config.discovery_url,
                     )
-                async with httpx.AsyncClient() as http_client:
+                assert_url_safe_for_egress(provider_config.discovery_url)
+                async with httpx.AsyncClient(
+                    **httpx_redirect_follow_kwargs(),
+                ) as http_client:
                     resp = await http_client.get(provider_config.discovery_url)
                     resp.raise_for_status()
                     metadata = resp.json()
@@ -637,7 +645,10 @@ class SSOService:
                 # OIDC Discovery
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Loading OIDC metadata for token exchange")
-                async with httpx.AsyncClient() as http_client:
+                assert_url_safe_for_egress(provider_config.discovery_url)
+                async with httpx.AsyncClient(
+                    **httpx_redirect_follow_kwargs(),
+                ) as http_client:
                     resp = await http_client.get(provider_config.discovery_url)
                     resp.raise_for_status()
                     metadata = resp.json()
@@ -654,6 +665,10 @@ class SSOService:
                 raise ConfigurationError(
                     "Token endpoint not configured (need discovery_url or token_url)"
                 )
+
+            assert_url_safe_for_egress(token_endpoint)
+            if userinfo_endpoint:
+                assert_url_safe_for_egress(userinfo_endpoint)
 
             # Exchange authorization code for access token
             if logger.isEnabledFor(logging.DEBUG):
@@ -862,7 +877,11 @@ class SSOService:
                 return self._saml_metadata_cache[metadata_url]
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            assert_url_safe_for_egress(metadata_url)
+            async with httpx.AsyncClient(
+                timeout=10.0,
+                **httpx_redirect_follow_kwargs(),
+            ) as client:
                 resp = await client.get(metadata_url)
                 resp.raise_for_status()
                 xml = resp.text

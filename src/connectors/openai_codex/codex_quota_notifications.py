@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,22 @@ _CODEX_QUOTA_ALL_ACCOUNTS_DEDUPE_ID = "__all_managed_accounts__"
 _EXTENDED_WINDOW = "extended (~weekly_or_plan_quota)"
 
 
+def _format_account_label(
+    email: str | None,
+    *,
+    managed_account_id: str | None,
+    chatgpt_account_id: str | None,
+) -> str:
+    """Best-effort human-readable account reference for desktop notifications."""
+    if isinstance(email, str) and email.strip():
+        return email.strip()
+    if isinstance(chatgpt_account_id, str) and chatgpt_account_id.strip():
+        return chatgpt_account_id.strip()
+    if isinstance(managed_account_id, str) and managed_account_id.strip():
+        return managed_account_id.strip()
+    return "(unknown)"
+
+
 def user_facing_quota_type(resets_in_seconds: float | None) -> str:
     """Map heuristic window to the two primary Codex limit labels (plus unknown)."""
     window = classify_usage_limit_window(resets_in_seconds)
@@ -40,12 +57,18 @@ def user_facing_quota_type(resets_in_seconds: float | None) -> str:
 def build_codex_quota_notification_message(
     *,
     email: str | None,
+    managed_account_id: str | None = None,
+    chatgpt_account_id: str | None = None,
     quota_type: str,
     until_display: str,
     all_accounts_exhausted: bool,
 ) -> str:
     """Body text for a Codex quota desktop notification."""
-    account = email if email else "(unknown)"
+    account = _format_account_label(
+        email,
+        managed_account_id=managed_account_id,
+        chatgpt_account_id=chatgpt_account_id,
+    )
     msg = (
         f"Codex quota reached. Account: {account}, type: {quota_type}, "
         f"until: {until_display}"
@@ -63,6 +86,11 @@ def _effective_resets_in_seconds(
         raw = usage_limit_fields.get("resets_in_seconds")
         if isinstance(raw, int | float) and float(raw) > 0:
             return float(raw)
+        rat_unix = usage_limit_fields.get("resets_at_unix")
+        if isinstance(rat_unix, int) and rat_unix > 1_000_000_000:
+            derived = float(rat_unix) - time.time()
+            if derived > 0:
+                return derived
     if retry_after_seconds is not None and retry_after_seconds > 0:
         return float(retry_after_seconds)
     return None
@@ -83,6 +111,7 @@ async def maybe_notify_codex_quota_reached(
     *,
     managed_account_id: str,
     email: str | None,
+    chatgpt_account_id: str | None = None,
     usage_limit_fields: dict[str, Any] | None,
     retry_after_seconds: float | None,
     all_accounts_exhausted: bool,
@@ -111,6 +140,8 @@ async def maybe_notify_codex_quota_reached(
 
     message = build_codex_quota_notification_message(
         email=email,
+        managed_account_id=managed_account_id,
+        chatgpt_account_id=chatgpt_account_id,
         quota_type=quota_type,
         until_display=until_display,
         all_accounts_exhausted=all_accounts_exhausted,

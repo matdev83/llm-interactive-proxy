@@ -10,6 +10,11 @@ import httpx
 import requests  # type: ignore[import-untyped]
 
 from src.connectors.contracts import ConnectorRequestContext
+from src.connectors.contracts.wire_capture_context import (
+    WIRE_CAPTURE_ACCOUNT_ID_KEY,
+    WIRE_CAPTURE_IS_RETRY_KEY,
+    WIRE_CAPTURE_RETRY_ATTEMPT_KEY,
+)
 from src.core.di.services import get_service_provider
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.wire_capture_interface import IWireCapture
@@ -152,6 +157,33 @@ def _build_request_context(
     )
 
 
+def merge_connector_wire_capture_extensions(
+    base: dict[str, Any],
+    context: ConnectorRequestContext | None,
+) -> dict[str, Any]:
+    """Merge ``ConnectorRequestContext.extensions`` wire-capture keys into CBOR metadata.
+
+    Recognized extension keys (see ``wire_capture_context``): account id, retry index,
+    retry flag. Other extension keys are ignored here.
+    """
+    if not context or not context.extensions:
+        return base
+    ext = context.extensions
+    merged = dict(base)
+    aid = ext.get(WIRE_CAPTURE_ACCOUNT_ID_KEY)
+    if isinstance(aid, str) and aid.strip():
+        merged["account_id"] = aid.strip()
+    rat = ext.get(WIRE_CAPTURE_RETRY_ATTEMPT_KEY)
+    if isinstance(rat, int):
+        merged["retry_attempt"] = rat
+    elif isinstance(rat, float) and rat.is_integer():
+        merged["retry_attempt"] = int(rat)
+    ir = ext.get(WIRE_CAPTURE_IS_RETRY_KEY)
+    if isinstance(ir, bool):
+        merged["is_retry"] = ir
+    return merged
+
+
 def _http_capture_metadata(
     *,
     request: httpx.Request,
@@ -184,8 +216,12 @@ def _http_capture_metadata(
     return metadata
 
 
-def build_http_response_capture_metadata(response: httpx.Response) -> dict[str, Any]:
-    return _http_capture_metadata(
+def build_http_response_capture_metadata(
+    response: httpx.Response,
+    *,
+    context: ConnectorRequestContext | None = None,
+) -> dict[str, Any]:
+    base = _http_capture_metadata(
         request=response.request,
         protocol_event="response",
         response_headers=response.headers,
@@ -193,6 +229,7 @@ def build_http_response_capture_metadata(response: httpx.Response) -> dict[str, 
         response_reason_phrase=response.reason_phrase,
         response_http_version=_detect_http_version(response),
     )
+    return merge_connector_wire_capture_extensions(base, context)
 
 
 def build_requests_response_capture_metadata(
@@ -280,7 +317,9 @@ def wrap_http_inbound_response_stream(
             model=model,
             key_name=key_name,
             stream=_iter_http_response_stream_bytes(response_stream),
-            capture_metadata=build_http_response_capture_metadata(response),
+            capture_metadata=build_http_response_capture_metadata(
+                response, context=context
+            ),
         )
         response.stream = _CapturedAsyncByteStream(response_stream, wrapped_stream)
         if isinstance(response_extensions, dict):
@@ -322,9 +361,12 @@ async def capture_http_outbound_request(
             model=model,
             key_name=key_name,
             request_payload=_build_http_request_bytes(request),
-            capture_metadata=_http_capture_metadata(
-                request=request,
-                protocol_event="request",
+            capture_metadata=merge_connector_wire_capture_extensions(
+                _http_capture_metadata(
+                    request=request,
+                    protocol_event="request",
+                ),
+                context,
             ),
         )
     except Exception:
@@ -361,7 +403,9 @@ async def capture_http_inbound_response(
             model=model,
             key_name=key_name,
             response_content=_build_http_response_bytes(response),
-            capture_metadata=build_http_response_capture_metadata(response),
+            capture_metadata=build_http_response_capture_metadata(
+                response, context=context
+            ),
         )
     except Exception:
         if logger.isEnabledFor(logging.DEBUG):

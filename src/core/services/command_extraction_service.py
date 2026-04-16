@@ -15,6 +15,10 @@ import re
 from pathlib import Path
 from typing import Any
 
+from src.core.domain.security.command_normalization import (
+    normalize_command_for_security_scan,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -270,7 +274,7 @@ class CommandExtractionService:
         if not command:
             return ""
 
-        normalized = command
+        normalized = normalize_command_for_security_scan(command)
 
         # Collapse whitespace
         normalized = " ".join(normalized.split())

@@ -125,6 +125,9 @@ class ManagedOAuthRefreshService:
         account: ManagedOAuthAccount,
         client: httpx.AsyncClient,
     ) -> ManagedOAuthAccount:
+        # Refresh POST uses OPENAI_OAUTH_TOKEN_URL (hardcoded). httpx defaults
+        # ``follow_redirects`` to False on the client unless overridden; no SSRF
+        # preflight is required while the URL remains a constant (not from config).
         payload = {
             "client_id": OPENAI_OAUTH_CLIENT_ID,
             "grant_type": "refresh_token",
@@ -220,4 +223,3 @@ class ManagedOAuthRefreshService:
         )
         await self._storage.save_account(updated)
         return updated
-

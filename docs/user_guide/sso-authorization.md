@@ -194,6 +194,8 @@ sso:
 | `api_timeout_seconds` | integer | 5 | Request timeout in seconds |
 | `session_lifetime_hours` | integer | 24 | SSO session lifetime in hours |
 
+The proxy validates **`api_url`** (and each redirect target when redirects are followed) so it cannot resolve to disallowed private or loopback addresses. See [Outbound URL safety](features/outbound-url-safety.md).
+
 ### Authentication Flow
 
 ```

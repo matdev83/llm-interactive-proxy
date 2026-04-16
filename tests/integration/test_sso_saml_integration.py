@@ -5,6 +5,8 @@ Integration test for SAML flow through the FastAPI SSO router.
 from __future__ import annotations
 
 import base64
+import socket
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -124,33 +126,43 @@ async def test_saml_flow_redirects_to_confirm(tmp_path):
     token_repo = TokenRepository(str(db_path))
     login_token = await token_repo.create_login_token()
 
-    async with respx.mock:
-        respx.get("https://idp.example.com/metadata").mock(
-            return_value=httpx.Response(200, text=metadata_xml)
-        )
-        async with httpx.AsyncClient(app=app, base_url="http://testserver") as client:
-            login_resp = await client.get(
-                f"/auth/login?token={login_token}", follow_redirects=False
+    fake_addr = (
+        socket.AF_INET,
+        socket.SOCK_STREAM,
+        0,
+        "",
+        ("203.0.113.1", 443),
+    )
+    with patch("socket.getaddrinfo", return_value=[fake_addr]):
+        async with respx.mock:
+            respx.get("https://idp.example.com/metadata").mock(
+                return_value=httpx.Response(200, text=metadata_xml)
             )
-            assert login_resp.status_code == 302
-            auth_url = login_resp.headers["Location"]
-            parsed = urlparse(auth_url)
-            query = parse_qs(parsed.query)
-            relay_state = query["RelayState"][0]
+            async with httpx.AsyncClient(app=app, base_url="http://testserver") as client:
+                login_resp = await client.get(
+                    f"/auth/login?token={login_token}", follow_redirects=False
+                )
+                assert login_resp.status_code == 302
+                auth_url = login_resp.headers["Location"]
+                parsed = urlparse(auth_url)
+                query = parse_qs(parsed.query)
+                relay_state = query["RelayState"][0]
 
-            saml_xml = _saml_response_xml(
-                audience="my-client-id",
-                name_id="user-123",
-                email="user@example.com",
-                signing_cert=signing_cert,
-            )
-            saml_response = base64.b64encode(saml_xml.encode("utf-8")).decode("ascii")
+                saml_xml = _saml_response_xml(
+                    audience="my-client-id",
+                    name_id="user-123",
+                    email="user@example.com",
+                    signing_cert=signing_cert,
+                )
+                saml_response = base64.b64encode(saml_xml.encode("utf-8")).decode(
+                    "ascii"
+                )
 
-            callback_resp = await client.post(
-                "/auth/callback",
-                data={"SAMLResponse": saml_response, "RelayState": relay_state},
-                follow_redirects=False,
-            )
+                callback_resp = await client.post(
+                    "/auth/callback",
+                    data={"SAMLResponse": saml_response, "RelayState": relay_state},
+                    follow_redirects=False,
+                )
 
-            assert callback_resp.status_code == 302
-            assert "/auth/confirm" in callback_resp.headers["Location"]
+                assert callback_resp.status_code == 302
+                assert "/auth/confirm" in callback_resp.headers["Location"]

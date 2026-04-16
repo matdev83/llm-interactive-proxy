@@ -13,6 +13,7 @@ properties:
   context_window_override: { type: ["integer", "null"], minimum: 1 }
   gcp_project_id: { type: ["string", "null"] }
   gemini_credentials_path: { type: ["string", "null"] }
+  auto_append_first_prompt_filename: { type: ["string", "null"] }
   disable_health_checks: { type: boolean }
   enable_activity_tracking: { type: boolean }
   request_dedup_window: { type: number, minimum: 0 }

@@ -23,6 +23,7 @@ from src.core.auth.sso.models import (
     ConfirmationResult,
 )
 from src.core.auth.sso.rate_limit_service import RateLimitService
+from src.core.url_safety import ssrf_redirect_guard
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +343,9 @@ class AuthorizationService:
 
         try:
             async with httpx.AsyncClient(
-                timeout=self.config.api_timeout, follow_redirects=True
+                timeout=self.config.api_timeout,
+                follow_redirects=True,
+                event_hooks={"response": [ssrf_redirect_guard]},
             ) as client:
                 response = await client.post(self.config.api_url, json=payload)
 

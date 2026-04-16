@@ -68,6 +68,26 @@ class TestPathNormalization:
         assert result.is_absolute()
         assert str(result).startswith(str(Path.home()))
 
+    def test_symlink_inside_tree_resolving_outside_not_within_boundary(
+        self, service, tmp_path: Path
+    ) -> None:
+        """Symlink under base_dir that points outside resolves outside; boundary rejects."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "secret.txt"
+        target.touch()
+        sandbox = tmp_path / "project"
+        sandbox.mkdir()
+        link = sandbox / "leak.txt"
+        try:
+            link.symlink_to(target)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported or not permitted on this system")
+
+        resolved = service.normalize_path("leak.txt", base_dir=str(sandbox))
+        assert resolved == target.resolve()
+        assert service.is_within_boundary(resolved, sandbox.resolve()) is False
+
     def test_symlink_resolution(self, service):
         """Test that symlinks are resolved to their real paths."""
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -20,6 +20,7 @@ from src.core.domain.configuration.unified_security_config import (
 )
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 from src.core.services.command_extraction_service import CommandExtractionService
+from src.core.services.path_validation_service import PathValidationService
 from src.core.services.unified_tool_security_handler import (
     DangerousCommandCheck,
     FileSandboxingCheck,
@@ -441,6 +442,36 @@ class TestFileSandboxingCheck:
         context = self._make_context("write_file", {"path": "/etc/passwd"})
         result = await check.check(context, command_service)
         assert result.blocked is False
+
+    @pytest.mark.asyncio
+    async def test_blocks_write_via_symlink_escaping_project_root(
+        self, command_service: CommandExtractionService, tmp_path: Path
+    ) -> None:
+        """Resolved path outside project (symlink escape) must be blocked."""
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        secret = outside / "secret.txt"
+        secret.touch()
+        project = tmp_path / "project"
+        project.mkdir()
+        link = project / "via_link.txt"
+        try:
+            link.symlink_to(secret)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported or not permitted on this system")
+
+        config = FileSandboxingConfig(enabled=True, strict_mode=False)
+        real_validator = PathValidationService()
+        session_service = AsyncMock()
+        session = MagicMock()
+        session.state.project_dir = str(project)
+        session_service.get_session.return_value = session
+
+        check = FileSandboxingCheck(config, real_validator, session_service)
+        context = self._make_context("write_file", {"path": "via_link.txt"})
+        result = await check.check(context, command_service)
+        assert result.blocked is True
+        assert result.reason == "path_outside_sandbox"
 
 
 # =============================================================================

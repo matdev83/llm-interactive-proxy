@@ -123,14 +123,52 @@ class ManagedOAuthAccountSelector:
         if session_id:
             self._session_affinity.pop(session_id, None)
 
+    def _account_passes_allowlist(self, account: ManagedOAuthAccount) -> bool:
+        """Return True when ``account`` may participate in selection / rotation.
+
+        When an allowlist is configured, entries may match either the stored
+        ``account_id`` (JSON filename / ``--account-id``) **or** ``chatgpt_account_id``
+        (ChatGPT profile UUID), so operators can list whichever identifier they use.
+        """
+        allowed = self._allowed_account_ids
+        if allowed is None:
+            return True
+        if account.account_id in allowed:
+            return True
+        cgpt = account.chatgpt_account_id
+        return bool(cgpt and cgpt in allowed)
+
+    def eligibility_debug_snapshot(
+        self, *, now_ms: int | None = None
+    ) -> list[dict[str, Any]]:
+        """Structured per-account diagnostics for logs (JSON-serializable)."""
+        ts = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        rows: list[dict[str, Any]] = []
+        for acc in self._accounts:
+            allow_ok = self._account_passes_allowlist(acc)
+            rl = acc.is_rate_limited(ts)
+            rows.append(
+                {
+                    "account_id": acc.account_id,
+                    "chatgpt_account_id": acc.chatgpt_account_id,
+                    "email": acc.email,
+                    "allowlist_ok": allow_ok,
+                    "needs_reauth": acc.needs_reauth,
+                    "local_rate_limited": rl,
+                    "rate_limited_until_ms": acc.rate_limited_until,
+                    "eligible_for_traffic": allow_ok
+                    and (not acc.needs_reauth)
+                    and (not rl),
+                }
+            )
+        return rows
+
     def _available_accounts(
         self, now_ms: int
     ) -> tuple[list[ManagedOAuthAccount], list[ManagedOAuthAccount]]:
         available: list[ManagedOAuthAccount] = []
         for account in self._accounts:
-            if self._allowed_account_ids is not None and (
-                account.account_id not in self._allowed_account_ids
-            ):
+            if not self._account_passes_allowlist(account):
                 continue
             if account.needs_reauth:
                 continue

@@ -172,6 +172,61 @@ class DangerousCommandCheck(ISecurityCheck):
             r"Remove-Item\s+.*-Recurse.*-Force",
             "PowerShell recursive force delete",
         ),
+        (
+            "interpreter_heredoc",
+            r"\b(?:python3?|perl|ruby|node)\s+<<",
+            "Interpreter heredoc can run arbitrary multi-line code",
+        ),
+        (
+            "remote_pipe_shell",
+            r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:ba)?sh\b",
+            "Piping remote download into a shell is high risk",
+        ),
+        (
+            "remote_pipe_interpreter",
+            r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:python3?|perl|ruby|node)\b",
+            "Piping remote download into an interpreter is high risk",
+        ),
+        (
+            "remote_dash_o_dash_pipe",
+            r"\b(?:curl|wget)\b[^\n|]*-O\s+-\s*\|",
+            "curl/wget -O - then pipe is often remote code execution",
+        ),
+        (
+            "bash_fork_bomb",
+            r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;:",
+            "Classic shell fork bomb pattern",
+        ),
+        (
+            "kill_sigkill_all_user_processes",
+            r"kill\s+-9\s+-1\b",
+            "kill -9 -1 sends SIGKILL to all processes the user can signal",
+        ),
+        (
+            "pkill_sigkill",
+            r"\bpkill\s+-9\b",
+            "pkill -9 can terminate many processes at once",
+        ),
+        (
+            "redirect_overwrite_etc",
+            r">\s*/etc/",
+            "Redirect overwrite into /etc can break the system",
+        ),
+        (
+            "redirect_overwrite_block_device",
+            r">\s*/dev/sd",
+            "Redirect overwrite into block devices can destroy disks",
+        ),
+        (
+            "chmod_execute_chain",
+            r"\bchmod\s+[^\n]*\+x[^\n]*&&[^\n]*\./",
+            "chmod executable then run local script chain",
+        ),
+        (
+            "kill_pgrep_subshell",
+            r"\bkill\s+[^\n]*\$\(\s*pgrep",
+            "kill with pgrep command substitution can terminate broad processes",
+        ),
     )
 
     def __init__(

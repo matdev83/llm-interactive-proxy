@@ -1096,11 +1096,47 @@ class CredentialManager(ICredentialManager):
                         current.account_id
                     )
                 )
+                snapshot_eligible: list[str] = []
+                available_managed = 0
+                if self._managed_enabled():
+                    try:
+                        snapshot_eligible = (
+                            await self._managed_selector.list_eligible_account_ids()
+                        )
+                        available_managed = (
+                            await self._managed_selector.count_available_managed_accounts()
+                        )
+                    except Exception as exc:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "OpenAI Codex: eligibility snapshot failed: %s",
+                                exc,
+                                exc_info=True,
+                            )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "OpenAI Codex managed OAuth: failover snapshot "
+                        "current_account_id=%s other_eligible_excluding_current=%s "
+                        "eligible_account_ids=%s available_managed_accounts=%s",
+                        current.account_id,
+                        other_eligible,
+                        snapshot_eligible,
+                        available_managed,
+                    )
+                if other_eligible == 0 and logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "OpenAI Codex managed OAuth: no other eligible accounts to "
+                        "failover to after upstream quota/limit on account_id=%s. "
+                        "Per-account diagnostics (allowlist_ok, reauth, local RL): %s",
+                        current.account_id,
+                        self._managed_selector.eligibility_debug_snapshot(),
+                    )
                 await maybe_notify_codex_quota_reached(
                     self._notification_service,
                     self._codex_quota_notification_dedupe,
                     managed_account_id=current.account_id,
                     email=current.email,
+                    chatgpt_account_id=current.chatgpt_account_id,
                     usage_limit_fields=usage_fields,
                     retry_after_seconds=retry_after_seconds,
                     all_accounts_exhausted=other_eligible == 0,
@@ -1154,10 +1190,24 @@ class CredentialManager(ICredentialManager):
 
         account_id = "legacy-openai-codex"
         email: str | None = None
+        chatgpt_account_id: str | None = None
         if self._managed_current_account is not None:
             account_id = self._managed_current_account.account_id
             email = self._managed_current_account.email
+            chatgpt_account_id = self._managed_current_account.chatgpt_account_id
         elif isinstance(self._auth_credentials, Mapping):
+            managed = self._auth_credentials.get("managed_oauth")
+            if isinstance(managed, Mapping):
+                mid = managed.get("account_id")
+                if isinstance(mid, str) and mid.strip():
+                    account_id = mid.strip()
+                cg = managed.get("chatgpt_account_id")
+                if isinstance(cg, str) and cg.strip():
+                    chatgpt_account_id = cg.strip()
+            if account_id == "legacy-openai-codex":
+                top_aid = self._auth_credentials.get("account_id")
+                if isinstance(top_aid, str) and top_aid.strip():
+                    account_id = top_aid.strip()
             user = self._auth_credentials.get("user")
             if isinstance(user, Mapping):
                 raw_email = user.get("email")
@@ -1169,6 +1219,7 @@ class CredentialManager(ICredentialManager):
             self._codex_quota_notification_dedupe,
             managed_account_id=account_id,
             email=email,
+            chatgpt_account_id=chatgpt_account_id,
             usage_limit_fields=usage_fields,
             retry_after_seconds=retry_after_seconds,
             all_accounts_exhausted=all_accounts_exhausted,

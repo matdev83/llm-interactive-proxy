@@ -241,6 +241,10 @@ class ManagedOAuthFlowService:
         redirect_uri: str,
         code_verifier: str,
     ) -> dict[str, Any]:
+        # Token POST uses OPENAI_OAUTH_TOKEN_URL (hardcoded OpenAI endpoint).
+        # httpx.AsyncClient defaults ``follow_redirects`` to False, so redirects are
+        # not followed unless explicitly enabled; add ``assert_url_safe_for_egress``
+        # only if this URL ever becomes a configurable setting.
         form_data = {
             "grant_type": "authorization_code",
             "code": code,

@@ -11,6 +11,9 @@ from src.core.domain.configuration.dangerous_command_config import (
     DangerousCommandRule,
     is_dangerous_command,
 )
+from src.core.domain.security.command_normalization import (
+    normalize_command_for_security_scan,
+)
 
 _SUBSHELL_GIT_PATTERN = re.compile(r"\$\((?:which|command\s+-v)\s+git\)", re.IGNORECASE)
 _ENV_PREFIX_PATTERN = re.compile(r"\b[A-Z_][A-Z0-9_]*=.*?(?=\s+git\b)", re.IGNORECASE)
@@ -115,6 +118,7 @@ class DangerousCommandService:
         return None
 
     def _normalize_for_detection(self, command: str) -> str:
+        command = normalize_command_for_security_scan(command)
         collapsed = re.sub(r"\s+", " ", command).strip()
         # Treat escaped newlines/backslash spacers as regular whitespace so
         # commands like "git \ checkout -- ." normalize correctly.

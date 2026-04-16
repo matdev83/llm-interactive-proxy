@@ -95,6 +95,12 @@ For each intercepted tool call:
 3. Check if the path is within the project root boundary
 4. Block the call if it's outside the boundary (unless `allow_parent_access` is enabled)
 
+### Symlinks and resolved paths
+
+Paths are **resolved** (including symlinks) before the boundary check. A path that lives *inside* the project tree on disk but is a **symbolic link pointing outside** the project root still resolves to a location outside the sandbox; those operations are **blocked** as out-of-sandbox access. This matches the expectation that agents cannot “escape” the project directory by routing writes through a link.
+
+On platforms where creating symlinks in tests is restricted, related regression tests may skip; production behavior follows the resolved path.
+
 ### 4. Blocking Behavior
 
 When a violation is detected:
@@ -352,6 +358,7 @@ Priority level: **80** (runs before most handlers, after authentication)
 
 ## Related Documentation
 
+- [Outbound URL safety](./outbound-url-safety.md)
 - [Tool Call Reactor System](./tool-call-reactor.md)
 - [Dangerous Command Protection](dangerous-command-protection.md)
 - [Inline Python Steering](inline-python-steering.md)

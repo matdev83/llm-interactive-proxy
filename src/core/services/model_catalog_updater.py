@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from src.core.url_safety import assert_url_safe_for_egress
+
 if TYPE_CHECKING:
     from src.core.config.models.misc import ModelRegistryConfig
     from src.core.services.model_catalog_service import ModelCatalogService
@@ -40,7 +42,9 @@ class ModelCatalogUpdater:
             return
 
         self._stop_event.clear()
-        self._task = asyncio.create_task(self._update_loop(), name="model_catalog_updater")
+        self._task = asyncio.create_task(
+            self._update_loop(), name="model_catalog_updater"
+        )
         logger.info("Model catalog updater started.")
 
     async def stop(self) -> None:
@@ -49,6 +53,7 @@ class ModelCatalogUpdater:
             return
 
         from contextlib import suppress
+
         self._stop_event.set()
         self._task.cancel()
         with suppress(asyncio.CancelledError):
@@ -83,34 +88,39 @@ class ModelCatalogUpdater:
         """Perform an immediate update of the model catalog."""
         url = self._config.url
         cache_path = Path(self._config.cache_path)
-        
+
         # Ensure parent directory exists
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Fetching model catalog from %s", url)
-            
+
+            assert_url_safe_for_egress(url)
+
             response = await self._http_client.get(url)
             response.raise_for_status()
-            
+
             # Basic validation: must be a dict
             data = response.json()
             if not isinstance(data, dict) or not data:
-                logger.warning("Invalid model catalog format received from %s (not a dict or empty)", url)
+                logger.warning(
+                    "Invalid model catalog format received from %s (not a dict or empty)",
+                    url,
+                )
                 return False
 
             # Save to cache
             temp_path = cache_path.with_suffix(".tmp")
             with open(temp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            
+
             # Atomic swap
             temp_path.replace(cache_path)
-            
+
             # Reload catalog in service
             self._catalog_service.load_catalog()
-            
+
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Successfully updated model catalog from %s", url)
             return True

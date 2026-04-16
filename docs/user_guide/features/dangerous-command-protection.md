@@ -1,33 +1,51 @@
 # Dangerous Command Protection
 
-The proxy includes built-in protection against dangerous git commands that could potentially destroy your work or repository history.
+The proxy includes built-in protection against **destructive shell commands** (especially around **git** and the filesystem) and against several **high-risk shell idioms** (remote download piped into a shell or interpreter, broad process termination, and similar patterns). The goal is to stop agents from running commands that could destroy work, leak data, or take down processes.
 
 ## Overview
 
-This safety feature detects and blocks destructive git operations before they can cause damage. It uses pattern-based detection to identify dangerous commands at the tool call level and intercepts them in real-time.
+This safety feature detects and blocks dangerous operations **before** they are forwarded to tooling that runs shell commands. Detection is **pattern-based** on the command string, with a **normalization pass** applied first so common obfuscations are less effective:
+
+- **ANSI terminal escapes** (CSI / OSC sequences) are stripped so color codes cannot hide tokens.
+- **NUL bytes** are removed.
+- **Unicode NFKC** normalization reduces fullwidth / compatibility-form homoglyphs that could otherwise dodge simple matchers.
+
+After normalization, the proxy matches against a **combined set of rules** (fast path) and detailed per-rule metadata for logging and steering messages.
 
 **Note**: Developer tools like linters, formatters, and type checkers (ruff, black, mypy, eslint, etc.) are automatically exempted from dangerous command detection. See [Developer Tool Exemptions](./dangerous-command-protection-dev-tools.md) for details.
 
 ## Key Features
 
-- **Pattern-Based Detection**: Uses regex patterns to identify dangerous git commands
+- **Pattern-Based Detection**: Uses regex patterns for destructive git/filesystem commands and selected remote-execution / process-control patterns
+- **Normalization Before Matching**: Strips ANSI escapes, NULs, and applies Unicode NFKC to harden against trivial obfuscation
 - **Real-Time Blocking**: Intercepts dangerous commands at the tool call level
-- **Comprehensive Coverage**: Blocks 30+ dangerous git operations
+- **Comprehensive Coverage**: Blocks many destructive git operations plus additional shell-risk patterns (examples below)
 - **Descriptive Feedback**: Returns clear messages explaining why commands were blocked
 - **Safer Alternatives**: Suggests safer alternatives when appropriate
 - **Audit Logging**: Logs all blocked attempts for debugging and security auditing
 
-## Protected Commands
+## Protected commands (examples)
 
-The following types of dangerous git commands are blocked:
+**Git and repository safety** (non-exhaustive):
 
 - `git reset --hard` (discards all local changes)
 - `git clean -f` (deletes untracked files)
 - `git push --force` (overwrites remote history)
 - `git branch -D` (force deletes branches)
 - `git restore .` (discards unstaged changes)
-- `git filter-branch --prune-empty` (rewrites history)
-- And many more destructive operations
+- `git filter-branch` / history-rewriting flows
+- And many more destructive operations enforced via the shared pattern set
+
+**Additional shell-risk patterns** (illustrative; the exact set evolves with releases):
+
+- Interpreter **heredocs** (`python` / `perl` / `ruby` / `node` with `<<`) often used to smuggle multi-line payloads
+- **`curl` / `wget` piped into `bash` / `sh`** or into an interpreter (`python`, `ruby`, …), including some `curl … -O - | …` forms
+- **`chmod` make-executable then `./` run** chains
+- **`kill` with `$(pgrep …)`**, **`kill -9 -1`**, aggressive **`pkill -9`**
+- Classic **fork-bomb** form
+- **Redirects** toward sensitive locations such as **`/etc/`** or **`/dev/sd`**-style device paths
+
+The same rules apply whether you use the legacy dangerous-command handler or the **unified tool security** path; both consume the shared configuration and normalization pipeline.
 
 ## Configuration
 
@@ -127,6 +145,7 @@ Only disable this protection if you:
 
 ## Related Features
 
+- [Outbound URL safety](outbound-url-safety.md) - SSRF-style validation for SSO and catalog HTTP fetches
 - [Tool Access Control](tool-access-control.md) - Fine-grained control over tool execution
 - [File Access Sandboxing](file-sandboxing.md) - Restrict file operations to project directory
 - [Inline Python Steering](inline-python-steering.md) - Prevent unstable inline Python execution

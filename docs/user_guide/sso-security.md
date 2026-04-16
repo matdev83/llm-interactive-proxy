@@ -15,6 +15,12 @@ The SSO authentication system implements multiple layers of security:
 5. **Rate Limiting Layer**: Brute-force protection
 6. **Bot Defense Layer**: Optional Cloudflare Turnstile on the public login form
 
+### Outbound URL validation (SSRF-style)
+
+SSO-related HTTP fetches (for example **JWKS**, **OpenID Connect discovery**, **SAML metadata**, and **token** / **userinfo** endpoints when loaded from metadata) are validated so URLs do not target disallowed address classes before the client sends a request. Clients that **follow redirects** attach a guard that re-validates each redirect target. This reduces the risk of misconfiguration or metadata tricks steering the proxy at internal services.
+
+Operational guidance and limitations (including DNS rebinding caveats) are described in [Outbound URL safety](features/outbound-url-safety.md) and [HTTP client security](../development_guide/http-client-security.md).
+
 ### Threat Model
 
 The system is designed to protect against:

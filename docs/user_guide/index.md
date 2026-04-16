@@ -16,6 +16,7 @@ Advanced features that enhance the proxy's capabilities:
 
 ### Security Features
 
+- **[Outbound URL safety](features/outbound-url-safety.md)** - SSRF-style checks on SSO, model registry, and redirect-following HTTP clients
 - **[SSO Identity Provider Overview](sso-idp-overview.md)** - Overview of supported Identity Providers and configuration
 - **[Quality Verifier System](features/quality-verifier.md)** - Real-time response verification using a secondary model
 - **[Tool Access Control](features/tool-access-control.md)** - Fine-grained control over which tools models can access
