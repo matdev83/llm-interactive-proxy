@@ -111,6 +111,12 @@ class ACPProcessRuntime:
     request_lock: Any = field(default=None)
     cancellation_lock: Any = field(default=None)
     cancellation_event: Any = field(default=None)
-    #: Keys (``toolCallId`` / ``__default__``) for which a tool invocation block was
-    #: emitted on the current ACP read stream; cleared when a prompt stream starts.
+    #: Keys (``toolCallId`` / synthetic ``__anon__:N``) for which a tool invocation
+    #: block was emitted on the current ACP read stream; cleared when a prompt stream starts.
     acp_tool_invocation_emitted: set[str] = field(default_factory=set)
+    acp_anon_tool_seq: int = 0
+    acp_last_anon_stream_key: str | None = None
+    #: True after any assistant-visible ``content`` (message or tool markdown).
+    #: Used to route later ``agent_thought_chunk`` into ``content`` so UIs keep
+    #: chronological order instead of merging into the first reasoning bubble.
+    acp_stream_had_main_body_content: bool = False

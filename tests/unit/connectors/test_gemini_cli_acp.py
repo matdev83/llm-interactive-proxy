@@ -258,7 +258,9 @@ class TestGeminiCliAcpProtocol:
 
         assert fragments == [
             AcpStreamPiece(content="Hello"),
-            AcpStreamPiece(reasoning_content="ignored"),
+            AcpStreamPiece(
+                content="\n\n---\n\n**Thinking**\n\nignored",
+            ),
         ]
 
 

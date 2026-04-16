@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from src.connectors.acp_core.tool_markdown import (
     DEFAULT_MAX_MARKDOWN_FIELD_CHARS,
+    coalesce_acp_tool_call_update_session_dict,
+    coalesce_acp_tool_session_dict,
     extract_tool_correlation_key,
     extract_tool_input,
     extract_tool_name,
@@ -53,3 +55,49 @@ def test_normalize_display_value_truncates() -> None:
 def test_format_tool_invocation_block() -> None:
     block = format_tool_invocation_block("read_file", None)
     assert "**Tool: read_file**" in block
+
+
+def test_coalesce_flat_acp_tool_call_shape() -> None:
+    upd = {
+        "sessionUpdate": "tool_call",
+        "toolCallId": "call_001",
+        "title": "Reading configuration file",
+        "kind": "read",
+        "status": "pending",
+        "rawInput": {"path": "/config.json"},
+    }
+    merged = coalesce_acp_tool_session_dict(upd)
+    assert merged["toolCallId"] == "call_001"
+    assert extract_tool_name(merged) == "Reading configuration file"
+    assert extract_tool_input(merged) == {"path": "/config.json"}
+
+
+def test_coalesce_tool_call_update_flattens_content_blocks() -> None:
+    upd = {
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "call_001",
+        "content": [
+            {
+                "type": "content",
+                "content": {"type": "text", "text": "Found 3 files"},
+            }
+        ],
+    }
+    merged = coalesce_acp_tool_call_update_session_dict(upd)
+    out = extract_tool_output(merged)
+    assert out == "Found 3 files"
+
+
+def test_format_tool_section_escapes_nested_triple_backticks_in_output() -> None:
+    text = format_tool_section(
+        "run",
+        output_obj="line1\n```python\nprint(1)\n```\nline2",
+    )
+    assert "```python" in text
+    assert text.count("```") >= 4
+    lines = [
+        ln
+        for ln in text.splitlines()
+        if ln.strip() and all(c == "`" for c in ln.strip())
+    ]
+    assert any(len(ln.strip()) > 3 for ln in lines)

@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from src.connectors.acp_core.tool_markdown import (
+    acp_tool_payload_should_emit,
+    coalesce_acp_tool_call_update_session_dict,
+    coalesce_acp_tool_session_dict,
     extract_tool_correlation_key,
     extract_tool_input,
     extract_tool_name,
@@ -708,36 +711,58 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             return "[mode]\n"
         return None
 
-    @staticmethod
-    def _acp_tool_stream_key(tc: dict[str, Any]) -> str:
-        return extract_tool_correlation_key(tc) or "__default__"
+    def _resolve_tool_stream_key(
+        self,
+        runtime: ACPProcessRuntime,
+        tc: dict[str, Any],
+        *,
+        for_new_invocation: bool,
+    ) -> str:
+        ck = extract_tool_correlation_key(tc)
+        if ck:
+            return ck
+        if for_new_invocation:
+            runtime.acp_anon_tool_seq += 1
+            key = f"__anon__:{runtime.acp_anon_tool_seq}"
+            runtime.acp_last_anon_stream_key = key
+            return key
+        if runtime.acp_last_anon_stream_key:
+            return runtime.acp_last_anon_stream_key
+        runtime.acp_anon_tool_seq += 1
+        key = f"__anon__:{runtime.acp_anon_tool_seq}"
+        runtime.acp_last_anon_stream_key = key
+        return key
 
     def _stream_piece_from_acp_tool_call(
         self, runtime: ACPProcessRuntime, upd: dict[str, Any]
     ) -> AcpStreamPiece | None:
-        tc = upd.get("toolCall")
-        if not isinstance(tc, dict):
-            body = format_tool_section("tool")
-            return AcpStreamPiece(content=body) if body else None
-        name = extract_tool_name(tc)
-        key = self._acp_tool_stream_key(tc)
+        merged = coalesce_acp_tool_session_dict(upd)
+        if not merged or not acp_tool_payload_should_emit(merged):
+            return None
+        name = extract_tool_name(merged)
+        block = format_tool_invocation_block(name, extract_tool_input(merged))
+        if not block:
+            return None
+        key = self._resolve_tool_stream_key(runtime, merged, for_new_invocation=True)
         runtime.acp_tool_invocation_emitted.add(key)
-        block = format_tool_invocation_block(name, extract_tool_input(tc))
-        return AcpStreamPiece(content=block) if block else None
+        return AcpStreamPiece(content=block)
 
     def _stream_piece_from_acp_tool_call_update(
         self, runtime: ACPProcessRuntime, upd: dict[str, Any]
     ) -> AcpStreamPiece | None:
-        tcu = upd.get("toolCallUpdate")
-        if not isinstance(tcu, dict):
-            tcu = upd.get("toolCall")
-        if not isinstance(tcu, dict):
+        merged = coalesce_acp_tool_call_update_session_dict(upd)
+        if not merged:
             return None
-        key = self._acp_tool_stream_key(tcu)
-        name = extract_tool_name(tcu)
-        inp = extract_tool_input(tcu)
-        out = extract_tool_output(tcu)
-        status_raw = tcu.get("status") or tcu.get("state")
+        key = self._resolve_tool_stream_key(runtime, merged, for_new_invocation=False)
+        if (
+            key not in runtime.acp_tool_invocation_emitted
+            and not acp_tool_payload_should_emit(merged)
+        ):
+            return None
+        name = extract_tool_name(merged)
+        inp = extract_tool_input(merged)
+        out = extract_tool_output(merged)
+        status_raw = merged.get("status") or merged.get("state")
         status_str = status_raw.strip() if isinstance(status_raw, str) else None
         seen = key in runtime.acp_tool_invocation_emitted
         fragments: list[str] = []
@@ -760,7 +785,6 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                     fragments.append(tail)
             else:
                 return None
-            runtime.acp_tool_invocation_emitted.add(key)
         else:
             tail = format_tool_output_fragment(
                 out if out is not None else None,
@@ -769,7 +793,11 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             if tail:
                 fragments.append(tail)
         text = "".join(fragments)
-        return AcpStreamPiece(content=text) if text else None
+        if not text:
+            return None
+        if not seen:
+            runtime.acp_tool_invocation_emitted.add(key)
+        return AcpStreamPiece(content=text)
 
     def _session_update_to_stream_piece(
         self, response: ACPNotification, runtime: ACPProcessRuntime
@@ -799,6 +827,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             return None
         if kind == ACP_AGENT_THOUGHT_CHUNK:
             if text:
+                if runtime.acp_stream_had_main_body_content:
+                    return AcpStreamPiece(
+                        content=f"\n\n---\n\n**Thinking**\n\n{text}"
+                    )
                 return AcpStreamPiece(reasoning_content=text)
             return None
         if kind == "tool_call":
@@ -818,6 +850,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         response_model: str,
     ) -> AsyncGenerator[AcpStreamPiece, None]:
         runtime.acp_tool_invocation_emitted.clear()
+        runtime.acp_anon_tool_seq = 0
+        runtime.acp_last_anon_stream_key = None
+        runtime.acp_stream_had_main_body_content = False
         try:
             while True:
                 if runtime.cancellation_event is not None:
@@ -877,6 +912,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                     piece.content is not None or piece.reasoning_content is not None
                 ):
                     yield piece
+                    if piece.content and piece.content.strip():
+                        runtime.acp_stream_had_main_body_content = True
         except asyncio.TimeoutError as exc:
             raise APITimeoutError(
                 message="Timeout waiting for ACP response",

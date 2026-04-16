@@ -118,7 +118,53 @@ def test_session_update_thought_maps_to_reasoning_piece(
     assert piece == AcpStreamPiece(reasoning_content="planning step")
 
 
-def test_session_update_tool_call_maps_to_progress_piece(
+def test_session_update_flat_acp_tool_call_spec_shape(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    msg = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "call_001",
+                "title": "Reading configuration file",
+                "kind": "read",
+                "status": "pending",
+                "rawInput": {"path": "/etc/app.json"},
+            },
+        },
+    )
+    piece = connector._session_update_to_stream_piece(msg, runtime)
+    assert piece is not None and piece.content
+    assert "Reading configuration file" in piece.content
+    assert "/etc/app.json" in piece.content or "path" in piece.content
+
+
+def test_session_update_thought_routes_to_content_after_main_body(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    runtime.acp_stream_had_main_body_content = True
+    msg = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {"type": "text", "text": "second phase"},
+            },
+        },
+    )
+    piece = connector._session_update_to_stream_piece(msg, runtime)
+    assert piece is not None
+    assert piece.content and "**Thinking**" in piece.content
+    assert "second phase" in piece.content
+    assert piece.reasoning_content is None
+
+
+def test_session_update_tool_call_maps_to_stream_piece(
     connector: DummyAcpConnector,
 ) -> None:
     runtime = connector._create_runtime(Path("/tmp/ws"), "m")
@@ -179,6 +225,76 @@ def test_session_update_tool_call_update_emits_output_markdown(
     assert second is not None and second.content is not None
     assert "**Output:**" in second.content
     assert "a.txt" in second.content
+
+
+def test_session_update_multiple_tools_without_correlation_ids_emit_separately(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    first = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCall": {"name": "read_file"},
+            },
+        },
+    )
+    second = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCall": {"name": "list_dir"},
+            },
+        },
+    )
+    p1 = connector._session_update_to_stream_piece(first, runtime)
+    p2 = connector._session_update_to_stream_piece(second, runtime)
+    assert p1 is not None and p1.content is not None
+    assert p2 is not None and p2.content is not None
+    assert "**Tool: read_file**" in p1.content
+    assert "**Tool: list_dir**" in p2.content
+    assert len(runtime.acp_tool_invocation_emitted) == 2
+
+
+def test_session_update_tool_call_update_seen_empty_tail_returns_none(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    call = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCall": {
+                    "toolCallId": "tc-1",
+                    "name": "list_dir",
+                    "arguments": '{"path": "."}',
+                },
+            },
+        },
+    )
+    redundant = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallUpdate": {
+                    "toolCallId": "tc-1",
+                    "name": "list_dir",
+                },
+            },
+        },
+    )
+    first = connector._session_update_to_stream_piece(call, runtime)
+    second = connector._session_update_to_stream_piece(redundant, runtime)
+    assert first is not None and first.content
+    assert second is None
 
 
 def test_resolve_stream_keepalive_interval_from_config(
