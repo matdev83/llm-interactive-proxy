@@ -484,7 +484,7 @@ class TestResponseExecutor:
         mock_credential_manager.notify_codex_usage_limit_unrecovered.assert_awaited_once()
         assert (
             mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs[
-                "all_accounts_exhausted"
+                "pool_exhaustion_confirmed"
             ]
             is False
         )
@@ -535,7 +535,7 @@ class TestResponseExecutor:
             mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs
         )
         assert notify_kw["upstream_detail"] == detail
-        assert notify_kw["all_accounts_exhausted"] is True
+        assert notify_kw["pool_exhaustion_confirmed"] is True
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_auth_retry_exhausted(

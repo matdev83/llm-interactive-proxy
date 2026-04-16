@@ -61,7 +61,7 @@ def build_codex_quota_notification_message(
     chatgpt_account_id: str | None = None,
     quota_type: str,
     until_display: str,
-    all_accounts_exhausted: bool,
+    pool_exhaustion_confirmed: bool,
 ) -> str:
     """Body text for a Codex quota desktop notification."""
     account = _format_account_label(
@@ -73,7 +73,7 @@ def build_codex_quota_notification_message(
         f"Codex quota reached. Account: {account}, type: {quota_type}, "
         f"until: {until_display}"
     )
-    if all_accounts_exhausted:
+    if pool_exhaustion_confirmed:
         msg += "\n\nQuotas exhausted on all available accounts"
     return msg
 
@@ -114,9 +114,14 @@ async def maybe_notify_codex_quota_reached(
     chatgpt_account_id: str | None = None,
     usage_limit_fields: dict[str, Any] | None,
     retry_after_seconds: float | None,
-    all_accounts_exhausted: bool,
+    pool_exhaustion_confirmed: bool,
 ) -> None:
-    """Send at most one desktop notification per dedupe key while service is enabled."""
+    """Send at most one desktop notification per dedupe key while service is enabled.
+
+    Args:
+        pool_exhaustion_confirmed: If True, uses global dedupe key and adds "all accounts exhausted"
+            message. If False, uses per-account dedupe for notifications.
+    """
     if notification_service is None or not notification_service.is_enabled:
         return
 
@@ -131,7 +136,7 @@ async def maybe_notify_codex_quota_reached(
 
     dedupe_account_id = (
         _CODEX_QUOTA_ALL_ACCOUNTS_DEDUPE_ID
-        if all_accounts_exhausted
+        if pool_exhaustion_confirmed
         else managed_account_id
     )
     key = (dedupe_account_id, quota_type, dedupe_until)
@@ -144,7 +149,7 @@ async def maybe_notify_codex_quota_reached(
         chatgpt_account_id=chatgpt_account_id,
         quota_type=quota_type,
         until_display=until_display,
-        all_accounts_exhausted=all_accounts_exhausted,
+        pool_exhaustion_confirmed=pool_exhaustion_confirmed,
     )
     try:
         await notification_service.send_notification(

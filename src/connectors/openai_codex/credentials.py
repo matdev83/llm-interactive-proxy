@@ -1139,7 +1139,7 @@ class CredentialManager(ICredentialManager):
                     chatgpt_account_id=current.chatgpt_account_id,
                     usage_limit_fields=usage_fields,
                     retry_after_seconds=retry_after_seconds,
-                    all_accounts_exhausted=other_eligible == 0,
+                    pool_exhaustion_confirmed=other_eligible == 0,
                 )
             rotated = await self._managed_selector.rotate_on_rate_limit(
                 retry_after_seconds=retry_after_seconds,
@@ -1178,9 +1178,15 @@ class CredentialManager(ICredentialManager):
         *,
         upstream_detail: Any,
         retry_after_seconds: float | None,
-        all_accounts_exhausted: bool = True,
+        pool_exhaustion_confirmed: bool = True,
     ) -> None:
-        """Notify on ``usage_limit_reached`` when the request is still failing (legacy or exhausted rotation)."""
+        """Notify on ``usage_limit_reached`` when the request is still failing.
+
+        Args:
+            pool_exhaustion_confirmed: True when we have confirmed knowledge from credential
+                layer (no other eligible accounts) OR when rotation was attempted here and failed.
+                This controls notification deduplication strategy and message content.
+        """
         payload = usage_limit_payload_from_upstream_detail(upstream_detail)
         if payload is None:
             return
@@ -1222,7 +1228,7 @@ class CredentialManager(ICredentialManager):
             chatgpt_account_id=chatgpt_account_id,
             usage_limit_fields=usage_fields,
             retry_after_seconds=retry_after_seconds,
-            all_accounts_exhausted=all_accounts_exhausted,
+            pool_exhaustion_confirmed=pool_exhaustion_confirmed,
         )
 
     async def handle_auth_failure(

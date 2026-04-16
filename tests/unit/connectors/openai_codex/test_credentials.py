@@ -577,7 +577,7 @@ class TestCredentialManager:
                     }
                 },
                 retry_after_seconds=120.0,
-                all_accounts_exhausted=True,
+                pool_exhaustion_confirmed=True,
             )
             mock_svc.send_notification.assert_awaited_once()
         finally:
@@ -605,7 +605,7 @@ class TestCredentialManager:
                     "error": {"type": "invalid_request", "message": "nope"}
                 },
                 retry_after_seconds=None,
-                all_accounts_exhausted=True,
+                pool_exhaustion_confirmed=True,
             )
             mock_svc.send_notification.assert_not_called()
         finally:

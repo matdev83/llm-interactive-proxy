@@ -160,7 +160,7 @@ class TestResponseExecutor:
         mock_base_connector._handle_rate_limit_rotation.assert_awaited_once()
         assert (
             mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs[
-                "all_accounts_exhausted"
+                "pool_exhaustion_confirmed"
             ]
             is True
         )
