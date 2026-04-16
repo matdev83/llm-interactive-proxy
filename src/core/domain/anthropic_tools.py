@@ -13,6 +13,9 @@ from pydantic.config import ConfigDict
 
 logger = logging.getLogger(__name__)
 
+# Marker stored in `_logged_flat_format` to emit the flat-format DEBUG line at most once per batch.
+_FLAT_TOOL_FORMAT_LOG_SENTINEL = object()
+
 
 class AnthropicToolSchema(BaseModel):
     """Schema definition for Anthropic tool input parameters."""
@@ -105,7 +108,7 @@ def _is_flat_anthropic_format(tool: dict[str, Any]) -> bool:
 def convert_anthropic_tool_to_openai(
     anthropic_tool: dict[str, Any] | AnthropicToolDefinition,
     *,
-    _logged_flat_format: set[int] | None = None,
+    _logged_flat_format: set[object] | None = None,
 ) -> OpenAIToolDefinition:
     """
     Convert an Anthropic tool definition to OpenAI format using Pydantic models.
@@ -118,7 +121,7 @@ def convert_anthropic_tool_to_openai(
 
     Args:
         anthropic_tool: Anthropic tool definition (dict or Pydantic model)
-        _logged_flat_format: Internal set to track logged tool IDs within a batch
+        _logged_flat_format: When provided, used to log the flat-format notice at most once per batch
 
     Returns:
         OpenAI tool definition as Pydantic model
@@ -126,12 +129,12 @@ def convert_anthropic_tool_to_openai(
     if isinstance(anthropic_tool, dict):
         # Check if this is the flat Anthropic API format
         if _is_flat_anthropic_format(anthropic_tool):
-            # Log only once per unique tool within a batch to reduce noise
-            tool_id = id(anthropic_tool)
-            if _logged_flat_format is None or tool_id not in _logged_flat_format:
+            # Log at most once per batch (many clients send one flat tool dict per tool).
+            if _logged_flat_format is None:
                 logger.debug("Identified as flat Anthropic tool format.")
-                if _logged_flat_format is not None:
-                    _logged_flat_format.add(tool_id)
+            elif _FLAT_TOOL_FORMAT_LOG_SENTINEL not in _logged_flat_format:
+                logger.debug("Identified as flat Anthropic tool format.")
+                _logged_flat_format.add(_FLAT_TOOL_FORMAT_LOG_SENTINEL)
             # Flat Anthropic format: {"name": "...", "description": "...", "input_schema": {...}}
             name = anthropic_tool.get("name", "")
             description = anthropic_tool.get("description")

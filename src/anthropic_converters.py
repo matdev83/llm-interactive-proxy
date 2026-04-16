@@ -407,7 +407,7 @@ def anthropic_to_openai_request(
     tools = None
     if anthropic_request.tools:
         # Track logged tools to reduce log noise (log once per batch)
-        _logged_tools: set[int] = set()
+        _logged_tools: set[object] = set()
         converted_tools = [
             tool_def
             for tool_def in (
@@ -792,7 +792,7 @@ def _convert_anthropic_image_to_openai(
 
 
 def _convert_anthropic_tool_definition(
-    tool: Any, *, _logged_flat_format: set[int] | None = None
+    tool: Any, *, _logged_flat_format: set[object] | None = None
 ) -> dict[str, Any]:
     """Convert Anthropic tool definition to OpenAI format using Pydantic models."""
     openai_tool = convert_anthropic_tool_to_openai(
