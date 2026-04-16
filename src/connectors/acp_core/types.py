@@ -73,9 +73,10 @@ class ACPSessionUpdate(BaseModel):
 class AcpStreamPiece:
     """One streaming unit from an ACP ``session/update`` notification.
 
-    ``content`` maps to OpenAI-style ``delta.content`` (assistant-visible text).
-    ``reasoning_content`` maps to ``delta.reasoning_content`` for clients that
-    surface thinking / progress separately from the final answer.
+    ``content`` maps to assistant-visible text. ACP currently uses it for visible
+    thinking blocks and tool summaries so downstream renderers can preserve order.
+    ``reasoning_content`` remains available for back-compat and non-ACP backends
+    that still surface separate reasoning deltas.
     """
 
     content: str | None = None
@@ -131,7 +132,6 @@ class ACPProcessRuntime:
     acp_tool_stream_accum: dict[str, AcpToolStreamAccum] = field(default_factory=dict)
     acp_anon_tool_seq: int = 0
     acp_last_anon_stream_key: str | None = None
-    #: True while ACP reasoning/progress is being emitted as a visible
-    #: ``<thinking>...</thinking>`` content block so later deltas can append
-    #: without reopening the block each time.
+    #: True while ACP reasoning/progress is being emitted as visible ``Thinking:``
+    #: content so later deltas can append without reopening the block each time.
     acp_thinking_block_open: bool = False

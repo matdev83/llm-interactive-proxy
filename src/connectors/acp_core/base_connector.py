@@ -833,8 +833,6 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     def _acp_terminal_summary_pieces(
         self,
-        runtime: ACPProcessRuntime,
-        key: str,
         acc: AcpToolStreamAccum,
         merged: dict[str, Any],
         status_str: str | None,
@@ -892,8 +890,6 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             pieces = self._acp_terminal_summary_pieces(
                 # Batched multi-tool payloads lack a stable follow-up edge per item, so
                 # empty terminal entries emit immediately instead of waiting for an update.
-                runtime,
-                key,
                 acc,
                 merged,
                 status_str,
@@ -920,7 +916,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         status_raw = merged.get("status") or merged.get("state")
         status_str = status_raw.strip() if isinstance(status_raw, str) else None
         return self._acp_terminal_summary_pieces(
-            runtime, key, acc, merged, status_str, allow_defer=True
+            acc, merged, status_str, allow_defer=True
         )
 
     def _flush_incomplete_acp_tool_streams(

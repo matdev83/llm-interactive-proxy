@@ -731,8 +731,8 @@ async def test_non_streaming_chat_completions_include_visible_thinking_blocks(
     async def _mock_iter(
         _: ACPProcessRuntime, __: int, ___: str
     ) -> AsyncGenerator[AcpStreamPiece, None]:
-        yield AcpStreamPiece(content="<thinking>\nplan step\n")
-        yield AcpStreamPiece(content="\n</thinking>\n\n")
+        yield AcpStreamPiece(content="Thinking:\nplan step\n")
+        yield AcpStreamPiece(content="\n\n")
         yield AcpStreamPiece(content="Answer")
 
     with (
@@ -749,7 +749,7 @@ async def test_non_streaming_chat_completions_include_visible_thinking_blocks(
     assert isinstance(response, ResponseEnvelope)
     assert isinstance(response.content, dict)
     message = response.content["choices"][0]["message"]
-    assert message["content"] == "<thinking>\nplan step\n\n</thinking>\n\nAnswer"
+    assert message["content"] == "Thinking:\nplan step\n\n\nAnswer"
     assert "reasoning_content" not in message
 
 
