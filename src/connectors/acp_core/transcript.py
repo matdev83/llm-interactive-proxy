@@ -4,8 +4,8 @@ from collections.abc import Sequence
 from typing import Any, cast
 
 from src.connectors.acp_core.tool_markdown import (
-    format_tool_invocation_block,
-    format_transcript_tool_result,
+    format_transcript_assistant_tool_record,
+    format_transcript_tool_message_record,
 )
 from src.core.domain.chat import ChatMessage
 
@@ -137,7 +137,7 @@ class ACPTranscriptSerializer:
                         tc.get("name", "unknown") if isinstance(tc, dict) else "unknown"
                     )
                     args = tc.get("arguments") if isinstance(tc, dict) else None
-                block = format_tool_invocation_block(
+                block = format_transcript_assistant_tool_record(
                     str(name) if name is not None else "unknown", args
                 ).rstrip("\n")
                 if block:
@@ -145,7 +145,7 @@ class ACPTranscriptSerializer:
         elif role == "tool":
             tid, tname = ACPTranscriptSerializer._tool_message_ids(msg)
             raw_payload = ACPTranscriptSerializer._get_tool_message_payload(msg)
-            block = format_transcript_tool_result(
+            block = format_transcript_tool_message_record(
                 tool_call_id=tid, name=tname, content=raw_payload
             ).rstrip("\n")
             if block:

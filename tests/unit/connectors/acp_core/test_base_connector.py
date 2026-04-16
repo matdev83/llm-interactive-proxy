@@ -138,33 +138,15 @@ def test_session_update_flat_acp_tool_call_spec_shape(
     )
     piece = connector._session_update_to_stream_piece(msg, runtime)
     assert piece is not None and piece.content
-    assert "Reading configuration file" in piece.content
-    assert "/etc/app.json" in piece.content or "path" in piece.content
+    assert piece.content.startswith("Status: pending")
+    flush = connector._flush_incomplete_acp_tool_streams(runtime)
+    assert len(flush) == 1
+    assert "Tool: Reading configuration file" in flush[0].content
+    assert "Input size:" in flush[0].content
+    assert "Output size: 0 bytes" in flush[0].content
 
 
-def test_session_update_thought_routes_to_content_after_main_body(
-    connector: DummyAcpConnector,
-) -> None:
-    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
-    runtime.acp_stream_had_main_body_content = True
-    msg = ACPNotification(
-        method="session/update",
-        params={
-            "sessionId": "s1",
-            "update": {
-                "sessionUpdate": "agent_thought_chunk",
-                "content": {"type": "text", "text": "second phase"},
-            },
-        },
-    )
-    piece = connector._session_update_to_stream_piece(msg, runtime)
-    assert piece is not None
-    assert piece.content and "**Thinking**" in piece.content
-    assert "second phase" in piece.content
-    assert piece.reasoning_content is None
-
-
-def test_session_update_tool_call_maps_to_stream_piece(
+def test_session_update_tool_call_emits_status_and_summary_when_completed(
     connector: DummyAcpConnector,
 ) -> None:
     runtime = connector._create_runtime(Path("/tmp/ws"), "m")
@@ -174,18 +156,23 @@ def test_session_update_tool_call_maps_to_stream_piece(
             "sessionId": "s1",
             "update": {
                 "sessionUpdate": "tool_call",
-                "toolCall": {"name": "read_file"},
+                "toolCall": {
+                    "name": "read_file",
+                    "arguments": '{"path": "/x"}',
+                    "status": "completed",
+                },
             },
         },
     )
-    piece = connector._session_update_to_stream_piece(msg, runtime)
-    assert piece is not None
-    assert piece.content is not None
-    assert "**Tool: read_file**" in piece.content
-    assert piece.reasoning_content is None
+    pieces = connector._session_update_to_stream_pieces(msg, runtime)
+    joined = "".join(p.content or "" for p in pieces)
+    assert "Status: completed" in joined
+    assert "Tool: read_file" in joined
+    assert "Input size:" in joined
+    assert "/x" not in joined
 
 
-def test_session_update_tool_call_update_emits_output_markdown(
+def test_session_update_tool_call_update_emits_status_and_size_summary(
     connector: DummyAcpConnector,
 ) -> None:
     runtime = connector._create_runtime(Path("/tmp/ws"), "m")
@@ -199,6 +186,7 @@ def test_session_update_tool_call_update_emits_output_markdown(
                     "toolCallId": "tc-1",
                     "name": "list_dir",
                     "arguments": '{"path": "."}',
+                    "status": "in_progress",
                 },
             },
         },
@@ -213,18 +201,20 @@ def test_session_update_tool_call_update_emits_output_markdown(
                     "toolCallId": "tc-1",
                     "name": "list_dir",
                     "result": ["a.txt", "b.txt"],
+                    "status": "completed",
                 },
             },
         },
     )
-    first = connector._session_update_to_stream_piece(call, runtime)
-    second = connector._session_update_to_stream_piece(upd, runtime)
-    assert first is not None and first.content is not None
-    assert "list_dir" in first.content
-    assert '"path": "."' in first.content or "path" in first.content
-    assert second is not None and second.content is not None
-    assert "**Output:**" in second.content
-    assert "a.txt" in second.content
+    first = connector._session_update_to_stream_pieces(call, runtime)
+    second = connector._session_update_to_stream_pieces(upd, runtime)
+    assert len(first) == 1
+    assert first[0].content == "Status: in_progress\n"
+    joined = "".join(p.content or "" for p in second)
+    assert "Status: completed" in joined
+    assert "Tool: list_dir" in joined
+    assert "Output size:" in joined
+    assert "a.txt" not in joined
 
 
 def test_session_update_multiple_tools_without_correlation_ids_emit_separately(
@@ -237,7 +227,7 @@ def test_session_update_multiple_tools_without_correlation_ids_emit_separately(
             "sessionId": "s1",
             "update": {
                 "sessionUpdate": "tool_call",
-                "toolCall": {"name": "read_file"},
+                "toolCall": {"name": "read_file", "status": "completed"},
             },
         },
     )
@@ -247,17 +237,15 @@ def test_session_update_multiple_tools_without_correlation_ids_emit_separately(
             "sessionId": "s1",
             "update": {
                 "sessionUpdate": "tool_call",
-                "toolCall": {"name": "list_dir"},
+                "toolCall": {"name": "list_dir", "status": "completed"},
             },
         },
     )
-    p1 = connector._session_update_to_stream_piece(first, runtime)
-    p2 = connector._session_update_to_stream_piece(second, runtime)
-    assert p1 is not None and p1.content is not None
-    assert p2 is not None and p2.content is not None
-    assert "**Tool: read_file**" in p1.content
-    assert "**Tool: list_dir**" in p2.content
-    assert len(runtime.acp_tool_invocation_emitted) == 2
+    p1 = connector._session_update_to_stream_pieces(first, runtime)
+    p2 = connector._session_update_to_stream_pieces(second, runtime)
+    assert len(p1) >= 1 and any("read_file" in (x.content or "") for x in p1)
+    assert len(p2) >= 1 and any("list_dir" in (x.content or "") for x in p2)
+    assert len(runtime.acp_tool_stream_accum) == 2
 
 
 def test_session_update_tool_call_update_seen_empty_tail_returns_none(
@@ -274,6 +262,7 @@ def test_session_update_tool_call_update_seen_empty_tail_returns_none(
                     "toolCallId": "tc-1",
                     "name": "list_dir",
                     "arguments": '{"path": "."}',
+                    "status": "pending",
                 },
             },
         },

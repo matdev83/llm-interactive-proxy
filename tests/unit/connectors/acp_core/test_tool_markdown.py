@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from src.connectors.acp_core.tool_markdown import (
-    DEFAULT_MAX_MARKDOWN_FIELD_CHARS,
     coalesce_acp_tool_call_update_session_dict,
     coalesce_acp_tool_session_dict,
     extract_tool_correlation_key,
     extract_tool_input,
     extract_tool_name,
     extract_tool_output,
-    format_tool_invocation_block,
-    format_tool_output_fragment,
-    format_tool_section,
-    normalize_display_value,
+    format_acp_tool_completion_summary,
+    format_acp_tool_status_line,
+    is_terminal_tool_status,
+    payload_utf8_byte_length,
 )
 
 
@@ -28,33 +27,35 @@ def test_extract_tool_fields() -> None:
     assert extract_tool_output(tc) == {"ok": True}
 
 
-def test_format_tool_section_includes_input_and_output() -> None:
-    text = format_tool_section(
-        "todowrite",
-        input_obj={"todos": [{"content": "x", "status": "completed"}]},
-        output_obj=[{"content": "x", "status": "completed"}],
+def test_format_acp_tool_status_line_plain() -> None:
+    assert format_acp_tool_status_line("in_progress") == "Status: in_progress\n"
+
+
+def test_format_acp_tool_completion_summary_shape() -> None:
+    text = format_acp_tool_completion_summary(
+        "list_dir",
+        input_bytes=12,
+        output_bytes=34,
+        started_iso="2026-01-01T00:00:00+00:00",
+        ended_iso="2026-01-01T00:00:01+00:00",
+        elapsed_s=1.25,
     )
-    assert "**Tool: todowrite**" in text
-    assert "**Input:**" in text
-    assert "```json" in text
-    assert "**Output:**" in text
+    assert text.startswith("Tool: list_dir")
+    assert "Input size: 12 bytes" in text
+    assert "Output size: 34 bytes" in text
+    assert "Started: 2026-01-01T00:00:00+00:00" in text
+    assert "Ended: 2026-01-01T00:00:01+00:00" in text
+    assert "(1.250 s)" in text
 
 
-def test_format_tool_output_fragment_status_only() -> None:
-    frag = format_tool_output_fragment(None, status="complete")
-    assert "**Status:** complete" in frag
+def test_payload_utf8_byte_length() -> None:
+    assert payload_utf8_byte_length({"a": 1}) > 0
+    assert payload_utf8_byte_length("hello") == 5
 
 
-def test_normalize_display_value_truncates() -> None:
-    long = "x" * (DEFAULT_MAX_MARKDOWN_FIELD_CHARS + 50)
-    out = normalize_display_value(long, max_chars=100)
-    assert len(out) <= 100 + len("\n\n[truncated]")
-    assert "[truncated]" in out
-
-
-def test_format_tool_invocation_block() -> None:
-    block = format_tool_invocation_block("read_file", None)
-    assert "**Tool: read_file**" in block
+def test_is_terminal_tool_status() -> None:
+    assert is_terminal_tool_status("completed")
+    assert not is_terminal_tool_status("in_progress")
 
 
 def test_coalesce_flat_acp_tool_call_shape() -> None:
@@ -86,18 +87,3 @@ def test_coalesce_tool_call_update_flattens_content_blocks() -> None:
     merged = coalesce_acp_tool_call_update_session_dict(upd)
     out = extract_tool_output(merged)
     assert out == "Found 3 files"
-
-
-def test_format_tool_section_escapes_nested_triple_backticks_in_output() -> None:
-    text = format_tool_section(
-        "run",
-        output_obj="line1\n```python\nprint(1)\n```\nline2",
-    )
-    assert "```python" in text
-    assert text.count("```") >= 4
-    lines = [
-        ln
-        for ln in text.splitlines()
-        if ln.strip() and all(c == "`" for c in ln.strip())
-    ]
-    assert any(len(ln.strip()) > 3 for ln in lines)

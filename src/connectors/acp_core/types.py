@@ -82,6 +82,21 @@ class AcpStreamPiece:
     reasoning_content: str | None = None
 
 
+@dataclass(slots=True)
+class AcpToolStreamAccum:
+    """Per-tool-call state for one ACP prompt stream (sizes and timing only)."""
+
+    tool_name: str = "tool"
+    started_wall_iso: str = ""
+    started_perf: float = 0.0
+    ended_wall_iso: str | None = None
+    ended_perf: float | None = None
+    last_status: str | None = None
+    summary_emitted: bool = False
+    last_input_bytes: int = 0
+    last_output_bytes: int = 0
+
+
 @dataclass(frozen=True, slots=True)
 class HistoryState:
     """Tracks how much of ``processed_messages`` has been applied to the ACP agent.
@@ -111,12 +126,7 @@ class ACPProcessRuntime:
     request_lock: Any = field(default=None)
     cancellation_lock: Any = field(default=None)
     cancellation_event: Any = field(default=None)
-    #: Keys (``toolCallId`` / synthetic ``__anon__:N``) for which a tool invocation
-    #: block was emitted on the current ACP read stream; cleared when a prompt stream starts.
-    acp_tool_invocation_emitted: set[str] = field(default_factory=set)
+    #: Per correlation key (``toolCallId`` / ``__anon__:N``) for the current stream.
+    acp_tool_stream_accum: dict[str, AcpToolStreamAccum] = field(default_factory=dict)
     acp_anon_tool_seq: int = 0
     acp_last_anon_stream_key: str | None = None
-    #: True after any assistant-visible ``content`` (message or tool markdown).
-    #: Used to route later ``agent_thought_chunk`` into ``content`` so UIs keep
-    #: chronological order instead of merging into the first reasoning bubble.
-    acp_stream_had_main_body_content: bool = False

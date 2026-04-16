@@ -258,9 +258,7 @@ class TestGeminiCliAcpProtocol:
 
         assert fragments == [
             AcpStreamPiece(content="Hello"),
-            AcpStreamPiece(
-                content="\n\n---\n\n**Thinking**\n\nignored",
-            ),
+            AcpStreamPiece(reasoning_content="ignored"),
         ]
 
 
@@ -276,11 +274,15 @@ class TestGeminiCliAcpChatCompletions:
             _: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[AcpStreamPiece, None]:
             yield AcpStreamPiece(reasoning_content="planning…\n")
+            yield AcpStreamPiece(content="Status: completed\n")
             yield AcpStreamPiece(
-                content="---\n\n**Tool: read_file**\n\n**Input:**\n\n```json\n{}\n```\n\n"
+                content="Tool: read_file\n"
+                "Input size: 2 bytes\n"
+                "Started: 2026-01-01T00:00:00+00:00\n"
+                "Ended: 2026-01-01T00:00:01+00:00 (0.000 s)\n"
+                "Output size: 4 bytes\n\n"
             )
             yield AcpStreamPiece(content="Hello")
-            yield AcpStreamPiece(content="**Output:**\n\n```\ndone\n```\n\n")
             yield AcpStreamPiece(content=" world")
 
         with (
@@ -300,9 +302,9 @@ class TestGeminiCliAcpChatCompletions:
         assert isinstance(response.content, dict)
         message = response.content["choices"][0]["message"]
         c = message["content"]
-        assert c.startswith("---")
         assert "Hello" in c and "world" in c
-        assert "**Tool: read_file**" in c
+        assert "Tool: read_file" in c
+        assert "Input size:" in c
         assert message["reasoning_content"] == "planning…\n"
 
     async def test_non_streaming_chat_completions(

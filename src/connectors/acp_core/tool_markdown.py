@@ -1,121 +1,93 @@
-"""Shared Markdown rendering for ACP tool invocations and results."""
+"""ACP tool-call helpers: payload coalescing, byte sizes, and compact summaries."""
 
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
-# Per fenced field body (after formatting); avoids huge SSE / session/prompt payloads.
-DEFAULT_MAX_MARKDOWN_FIELD_CHARS = 64_000
+_TERMINAL_TOOL_STATUSES = frozenset(
+    {
+        "completed",
+        "complete",
+        "failed",
+        "error",
+        "cancelled",
+        "canceled",
+        "rejected",
+        "done",
+    }
+)
 
-_TRUNCATION_NOTICE = "\n\n[truncated]"
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _truncate(text: str, max_chars: int) -> str:
-    if max_chars <= 0 or len(text) <= max_chars:
-        return text
-    return text[:max_chars] + _TRUNCATION_NOTICE
-
-
-def normalize_display_value(value: Any, *, max_chars: int) -> str:
-    """Coerce a value to a readable string for fenced Markdown blocks."""
+def payload_utf8_byte_length(value: Any) -> int:
+    """UTF-8 byte length of a JSON/stringified representation (no raw streaming)."""
     if value is None:
-        return ""
+        return 0
     if isinstance(value, str):
-        stripped = value.strip()
-        if stripped.startswith(("{", "[")):
-            try:
-                parsed = json.loads(stripped)
-                return _truncate(
-                    json.dumps(parsed, indent=2, ensure_ascii=False),
-                    max_chars,
-                )
-            except json.JSONDecodeError:
-                pass
-        return _truncate(value, max_chars)
+        return len(value.encode("utf-8"))
     try:
-        return _truncate(
-            json.dumps(value, indent=2, ensure_ascii=False),
-            max_chars,
-        )
+        return len(json.dumps(value, ensure_ascii=False, default=str).encode("utf-8"))
     except (TypeError, ValueError):
-        return _truncate(str(value), max_chars)
+        return len(str(value).encode("utf-8"))
 
 
-def _fence_run_length(body: str) -> int:
-    max_run = 0
-    run = 0
-    for ch in body:
-        if ch == "`":
-            run += 1
-            if run > max_run:
-                max_run = run
-        else:
-            run = 0
-    return max_run
+def format_acp_tool_status_line(status: str) -> str:
+    return f"Status: {status.strip()}\n"
 
 
-def _fence(language: str, body: str) -> str:
-    inner = body.rstrip("\n")
-    fence_len = max(3, _fence_run_length(inner) + 1)
-    fence = "`" * fence_len
-    lang = language or ""
-    return f"{fence}{lang}\n{inner}\n{fence}\n"
-
-
-def format_tool_section(
-    name: str,
+def format_acp_tool_completion_summary(
+    tool_name: str,
     *,
-    input_obj: Any | None = None,
-    output_obj: Any | None = None,
-    max_field_chars: int = DEFAULT_MAX_MARKDOWN_FIELD_CHARS,
+    input_bytes: int,
+    output_bytes: int,
+    started_iso: str,
+    ended_iso: str,
+    elapsed_s: float,
 ) -> str:
-    """Full block: horizontal rule, tool title, optional Input/Output fences."""
-    parts: list[str] = ["---\n\n", f"**Tool: {name}**\n\n"]
-    if input_obj is not None:
-        input_text = normalize_display_value(input_obj, max_chars=max_field_chars)
-        if input_text:
-            parts.append("**Input:**\n\n")
-            parts.append(_fence("json", input_text))
-            parts.append("\n")
-    if output_obj is not None:
-        out_text = normalize_display_value(output_obj, max_chars=max_field_chars)
-        if out_text:
-            parts.append("**Output:**\n\n")
-            parts.append(_fence("", out_text))
-            parts.append("\n")
-    return "".join(parts)
+    """Single compact block after a tool finishes (no raw I/O)."""
+    lines = [
+        f"Tool: {tool_name}",
+        f"Input size: {input_bytes} bytes",
+        f"Started: {started_iso}",
+        f"Ended: {ended_iso} ({elapsed_s:.3f} s)",
+        f"Output size: {output_bytes} bytes",
+        "",
+    ]
+    return "\n".join(lines)
 
 
-def format_tool_invocation_block(
-    name: str,
-    input_obj: Any | None,
+def format_transcript_assistant_tool_record(name: str, arguments: Any) -> str:
+    """History text for an assistant tool call (sizes only)."""
+    n = payload_utf8_byte_length(arguments)
+    return f"Tool: {name}\nInput size: {n} bytes\n"
+
+
+def format_transcript_tool_message_record(
     *,
-    max_field_chars: int = DEFAULT_MAX_MARKDOWN_FIELD_CHARS,
+    tool_call_id: str | None,
+    name: str | None,
+    content: Any,
 ) -> str:
-    """Tool + Input only (start of a tool interaction on the content channel)."""
-    return format_tool_section(
-        name, input_obj=input_obj, output_obj=None, max_field_chars=max_field_chars
-    )
-
-
-def format_tool_output_fragment(
-    output_obj: Any | None,
-    *,
-    status: str | None = None,
-    max_field_chars: int = DEFAULT_MAX_MARKDOWN_FIELD_CHARS,
-) -> str:
-    """Continuation fragment: Output fence and/or status line (no Tool header)."""
+    """History text for a ``role: tool`` message (output size only)."""
+    label = (name or "").strip() or "tool"
     parts: list[str] = []
-    if isinstance(status, str) and status.strip():
-        parts.append(f"**Status:** {status.strip()}\n\n")
-    if output_obj is not None:
-        out_text = normalize_display_value(output_obj, max_chars=max_field_chars)
-        if out_text:
-            parts.append("**Output:**\n\n")
-            parts.append(_fence("", out_text))
-            parts.append("\n")
-    return "".join(parts) if parts else ""
+    if isinstance(tool_call_id, str) and tool_call_id.strip():
+        parts.append(f"Tool call id: {tool_call_id.strip()}")
+    parts.append(f"Tool: {label}")
+    parts.append(f"Output size: {payload_utf8_byte_length(content)} bytes")
+    parts.append("")
+    return "\n".join(parts)
+
+
+def is_terminal_tool_status(status: str | None) -> bool:
+    if not isinstance(status, str) or not status.strip():
+        return False
+    return status.strip().lower() in _TERMINAL_TOOL_STATUSES
 
 
 def _flatten_acp_tool_content_blocks(val: Any) -> Any | None:
@@ -213,7 +185,7 @@ def coalesce_acp_tool_session_dict(update: dict[str, Any]) -> dict[str, Any]:
 
 
 def coalesce_acp_tool_call_update_session_dict(
-    update: dict[str, Any]
+    update: dict[str, Any],
 ) -> dict[str, Any]:
     """Like :func:`coalesce_acp_tool_session_dict` but overlays ``toolCallUpdate``."""
     base = coalesce_acp_tool_session_dict(update)
@@ -224,7 +196,7 @@ def coalesce_acp_tool_call_update_session_dict(
 
 
 def acp_tool_payload_should_emit(tc: dict[str, Any]) -> bool:
-    """False for empty heartbeats that would only render ``Tool: tool`` noise."""
+    """False for empty heartbeats."""
     if extract_tool_correlation_key(tc):
         return True
     if extract_tool_input(tc) is not None:
@@ -305,26 +277,3 @@ def extract_tool_correlation_key(tc: dict[str, Any]) -> str | None:
         if v is not None and str(v).strip():
             return str(v).strip()
     return None
-
-
-def format_transcript_tool_result(
-    *,
-    tool_call_id: str | None,
-    name: str | None,
-    content: Any,
-    max_field_chars: int = DEFAULT_MAX_MARKDOWN_FIELD_CHARS,
-) -> str:
-    """Markdown for a ``role: tool`` message in session transcripts."""
-    label_parts: list[str] = []
-    if isinstance(name, str) and name.strip():
-        label_parts.append(name.strip())
-    if isinstance(tool_call_id, str) and tool_call_id.strip():
-        label_parts.append(f"id={tool_call_id.strip()}")
-    label = " / ".join(label_parts) if label_parts else "tool"
-    body = normalize_display_value(content, max_chars=max_field_chars)
-    parts = ["---\n\n", f"**Tool result ({label})**\n\n"]
-    if body:
-        parts.append("**Output:**\n\n")
-        parts.append(_fence("", body))
-        parts.append("\n")
-    return "".join(parts)

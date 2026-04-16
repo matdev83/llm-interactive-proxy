@@ -22,9 +22,11 @@ from src.connectors.acp_core.tool_markdown import (
     extract_tool_input,
     extract_tool_name,
     extract_tool_output,
-    format_tool_invocation_block,
-    format_tool_output_fragment,
-    format_tool_section,
+    format_acp_tool_completion_summary,
+    format_acp_tool_status_line,
+    is_terminal_tool_status,
+    payload_utf8_byte_length,
+    utc_now_iso,
 )
 from src.connectors.acp_core.transcript import ACPTranscriptSerializer
 from src.connectors.acp_core.types import (
@@ -32,6 +34,7 @@ from src.connectors.acp_core.types import (
     ACPProcessRuntime,
     ACPSessionUpdate,
     AcpStreamPiece,
+    AcpToolStreamAccum,
     ACPUpdateContent,
     HistoryState,
 )
@@ -733,78 +736,128 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         runtime.acp_last_anon_stream_key = key
         return key
 
-    def _stream_piece_from_acp_tool_call(
+    @staticmethod
+    def _acp_update_tool_sizes_from_merged(
+        acc: AcpToolStreamAccum, merged: dict[str, Any]
+    ) -> None:
+        inp = extract_tool_input(merged)
+        acc.last_input_bytes = max(acc.last_input_bytes, payload_utf8_byte_length(inp))
+        out = extract_tool_output(merged)
+        if out is not None:
+            acc.last_output_bytes = max(
+                acc.last_output_bytes, payload_utf8_byte_length(out)
+            )
+
+    def _ensure_acp_tool_accum(
+        self, runtime: ACPProcessRuntime, key: str, tool_name: str
+    ) -> AcpToolStreamAccum:
+        acc = runtime.acp_tool_stream_accum.get(key)
+        if acc is None:
+            acc = AcpToolStreamAccum(tool_name=tool_name)
+            acc.started_wall_iso = utc_now_iso()
+            acc.started_perf = time.perf_counter()
+            runtime.acp_tool_stream_accum[key] = acc
+        elif tool_name and tool_name != "tool":
+            acc.tool_name = tool_name
+        return acc
+
+    @staticmethod
+    def _acp_mark_tool_ended_now(acc: AcpToolStreamAccum) -> None:
+        if acc.ended_wall_iso is None:
+            acc.ended_wall_iso = utc_now_iso()
+        if acc.ended_perf is None:
+            acc.ended_perf = time.perf_counter()
+
+    def _acp_status_pieces(
+        self, acc: AcpToolStreamAccum, status_str: str | None
+    ) -> list[AcpStreamPiece]:
+        if not isinstance(status_str, str) or not status_str.strip():
+            return []
+        s = status_str.strip()
+        if acc.last_status == s:
+            return []
+        acc.last_status = s
+        return [AcpStreamPiece(content=format_acp_tool_status_line(s))]
+
+    def _acp_try_emit_tool_summary(
+        self, runtime: ACPProcessRuntime, key: str, acc: AcpToolStreamAccum
+    ) -> list[AcpStreamPiece]:
+        _ = runtime, key
+        if acc.summary_emitted or not acc.started_wall_iso:
+            return []
+        self._acp_mark_tool_ended_now(acc)
+        end_wall = acc.ended_wall_iso or utc_now_iso()
+        end_perf = acc.ended_perf if acc.ended_perf is not None else time.perf_counter()
+        started_perf = acc.started_perf if acc.started_perf > 0 else end_perf
+        elapsed = max(0.0, end_perf - started_perf)
+        text = format_acp_tool_completion_summary(
+            acc.tool_name,
+            input_bytes=acc.last_input_bytes,
+            output_bytes=acc.last_output_bytes,
+            started_iso=acc.started_wall_iso,
+            ended_iso=end_wall,
+            elapsed_s=elapsed,
+        )
+        acc.summary_emitted = True
+        return [AcpStreamPiece(content=text)]
+
+    def _acp_pieces_for_tool_call(
         self, runtime: ACPProcessRuntime, upd: dict[str, Any]
-    ) -> AcpStreamPiece | None:
+    ) -> list[AcpStreamPiece]:
         merged = coalesce_acp_tool_session_dict(upd)
         if not merged or not acp_tool_payload_should_emit(merged):
-            return None
-        name = extract_tool_name(merged)
-        block = format_tool_invocation_block(name, extract_tool_input(merged))
-        if not block:
-            return None
+            return []
         key = self._resolve_tool_stream_key(runtime, merged, for_new_invocation=True)
-        runtime.acp_tool_invocation_emitted.add(key)
-        return AcpStreamPiece(content=block)
-
-    def _stream_piece_from_acp_tool_call_update(
-        self, runtime: ACPProcessRuntime, upd: dict[str, Any]
-    ) -> AcpStreamPiece | None:
-        merged = coalesce_acp_tool_call_update_session_dict(upd)
-        if not merged:
-            return None
-        key = self._resolve_tool_stream_key(runtime, merged, for_new_invocation=False)
-        if (
-            key not in runtime.acp_tool_invocation_emitted
-            and not acp_tool_payload_should_emit(merged)
-        ):
-            return None
         name = extract_tool_name(merged)
-        inp = extract_tool_input(merged)
-        out = extract_tool_output(merged)
+        acc = self._ensure_acp_tool_accum(runtime, key, name)
+        self._acp_update_tool_sizes_from_merged(acc, merged)
         status_raw = merged.get("status") or merged.get("state")
         status_str = status_raw.strip() if isinstance(status_raw, str) else None
-        seen = key in runtime.acp_tool_invocation_emitted
-        fragments: list[str] = []
+        pieces = self._acp_status_pieces(acc, status_str)
+        if is_terminal_tool_status(status_str):
+            pieces.extend(self._acp_try_emit_tool_summary(runtime, key, acc))
+        return pieces
 
-        if not seen:
-            if out is not None:
-                fragments.append(
-                    format_tool_section(name, input_obj=inp, output_obj=out)
-                )
-            elif inp is not None:
-                fragments.append(format_tool_invocation_block(name, inp))
-                if status_str:
-                    tail = format_tool_output_fragment(None, status=status_str)
-                    if tail:
-                        fragments.append(tail)
-            elif status_str:
-                fragments.append(format_tool_section(name))
-                tail = format_tool_output_fragment(None, status=status_str)
-                if tail:
-                    fragments.append(tail)
-            else:
-                return None
-        else:
-            tail = format_tool_output_fragment(
-                out if out is not None else None,
-                status=status_str,
-            )
-            if tail:
-                fragments.append(tail)
-        text = "".join(fragments)
-        if not text:
-            return None
-        if not seen:
-            runtime.acp_tool_invocation_emitted.add(key)
-        return AcpStreamPiece(content=text)
+    def _acp_pieces_for_tool_call_update(
+        self, runtime: ACPProcessRuntime, upd: dict[str, Any]
+    ) -> list[AcpStreamPiece]:
+        merged = coalesce_acp_tool_call_update_session_dict(upd)
+        if not merged:
+            return []
+        key = self._resolve_tool_stream_key(runtime, merged, for_new_invocation=False)
+        if (
+            key not in runtime.acp_tool_stream_accum
+            and not acp_tool_payload_should_emit(merged)
+        ):
+            return []
+        name = extract_tool_name(merged)
+        acc = self._ensure_acp_tool_accum(runtime, key, name)
+        self._acp_update_tool_sizes_from_merged(acc, merged)
+        status_raw = merged.get("status") or merged.get("state")
+        status_str = status_raw.strip() if isinstance(status_raw, str) else None
+        pieces = self._acp_status_pieces(acc, status_str)
+        if is_terminal_tool_status(status_str):
+            pieces.extend(self._acp_try_emit_tool_summary(runtime, key, acc))
+        return pieces
 
-    def _session_update_to_stream_piece(
+    def _flush_incomplete_acp_tool_streams(
+        self, runtime: ACPProcessRuntime
+    ) -> list[AcpStreamPiece]:
+        """Emit summaries for tools that did not send a terminal status."""
+        out: list[AcpStreamPiece] = []
+        for key, acc in list(runtime.acp_tool_stream_accum.items()):
+            if acc.summary_emitted or not acc.started_wall_iso:
+                continue
+            self._acp_mark_tool_ended_now(acc)
+            out.extend(self._acp_try_emit_tool_summary(runtime, key, acc))
+        return out
+
+    def _session_update_to_stream_pieces(
         self, response: ACPNotification, runtime: ACPProcessRuntime
-    ) -> AcpStreamPiece | None:
-        """Map a ``session/update`` JSON-RPC notification to a stream piece, if any."""
+    ) -> list[AcpStreamPiece]:
+        """Map a ``session/update`` JSON-RPC notification to zero or more stream pieces."""
         if response.method != ACP_UPDATE_METHOD or response.params is None:
-            return None
+            return []
         try:
             envelope = ACPSessionUpdate(**response.params)
         except Exception:
@@ -813,35 +866,38 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                     "ACP session/update params could not be parsed",
                     exc_info=True,
                 )
-            return None
+            return []
         upd = envelope.update
         kind = upd.get("sessionUpdate")
         if not isinstance(kind, str):
-            return None
+            return []
 
         text = self._text_from_acp_content_block(upd.get("content"))
 
         if kind == ACP_AGENT_MESSAGE_CHUNK:
             if text:
-                return AcpStreamPiece(content=text)
-            return None
+                return [AcpStreamPiece(content=text)]
+            return []
         if kind == ACP_AGENT_THOUGHT_CHUNK:
             if text:
-                if runtime.acp_stream_had_main_body_content:
-                    return AcpStreamPiece(
-                        content=f"\n\n---\n\n**Thinking**\n\n{text}"
-                    )
-                return AcpStreamPiece(reasoning_content=text)
-            return None
+                return [AcpStreamPiece(reasoning_content=text)]
+            return []
         if kind == "tool_call":
-            return self._stream_piece_from_acp_tool_call(runtime, upd)
+            return self._acp_pieces_for_tool_call(runtime, upd)
         if kind == "tool_call_update":
-            return self._stream_piece_from_acp_tool_call_update(runtime, upd)
+            return self._acp_pieces_for_tool_call_update(runtime, upd)
 
         progress = self._acp_progress_reasoning_line(kind, upd)
         if progress:
-            return AcpStreamPiece(reasoning_content=progress)
-        return None
+            return [AcpStreamPiece(reasoning_content=progress)]
+        return []
+
+    def _session_update_to_stream_piece(
+        self, response: ACPNotification, runtime: ACPProcessRuntime
+    ) -> AcpStreamPiece | None:
+        """Back-compat helper returning the first piece only (tests)."""
+        pieces = self._session_update_to_stream_pieces(response, runtime)
+        return pieces[0] if pieces else None
 
     async def _iter_acp_stream_pieces(
         self,
@@ -849,10 +905,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         prompt_request_id: int,
         response_model: str,
     ) -> AsyncGenerator[AcpStreamPiece, None]:
-        runtime.acp_tool_invocation_emitted.clear()
+        runtime.acp_tool_stream_accum.clear()
         runtime.acp_anon_tool_seq = 0
         runtime.acp_last_anon_stream_key = None
-        runtime.acp_stream_had_main_body_content = False
         try:
             while True:
                 if runtime.cancellation_event is not None:
@@ -905,15 +960,14 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                             message=f"ACP process error: {response.error.message}",
                             details=response.error.model_dump(),
                         )
+                    for flush_piece in self._flush_incomplete_acp_tool_streams(runtime):
+                        if flush_piece.content or flush_piece.reasoning_content:
+                            yield flush_piece
                     break
 
-                piece = self._session_update_to_stream_piece(response, runtime)
-                if piece is not None and (
-                    piece.content is not None or piece.reasoning_content is not None
-                ):
-                    yield piece
-                    if piece.content and piece.content.strip():
-                        runtime.acp_stream_had_main_body_content = True
+                for piece in self._session_update_to_stream_pieces(response, runtime):
+                    if piece.content is not None or piece.reasoning_content is not None:
+                        yield piece
         except asyncio.TimeoutError as exc:
             raise APITimeoutError(
                 message="Timeout waiting for ACP response",
