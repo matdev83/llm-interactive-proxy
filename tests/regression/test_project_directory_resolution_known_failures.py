@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest.mock import AsyncMock
 
 from src.core.config.app_config import AppConfig, SessionConfig
@@ -26,6 +26,15 @@ def test_repro_unix_path_parser_consumes_trailing_prose() -> None:
     prompt = "The project root is /path/to/project/ and the file is foo/bar."
 
     assert service._find_absolute_path_in_prompt(prompt) == "/path/to/project"
+
+
+def test_windows_drive_path_with_forward_slashes_is_extracted() -> None:
+    """Pi and other CLIs emit ``C:/Users/...``; Windows regex must still match."""
+
+    service = _build_service()
+    prompt = "Current working directory: C:/Users/Mateusz/tmp"
+    result = service._find_absolute_path_in_prompt(prompt)
+    assert result == str(PureWindowsPath("C:/Users/Mateusz/tmp"))
 
 
 def test_repro_deep_subdirectory_wins_over_actual_repo_root(tmp_path: Path) -> None:

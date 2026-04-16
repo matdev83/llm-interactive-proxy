@@ -11,6 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Literal, cast
 
+from src.connectors.acp_core.workspace_policy import (
+    first_usable_workspace_dir,
+    is_usable_workspace_directory,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.model_utils import (
@@ -22,6 +26,15 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.domain.session import Session
 from src.core.interfaces.backend_service import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
+from src.core.services.project_directory_agent_workspace_hints import (
+    is_claude_code_agent,
+    is_factory_droid_agent,
+    is_opencode_agent,
+    is_vscode_coding_fork_agent,
+    iter_factory_droid_pwd_directory_hint_lines,
+    opencode_extra_startup_hint_patterns,
+    vscode_fork_workspace_line_patterns,
+)
 from src.core.utils.xml_safety import XMLSafetyError, safe_xml_parse
 
 logger = logging.getLogger(__name__)
@@ -52,9 +65,23 @@ _WIN_FORBIDDEN = r":*?<>|\r\n\\/,\"';!?"
 _UNC_FORBIDDEN = r"\\:\r\n,\"';!?"
 _UNIX_FORBIDDEN = r"/\\:\r\n,\"';!? "
 
+# Windows paths with backslashes (classic ``C:\Users\...``).
 _WINDOWS_PATH_PATTERN = re.compile(
     rf"\b([a-zA-Z]:\\+(?:{_safe_comp(_WIN_FORBIDDEN)}+"
     rf"(?:\\+{_safe_comp(_WIN_FORBIDDEN)}*)*))(?=[\s,.;!?]|$)"
+)
+# Pi and other CLIs emit ``C:/Users/...`` (slashes only, no ``\`` in the path).
+# A single pattern mixing ``\`` and ``/`` as separators can merge prose like
+# ``C:\Windows and /etc/hosts`` into one bogus "path".
+_WIN_FORBIDDEN_SLASH_SEGMENT = r":*?<>|\r\n\\,\"';!?"
+_WINDOWS_PATH_SLASH_ONLY_PATTERN = re.compile(
+    rf"\b([a-zA-Z]:/(?:{_safe_comp(_WIN_FORBIDDEN_SLASH_SEGMENT)}+)"
+    rf"(?:/(?:{_safe_comp(_WIN_FORBIDDEN_SLASH_SEGMENT)}+))*)(?=[\s,.;!?]|$)",
+    re.IGNORECASE,
+)
+_PATH_SCAN_WINDOWS_PATTERNS: tuple[re.Pattern[str], ...] = (
+    _WINDOWS_PATH_PATTERN,
+    _WINDOWS_PATH_SLASH_ONLY_PATTERN,
 )
 # UNC pattern: Match 2+ backslashes at start (will be normalized later), then path components
 _UNC_PATH_PATTERN = re.compile(
@@ -267,7 +294,7 @@ class ProjectDirectoryResolutionService:
             return None
         if path.startswith("\\\\"):
             return "unc"
-        if re.match(r"^[a-zA-Z]:\\", path):
+        if re.match(r"^[a-zA-Z]:[\\/]", path):
             return "windows"
         if path.startswith("/"):
             return "unix"
@@ -462,7 +489,11 @@ class ProjectDirectoryResolutionService:
             return False
 
         match_count = 0
-        for pattern in (_WINDOWS_PATH_PATTERN, _UNC_PATH_PATTERN, _UNIX_PATH_PATTERN):
+        for pattern in (
+            *_PATH_SCAN_WINDOWS_PATTERNS,
+            _UNC_PATH_PATTERN,
+            _UNIX_PATH_PATTERN,
+        ):
             match_count += len(list(pattern.finditer(line)))
             if match_count >= 2:
                 return True
@@ -515,18 +546,122 @@ class ProjectDirectoryResolutionService:
             )
             return None
 
-    def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
+    def _try_authoritative_directory_from_trusted_message_bodies(
+        self, request: ChatRequest, session: Session | None = None
+    ) -> str | None:
+        """Apply cwd/workspace authority to full ``system``/``developer`` bodies.
+
+        ``_extract_trusted_startup_prompt`` aggregates path strings from hint
+        lines only, which drops prefixes like ``Current working directory:``.
+        Path-only blobs then lose authority and can resolve to the wrong
+        ancestor when tools or metadata mention many absolute paths.
+        """
+
+        agent = getattr(request, "agent", None)
+        if agent is None and session is not None:
+            agent = getattr(session, "agent", None)
+        for message in request.messages:
+            role = str(getattr(message, "role", "") or "").strip().lower()
+            if role not in _TRUSTED_STARTUP_MESSAGE_ROLES:
+                continue
+            content = self._normalize_content(getattr(message, "content", None))
+            if not content.strip():
+                continue
+            resolved = self._try_resolve_authoritative_cwd_hint_line(
+                content, agent=agent
+            )
+            if resolved:
+                return resolved
+
+        # Claude Code can move cwd / environment into the first user turn when
+        # ``--exclude-dynamic-system-prompt-sections`` is enabled (see CLI docs).
+        #
+        # Cline, Roo Code, and Kilo Code (VS Code) similarly put workspace / cwd lines
+        # in user messages (environment block), while ``startup`` may only carry
+        # shorter tool-derived paths; prose in the same message can otherwise win
+        # path consensus.
+        if agent and (
+            is_claude_code_agent(agent) or is_vscode_coding_fork_agent(agent)
+        ):
+            for message in request.messages:
+                role = str(getattr(message, "role", "") or "").strip().lower()
+                if role != "user":
+                    continue
+                content = self._normalize_content(getattr(message, "content", None))
+                if not content.strip():
+                    continue
+                resolved = self._try_resolve_authoritative_cwd_hint_line(
+                    content, agent=agent
+                )
+                if resolved:
+                    return resolved
+
+        return None
+
+    def _try_resolve_authoritative_cwd_hint_line(
+        self, prompt_text: str, *, agent: str | None = None
+    ) -> str | None:
+        """Resolve a directory from an explicit cwd/workspace hint line, literally.
+
+        Harnesses (e.g. Pi) end the developer prompt with ``Current working
+        directory: C:/...``. That path is the session CWD and must not be
+        replaced by git-marker ascent to an ancestor (for example when ``tmp``
+        has no markers but a parent directory does).
+        """
+
+        cwd_line_patterns = self._startup_hint_patterns_for_agent(agent)
+        for line in prompt_text.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if not any(p.search(stripped) for p in cwd_line_patterns):
+                continue
+            paths = self._extract_absolute_paths_from_text(stripped)
+            if len(paths) != 1:
+                continue
+            raw = paths[0]
+            path_type = self._detect_path_type(raw)
+            if path_type is None:
+                continue
+            directory, is_file = self._normalize_candidate_with_type(raw, path_type)
+            if not directory or is_file:
+                continue
+            if not self._is_valid_project_directory_candidate(directory, path_type):
+                continue
+            return directory
+        return None
+
+    def _find_absolute_path_in_prompt(
+        self, prompt_text: str, *, agent: str | None = None
+    ) -> str | None:
         """
         Find the best project directory from all absolute paths in the prompt.
 
         Deterministic strategy:
+        0) For Factory Droid (``factory-cli`` user agent), prefer the directory
+           line that immediately follows a ``% pwd`` / ``$ pwd`` shell transcript
+           line when present (see ``iter_factory_droid_pwd_directory_hint_lines``).
+        0b) If a line explicitly states cwd / workspace / ``Working directory`` with
+           exactly one absolute path on that line, use it literally (no marker ascent).
         1) Extract absolute path candidates from user prompt text.
         2) In filesystem-probe mode (single-user by default), prefer nearest
            marker-backed roots from local filesystem.
         3) Otherwise use a conservative text-only consensus.
         """
+        if agent and is_factory_droid_agent(agent):
+            for hint_line in iter_factory_droid_pwd_directory_hint_lines(prompt_text):
+                pwd_hit = self._find_absolute_path_in_prompt(hint_line, agent=None)
+                if pwd_hit:
+                    return pwd_hit
+
+        authority = self._try_resolve_authoritative_cwd_hint_line(
+            prompt_text, agent=agent
+        )
+        if authority:
+            return authority
+
         candidates: list[_PathCandidate] = []
-        patterns = (_WINDOWS_PATH_PATTERN, _UNC_PATH_PATTERN, _UNIX_PATH_PATTERN)
+        patterns = (*_PATH_SCAN_WINDOWS_PATTERNS, _UNC_PATH_PATTERN, _UNIX_PATH_PATTERN)
 
         # Step 1: Extract and validate all path candidates.
         for line in prompt_text.splitlines():
@@ -812,6 +947,24 @@ class ProjectDirectoryResolutionService:
             )
             return
 
+        extra_body = getattr(request, "extra_body", None)
+        if isinstance(extra_body, dict):
+            usable_from_extra = first_usable_workspace_dir(
+                extra_body,
+                is_usable=is_usable_workspace_directory,
+                require_absolute_hint=True,
+            )
+            if usable_from_extra is not None:
+                await self._persist_state(
+                    session,
+                    directory=str(usable_from_extra),
+                    message=(
+                        "Project directory from request extra_body workspace fields: "
+                        f"{usable_from_extra}"
+                    ),
+                )
+                return
+
         skip_reason = self._resolution_skip_reason(request)
         if skip_reason:
             if logger.isEnabledFor(logging.DEBUG):
@@ -821,7 +974,23 @@ class ProjectDirectoryResolutionService:
                 )
             return
 
-        startup_prompt_text = self._extract_trusted_startup_prompt(request)
+        authoritative_dir = (
+            self._try_authoritative_directory_from_trusted_message_bodies(
+                request, session
+            )
+        )
+        if authoritative_dir:
+            await self._persist_state(
+                session,
+                directory=authoritative_dir,
+                message=(
+                    "Project directory auto-detected "
+                    f"(authoritative cwd line in trusted message): {authoritative_dir}"
+                ),
+            )
+            return
+
+        startup_prompt_text = self._extract_trusted_startup_prompt(request, session)
         user_prompt_text = self._extract_user_prompt(request)
         prompt_text = "\n".join(
             part for part in (startup_prompt_text, user_prompt_text) if part
@@ -845,6 +1014,10 @@ class ProjectDirectoryResolutionService:
             )
             return
 
+        resolution_agent = getattr(request, "agent", None)
+        if resolution_agent is None:
+            resolution_agent = getattr(session, "agent", None)
+
         # Deterministic resolution
         if self._resolution_mode in ("deterministic", "hybrid"):
             if logger.isEnabledFor(logging.DEBUG):
@@ -852,10 +1025,16 @@ class ProjectDirectoryResolutionService:
                     "Attempting deterministic resolution (mode: %s)",
                     self._resolution_mode,
                 )
-            for source_name, source_prompt in (
+            source_pairs: tuple[tuple[str, str | None], ...] = (
                 ("startup", startup_prompt_text),
                 ("user", user_prompt_text),
-            ):
+            )
+            if resolution_agent and is_vscode_coding_fork_agent(resolution_agent):
+                source_pairs = (
+                    ("user", user_prompt_text),
+                    ("startup", startup_prompt_text),
+                )
+            for source_name, source_prompt in source_pairs:
                 if not source_prompt:
                     continue
                 if logger.isEnabledFor(logging.DEBUG):
@@ -863,7 +1042,9 @@ class ProjectDirectoryResolutionService:
                         "Attempting deterministic resolution from %s prompt",
                         source_name,
                     )
-                found_path = self._find_absolute_path_in_prompt(source_prompt)
+                found_path = self._find_absolute_path_in_prompt(
+                    source_prompt, agent=resolution_agent
+                )
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Deterministic resolution result (%s): %s",
@@ -1078,18 +1259,43 @@ class ProjectDirectoryResolutionService:
             for key, value in os.environ.items()
         )
 
-    def _extract_trusted_startup_prompt(self, request: ChatRequest) -> str | None:
+    def _startup_hint_patterns_for_agent(
+        self, agent: str | None
+    ) -> tuple[re.Pattern[str], ...]:
+        """Trusted per-line hint patterns, optionally extended for known agents."""
+
+        extra: list[re.Pattern[str]] = []
+        if (
+            is_opencode_agent(agent)
+            or is_claude_code_agent(agent)
+            or is_vscode_coding_fork_agent(agent)
+        ):
+            extra.extend(opencode_extra_startup_hint_patterns())
+        if is_vscode_coding_fork_agent(agent):
+            extra.extend(vscode_fork_workspace_line_patterns())
+        return tuple(_TRUSTED_STARTUP_HINT_PATTERNS) + tuple(extra)
+
+    def _extract_trusted_startup_prompt(
+        self, request: ChatRequest, session: Session | None = None
+    ) -> str | None:
         """Extract trusted startup hints from structured request data and messages."""
         trusted_parts: list[str] = []
         trusted_parts.extend(self._extract_trusted_request_paths(request))
+        agent = getattr(request, "agent", None)
+        if agent is None and session is not None:
+            agent = getattr(session, "agent", None)
         for message in request.messages:
             role = str(getattr(message, "role", "") or "").strip().lower()
             if role not in _TRUSTED_STARTUP_MESSAGE_ROLES:
                 continue
             tool_calls = getattr(message, "tool_calls", None)
             if tool_calls:
-                trusted_parts.extend(self._extract_paths_from_tool_calls(tool_calls))
-            trusted_parts.extend(self._extract_trusted_startup_paths(message))
+                trusted_parts.extend(
+                    self._extract_paths_from_tool_calls(tool_calls, agent=agent)
+                )
+            trusted_parts.extend(
+                self._extract_trusted_startup_paths(message, agent=agent)
+            )
 
         if not trusted_parts:
             return None
@@ -1112,7 +1318,9 @@ class ProjectDirectoryResolutionService:
 
         return self._dedupe_strings(trusted_parts)
 
-    def _extract_trusted_startup_paths(self, message: Any) -> list[str]:
+    def _extract_trusted_startup_paths(
+        self, message: Any, *, agent: str | None = None
+    ) -> list[str]:
         trusted_parts: list[str] = []
 
         metadata = getattr(message, "metadata", None)
@@ -1121,11 +1329,15 @@ class ProjectDirectoryResolutionService:
 
         content = self._normalize_content(getattr(message, "content", None))
         if content.strip():
-            trusted_parts.extend(self._extract_trusted_paths_from_text(content))
+            trusted_parts.extend(
+                self._extract_trusted_paths_from_text(content, agent=agent)
+            )
 
         return self._dedupe_strings(trusted_parts)
 
-    def _extract_paths_from_tool_calls(self, tool_calls: Any) -> list[str]:
+    def _extract_paths_from_tool_calls(
+        self, tool_calls: Any, *, agent: str | None = None
+    ) -> list[str]:
         """Extract absolute paths from tool call arguments and extra content."""
         paths: list[str] = []
         if not tool_calls:
@@ -1152,7 +1364,9 @@ class ProjectDirectoryResolutionService:
                 parsed_arguments = self._parse_json_like_value(arguments)
                 if parsed_arguments is not None:
                     paths.extend(self._extract_paths_from_value(parsed_arguments))
-                paths.extend(self._extract_trusted_paths_from_text(arguments))
+                paths.extend(
+                    self._extract_trusted_paths_from_text(arguments, agent=agent)
+                )
             elif arguments is not None:
                 paths.extend(self._extract_paths_from_value(arguments))
 
@@ -1197,15 +1411,16 @@ class ProjectDirectoryResolutionService:
                 paths.extend(self._extract_paths_from_value(item))
         return self._dedupe_strings(paths)
 
-    def _extract_trusted_paths_from_text(self, text: str) -> list[str]:
+    def _extract_trusted_paths_from_text(
+        self, text: str, *, agent: str | None = None
+    ) -> list[str]:
         paths: list[str] = []
+        line_patterns = self._startup_hint_patterns_for_agent(agent)
         for line in text.splitlines():
             stripped = line.strip()
             if not stripped:
                 continue
-            if not any(
-                pattern.search(stripped) for pattern in _TRUSTED_STARTUP_HINT_PATTERNS
-            ):
+            if not any(pattern.search(stripped) for pattern in line_patterns):
                 continue
             paths.extend(self._extract_absolute_paths_from_text(stripped))
         return self._dedupe_strings(paths)
@@ -1215,6 +1430,7 @@ class ProjectDirectoryResolutionService:
         seen: set[str] = set()
         for path_type, pattern in (
             ("windows", _WINDOWS_PATH_PATTERN),
+            ("windows", _WINDOWS_PATH_SLASH_ONLY_PATTERN),
             ("unc", _UNC_PATH_PATTERN),
             ("unix", _UNIX_PATH_PATTERN),
         ):
@@ -1431,22 +1647,29 @@ class ProjectDirectoryResolutionService:
         # UNC
         if value.startswith("\\\\"):
             return True
-        # Windows
-        return bool(re.match(r"^[a-zA-Z]:\\", value))
+        # Windows (``C:\...`` or ``C:/...``)
+        return bool(re.match(r"^[a-zA-Z]:[\\/]", value))
 
     def _resolution_skip_reason(self, request: ChatRequest) -> str | None:
-        tools = getattr(request, "tools", None)
-        if tools:
-            return "request includes tool definitions"
+        """Return a reason to skip project-dir auto-detection, or None to proceed.
+
+        Coding agents (OpenCode, Cline-like clients, etc.) routinely send tool
+        definitions on every request and use routed model ids such as
+        ``cursor-cli-acp:cursor/composer-2``. Those must not disable detection:
+        we only inspect trusted startup metadata and user-authored message text,
+        never tool JSON schemas.
+        """
 
         model_value = str(getattr(request, "model", "") or "").strip()
         if model_value:
             route_portion, separator, _ = model_value.partition("?")
             if separator:
                 return "request model includes URI parameters"
-            if has_explicit_backend_selector(model_value):
-                return "request model includes explicit backend selector"
-            if "/" in route_portion:
+            # OpenAI-style model-only selectors like ``anthropic/claude-3`` (no
+            # ``backend:`` prefix before the slash) are ambiguous for routing;
+            # skip auto-detection for those. Explicit ``backend:model`` strings
+            # may contain a slash inside the model segment (e.g. ``cursor/foo``).
+            if "/" in route_portion and not has_explicit_backend_selector(model_value):
                 return "request model uses vendor/model selector"
 
         user_prompt_text = self._extract_user_prompt(request)

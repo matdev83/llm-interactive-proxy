@@ -1,5 +1,5 @@
 import json
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Literal
 from unittest.mock import AsyncMock
 
@@ -794,6 +794,655 @@ class TestProjectDirectoryResolutionService:
 
         await service.maybe_resolve_project_directory(session, request)
 
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_not_called()
+
+    async def test_opencode_like_tools_and_routed_model_still_resolve_path(
+        self, mock_backend_service, mock_session_service, session
+    ) -> None:
+        """Coding agents send tools on every turn; routed models use backend:model syntax."""
+        win_path = "C:\\Users\\Dev\\opencode-app"
+        request = ChatRequest(
+            model="cursor-cli-acp:cursor/composer-2",
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content=f"Read the README under {win_path}",
+                )
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "bash",
+                        "description": "Run shell",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_path
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
+    async def test_opencode_working_directory_line_in_system_prompt(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """OpenCode injects ``Working directory: <abs>`` (not ``current working directory``)."""
+        project_root = tmp_path / "turbodom"
+        project_root.mkdir(parents=True)
+        win_path = str(project_root.resolve())
+        request = ChatRequest(
+            model="cursor-cli-acp:cursor/composer-2",
+            agent="opencode/1.2.26 ai-sdk/provider-utils/3.0.20 runtime/bun/1.3.10",
+            messages=[
+                ChatMessage(
+                    role="system",
+                    content=(
+                        "You are a coding agent.\n"
+                        f"Working directory: {win_path}\n"
+                        "Use absolute paths."
+                    ),
+                ),
+                ChatMessage(role="user", content="Say hello."),
+            ],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_path
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_opencode_working_directory_uses_session_agent_when_request_has_no_agent(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """OpenCode patterns apply when agent is only on session (e.g. prior enricher path)."""
+        project_root = tmp_path / "session-agent-root"
+        project_root.mkdir(parents=True)
+        win_path = str(project_root.resolve())
+        session.agent = (
+            "opencode/1.2.26 ai-sdk/provider-utils/3.0.20 runtime/bun/1.3.10"
+        )
+        request = ChatRequest(
+            model="cursor-cli-acp:cursor/composer-2",
+            messages=[
+                ChatMessage(
+                    role="system",
+                    content=(
+                        "You are a coding agent.\n" f"Working directory: {win_path}\n"
+                    ),
+                ),
+                ChatMessage(role="user", content="Say hello."),
+            ],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_path
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_factory_droid_pwd_transcript_wins_over_other_absolute_paths(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Factory Droid puts cwd on the line after ``% pwd`` in the user transcript."""
+        repo_a = tmp_path / "repo-a"
+        repo_b = tmp_path / "repo-b"
+        repo_a.mkdir(parents=True)
+        repo_b.mkdir(parents=True)
+        path_a = str(repo_a.resolve())
+        path_b = str(repo_b.resolve())
+        user_blob = (
+            "Context from shell (not part of the user question):\n\n"
+            "% pwd\n"
+            f"{path_a}\n\n"
+            f"Documentation mentions sibling checkout at `{path_b}`.\n"
+        )
+        request = ChatRequest(
+            model="test-model",
+            agent="factory-cli/0.99.0",
+            messages=[ChatMessage(role="user", content=user_blob)],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == path_a
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_pi_harness_developer_forward_slash_cwd_resolves(
+        self, mock_backend_service, mock_session_service, session
+    ) -> None:
+        """Pi puts ``Current working directory: C:/...`` in a ``developer`` message."""
+
+        cwd = str(PureWindowsPath("C:/Users/Mateusz/tmp"))
+        request = ChatRequest(
+            model="alias:minimax",
+            agent="OpenAI/JS 6.26.0",
+            messages=[
+                ChatMessage(
+                    role="developer",
+                    content=(
+                        "You are an expert coding assistant operating inside pi.\n"
+                        "Current date: 2026-04-16\n"
+                        "Current working directory: C:/Users/Mateusz/tmp\n"
+                    ),
+                ),
+                ChatMessage(role="user", content="Are there any local changes?"),
+            ],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == cwd
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_pi_developer_cwd_wins_when_tools_carry_many_user_paths(
+        self, mock_backend_service, mock_session_service, session
+    ) -> None:
+        """Aggregated startup paths must not hide Pi's cwd line (see trusted bodies pass)."""
+
+        cwd = str(PureWindowsPath("C:/Users/Mateusz/tmp"))
+        request = ChatRequest(
+            model="alias:minimax",
+            agent="OpenAI/JS 6.26.0",
+            messages=[
+                ChatMessage(
+                    role="developer",
+                    content=(
+                        "You are an expert coding assistant operating inside pi.\n"
+                        "Also see C:\\Users\\Mateusz\\other and "
+                        "C:\\Users\\Mateusz\\source\\repos\\unrelated for context.\n"
+                        "Current working directory: C:/Users/Mateusz/tmp\n"
+                    ),
+                ),
+                ChatMessage(role="user", content="status"),
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": (
+                            "Reads C:\\Users\\Mateusz\\AppData\\x and "
+                            "C:\\Users\\Mateusz\\source\\repos\\y\\z"
+                        ),
+                    },
+                }
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == cwd
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_claude_code_working_directory_in_system_wins_over_api_doc_paths(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Claude Code injects ``Working directory:``; system prompt also cites ``/v1/...`` API paths."""
+
+        repo = tmp_path / "llm-interactive-proxy"
+        repo.mkdir()
+        win_path = str(repo.resolve())
+        system_blob = (
+            "You are Claude Code, Anthropic's official CLI for Claude.\n"
+            "The API supports POST /v1/code/triggers and GET /v1/messages.\n"
+            f"Working directory: {win_path}\n"
+        )
+        request = ChatRequest(
+            model="qwen-oauth:qwen/coder-model",
+            agent="claude-cli/2.1.92 (external, cli)",
+            messages=[
+                ChatMessage(role="system", content=system_blob),
+                ChatMessage(role="user", content="Hello"),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_path
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_claude_code_working_directory_in_first_user_message(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """When dynamic sections are moved out of system, cwd can appear only on the first user turn."""
+
+        repo = tmp_path / "proj"
+        repo.mkdir()
+        win_path = str(repo.resolve())
+        request = ChatRequest(
+            model="test-model",
+            agent="claude-cli/2.1.0",
+            messages=[
+                ChatMessage(
+                    role="system",
+                    content="You are Claude Code. Docs mention /v1/code/triggers.",
+                ),
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "Context:\n"
+                        f"Working directory: {win_path}\n\n"
+                        "Please summarize the repo."
+                    ),
+                ),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_path
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_cline_workspace_path_in_first_user_turn_is_authoritative(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Cline puts ``Workspace Path:`` in the first user message; short startup must not win first."""
+
+        repo = tmp_path / "llm-interactive-proxy"
+        repo.mkdir()
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        win_repo = str(repo.resolve())
+        win_parent = str(parent.resolve())
+        request = ChatRequest(
+            model="test-model",
+            agent="Cline/3.78.0",
+            messages=[
+                ChatMessage(role="system", content="You are a helpful assistant."),
+                ChatMessage(
+                    role="user",
+                    content=(
+                        f"Workspace Path: {win_repo}\n\n"
+                        f"Context also references tools under {win_parent}.\n"
+                    ),
+                ),
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "x",
+                        "description": f"Runs in {win_parent}",
+                    },
+                }
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_repo
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_cline_workspace_folder_label_in_user_turn_is_authoritative(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Cline may emit ``Workspace folder:`` (vscode_fork hint), not only ``Workspace path``."""
+
+        repo = tmp_path / "cline-ws-folder"
+        repo.mkdir()
+        win_repo = str(repo.resolve())
+        request = ChatRequest(
+            model="test-model",
+            agent="Cline/3.78.0",
+            messages=[
+                ChatMessage(role="user", content=f"Workspace folder: {win_repo}\n"),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_repo
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_roo_code_workspace_path_in_first_user_turn_is_authoritative(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Roo Code (VS Code) matches Cline-style environment lines on the first user turn."""
+
+        repo = tmp_path / "llm-interactive-proxy"
+        repo.mkdir()
+        noise = tmp_path / "research-volatility"
+        noise.mkdir()
+        win_repo = str(repo.resolve())
+        win_noise = str(noise.resolve())
+        request = ChatRequest(
+            model="test-model",
+            agent="RooCode/3.52.1",
+            messages=[
+                ChatMessage(role="system", content="You are a helpful assistant."),
+                ChatMessage(
+                    role="user",
+                    content=(
+                        f"Workspace Path: {win_repo}\n\n"
+                        f"See also sibling work under {win_noise} for examples.\n"
+                    ),
+                ),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_repo
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_roo_code_workspace_folder_label_in_second_user_message(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Roo may use ``Workspace folder:`` and split stub + environment across user turns."""
+
+        repo = tmp_path / "llm-interactive-proxy"
+        repo.mkdir()
+        win_repo = str(repo.resolve())
+        request = ChatRequest(
+            model="test-model",
+            agent="RooCode/3.52.1",
+            messages=[
+                ChatMessage(role="user", content="(task stub)"),
+                ChatMessage(
+                    role="user",
+                    content=f"Workspace folder: {win_repo}\n\nProceed.\n",
+                ),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_repo
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_kilo_code_workspace_path_in_user_turn_is_authoritative(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Kilo Code uses the same Cline-family ``Workspace Path:`` style user preamble."""
+
+        repo = tmp_path / "kilo-sandbox"
+        repo.mkdir()
+        win_repo = str(repo.resolve())
+        ua = "Kilo-Code/7.2.10 ai-sdk/provider-utils/4.0.21 runtime/bun/1.3.11"
+        request = ChatRequest(
+            model="test-model",
+            agent=ua,
+            messages=[
+                ChatMessage(role="system", content="You are a helpful assistant."),
+                ChatMessage(
+                    role="user",
+                    content=f"Workspace Path: {win_repo}\n\nHello.\n",
+                ),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_repo
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_kilo_working_directory_line_in_user_turn_is_authoritative(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Kilo gets ``Working directory:`` hint patterns like other vscode forks."""
+
+        repo = tmp_path / "kilo-wd"
+        repo.mkdir()
+        win_repo = str(repo.resolve())
+        ua = "Kilo-Code/7.2.10 ai-sdk/provider-utils/4.0.21 runtime/bun/1.3.11"
+        request = ChatRequest(
+            model="test-model",
+            agent=ua,
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content=f"Working directory: {win_repo}\n",
+                ),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_repo
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_kilo_code_workspace_folder_in_second_user_message(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Kilo may split a short first user stub from the environment block on a later user turn."""
+
+        repo = tmp_path / "kilo-second-user"
+        repo.mkdir()
+        win_repo = str(repo.resolve())
+        ua = "Kilo-Code/7.2.10 ai-sdk/provider-utils/4.0.21 runtime/bun/1.3.11"
+        request = ChatRequest(
+            model="test-model",
+            agent=ua,
+            messages=[
+                ChatMessage(role="user", content="(task stub)"),
+                ChatMessage(
+                    role="user",
+                    content=f"Workspace folder: {win_repo}\n\nProceed.\n",
+                ),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_repo
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_non_opencode_working_directory_line_not_trusted_in_system(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Generic clients: ``Working directory:`` alone is not a trusted hint line."""
+        project_root = tmp_path / "other-root"
+        project_root.mkdir(parents=True)
+        win_path = str(project_root.resolve())
+        request = ChatRequest(
+            model="test-model",
+            agent="some-other-cli/1.0",
+            messages=[
+                ChatMessage(
+                    role="system",
+                    content=f"Working directory: {win_path}\n",
+                ),
+                ChatMessage(role="user", content="noop"),
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir is None
+
+    async def test_extra_body_workspace_fields_set_project_dir(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        workspace = tmp_path / "from-extra"
+        workspace.mkdir()
+        request = ChatRequest(
+            model="cursor-cli-acp:cursor/composer-2",
+            messages=[ChatMessage(role="user", content="hello")],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+            extra_body={"project_dir": str(workspace)},
+        )
+        config = create_app_config(
+            "deterministic",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == str(workspace.resolve())
+        mock_backend_service.call_completion.assert_not_called()
+
+    async def test_vendor_model_selector_still_skips_with_tools(
+        self, mock_backend_service, mock_session_service, session
+    ) -> None:
+        """Model-only ``provider/model`` selectors remain skipped (ambiguous routing)."""
+        request = ChatRequest(
+            model="openai/gpt-4o",
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content="Work in C:\\Users\\Dev\\my-app",
+                )
+            ],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "read",
+                        "description": "Read file",
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                }
+            ],
+        )
+        config = create_app_config(
+            "deterministic",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir is None
         mock_backend_service.call_completion.assert_not_called()
         mock_session_service.update_session.assert_not_called()
 
