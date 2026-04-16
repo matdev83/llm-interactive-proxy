@@ -17,14 +17,13 @@ from typing import Any
 from src.connectors.acp_core.tool_markdown import (
     acp_tool_payload_should_emit,
     coalesce_acp_tool_call_update_session_dict,
-    coalesce_acp_tool_session_dict,
     extract_tool_correlation_key,
     extract_tool_input,
     extract_tool_name,
     extract_tool_output,
     format_acp_tool_completion_summary,
-    format_acp_tool_status_line,
     is_terminal_tool_status,
+    iter_coalesced_acp_tool_session_dicts,
     payload_utf8_byte_length,
     utc_now_iso,
 )
@@ -684,12 +683,12 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
     def _text_from_acp_content_block(content: Any) -> str | None:
         """Extract human-readable text from a session/update ``content`` block."""
         if isinstance(content, dict):
-            raw_text = content.get("text")
-            if content.get("type") == "text" and isinstance(raw_text, str):
-                return raw_text
             td = content.get("textDelta")
             if isinstance(td, str) and td:
                 return td
+            raw_text = content.get("text")
+            if content.get("type") == "text" and isinstance(raw_text, str):
+                return raw_text
             try:
                 normalized = ACPUpdateContent(**content)
             except Exception:
@@ -697,6 +696,48 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             if normalized.type == "text" and isinstance(normalized.text, str):
                 return normalized.text
         return None
+
+    @staticmethod
+    def _open_thinking_block(text: str) -> str:
+        """Open a visible thinking block for clients that cannot segment reasoning."""
+
+        return f"Thinking:\n{text}"
+
+    @staticmethod
+    def _append_thinking_block(text: str) -> str:
+        """Append incremental text inside an already-open thinking block."""
+
+        return text
+
+    @staticmethod
+    def _close_thinking_block() -> str:
+        """Close a visible thinking block before ordinary content resumes."""
+
+        return "\n\n"
+
+    def _thinking_content_piece(
+        self, runtime: ACPProcessRuntime, text: str
+    ) -> AcpStreamPiece:
+        if runtime.acp_thinking_block_open:
+            return AcpStreamPiece(content=self._append_thinking_block(text))
+        runtime.acp_thinking_block_open = True
+        return AcpStreamPiece(content=self._open_thinking_block(text))
+
+    def _prepend_thinking_close_if_needed(
+        self, runtime: ACPProcessRuntime, pieces: list[AcpStreamPiece]
+    ) -> list[AcpStreamPiece]:
+        if not runtime.acp_thinking_block_open:
+            return pieces
+        for index, piece in enumerate(pieces):
+            if piece.content is None:
+                continue
+            pieces[index] = AcpStreamPiece(
+                content=f"{self._close_thinking_block()}{piece.content}",
+                reasoning_content=piece.reasoning_content,
+            )
+            runtime.acp_thinking_block_open = False
+            return pieces
+        return pieces
 
     def _acp_progress_reasoning_line(
         self, session_update_kind: str, update: dict[str, Any]
@@ -768,21 +809,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         if acc.ended_perf is None:
             acc.ended_perf = time.perf_counter()
 
-    def _acp_status_pieces(
-        self, acc: AcpToolStreamAccum, status_str: str | None
-    ) -> list[AcpStreamPiece]:
-        if not isinstance(status_str, str) or not status_str.strip():
-            return []
-        s = status_str.strip()
-        if acc.last_status == s:
-            return []
-        acc.last_status = s
-        return [AcpStreamPiece(content=format_acp_tool_status_line(s))]
-
     def _acp_try_emit_tool_summary(
-        self, runtime: ACPProcessRuntime, key: str, acc: AcpToolStreamAccum
+        self, acc: AcpToolStreamAccum
     ) -> list[AcpStreamPiece]:
-        _ = runtime, key
         if acc.summary_emitted or not acc.started_wall_iso:
             return []
         self._acp_mark_tool_ended_now(acc)
@@ -799,24 +828,79 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             elapsed_s=elapsed,
         )
         acc.summary_emitted = True
+        acc.pending_terminal_summary = False
         return [AcpStreamPiece(content=text)]
+
+    def _acp_terminal_summary_pieces(
+        self,
+        runtime: ACPProcessRuntime,
+        key: str,
+        acc: AcpToolStreamAccum,
+        merged: dict[str, Any],
+        status_str: str | None,
+        *,
+        allow_defer: bool,
+    ) -> list[AcpStreamPiece]:
+        pieces: list[AcpStreamPiece] = []
+        if (
+            acc.pending_terminal_summary
+            and not acc.summary_emitted
+            and (
+                extract_tool_output(merged) is not None
+                or acc.last_output_bytes > 0
+                or acc.last_input_bytes > 0
+            )
+        ):
+            pieces.extend(self._acp_try_emit_tool_summary(acc))
+        if not acc.summary_emitted and is_terminal_tool_status(status_str):
+            no_output = (
+                extract_tool_output(merged) is None and acc.last_output_bytes == 0
+            )
+            no_input = extract_tool_input(merged) is None and acc.last_input_bytes == 0
+            correlated = extract_tool_correlation_key(merged) is not None
+            if allow_defer and no_output and no_input and correlated:
+                acc.pending_terminal_summary = True
+            else:
+                pieces.extend(self._acp_try_emit_tool_summary(acc))
+        return pieces
+
+    @staticmethod
+    def _acp_tool_call_payload_is_multi_dict_list(upd: dict[str, Any]) -> bool:
+        nested = (
+            upd.get("toolCall") or upd.get("tool_call") or upd.get("toolInvocation")
+        )
+        if not isinstance(nested, list):
+            return False
+        return sum(1 for x in nested if isinstance(x, dict)) > 1
 
     def _acp_pieces_for_tool_call(
         self, runtime: ACPProcessRuntime, upd: dict[str, Any]
     ) -> list[AcpStreamPiece]:
-        merged = coalesce_acp_tool_session_dict(upd)
-        if not merged or not acp_tool_payload_should_emit(merged):
-            return []
-        key = self._resolve_tool_stream_key(runtime, merged, for_new_invocation=True)
-        name = extract_tool_name(merged)
-        acc = self._ensure_acp_tool_accum(runtime, key, name)
-        self._acp_update_tool_sizes_from_merged(acc, merged)
-        status_raw = merged.get("status") or merged.get("state")
-        status_str = status_raw.strip() if isinstance(status_raw, str) else None
-        pieces = self._acp_status_pieces(acc, status_str)
-        if is_terminal_tool_status(status_str):
-            pieces.extend(self._acp_try_emit_tool_summary(runtime, key, acc))
-        return pieces
+        out: list[AcpStreamPiece] = []
+        batch_multi = self._acp_tool_call_payload_is_multi_dict_list(upd)
+        for merged in iter_coalesced_acp_tool_session_dicts(upd):
+            if not merged or not acp_tool_payload_should_emit(merged):
+                continue
+            key = self._resolve_tool_stream_key(
+                runtime, merged, for_new_invocation=True
+            )
+            name = extract_tool_name(merged)
+            acc = self._ensure_acp_tool_accum(runtime, key, name)
+            self._acp_update_tool_sizes_from_merged(acc, merged)
+            status_raw = merged.get("status") or merged.get("state")
+            status_str = status_raw.strip() if isinstance(status_raw, str) else None
+            pieces = self._acp_terminal_summary_pieces(
+                # Batched multi-tool payloads lack a stable follow-up edge per item, so
+                # empty terminal entries emit immediately instead of waiting for an update.
+                runtime,
+                key,
+                acc,
+                merged,
+                status_str,
+                allow_defer=not batch_multi,
+            )
+            out.extend(pieces)
+        return out
 
     def _acp_pieces_for_tool_call_update(
         self, runtime: ACPProcessRuntime, upd: dict[str, Any]
@@ -835,21 +919,20 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         self._acp_update_tool_sizes_from_merged(acc, merged)
         status_raw = merged.get("status") or merged.get("state")
         status_str = status_raw.strip() if isinstance(status_raw, str) else None
-        pieces = self._acp_status_pieces(acc, status_str)
-        if is_terminal_tool_status(status_str):
-            pieces.extend(self._acp_try_emit_tool_summary(runtime, key, acc))
-        return pieces
+        return self._acp_terminal_summary_pieces(
+            runtime, key, acc, merged, status_str, allow_defer=True
+        )
 
     def _flush_incomplete_acp_tool_streams(
         self, runtime: ACPProcessRuntime
     ) -> list[AcpStreamPiece]:
-        """Emit summaries for tools that did not send a terminal status."""
+        """Emit summaries for tools still missing a final summary (incl. deferred terminal)."""
         out: list[AcpStreamPiece] = []
-        for key, acc in list(runtime.acp_tool_stream_accum.items()):
+        for _key, acc in list(runtime.acp_tool_stream_accum.items()):
             if acc.summary_emitted or not acc.started_wall_iso:
                 continue
             self._acp_mark_tool_ended_now(acc)
-            out.extend(self._acp_try_emit_tool_summary(runtime, key, acc))
+            out.extend(self._acp_try_emit_tool_summary(acc))
         return out
 
     def _session_update_to_stream_pieces(
@@ -876,28 +959,48 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
         if kind == ACP_AGENT_MESSAGE_CHUNK:
             if text:
-                return [AcpStreamPiece(content=text)]
+                return self._prepend_thinking_close_if_needed(
+                    runtime,
+                    [AcpStreamPiece(content=text)],
+                )
             return []
         if kind == ACP_AGENT_THOUGHT_CHUNK:
             if text:
-                return [AcpStreamPiece(reasoning_content=text)]
+                return [self._thinking_content_piece(runtime, text)]
             return []
         if kind == "tool_call":
-            return self._acp_pieces_for_tool_call(runtime, upd)
+            return self._prepend_thinking_close_if_needed(
+                runtime,
+                self._acp_pieces_for_tool_call(runtime, upd),
+            )
         if kind == "tool_call_update":
-            return self._acp_pieces_for_tool_call_update(runtime, upd)
+            return self._prepend_thinking_close_if_needed(
+                runtime,
+                self._acp_pieces_for_tool_call_update(runtime, upd),
+            )
 
         progress = self._acp_progress_reasoning_line(kind, upd)
         if progress:
-            return [AcpStreamPiece(reasoning_content=progress)]
+            return [self._thinking_content_piece(runtime, progress)]
         return []
 
     def _session_update_to_stream_piece(
         self, response: ACPNotification, runtime: ACPProcessRuntime
     ) -> AcpStreamPiece | None:
-        """Back-compat helper returning the first piece only (tests)."""
+        """Back-compat helper merging multiple ``content`` / ``reasoning`` pieces."""
         pieces = self._session_update_to_stream_pieces(response, runtime)
-        return pieces[0] if pieces else None
+        if not pieces:
+            return None
+        if len(pieces) == 1:
+            return pieces[0]
+        content_parts = [p.content for p in pieces if p.content is not None]
+        reasoning_parts = [
+            p.reasoning_content for p in pieces if p.reasoning_content is not None
+        ]
+        return AcpStreamPiece(
+            content="".join(content_parts) if content_parts else None,
+            reasoning_content="".join(reasoning_parts) if reasoning_parts else None,
+        )
 
     async def _iter_acp_stream_pieces(
         self,
@@ -908,6 +1011,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         runtime.acp_tool_stream_accum.clear()
         runtime.acp_anon_tool_seq = 0
         runtime.acp_last_anon_stream_key = None
+        runtime.acp_thinking_block_open = False
         try:
             while True:
                 if runtime.cancellation_event is not None:
@@ -960,6 +1064,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                             message=f"ACP process error: {response.error.message}",
                             details=response.error.model_dump(),
                         )
+                    if runtime.acp_thinking_block_open:
+                        runtime.acp_thinking_block_open = False
+                        yield AcpStreamPiece(content=self._close_thinking_block())
                     for flush_piece in self._flush_incomplete_acp_tool_streams(runtime):
                         if flush_piece.content or flush_piece.reasoning_content:
                             yield flush_piece

@@ -115,7 +115,91 @@ def test_session_update_thought_maps_to_reasoning_piece(
         },
     )
     piece = connector._session_update_to_stream_piece(msg, runtime)
-    assert piece == AcpStreamPiece(reasoning_content="planning step")
+    assert piece == AcpStreamPiece(content="Thinking:\nplanning step")
+
+
+def test_session_update_thought_prefers_text_delta_over_full_text(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    msg = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {
+                    "type": "text",
+                    "text": "cumulative snapshot",
+                    "textDelta": "delta only",
+                },
+            },
+        },
+    )
+    piece = connector._session_update_to_stream_piece(msg, runtime)
+    assert piece == AcpStreamPiece(content="Thinking:\ndelta only")
+
+
+def test_session_update_message_after_thought_closes_block(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    first = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {"type": "text", "text": "follow-up analysis"},
+            },
+        },
+    )
+    second = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "visible answer"},
+            },
+        },
+    )
+    piece1 = connector._session_update_to_stream_piece(first, runtime)
+    piece2 = connector._session_update_to_stream_piece(second, runtime)
+    assert piece1 == AcpStreamPiece(content="Thinking:\nfollow-up analysis")
+    assert piece2 == AcpStreamPiece(content="\n\nvisible answer")
+
+
+def test_session_update_consecutive_thought_chunks_append_without_reopening(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    first = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {"type": "text", "text": "I now have a clear understanding"},
+            },
+        },
+    )
+    second = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "agent_thought_chunk",
+                "content": {"type": "text", "text": " and can proceed"},
+            },
+        },
+    )
+    piece1 = connector._session_update_to_stream_piece(first, runtime)
+    piece2 = connector._session_update_to_stream_piece(second, runtime)
+    assert piece1 == AcpStreamPiece(
+        content="Thinking:\nI now have a clear understanding"
+    )
+    assert piece2 == AcpStreamPiece(content=" and can proceed")
 
 
 def test_session_update_flat_acp_tool_call_spec_shape(
@@ -137,16 +221,17 @@ def test_session_update_flat_acp_tool_call_spec_shape(
         },
     )
     piece = connector._session_update_to_stream_piece(msg, runtime)
-    assert piece is not None and piece.content
-    assert piece.content.startswith("Status: pending")
+    assert piece is None
     flush = connector._flush_incomplete_acp_tool_streams(runtime)
     assert len(flush) == 1
-    assert "Tool: Reading configuration file" in flush[0].content
+    assert flush[0].content is not None
+    assert flush[0].content.startswith("---\n```text\nTool: Reading configuration file")
     assert "Input size:" in flush[0].content
     assert "Output size: 0 bytes" in flush[0].content
+    assert "Status:" not in flush[0].content
 
 
-def test_session_update_tool_call_emits_status_and_summary_when_completed(
+def test_session_update_tool_call_emits_summary_when_completed(
     connector: DummyAcpConnector,
 ) -> None:
     runtime = connector._create_runtime(Path("/tmp/ws"), "m")
@@ -166,7 +251,8 @@ def test_session_update_tool_call_emits_status_and_summary_when_completed(
     )
     pieces = connector._session_update_to_stream_pieces(msg, runtime)
     joined = "".join(p.content or "" for p in pieces)
-    assert "Status: completed" in joined
+    assert "Status:" not in joined
+    assert joined.startswith("---\n```text\nTool: read_file")
     assert "Tool: read_file" in joined
     assert "Input size:" in joined
     assert "/x" not in joined
@@ -208,13 +294,109 @@ def test_session_update_tool_call_update_emits_status_and_size_summary(
     )
     first = connector._session_update_to_stream_pieces(call, runtime)
     second = connector._session_update_to_stream_pieces(upd, runtime)
-    assert len(first) == 1
-    assert first[0].content == "Status: in_progress\n"
+    assert first == []
     joined = "".join(p.content or "" for p in second)
-    assert "Status: completed" in joined
+    assert "Status:" not in joined
+    assert joined.startswith("---\n```text\nTool: list_dir")
     assert "Tool: list_dir" in joined
     assert "Output size:" in joined
     assert "a.txt" not in joined
+
+
+def test_session_update_tool_call_list_emits_each_tool_separately(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    msg = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCall": [
+                    {"name": "read_file", "toolCallId": "x1", "status": "completed"},
+                    {"name": "list_dir", "toolCallId": "x2", "status": "completed"},
+                ],
+            },
+        },
+    )
+    pieces = connector._session_update_to_stream_pieces(msg, runtime)
+    joined = "".join(p.content or "" for p in pieces)
+    assert "read_file" in joined
+    assert "list_dir" in joined
+    assert len(runtime.acp_tool_stream_accum) == 2
+
+
+def test_session_update_tool_summary_defers_until_output_observed(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    early = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCall": {
+                    "toolCallId": "tc-1",
+                    "name": "list_dir",
+                    "status": "completed",
+                },
+            },
+        },
+    )
+    pieces1 = connector._session_update_to_stream_pieces(early, runtime)
+    joined1 = "".join(p.content or "" for p in pieces1)
+    assert "Status:" not in joined1
+    assert "Tool: list_dir" not in joined1
+    late = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call_update",
+                "toolCallUpdate": {
+                    "toolCallId": "tc-1",
+                    "name": "list_dir",
+                    "result": ["a.txt"],
+                },
+            },
+        },
+    )
+    pieces2 = connector._session_update_to_stream_pieces(late, runtime)
+    joined2 = "".join(p.content or "" for p in pieces2)
+    assert joined2.startswith("---\n```text\nTool: list_dir")
+    assert "Tool: list_dir" in joined2
+    assert "Output size:" in joined2
+    assert "a.txt" not in joined2
+
+
+def test_session_update_deferred_tool_summary_flushes_at_stream_end(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    early = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCall": {
+                    "toolCallId": "tc-1",
+                    "name": "list_dir",
+                    "status": "completed",
+                },
+            },
+        },
+    )
+    pieces = connector._session_update_to_stream_pieces(early, runtime)
+    assert pieces == []
+    flush = connector._flush_incomplete_acp_tool_streams(runtime)
+    assert len(flush) == 1
+    assert flush[0].content is not None
+    assert flush[0].content.startswith("---\n```text\nTool: list_dir")
+    assert "Input size: 0 bytes" in flush[0].content
+    assert "Output size: 0 bytes" in flush[0].content
 
 
 def test_session_update_multiple_tools_without_correlation_ids_emit_separately(
@@ -282,7 +464,7 @@ def test_session_update_tool_call_update_seen_empty_tail_returns_none(
     )
     first = connector._session_update_to_stream_piece(call, runtime)
     second = connector._session_update_to_stream_piece(redundant, runtime)
-    assert first is not None and first.content
+    assert first is None
     assert second is None
 
 
@@ -539,7 +721,7 @@ async def test_kill_all_runtimes_next_acquire_creates_new_runtime_object(
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_chat_completions_preserve_reasoning_content(
+async def test_non_streaming_chat_completions_include_visible_thinking_blocks(
     connector: DummyAcpConnector,
 ) -> None:
     connector.is_functional = True
@@ -549,9 +731,9 @@ async def test_non_streaming_chat_completions_preserve_reasoning_content(
     async def _mock_iter(
         _: ACPProcessRuntime, __: int, ___: str
     ) -> AsyncGenerator[AcpStreamPiece, None]:
-        yield AcpStreamPiece(reasoning_content="plan step\n")
+        yield AcpStreamPiece(content="<thinking>\nplan step\n")
+        yield AcpStreamPiece(content="\n</thinking>\n\n")
         yield AcpStreamPiece(content="Answer")
-        yield AcpStreamPiece(reasoning_content="tool finished\n")
 
     with (
         patch.object(connector, "_acquire_runtime", AsyncMock(return_value=runtime)),
@@ -567,8 +749,8 @@ async def test_non_streaming_chat_completions_preserve_reasoning_content(
     assert isinstance(response, ResponseEnvelope)
     assert isinstance(response.content, dict)
     message = response.content["choices"][0]["message"]
-    assert message["content"] == "Answer"
-    assert message["reasoning_content"] == "plan step\ntool finished\n"
+    assert message["content"] == "<thinking>\nplan step\n\n</thinking>\n\nAnswer"
+    assert "reasoning_content" not in message
 
 
 @pytest.mark.asyncio

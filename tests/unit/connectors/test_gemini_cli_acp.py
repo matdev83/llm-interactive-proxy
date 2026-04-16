@@ -241,6 +241,20 @@ class TestGeminiCliAcpProtocol:
                         },
                     },
                 ),
+                ACPNotification(
+                    method="session/update",
+                    params={
+                        "sessionId": "session-123",
+                        "update": {
+                            "sessionUpdate": "agent_thought_chunk",
+                            "content": {
+                                "type": "text",
+                                "text": "ignored cumulative",
+                                "textDelta": " more",
+                            },
+                        },
+                    },
+                ),
                 ACPNotification(id=7, result={"stopReason": "end_turn"}),
             ]
         )
@@ -258,12 +272,14 @@ class TestGeminiCliAcpProtocol:
 
         assert fragments == [
             AcpStreamPiece(content="Hello"),
-            AcpStreamPiece(reasoning_content="ignored"),
+            AcpStreamPiece(content="Thinking:\nignored"),
+            AcpStreamPiece(content=" more"),
+            AcpStreamPiece(content="\n\n"),
         ]
 
 
 class TestGeminiCliAcpChatCompletions:
-    async def test_non_streaming_chat_completions_preserve_reasoning_content(
+    async def test_non_streaming_chat_completions_include_visible_thinking_blocks(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector.is_functional = True
@@ -273,14 +289,16 @@ class TestGeminiCliAcpChatCompletions:
         async def _mock_iter(
             _: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[AcpStreamPiece, None]:
-            yield AcpStreamPiece(reasoning_content="planning…\n")
-            yield AcpStreamPiece(content="Status: completed\n")
+            yield AcpStreamPiece(content="Thinking:\nplanning…\n")
+            yield AcpStreamPiece(content="\n\n")
             yield AcpStreamPiece(
-                content="Tool: read_file\n"
+                content="---\n```text\n"
+                "Tool: read_file\n"
                 "Input size: 2 bytes\n"
                 "Started: 2026-01-01T00:00:00+00:00\n"
                 "Ended: 2026-01-01T00:00:01+00:00 (0.000 s)\n"
-                "Output size: 4 bytes\n\n"
+                "Output size: 4 bytes\n"
+                "```\n"
             )
             yield AcpStreamPiece(content="Hello")
             yield AcpStreamPiece(content=" world")
@@ -302,10 +320,11 @@ class TestGeminiCliAcpChatCompletions:
         assert isinstance(response.content, dict)
         message = response.content["choices"][0]["message"]
         c = message["content"]
+        assert "Thinking:\nplanning…" in c
         assert "Hello" in c and "world" in c
         assert "Tool: read_file" in c
         assert "Input size:" in c
-        assert message["reasoning_content"] == "planning…\n"
+        assert "reasoning_content" not in message
 
     async def test_non_streaming_chat_completions(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path

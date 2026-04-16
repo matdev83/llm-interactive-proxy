@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from typing import Any
 
@@ -36,8 +37,58 @@ def payload_utf8_byte_length(value: Any) -> int:
         return len(str(value).encode("utf-8"))
 
 
-def format_acp_tool_status_line(status: str) -> str:
-    return f"Status: {status.strip()}\n"
+def _is_placeholder_tool_input(value: Any) -> bool:
+    if value is None:
+        return True
+    if value == {} or value == []:
+        return True
+    return isinstance(value, str) and value.strip() in {"", "{}", "[]"}
+
+
+def _filtered_tool_input_fallback(tc: dict[str, Any]) -> Any | None:
+    excluded_keys = {
+        "toolCallId",
+        "id",
+        "callId",
+        "status",
+        "state",
+        "result",
+        "output",
+        "response",
+        "rawOutput",
+        "content",
+        "title",
+        "name",
+        "toolName",
+        "tool",
+        "command",
+        "functionName",
+    }
+    fallback: dict[str, Any] = {}
+    for key, value in tc.items():
+        if key in excluded_keys or value is None:
+            continue
+        if (
+            key in {"rawInput", "rawArguments", "arguments", "input", "params", "args"}
+            and _is_placeholder_tool_input(value)
+        ):
+            continue
+        if key == "function" and isinstance(value, dict):
+            function_fallback = {
+                inner_key: inner_value
+                for inner_key, inner_value in value.items()
+                if inner_key != "name"
+                and inner_value is not None
+                and not (
+                    inner_key == "arguments"
+                    and _is_placeholder_tool_input(inner_value)
+                )
+            }
+            if function_fallback:
+                fallback[key] = function_fallback
+            continue
+        fallback[key] = value
+    return fallback or None
 
 
 def format_acp_tool_completion_summary(
@@ -49,13 +100,16 @@ def format_acp_tool_completion_summary(
     ended_iso: str,
     elapsed_s: float,
 ) -> str:
-    """Single compact block after a tool finishes (no raw I/O)."""
+    """Single compact fenced block after a tool finishes (no raw I/O)."""
     lines = [
+        "---",
+        "```text",
         f"Tool: {tool_name}",
         f"Input size: {input_bytes} bytes",
         f"Started: {started_iso}",
         f"Ended: {ended_iso} ({elapsed_s:.3f} s)",
         f"Output size: {output_bytes} bytes",
+        "```",
         "",
     ]
     return "\n".join(lines)
@@ -159,40 +213,54 @@ _TOOL_ROOT_KEYS: tuple[str, ...] = (
 )
 
 
-def coalesce_acp_tool_session_dict(update: dict[str, Any]) -> dict[str, Any]:
-    """Merge nested ``toolCall`` objects with flat ACP fields on the update dict."""
-    merged: dict[str, Any] = {}
-    nested = (
-        update.get("toolCall")
-        or update.get("tool_call")
-        or update.get("toolInvocation")
-    )
-    if isinstance(nested, list):
-        for it in nested:
-            if isinstance(it, dict):
-                merged.update(it)
-    elif isinstance(nested, dict):
-        merged.update(nested)
-
+def _acp_merge_tool_root_keys(
+    merged: dict[str, Any], update: dict[str, Any]
+) -> dict[str, Any]:
+    out = dict(merged)
     for k in _TOOL_ROOT_KEYS:
         if k not in update:
             continue
         val = update[k]
         if val is None:
             continue
-        merged.setdefault(k, val)
-    return merged
+        out.setdefault(k, val)
+    return out
 
 
-def coalesce_acp_tool_call_update_session_dict(
-    update: dict[str, Any],
-) -> dict[str, Any]:
-    """Like :func:`coalesce_acp_tool_session_dict` but overlays ``toolCallUpdate``."""
-    base = coalesce_acp_tool_session_dict(update)
-    tu = update.get("toolCallUpdate") or update.get("tool_call_update")
-    if isinstance(tu, dict):
-        return {**base, **tu}
-    return base
+def iter_coalesced_acp_tool_session_dicts(
+    update: dict[str, Any]
+) -> Iterator[dict[str, Any]]:
+    """Yield one merged tool dict per ``toolCall`` entry (lists are not squashed)."""
+    nested = (
+        update.get("toolCall")
+        or update.get("tool_call")
+        or update.get("toolInvocation")
+    )
+    if isinstance(nested, list):
+        any_dict = False
+        for it in nested:
+            if isinstance(it, dict):
+                any_dict = True
+                yield _acp_merge_tool_root_keys(dict(it), update)
+        if not any_dict:
+            # Preserve flat root-key-only payloads even when ``toolCall`` is an empty
+            # or non-dict list; callers can still decide the merged payload is ignorable.
+            yield _acp_merge_tool_root_keys({}, update)
+        return
+    merged: dict[str, Any] = {}
+    if isinstance(nested, dict):
+        merged.update(nested)
+    yield _acp_merge_tool_root_keys(merged, update)
+
+
+def coalesce_acp_tool_session_dict(update: dict[str, Any]) -> dict[str, Any]:
+    """Merge nested ``toolCall`` with flat ACP fields (first entry only if ``toolCall`` is a list)."""
+    gen = iter_coalesced_acp_tool_session_dicts(update)
+    try:
+        first = next(gen)
+    except StopIteration:
+        return {}
+    return first
 
 
 def acp_tool_payload_should_emit(tc: dict[str, Any]) -> bool:
@@ -244,14 +312,14 @@ def extract_tool_input(tc: dict[str, Any]) -> Any | None:
         if k not in tc:
             continue
         val = tc.get(k)
-        if val is not None and val != "":
+        if val is not None and val != "" and not _is_placeholder_tool_input(val):
             return val
     fn = tc.get("function")
     if isinstance(fn, dict) and "arguments" in fn:
         a = fn.get("arguments")
-        if a is not None and a != "":
+        if a is not None and a != "" and not _is_placeholder_tool_input(a):
             return a
-    return None
+    return _filtered_tool_input_fallback(tc)
 
 
 def extract_tool_output(tc: dict[str, Any]) -> Any | None:
@@ -277,3 +345,27 @@ def extract_tool_correlation_key(tc: dict[str, Any]) -> str | None:
         if v is not None and str(v).strip():
             return str(v).strip()
     return None
+
+
+def coalesce_acp_tool_call_update_session_dict(
+    update: dict[str, Any],
+) -> dict[str, Any]:
+    """Like :func:`coalesce_acp_tool_session_dict` but overlays ``toolCallUpdate``."""
+    tu = update.get("toolCallUpdate") or update.get("tool_call_update")
+    if isinstance(tu, dict):
+        bases = list(iter_coalesced_acp_tool_session_dicts(update))
+        if not bases:
+            return {**tu}
+        tu_id = extract_tool_correlation_key(tu)
+        chosen = bases[0]
+        if tu_id and len(bases) > 1:
+            matched = False
+            for b in bases:
+                if extract_tool_correlation_key(b) == tu_id:
+                    chosen = b
+                    matched = True
+                    break
+            if not matched:
+                return {**tu}
+        return {**chosen, **tu}
+    return coalesce_acp_tool_session_dict(update)

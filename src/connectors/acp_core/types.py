@@ -91,8 +91,9 @@ class AcpToolStreamAccum:
     started_perf: float = 0.0
     ended_wall_iso: str | None = None
     ended_perf: float | None = None
-    last_status: str | None = None
     summary_emitted: bool = False
+    #: Terminal status arrived before any output bytes were observed.
+    pending_terminal_summary: bool = False
     last_input_bytes: int = 0
     last_output_bytes: int = 0
 
@@ -130,3 +131,7 @@ class ACPProcessRuntime:
     acp_tool_stream_accum: dict[str, AcpToolStreamAccum] = field(default_factory=dict)
     acp_anon_tool_seq: int = 0
     acp_last_anon_stream_key: str | None = None
+    #: True while ACP reasoning/progress is being emitted as a visible
+    #: ``<thinking>...</thinking>`` content block so later deltas can append
+    #: without reopening the block each time.
+    acp_thinking_block_open: bool = False
