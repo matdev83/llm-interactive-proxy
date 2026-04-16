@@ -273,9 +273,12 @@ class TestGeminiCliAcpChatCompletions:
         async def _mock_iter(
             _: ACPProcessRuntime, __: int, ___: str
         ) -> AsyncGenerator[AcpStreamPiece, None]:
-            yield AcpStreamPiece(reasoning_content="[tool] read_file\n")
+            yield AcpStreamPiece(reasoning_content="planning…\n")
+            yield AcpStreamPiece(
+                content="---\n\n**Tool: read_file**\n\n**Input:**\n\n```json\n{}\n```\n\n"
+            )
             yield AcpStreamPiece(content="Hello")
-            yield AcpStreamPiece(reasoning_content="[tool] read_file: complete\n")
+            yield AcpStreamPiece(content="**Output:**\n\n```\ndone\n```\n\n")
             yield AcpStreamPiece(content=" world")
 
         with (
@@ -294,11 +297,11 @@ class TestGeminiCliAcpChatCompletions:
         assert isinstance(response, ResponseEnvelope)
         assert isinstance(response.content, dict)
         message = response.content["choices"][0]["message"]
-        assert message["content"] == "Hello world"
-        assert (
-            message["reasoning_content"]
-            == "[tool] read_file\n[tool] read_file: complete\n"
-        )
+        c = message["content"]
+        assert c.startswith("---")
+        assert "Hello" in c and "world" in c
+        assert "**Tool: read_file**" in c
+        assert message["reasoning_content"] == "planning…\n"
 
     async def test_non_streaming_chat_completions(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path

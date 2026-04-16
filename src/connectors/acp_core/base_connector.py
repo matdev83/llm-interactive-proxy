@@ -14,6 +14,15 @@ from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
 
+from src.connectors.acp_core.tool_markdown import (
+    extract_tool_correlation_key,
+    extract_tool_input,
+    extract_tool_name,
+    extract_tool_output,
+    format_tool_invocation_block,
+    format_tool_output_fragment,
+    format_tool_section,
+)
 from src.connectors.acp_core.transcript import ACPTranscriptSerializer
 from src.connectors.acp_core.types import (
     ACPNotification,
@@ -686,24 +695,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
     def _acp_progress_reasoning_line(
         self, session_update_kind: str, update: dict[str, Any]
     ) -> str | None:
-        """Build a short progress line for tool/plan style updates (reasoning channel)."""
-        if session_update_kind == "tool_call":
-            tc = update.get("toolCall")
-            if isinstance(tc, dict):
-                name = tc.get("name") or tc.get("toolName") or tc.get("title") or "tool"
-                return f"[tool] {name}\n"
-            return "[tool]\n"
-        if session_update_kind == "tool_call_update":
-            tcu = update.get("toolCallUpdate")
-            if not isinstance(tcu, dict):
-                tcu = update.get("toolCall")
-            if isinstance(tcu, dict):
-                name = tcu.get("name") or tcu.get("toolName") or "tool"
-                status = tcu.get("status") or tcu.get("state")
-                if isinstance(status, str) and status:
-                    return f"[tool] {name}: {status}\n"
-                return f"[tool] {name} …\n"
-            return "[tool] …\n"
+        """Build a short progress line for plan/mode style updates (reasoning channel)."""
         if session_update_kind == "plan":
             title = update.get("title")
             if isinstance(title, str) and title.strip():
@@ -716,8 +708,71 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             return "[mode]\n"
         return None
 
+    @staticmethod
+    def _acp_tool_stream_key(tc: dict[str, Any]) -> str:
+        return extract_tool_correlation_key(tc) or "__default__"
+
+    def _stream_piece_from_acp_tool_call(
+        self, runtime: ACPProcessRuntime, upd: dict[str, Any]
+    ) -> AcpStreamPiece | None:
+        tc = upd.get("toolCall")
+        if not isinstance(tc, dict):
+            body = format_tool_section("tool")
+            return AcpStreamPiece(content=body) if body else None
+        name = extract_tool_name(tc)
+        key = self._acp_tool_stream_key(tc)
+        runtime.acp_tool_invocation_emitted.add(key)
+        block = format_tool_invocation_block(name, extract_tool_input(tc))
+        return AcpStreamPiece(content=block) if block else None
+
+    def _stream_piece_from_acp_tool_call_update(
+        self, runtime: ACPProcessRuntime, upd: dict[str, Any]
+    ) -> AcpStreamPiece | None:
+        tcu = upd.get("toolCallUpdate")
+        if not isinstance(tcu, dict):
+            tcu = upd.get("toolCall")
+        if not isinstance(tcu, dict):
+            return None
+        key = self._acp_tool_stream_key(tcu)
+        name = extract_tool_name(tcu)
+        inp = extract_tool_input(tcu)
+        out = extract_tool_output(tcu)
+        status_raw = tcu.get("status") or tcu.get("state")
+        status_str = status_raw.strip() if isinstance(status_raw, str) else None
+        seen = key in runtime.acp_tool_invocation_emitted
+        fragments: list[str] = []
+
+        if not seen:
+            if out is not None:
+                fragments.append(
+                    format_tool_section(name, input_obj=inp, output_obj=out)
+                )
+            elif inp is not None:
+                fragments.append(format_tool_invocation_block(name, inp))
+                if status_str:
+                    tail = format_tool_output_fragment(None, status=status_str)
+                    if tail:
+                        fragments.append(tail)
+            elif status_str:
+                fragments.append(format_tool_section(name))
+                tail = format_tool_output_fragment(None, status=status_str)
+                if tail:
+                    fragments.append(tail)
+            else:
+                return None
+            runtime.acp_tool_invocation_emitted.add(key)
+        else:
+            tail = format_tool_output_fragment(
+                out if out is not None else None,
+                status=status_str,
+            )
+            if tail:
+                fragments.append(tail)
+        text = "".join(fragments)
+        return AcpStreamPiece(content=text) if text else None
+
     def _session_update_to_stream_piece(
-        self, response: ACPNotification
+        self, response: ACPNotification, runtime: ACPProcessRuntime
     ) -> AcpStreamPiece | None:
         """Map a ``session/update`` JSON-RPC notification to a stream piece, if any."""
         if response.method != ACP_UPDATE_METHOD or response.params is None:
@@ -746,6 +801,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             if text:
                 return AcpStreamPiece(reasoning_content=text)
             return None
+        if kind == "tool_call":
+            return self._stream_piece_from_acp_tool_call(runtime, upd)
+        if kind == "tool_call_update":
+            return self._stream_piece_from_acp_tool_call_update(runtime, upd)
 
         progress = self._acp_progress_reasoning_line(kind, upd)
         if progress:
@@ -758,6 +817,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         prompt_request_id: int,
         response_model: str,
     ) -> AsyncGenerator[AcpStreamPiece, None]:
+        runtime.acp_tool_invocation_emitted.clear()
         try:
             while True:
                 if runtime.cancellation_event is not None:
@@ -812,7 +872,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                         )
                     break
 
-                piece = self._session_update_to_stream_piece(response)
+                piece = self._session_update_to_stream_piece(response, runtime)
                 if piece is not None and (
                     piece.content is not None or piece.reasoning_content is not None
                 ):

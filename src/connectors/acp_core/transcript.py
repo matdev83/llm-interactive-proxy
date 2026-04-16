@@ -3,6 +3,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, cast
 
+from src.connectors.acp_core.tool_markdown import (
+    format_tool_invocation_block,
+    format_transcript_tool_result,
+)
 from src.core.domain.chat import ChatMessage
 
 
@@ -53,26 +57,7 @@ class ACPTranscriptSerializer:
         ]
 
         for msg in history_msgs:
-            role = ACPTranscriptSerializer._get_role(msg)
-            content = ACPTranscriptSerializer._get_content(msg)
-
-            if role == "system":
-                lines.append(f"**System:** {content}")
-            elif role == "user":
-                lines.append(f"**User:** {content}")
-            elif role == "assistant":
-                lines.append(f"**Assistant:** {content}")
-
-                # Handle tool calls if present
-                tool_calls = ACPTranscriptSerializer._get_tool_calls(msg)
-                for tc in tool_calls:
-                    func_name = tc.get("function", {}).get("name", "unknown")
-                    func_args = tc.get("function", {}).get("arguments", "{}")
-                    lines.append(f"*Tool Call (`{func_name}`)*: `{func_args}`")
-            elif role == "tool":
-                lines.append(f"*Tool Result*: `{content}`")
-            else:
-                lines.append(f"**{role.capitalize()}:** {content}")
+            ACPTranscriptSerializer._append_serialized_history_message(lines, msg)
 
         lines.append("------------------------")
         lines.append("")
@@ -121,25 +106,7 @@ class ACPTranscriptSerializer:
         ]
 
         for msg in history_msgs:
-            role = ACPTranscriptSerializer._get_role(msg)
-            content = ACPTranscriptSerializer._get_content(msg)
-
-            if role == "system":
-                lines.append(f"**System:** {content}")
-            elif role == "user":
-                lines.append(f"**User:** {content}")
-            elif role == "assistant":
-                lines.append(f"**Assistant:** {content}")
-
-                tool_calls = ACPTranscriptSerializer._get_tool_calls(msg)
-                for tc in tool_calls:
-                    func_name = tc.get("function", {}).get("name", "unknown")
-                    func_args = tc.get("function", {}).get("arguments", "{}")
-                    lines.append(f"*Tool Call (`{func_name}`)*: `{func_args}`")
-            elif role == "tool":
-                lines.append(f"*Tool Result*: `{content}`")
-            else:
-                lines.append(f"**{role.capitalize()}:** {content}")
+            ACPTranscriptSerializer._append_serialized_history_message(lines, msg)
 
         lines.append("------------------------")
         lines.append("")
@@ -147,6 +114,74 @@ class ACPTranscriptSerializer:
         lines.append(last_user_msg)
 
         return "\n".join(lines)
+
+    @staticmethod
+    def _append_serialized_history_message(lines: list[str], msg: Any) -> None:
+        role = ACPTranscriptSerializer._get_role(msg)
+        content = ACPTranscriptSerializer._get_content(msg)
+
+        if role == "system":
+            lines.append(f"**System:** {content}")
+        elif role == "user":
+            lines.append(f"**User:** {content}")
+        elif role == "assistant":
+            lines.append(f"**Assistant:** {content}")
+            tool_calls = ACPTranscriptSerializer._get_tool_calls(msg)
+            for tc in tool_calls:
+                fn_block = tc.get("function") if isinstance(tc, dict) else None
+                if isinstance(fn_block, dict):
+                    name = fn_block.get("name") or "unknown"
+                    args: Any = fn_block.get("arguments")
+                else:
+                    name = (
+                        tc.get("name", "unknown") if isinstance(tc, dict) else "unknown"
+                    )
+                    args = tc.get("arguments") if isinstance(tc, dict) else None
+                block = format_tool_invocation_block(
+                    str(name) if name is not None else "unknown", args
+                ).rstrip("\n")
+                if block:
+                    lines.append(block)
+        elif role == "tool":
+            tid, tname = ACPTranscriptSerializer._tool_message_ids(msg)
+            raw_payload = ACPTranscriptSerializer._get_tool_message_payload(msg)
+            block = format_transcript_tool_result(
+                tool_call_id=tid, name=tname, content=raw_payload
+            ).rstrip("\n")
+            if block:
+                lines.append(block)
+        else:
+            lines.append(f"**{role.capitalize()}:** {content}")
+
+    @staticmethod
+    def _tool_message_ids(msg: Any) -> tuple[str | None, str | None]:
+        if isinstance(msg, ChatMessage):
+            return (msg.tool_call_id, msg.name)
+        if isinstance(msg, dict):
+            tid_raw = msg.get("tool_call_id")
+            name_raw = msg.get("name")
+            return (
+                None if tid_raw is None else str(tid_raw),
+                None if name_raw is None else str(name_raw),
+            )
+        tid = getattr(msg, "tool_call_id", None)
+        tname = getattr(msg, "name", None)
+        return (
+            None if tid is None else str(tid),
+            None if tname is None else str(tname),
+        )
+
+    @staticmethod
+    def _get_tool_message_payload(msg: Any) -> Any:
+        """Raw ``content`` for tool messages (may be structured, not flattened)."""
+        if isinstance(msg, ChatMessage):
+            return msg.content
+        if isinstance(msg, dict):
+            c = msg.get("content")
+            if c in (None, "") and "parts" in msg:
+                return msg.get("parts")
+            return c
+        return getattr(msg, "content", "")
 
     @staticmethod
     def _get_role(msg: Any) -> str:

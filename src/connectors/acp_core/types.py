@@ -111,3 +111,6 @@ class ACPProcessRuntime:
     request_lock: Any = field(default=None)
     cancellation_lock: Any = field(default=None)
     cancellation_event: Any = field(default=None)
+    #: Keys (``toolCallId`` / ``__default__``) for which a tool invocation block was
+    #: emitted on the current ACP read stream; cleared when a prompt stream starts.
+    acp_tool_invocation_emitted: set[str] = field(default_factory=set)

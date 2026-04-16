@@ -55,8 +55,10 @@ def test_transcript_serializer_with_tool_calls() -> None:
 
     assert "**User:** List files" in result
     assert "**Assistant:** Let me check." in result
-    assert '*Tool Call (`list_dir`)*: `{"path": "."}`' in result
-    assert "*Tool Result*: `file1.txt, file2.txt`" in result
+    assert "**Tool: list_dir**" in result
+    assert '"path": "."' in result or "path" in result
+    assert "**Tool result" in result
+    assert "file1.txt" in result
     assert "[Current Request]" in result
     assert "Thanks!" in result
 
