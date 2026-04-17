@@ -378,9 +378,7 @@ class SSESerializer:
         chunk: StreamingChunk, content: StreamingContent
     ) -> dict[str, Any]:
         if chunk.metadata.error is not None:
-            payload = chunk.metadata.error.model_dump(exclude_none=True)
-            if isinstance(payload, dict):
-                return payload
+            return chunk.metadata.error.model_dump(exclude_none=True)
         raw = content.metadata.get("error")
         if isinstance(raw, dict):
             return dict(raw)
@@ -617,6 +615,8 @@ class SSESerializer:
         for choice in choices:
             if not isinstance(choice, dict):
                 continue
+            if choice.get("finish_reason") is not None:
+                return True
             delta = choice.get("delta")
             if isinstance(delta, dict) and delta:
                 if any(
@@ -648,9 +648,11 @@ class SSESerializer:
     def _extract_usage_dict_for_legacy_openai(
         content: StreamingContent,
     ) -> dict[str, Any] | None:
-        if content.usage is not None:
-            return content.usage.model_dump(exclude_none=True)
-        return None
+        if content.usage is None:
+            return None
+        if isinstance(content.usage, dict):
+            return dict(content.usage)
+        return content.usage.to_legacy_dict()
 
     @staticmethod
     def _build_legacy_openai_usage_chunk(

@@ -11,6 +11,7 @@ import json
 
 import pytest
 from src.core.domain.streaming_response_processor import StreamingContent
+from src.core.domain.usage_summary import UsageSummary
 from src.core.ports.streaming_contracts import StopChunkWithUsage
 
 
@@ -38,12 +39,17 @@ class TestStreamingContentToBytes:
             },
         }
         stop_chunk = StopChunkWithUsage(chunk_data)
+        usage_payload = {
+            "prompt_tokens": 15,
+            "completion_tokens": 1,
+            "total_tokens": 16,
+        }
 
         content = StreamingContent(
             content=stop_chunk,
             metadata={"finish_reason": "stop"},
             is_done=True,
-            usage=chunk_data["usage"],
+            usage=UsageSummary.from_dict(usage_payload),
         )
 
         result = content.to_bytes()
@@ -64,7 +70,10 @@ class TestStreamingContentToBytes:
         # Verify structure
         assert main_json["id"] == "chatcmpl-test123"
         assert main_json["choices"][0]["delta"]["content"] == "4"
-        assert main_json["usage"]["total_tokens"] == 16
+
+        usage_json = json.loads(json_lines[1])
+        assert usage_json["choices"] == []
+        assert usage_json["usage"]["total_tokens"] == 16
 
     def test_serialize_openai_format_chunk_with_content(self):
         """OpenAI-format chunk with content should serialize correctly."""
@@ -255,15 +264,63 @@ class TestStreamingContentEdgeCases:
         # Should contain the actual content, not just [DONE]
         assert "Final answer" in result_str or "choices" in result_str
 
+    def test_terminal_finish_reason_with_usage_splits_legacy_usage_chunk(self):
+        """Terminal stop chunks with usage must emit a separate legacy usage event."""
+        chunk_data = {
+            "id": "chatcmpl-terminal-usage",
+            "object": "chat.completion.chunk",
+            "created": 1234567890,
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 5,
+                "completion_tokens": 2,
+                "total_tokens": 7,
+            },
+        }
+
+        content = StreamingContent(
+            content=chunk_data,
+            metadata={"finish_reason": "stop"},
+            is_done=True,
+        )
+
+        result_str = content.to_bytes().decode("utf-8")
+        json_lines = [
+            line[6:]
+            for line in result_str.strip().split("\n\n")
+            if line.startswith("data: {")
+        ]
+
+        assert len(json_lines) == 2
+
+        terminal_chunk = json.loads(json_lines[0])
+        usage_chunk = json.loads(json_lines[1])
+
+        assert terminal_chunk["choices"][0]["finish_reason"] == "stop"
+        assert "usage" not in terminal_chunk
+        assert usage_chunk["choices"] == []
+        assert usage_chunk["usage"]["total_tokens"] == 7
+
     def test_content_with_usage_metadata(self):
         """Content with usage in metadata should serialize correctly."""
-        usage = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        usage_payload = {
+            "prompt_tokens": 10,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        }
 
         content = StreamingContent(
             content={"choices": []},
             metadata={},
             is_done=True,
-            usage=usage,
+            usage=UsageSummary.from_dict(usage_payload),
         )
 
         result = content.to_bytes()
