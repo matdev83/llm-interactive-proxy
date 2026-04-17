@@ -310,7 +310,9 @@ class UsageWindowWarmupService:
         self, model: str, target_account_id: str | None
     ) -> RequestContext:
         suffix = uuid4().hex
-        extensions: dict[str, JsonValue] = {}
+        extensions: dict[str, JsonValue] = {
+            "usage_window_warmup": cast(JsonValue, True),
+        }
         if target_account_id:
             account_id_value = cast(JsonValue, target_account_id)
             extensions["warmup_target_account_id"] = account_id_value

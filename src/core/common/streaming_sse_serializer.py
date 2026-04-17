@@ -195,6 +195,17 @@ class SSESerializer:
         except Exception:
             # Best-effort: usage chunks should never fail serialization.
             pass
+        usage_chunk = self._extract_legacy_openai_usage_chunk_payload(plain_dict)
+        if usage_chunk is not None:
+            content_payload = dict(plain_dict)
+            content_payload.pop("usage", None)
+            self._ensure_openai_compatible_top_level_id(content_payload)
+            self._ensure_openai_compatible_top_level_id(usage_chunk)
+            return (
+                f"data: {json.dumps(content_payload)}\n\n"
+                f"data: {json.dumps(usage_chunk)}\n\n"
+                "data: [DONE]\n\n"
+            ).encode()
         self._ensure_openai_compatible_top_level_id(plain_dict)
         return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
 
@@ -337,6 +348,28 @@ class SSESerializer:
                 return self._serialize_openai_chunk_with_done(chunk, content)
             # For non-empty content that's not a dict with choices, serialize normally
             # but ensure [DONE] is added since chunk.is_done is True
+            usage_payload = self._extract_usage_dict_for_legacy_openai(content)
+            if usage_payload is not None:
+                content_without_usage = StreamingContent(
+                    content=content.content,
+                    metadata=dict(content.metadata),
+                    is_done=False,
+                    is_empty=content.is_empty,
+                    stream_id=content.stream_id,
+                    is_cancellation=content.is_cancellation,
+                    usage=None,
+                )
+                normal_bytes = self._serialize_normal_chunk(
+                    content_without_usage.to_typed_chunk(), content_without_usage
+                )
+                usage_chunk = self._build_legacy_openai_usage_chunk(
+                    content.metadata, usage_payload
+                )
+                return (
+                    normal_bytes
+                    + f"data: {json.dumps(usage_chunk)}\n\n".encode()
+                    + b"data: [DONE]\n\n"
+                )
             return self._serialize_normal_chunk(chunk, content)
         return b"data: [DONE]\n\n"
 
@@ -569,8 +602,106 @@ class SSESerializer:
                         content_copy["choices"], list
                     ):
                         content_copy["choices"][0]["delta"] = delta
-                return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
-        return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
+                return self._serialize_openai_done_payload_with_optional_usage(
+                    content_copy, content
+                )
+        return self._serialize_openai_done_payload_with_optional_usage(
+            content_copy, content
+        )
+
+    @staticmethod
+    def _payload_has_meaningful_openai_choices(payload: dict[str, Any]) -> bool:
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return False
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta")
+            if isinstance(delta, dict) and delta:
+                if any(
+                    delta.get(key) not in (None, "", [], {})
+                    for key in ("content", "tool_calls", "function_call", "refusal")
+                ):
+                    return True
+                if delta.get("role") is not None and len(delta) > 1:
+                    return True
+            message = choice.get("message")
+            if isinstance(message, dict) and any(
+                message.get(key) not in (None, "", [], {})
+                for key in ("content", "tool_calls", "function_call", "refusal")
+            ):
+                return True
+        return False
+
+    def _extract_legacy_openai_usage_chunk_payload(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        raw_usage = payload.get("usage")
+        if not isinstance(raw_usage, dict):
+            return None
+        if not self._payload_has_meaningful_openai_choices(payload):
+            return None
+        return self._build_legacy_openai_usage_chunk(payload, raw_usage)
+
+    @staticmethod
+    def _extract_usage_dict_for_legacy_openai(
+        content: StreamingContent,
+    ) -> dict[str, Any] | None:
+        if content.usage is not None:
+            return content.usage.model_dump(exclude_none=True)
+        return None
+
+    @staticmethod
+    def _build_legacy_openai_usage_chunk(
+        source: dict[str, Any], usage: dict[str, Any]
+    ) -> dict[str, Any]:
+        usage_chunk: dict[str, Any] = {
+            "choices": [],
+            "usage": usage,
+        }
+        for key in ("id", "object", "created", "model", "system_fingerprint"):
+            value = source.get(key)
+            if value is not None:
+                usage_chunk[key] = value
+        usage_chunk.setdefault("object", "chat.completion.chunk")
+        return usage_chunk
+
+    def _serialize_openai_done_payload_with_optional_usage(
+        self, content_payload: dict[str, Any], content: StreamingContent
+    ) -> bytes:
+        if isinstance(
+            content_payload.get("usage"), dict
+        ) and not self._payload_has_meaningful_openai_choices(content_payload):
+            self._ensure_openai_compatible_top_level_id(content_payload)
+            return f"data: {json.dumps(content_payload)}\n\ndata: [DONE]\n\n".encode()
+
+        usage_chunk = self._extract_legacy_openai_usage_chunk_payload(content_payload)
+        if usage_chunk is not None:
+            payload_without_usage = dict(content_payload)
+            payload_without_usage.pop("usage", None)
+            self._ensure_openai_compatible_top_level_id(payload_without_usage)
+            self._ensure_openai_compatible_top_level_id(usage_chunk)
+            return (
+                f"data: {json.dumps(payload_without_usage)}\n\n"
+                f"data: {json.dumps(usage_chunk)}\n\n"
+                "data: [DONE]\n\n"
+            ).encode()
+
+        usage_from_content = self._extract_usage_dict_for_legacy_openai(content)
+        if usage_from_content is None:
+            return f"data: {json.dumps(content_payload)}\n\ndata: [DONE]\n\n".encode()
+
+        usage_chunk = self._build_legacy_openai_usage_chunk(
+            content_payload, usage_from_content
+        )
+        self._ensure_openai_compatible_top_level_id(content_payload)
+        self._ensure_openai_compatible_top_level_id(usage_chunk)
+        return (
+            f"data: {json.dumps(content_payload)}\n\n"
+            f"data: {json.dumps(usage_chunk)}\n\n"
+            "data: [DONE]\n\n"
+        ).encode()
 
     def _sanitize_tool_calls(
         self, tool_calls: list[dict[str, Any]]
@@ -878,11 +1009,6 @@ class SSESerializer:
 
         if chunk.metadata.finish_reason:
             response_data["choices"][0]["finish_reason"] = chunk.metadata.finish_reason
-        if chunk.metadata.usage:
-            response_data["usage"] = chunk.metadata.usage.model_dump(exclude_none=True)
-        elif content.usage:
-            to_dict = getattr(content.usage, "to_legacy_dict", None)
-            response_data["usage"] = to_dict() if callable(to_dict) else content.usage
         parts = [f"data: {json.dumps(response_data)}\n\n"]
         if chunk.is_done:
             parts.append("data: [DONE]\n\n")

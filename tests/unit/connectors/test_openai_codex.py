@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import threading
 from pathlib import Path
@@ -7,12 +8,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 from fastapi import HTTPException
-from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+)
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex import (
     OpenAICodexConnector,
     OpenAICredentialsFileHandler,
 )
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 
 
@@ -105,6 +110,317 @@ async def test_openai_codex_rejects_unsupported_models_without_openai_fallback(
     assert detail["details"]["requested_model"] == "gpt-4o-mini"
     codex_call.assert_not_awaited()
     base_call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_usage_window_warmup_targeted_bind_failure_raises_backend_error(
+    openai_codex_backend: OpenAICodexConnector,
+):
+    req = ChatRequest(
+        model="openai-codex:gpt-5.4-mini",
+        messages=[ChatMessage(role="user", content="warmup probe")],
+        max_tokens=16,
+        stream=False,
+    )
+    domain = CanonicalChatRequest.model_validate(req.model_dump())
+    connector_req = ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=[ChatMessage(role="user", content="warmup probe")],
+        effective_model="gpt-5.4-mini",
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=ConnectorRequestContext(
+            request_id="req-1",
+            session_id="warmup-session",
+            client_host="127.0.0.1",
+            extensions={
+                "usage_window_warmup": True,
+                "warmup_target_account_id": "acct-missing",
+            },
+        ),
+        options={},
+    )
+
+    with (
+        patch.object(
+            openai_codex_backend._credential_manager,
+            "ensure_usage_window_warmup_managed_account",
+            AsyncMock(return_value=False),
+        ),
+        pytest.raises(BackendError) as exc_info,
+    ):
+        await openai_codex_backend._prepare_usage_window_warmup_credentials(
+            connector_req
+        )
+
+    assert exc_info.value.message == (
+        "Usage window warm-up could not bind targeted managed account"
+    )
+
+
+@pytest.mark.asyncio
+async def test_usage_window_warmup_restores_credentials_after_success(
+    openai_codex_backend: OpenAICodexConnector,
+):
+    req = ChatRequest(
+        model="openai-codex:gpt-5.4-mini",
+        messages=[ChatMessage(role="user", content="warmup probe")],
+        max_tokens=16,
+        stream=False,
+    )
+    domain = CanonicalChatRequest.model_validate(req.model_dump())
+    connector_req = ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=[ChatMessage(role="user", content="warmup probe")],
+        effective_model="gpt-5.4-mini",
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=ConnectorRequestContext(
+            request_id="req-2",
+            session_id="warmup-session",
+            client_host="127.0.0.1",
+            extensions={"usage_window_warmup": True},
+        ),
+        options={},
+    )
+
+    openai_codex_backend._credential_manager._auth_credentials = {  # type: ignore[reportPrivateUsage]
+        "tokens": {"access_token": "baseline_token"}
+    }
+    openai_codex_backend.api_key = "baseline_token"
+
+    async def fake_warmup_override(
+        managed_account_id: str | None,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        assert managed_account_id is None
+        assert session_id is None
+        openai_codex_backend._credential_manager._auth_credentials = {  # type: ignore[reportPrivateUsage]
+            "tokens": {"access_token": "warmup_token"}
+        }
+        return True
+
+    async def fake_codex_call(**kwargs):
+        assert openai_codex_backend.api_key == "warmup_token"
+        return MagicMock()
+
+    with (
+        patch.object(
+            openai_codex_backend._credential_manager,
+            "ensure_usage_window_warmup_managed_account",
+            side_effect=fake_warmup_override,
+        ),
+        patch.object(
+            openai_codex_backend,
+            "_validate_runtime_credentials",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(
+            openai_codex_backend,
+            "_call_codex_responses_api",
+            AsyncMock(side_effect=fake_codex_call),
+        ),
+    ):
+        await openai_codex_backend.chat_completions(connector_req)
+
+    assert openai_codex_backend.api_key == "baseline_token"
+    assert (
+        openai_codex_backend._credential_manager.get_access_token() == "baseline_token"
+    )
+
+
+@pytest.mark.asyncio
+async def test_usage_window_warmup_restores_credentials_after_failure(
+    openai_codex_backend: OpenAICodexConnector,
+):
+    req = ChatRequest(
+        model="openai-codex:gpt-5.4-mini",
+        messages=[ChatMessage(role="user", content="warmup probe")],
+        max_tokens=16,
+        stream=False,
+    )
+    domain = CanonicalChatRequest.model_validate(req.model_dump())
+    connector_req = ConnectorChatCompletionsRequest(
+        request=domain,
+        processed_messages=[ChatMessage(role="user", content="warmup probe")],
+        effective_model="gpt-5.4-mini",
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=ConnectorRequestContext(
+            request_id="req-3",
+            session_id="warmup-session",
+            client_host="127.0.0.1",
+            extensions={"usage_window_warmup": True},
+        ),
+        options={},
+    )
+
+    openai_codex_backend._credential_manager._auth_credentials = {  # type: ignore[reportPrivateUsage]
+        "tokens": {"access_token": "baseline_token"}
+    }
+    openai_codex_backend.api_key = "baseline_token"
+
+    async def fake_warmup_override(
+        managed_account_id: str | None,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        assert managed_account_id is None
+        assert session_id is None
+        openai_codex_backend._credential_manager._auth_credentials = {  # type: ignore[reportPrivateUsage]
+            "tokens": {"access_token": "warmup_token"}
+        }
+        return True
+
+    with (
+        patch.object(
+            openai_codex_backend._credential_manager,
+            "ensure_usage_window_warmup_managed_account",
+            side_effect=fake_warmup_override,
+        ),
+        patch.object(
+            openai_codex_backend,
+            "_validate_runtime_credentials",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(
+            openai_codex_backend,
+            "_call_codex_responses_api",
+            AsyncMock(side_effect=RuntimeError("probe failed")),
+        ),
+        pytest.raises(RuntimeError, match="probe failed"),
+    ):
+        await openai_codex_backend.chat_completions(connector_req)
+
+    assert openai_codex_backend.api_key == "baseline_token"
+    assert (
+        openai_codex_backend._credential_manager.get_access_token() == "baseline_token"
+    )
+
+
+@pytest.mark.asyncio
+async def test_usage_window_warmup_concurrent_targeted_probes_use_matching_credentials(
+    openai_codex_backend: OpenAICodexConnector,
+):
+    def make_request(
+        request_id: str, account_id: str
+    ) -> ConnectorChatCompletionsRequest:
+        req = ChatRequest(
+            model="openai-codex:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content=f"warmup {account_id}")],
+            max_tokens=16,
+            stream=False,
+        )
+        domain = CanonicalChatRequest.model_validate(req.model_dump())
+        return ConnectorChatCompletionsRequest(
+            request=domain,
+            processed_messages=[
+                ChatMessage(role="user", content=f"warmup {account_id}")
+            ],
+            effective_model="gpt-5.4-mini",
+            identity=None,
+            cancellation_token=None,
+            cancellation_coordinator=None,
+            context=ConnectorRequestContext(
+                request_id=request_id,
+                session_id="warmup-session",
+                client_host="127.0.0.1",
+                extensions={
+                    "usage_window_warmup": True,
+                    "warmup_target_account_id": account_id,
+                },
+            ),
+            options={},
+        )
+
+    openai_codex_backend._credential_manager._auth_credentials = {  # type: ignore[reportPrivateUsage]
+        "tokens": {"access_token": "baseline_token"}
+    }
+    openai_codex_backend.api_key = "baseline_token"
+
+    active_account: str | None = None
+    snapshots: dict[int, str | None] = {}
+    account_tokens = {
+        "acct-A": "token-A",
+        "acct-B": "token-B",
+        None: "baseline_token",
+    }
+    a_marked = asyncio.Event()
+    b_marked = asyncio.Event()
+
+    def begin_override() -> dict[str, str | None]:
+        snapshot = {"active_account": active_account}
+        snapshots[id(snapshot)] = active_account
+        return snapshot
+
+    def end_override(snapshot: dict[str, str | None]) -> None:
+        nonlocal active_account
+        active_account = snapshots[id(snapshot)]
+
+    async def ensure_account(
+        managed_account_id: str | None,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        nonlocal active_account
+        active_account = managed_account_id
+        if managed_account_id == "acct-A":
+            a_marked.set()
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(b_marked.wait(), timeout=0.2)
+        elif managed_account_id == "acct-B":
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(a_marked.wait(), timeout=0.2)
+            b_marked.set()
+        return True
+
+    def get_access_token() -> str:
+        return account_tokens[active_account]
+
+    openai_codex_backend._credential_manager.begin_usage_window_warmup_override = begin_override  # type: ignore[attr-defined]
+    openai_codex_backend._credential_manager.end_usage_window_warmup_override = end_override  # type: ignore[attr-defined]
+    openai_codex_backend._credential_manager.ensure_usage_window_warmup_managed_account = ensure_account  # type: ignore[attr-defined]
+    openai_codex_backend._credential_manager.get_access_token = get_access_token  # type: ignore[method-assign]
+
+    observed_api_keys: dict[str, str] = {}
+
+    async def fake_codex_call(**kwargs):
+        request_data = kwargs.get("request_data")
+        if isinstance(request_data, dict):
+            payload = request_data
+        else:
+            payload = request_data.model_dump()
+        text = payload["messages"][0]["content"]
+        request_label = "A" if text.endswith("acct-A") else "B"
+        observed_api_keys[request_label] = openai_codex_backend.api_key
+        await asyncio.sleep(0)
+        return MagicMock()
+
+    req_a = make_request("req-A", "acct-A")
+    req_b = make_request("req-B", "acct-B")
+
+    with (
+        patch.object(
+            openai_codex_backend,
+            "_validate_runtime_credentials",
+            AsyncMock(return_value=True),
+        ),
+        patch.object(
+            openai_codex_backend,
+            "_call_codex_responses_api",
+            AsyncMock(side_effect=fake_codex_call),
+        ),
+    ):
+        await asyncio.gather(
+            openai_codex_backend.chat_completions(req_a),
+            openai_codex_backend.chat_completions(req_b),
+        )
+
+    assert observed_api_keys == {"A": "token-A", "B": "token-B"}
 
 
 @pytest.mark.asyncio

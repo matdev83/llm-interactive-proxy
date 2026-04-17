@@ -130,6 +130,7 @@ class TestUsageWindowWarmupService:
         assert context.session_id is not None
         assert context.request_id is not None
         assert context.agent == "usage-window-warmup"
+        assert context.extensions.get("usage_window_warmup") is True
 
     @pytest.mark.asyncio
     async def test_execute_entry_fans_out_openai_codex_across_accounts(self) -> None:
@@ -172,6 +173,7 @@ class TestUsageWindowWarmupService:
                 context.extensions.get("openai_codex_managed_account_id") == account_id
             )
             assert context.extensions.get("warmup_target_account_id") == account_id
+            assert context.extensions.get("usage_window_warmup") is True
         assert seen_accounts == {"acct_a", "acct_b"}
 
     @pytest.mark.asyncio

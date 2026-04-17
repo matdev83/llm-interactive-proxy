@@ -34,7 +34,7 @@ def _ctx() -> CodexRequestContext:
 
 
 @pytest.mark.asyncio
-async def test_prepare_returns_false_when_no_lineage_entry_but_coordinator_has_id() -> (
+async def test_prepare_bootstraps_without_previous_response_id_when_lineage_missing() -> (
     None
 ):
     coord = InMemoryCodexContinuationCoordinator()
@@ -52,12 +52,16 @@ async def test_prepare_returns_false_when_no_lineage_entry_but_coordinator_has_i
         "tools": [],
     }
     payload = dict(full)
-    handled, _, _, _ = await lineage.try_prepare_websocket_continuation(
+    handled, out, reason, proxy = await lineage.try_prepare_websocket_continuation(
         continuation_context=ctx,
         payload_dict=payload,
         full_payload_dict=full,
     )
-    assert handled is False
+    assert handled is True
+    assert proxy is False
+    assert reason == "ws_v2_full_bootstrap_no_lineage"
+    assert "previous_response_id" not in out
+    assert out["input"] == full["input"]
 
 
 @pytest.mark.asyncio
@@ -225,3 +229,148 @@ async def test_multi_turn_delta_requires_full_logical_last_sent() -> None:
     assert handled3b and proxy3b and reason3b.startswith("ws_v2_delta")
     assert out3b["previous_response_id"] == "resp2"
     assert out3b["input"] == [u3]
+
+
+@pytest.mark.asyncio
+async def test_delta_accepts_canonicalized_prefix_for_raw_ws_output_items() -> None:
+    """Canonical history replay omits volatile WS-only fields like ids/status."""
+    coord = InMemoryCodexContinuationCoordinator()
+    lineage = CodexWebsocketV2Lineage(coord)
+    ctx = _ctx()
+    u1 = {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "a"}],
+    }
+    raw_function_call = {
+        "type": "function_call",
+        "id": "fc_1",
+        "call_id": "call_1",
+        "name": "number_lab",
+        "arguments": '{"numbers":[1],"operation":"sum"}',
+        "status": "completed",
+    }
+    raw_assistant_message = {
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+            {
+                "type": "output_text",
+                "text": "The total is 1.",
+                "annotations": [],
+            }
+        ],
+    }
+    u2 = {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "next"}],
+    }
+    base = {"model": "gpt-5.4", "instructions": "sys", "tools": []}
+
+    await coord.record_turn(ctx, response_id="resp1", payload_dict={"input": [u1]})
+    await lineage.record_completed_websocket_turn(
+        ctx,
+        sent_payload={**base, "input": [u1]},
+        response_id="resp1",
+        items_added=[raw_function_call, raw_assistant_message],
+    )
+
+    canonical_followup = {
+        **base,
+        "input": [
+            u1,
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "number_lab",
+                "arguments": '{\n  "numbers": [1],\n  "operation": "sum"\n}',
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{"type": "output_text", "text": "The total is 1."}],
+            },
+            u2,
+        ],
+    }
+    payload = dict(canonical_followup)
+
+    handled, out, reason, proxy = await lineage.try_prepare_websocket_continuation(
+        continuation_context=ctx,
+        payload_dict=payload,
+        full_payload_dict=canonical_followup,
+    )
+
+    assert handled is True
+    assert proxy is True
+    assert reason.startswith("ws_v2_delta")
+    assert out["previous_response_id"] == "resp1"
+    assert out["input"] == [u2]
+
+
+@pytest.mark.asyncio
+async def test_non_text_message_parts_do_not_false_match_prefix() -> None:
+    coord = InMemoryCodexContinuationCoordinator()
+    lineage = CodexWebsocketV2Lineage(coord)
+    ctx = _ctx()
+    u1 = {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "describe image"}],
+    }
+    raw_assistant_message = {
+        "type": "message",
+        "id": "msg_img_1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+            {
+                "type": "input_image",
+                "image_url": "file://first-image.png",
+                "detail": "high",
+            }
+        ],
+    }
+    changed_assistant_message = {
+        "type": "message",
+        "role": "assistant",
+        "content": [
+            {
+                "type": "input_image",
+                "image_url": "file://different-image.png",
+                "detail": "high",
+            }
+        ],
+    }
+    u2 = {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "continue"}],
+    }
+    base = {"model": "gpt-5.4", "instructions": "sys", "tools": []}
+
+    await coord.record_turn(ctx, response_id="resp1", payload_dict={"input": [u1]})
+    await lineage.record_completed_websocket_turn(
+        ctx,
+        sent_payload={**base, "input": [u1]},
+        response_id="resp1",
+        items_added=[raw_assistant_message],
+    )
+
+    followup = {**base, "input": [u1, changed_assistant_message, u2]}
+    payload = dict(followup)
+
+    handled, out, reason, proxy = await lineage.try_prepare_websocket_continuation(
+        continuation_context=ctx,
+        payload_dict=payload,
+        full_payload_dict=followup,
+    )
+
+    assert handled is True
+    assert proxy is False
+    assert "prefix" in reason
+    assert "previous_response_id" not in out
+    assert out["input"] == followup["input"]

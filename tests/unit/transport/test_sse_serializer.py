@@ -394,11 +394,14 @@ class TestSSESerializerStopChunkWithUsage:
     """Test StopChunkWithUsage handling."""
 
     def test_stop_chunk_with_usage_serializes_correctly(self) -> None:
-        """StopChunkWithUsage should serialize with usage at top level."""
+        """Usage-only stop chunks should serialize as the final include_usage chunk."""
         serializer = SSESerializer()
         chunk_data: dict[str, Any] = {
             "id": "chatcmpl-test123",
-            "choices": [{"delta": {"content": "4"}, "finish_reason": "stop"}],
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "test-model",
+            "choices": [],
             "usage": {
                 "prompt_tokens": 15,
                 "completion_tokens": 1,
@@ -426,10 +429,11 @@ class TestSSESerializerStopChunkWithUsage:
         json_line = lines[0][6:]
         payload = json.loads(json_line)
 
-        # Verify usage is at top level
+        # Verify this is the standards-compliant final usage chunk
         assert "usage" in payload
         assert payload["usage"]["total_tokens"] == 16
         assert payload["id"] == "chatcmpl-test123"
+        assert payload["choices"] == []
 
     def test_stop_chunk_with_usage_infers_finish_reason_for_tool_calls(self) -> None:
         """Regression: usage-bearing OpenAI chunks must not end with finish_reason=null.
@@ -472,6 +476,48 @@ class TestSSESerializerStopChunkWithUsage:
         json_line = result.strip().split("\n\n")[0][6:]
         payload = json.loads(json_line)
         assert payload["choices"][0]["finish_reason"] == "tool_calls"
+
+    def test_stop_chunk_with_usage_splits_content_from_final_usage_chunk(self) -> None:
+        """Combined content+usage terminal chunks must be split for legacy clients."""
+        serializer = SSESerializer()
+        chunk_data: dict[str, Any] = {
+            "id": "chatcmpl-test-split",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"content": "4"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 15,
+                "completion_tokens": 1,
+                "total_tokens": 16,
+            },
+        }
+        chunk = StreamingContent(
+            content=StopChunkWithUsage(chunk_data),
+            metadata={"provider": "openai"},
+            is_done=True,
+            usage=UsageSummary.from_dict(chunk_data["usage"]),
+        )
+
+        result = serializer.serialize(chunk).decode("utf-8")
+        events = [part for part in result.strip().split("\n\n") if part]
+
+        assert len(events) == 3
+        first_payload = json.loads(events[0][6:])
+        second_payload = json.loads(events[1][6:])
+
+        assert first_payload["choices"][0]["delta"]["content"] == "4"
+        assert "usage" not in first_payload
+
+        assert second_payload["choices"] == []
+        assert second_payload["usage"]["total_tokens"] == 16
+        assert events[2] == "data: [DONE]"
 
 
 class TestSSESerializerNormalChunks:
@@ -539,6 +585,21 @@ class TestSSESerializerNormalChunks:
         # Payload should be preserved; only finish_reason inference is under test.
         assert payload["choices"][0]["delta"]["content"] == "Hello"
         assert payload["choices"][0]["delta"]["role"] == "assistant"
+
+    def test_normal_chunk_omits_non_terminal_usage(self) -> None:
+        """Non-terminal legacy chat chunks must not emit non-null usage."""
+        serializer = SSESerializer()
+        chunk = StreamingContent(
+            content="Hello",
+            metadata={"provider": "openai"},
+            is_done=False,
+            usage=UsageSummary(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        )
+
+        result = serializer.serialize(chunk).decode("utf-8")
+        payload = json.loads(result.strip().split("\n\n")[0][6:])
+
+        assert "usage" not in payload
 
     def test_normal_chunk_with_reasoning_content(self) -> None:
         """Normal chunks with reasoning content should include it."""

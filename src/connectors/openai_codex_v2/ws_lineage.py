@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import logging
 from typing import Any, cast
 
@@ -69,7 +70,9 @@ class CodexWebsocketV2Lineage:
             entry = self._entries.get(key)
 
         if entry is None:
-            return False, payload_dict, "", False
+            payload_dict.pop("previous_response_id", None)
+            payload_dict["input"] = copy.deepcopy(full_payload_dict.get("input"))
+            return True, payload_dict, "ws_v2_full_bootstrap_no_lineage", False
 
         last_sent = entry.get("last_sent")
         items_added = entry.get("items_added") or []
@@ -101,7 +104,9 @@ class CodexWebsocketV2Lineage:
         baseline: list[Any] = list(last_input)
         baseline.extend(items_added)
         blen = len(baseline)
-        if len(current_input) < blen or current_input[:blen] != baseline:
+        if len(current_input) < blen or not self._matches_prefix(
+            baseline, current_input[:blen]
+        ):
             await self._coordinator.invalidate(
                 continuation_context, reason="ws_v2_prefix_mismatch"
             )
@@ -149,3 +154,110 @@ class CodexWebsocketV2Lineage:
                 "items_added": copy.deepcopy(items_added),
                 "response_id": normalized,
             }
+
+    @classmethod
+    def _matches_prefix(cls, baseline: list[Any], candidate_prefix: list[Any]) -> bool:
+        if baseline == candidate_prefix:
+            return True
+        return cls._normalize_items_for_prefix_compare(
+            baseline
+        ) == cls._normalize_items_for_prefix_compare(candidate_prefix)
+
+    @classmethod
+    def _normalize_items_for_prefix_compare(
+        cls, items: list[Any]
+    ) -> list[dict[str, Any] | Any]:
+        return [cls._normalize_item_for_prefix_compare(item) for item in items]
+
+    @classmethod
+    def _normalize_item_for_prefix_compare(cls, item: Any) -> dict[str, Any] | Any:
+        if not isinstance(item, dict):
+            return item
+
+        item_type = str(item.get("type") or "")
+        role = item.get("role")
+        if item_type == "function_call":
+            return {
+                "type": "function_call",
+                "call_id": cls._coerce_str(item.get("call_id") or item.get("id") or ""),
+                "name": cls._coerce_str(item.get("name") or ""),
+                "arguments": cls._normalize_jsonish(item.get("arguments")),
+            }
+
+        if item_type == "function_call_output":
+            return {
+                "type": "function_call_output",
+                "call_id": cls._coerce_str(item.get("call_id") or ""),
+                "output": cls._normalize_jsonish(item.get("output")),
+            }
+
+        if item_type == "message" or isinstance(role, str):
+            return {
+                "type": "message",
+                "role": cls._coerce_str(role or ""),
+                "content": cls._normalize_message_content(item.get("content")),
+            }
+
+        return {
+            key: value
+            for key, value in item.items()
+            if key not in {"id", "status", "annotations", "metadata"}
+        }
+
+    @classmethod
+    def _normalize_message_content(cls, value: Any) -> Any:
+        if isinstance(value, list):
+            normalized_parts: list[Any] = []
+            for part in value:
+                if not isinstance(part, dict):
+                    normalized_parts.append(part)
+                    continue
+                normalized_parts.append(
+                    cls._normalize_mapping(
+                        part,
+                        strip_keys={"annotations", "id", "status", "metadata"},
+                    )
+                )
+            return normalized_parts
+        return value
+
+    @staticmethod
+    def _coerce_str(value: Any) -> str:
+        return value if isinstance(value, str) else str(value)
+
+    @staticmethod
+    def _normalize_jsonish(value: Any) -> Any:
+        if not isinstance(value, str):
+            return value
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value.strip()
+
+    @classmethod
+    def _normalize_mapping(
+        cls,
+        value: dict[str, Any],
+        *,
+        strip_keys: set[str],
+    ) -> dict[str, Any]:
+        normalized: dict[str, Any] = {}
+        for key, item_value in value.items():
+            if key in strip_keys:
+                continue
+            if isinstance(item_value, dict):
+                normalized[key] = cls._normalize_mapping(
+                    item_value, strip_keys=strip_keys
+                )
+            elif isinstance(item_value, list):
+                normalized[key] = [
+                    (
+                        cls._normalize_mapping(entry, strip_keys=strip_keys)
+                        if isinstance(entry, dict)
+                        else entry
+                    )
+                    for entry in item_value
+                ]
+            else:
+                normalized[key] = item_value
+        return normalized

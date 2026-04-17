@@ -8,6 +8,7 @@ low-latency, persistent connections optimized for tool-call-heavy workflows.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import time
@@ -82,6 +83,37 @@ class OpenAIWebSocketClient:
         )
         self._lock = asyncio.Lock()
 
+    @staticmethod
+    def _connection_is_closed(connection: Any) -> bool:
+        """Support old and new websockets connection state APIs."""
+        closed = getattr(connection, "closed", None)
+        if isinstance(closed, bool):
+            return closed
+
+        state = getattr(connection, "state", None)
+        state_name = getattr(state, "name", None)
+        if isinstance(state_name, str):
+            return state_name == "CLOSED"
+
+        if isinstance(state, str):
+            return state.upper() == "CLOSED"
+
+        return False
+
+    def _has_open_connection(self) -> bool:
+        connection = self._connection
+        return connection is not None and not self._connection_is_closed(connection)
+
+    @staticmethod
+    def _connect_header_kwarg() -> str:
+        try:
+            parameters = inspect.signature(websockets.connect).parameters
+        except (TypeError, ValueError):
+            return "extra_headers"
+        if "additional_headers" in parameters:
+            return "additional_headers"
+        return "extra_headers"
+
     async def connect(self, extra_headers: dict[str, str] | None = None) -> None:
         """Establish WebSocket connection to OpenAI.
 
@@ -90,7 +122,7 @@ class OpenAIWebSocketClient:
             ServiceUnavailableError: If connection cannot be established
         """
         normalized_extra = dict(extra_headers) if extra_headers else {}
-        if self._connection and not self._connection.closed:
+        if self._has_open_connection():
             if normalized_extra == (self._last_extra_headers or {}):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("WebSocket connection already established")
@@ -109,13 +141,23 @@ class OpenAIWebSocketClient:
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Connecting to OpenAI WebSocket endpoint: %s", url)
 
-            self._connection = await websockets.connect(
-                url,
-                extra_headers=headers,
-                ping_interval=20,
-                ping_timeout=10,
-                close_timeout=10,
-            )
+            header_kwarg = self._connect_header_kwarg()
+            if header_kwarg == "additional_headers":
+                self._connection = await websockets.connect(
+                    url,
+                    additional_headers=headers,
+                    ping_interval=20,
+                    ping_timeout=10,
+                    close_timeout=10,
+                )
+            else:
+                self._connection = await websockets.connect(
+                    url,
+                    extra_headers=headers,
+                    ping_interval=20,
+                    ping_timeout=10,
+                    close_timeout=10,
+                )
             self._connection_start_time = time.time()
             self._response_cache.clear()
 
@@ -147,7 +189,7 @@ class OpenAIWebSocketClient:
     async def disconnect(self) -> None:
         """Close the WebSocket connection gracefully."""
         async with self._lock:
-            if self._connection and not self._connection.closed:
+            if self._has_open_connection():
                 try:
                     await self._connection.close()
                     if logger.isEnabledFor(logging.INFO):

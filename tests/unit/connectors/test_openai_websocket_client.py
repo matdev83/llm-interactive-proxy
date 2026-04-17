@@ -1,6 +1,8 @@
 """Unit tests for OpenAI WebSocket client."""
 
+import inspect
 import json
+from enum import Enum
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -32,16 +34,78 @@ async def test_connect_sends_v2_beta_header(api_key):
         api_base="wss://api.openai.com/v1",
         responses_websocket_mode="v2",
     )
-    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+    calls: list[dict[str, object]] = []
+
+    async def modern_connect(
+        uri: str,
+        *,
+        additional_headers: dict[str, str],
+        ping_interval: int,
+        ping_timeout: int,
+        close_timeout: int,
+    ):
+        calls.append(
+            {
+                "uri": uri,
+                "additional_headers": additional_headers,
+                "ping_interval": ping_interval,
+                "ping_timeout": ping_timeout,
+                "close_timeout": close_timeout,
+            }
+        )
         mock_ws = AsyncMock()
         mock_ws.closed = False
-        mock_connect.return_value = mock_ws
+        return mock_ws
 
+    with patch("websockets.connect", new=modern_connect):
         await client.connect()
 
-        kwargs = mock_connect.call_args.kwargs
-        headers = kwargs.get("extra_headers") or {}
-        assert headers.get("OpenAI-Beta") == "responses-websocket-mode=v2"
+    assert len(calls) == 1
+    headers = calls[0]["additional_headers"]
+    assert isinstance(headers, dict)
+    assert headers.get("OpenAI-Beta") == "responses-websocket-mode=v2"
+
+
+@pytest.mark.asyncio
+async def test_connect_falls_back_to_extra_headers_for_legacy_websockets(api_key):
+    client = OpenAIWebSocketClient(
+        api_key=api_key,
+        api_base="wss://api.openai.com/v1",
+        responses_websocket_mode="v2",
+    )
+    calls: list[dict[str, object]] = []
+
+    async def legacy_connect(
+        uri: str,
+        *,
+        extra_headers: dict[str, str],
+        ping_interval: int,
+        ping_timeout: int,
+        close_timeout: int,
+    ):
+        calls.append(
+            {
+                "uri": uri,
+                "extra_headers": extra_headers,
+                "ping_interval": ping_interval,
+                "ping_timeout": ping_timeout,
+                "close_timeout": close_timeout,
+            }
+        )
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+        return mock_ws
+
+    assert "extra_headers" in inspect.signature(legacy_connect).parameters
+    assert "additional_headers" not in inspect.signature(legacy_connect).parameters
+
+    with patch("websockets.connect", new=legacy_connect):
+        await client.connect()
+
+    assert len(calls) == 1
+    headers = calls[0]["extra_headers"]
+    assert isinstance(headers, dict)
+    assert headers.get("OpenAI-Beta") == "responses-websocket-mode=v2"
 
 
 @pytest.mark.asyncio
@@ -57,6 +121,48 @@ async def test_connect_success(ws_client):
         assert ws_client._connection is not None
         assert ws_client._connection_start_time is not None
         mock_connect.assert_called_once()
+
+
+class _StateOnlyConnectionState(Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+
+
+@pytest.mark.asyncio
+async def test_connect_reuses_state_only_open_connection(ws_client):
+    """Newer websockets runtimes expose state instead of .closed."""
+    existing_connection = AsyncMock()
+    existing_connection.state = _StateOnlyConnectionState.OPEN
+    ws_client._connection = existing_connection
+
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        await ws_client.connect()
+
+    mock_connect.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_closes_state_only_open_connection(ws_client):
+    """Disconnect must work when the runtime only exposes .state."""
+    existing_connection = AsyncMock()
+    existing_connection.state = _StateOnlyConnectionState.OPEN
+    ws_client._connection = existing_connection
+
+    await ws_client.disconnect()
+
+    existing_connection.close.assert_called_once()
+    assert ws_client._connection is None
+
+
+def test_connection_is_closed_detects_state_only_runtime(ws_client):
+    open_connection = AsyncMock()
+    open_connection.state = _StateOnlyConnectionState.OPEN
+
+    closed_connection = AsyncMock()
+    closed_connection.state = _StateOnlyConnectionState.CLOSED
+
+    assert ws_client._connection_is_closed(open_connection) is False
+    assert ws_client._connection_is_closed(closed_connection) is True
 
 
 @pytest.mark.asyncio
