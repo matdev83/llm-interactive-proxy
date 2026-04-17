@@ -11,6 +11,20 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _format_quota_headers_for_log(
+    headers: Mapping[str, str], *, value_max_len: int = 256
+) -> str:
+    """Build a single-line, sorted snapshot of quota headers for log output."""
+    parts: list[str] = []
+    for key in sorted(headers):
+        raw = str(headers[key])
+        one_line = " ".join(raw.splitlines())
+        if len(one_line) > value_max_len:
+            one_line = f"{one_line[: value_max_len - 3]}..."
+        parts.append(f"{key}={one_line}")
+    return ", ".join(parts)
+
+
 class QuotaStatusService:
     """Centralized service for monitoring backend usage quotas.
 
@@ -57,7 +71,7 @@ class QuotaStatusService:
         """Load quotas from the repository."""
         if not self._repository:
             return
-        
+
         try:
             quotas = await self._repository.get_all_quotas()
             with self._lock:
@@ -69,7 +83,7 @@ class QuotaStatusService:
                         # Only add missing keys
                         for k, v in headers.items():
                             self._quotas[b_type].setdefault(k, v)
-            
+
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Loaded quotas for %d backends from database", len(quotas))
         except Exception as e:
@@ -96,23 +110,27 @@ class QuotaStatusService:
         with self._lock:
             if backend_type not in self._quotas:
                 self._quotas[backend_type] = {}
-            
+
             # Update only if values have changed or are new
             self._quotas[backend_type].update(quota_headers)
-            
+
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Updated quota for %s: %s", backend_type, list(quota_headers.keys())
+                    "Updated quota for %s (%d headers): %s",
+                    backend_type,
+                    len(quota_headers),
+                    _format_quota_headers_for_log(quota_headers),
                 )
 
         # Persist to database if repository is available
         if self._repository:
             import asyncio
+
             try:
                 # Get current merged headers for this backend type
                 with self._lock:
                     current_quota = dict(self._quotas[backend_type])
-                
+
                 # Spawn a background task to upsert to DB
                 # Note: We use asyncio.create_task if a loop is running
                 try:
@@ -134,7 +152,7 @@ class QuotaStatusService:
         """Get all captured quota headers.
 
         Args:
-            backend_type: Optional backend type to filter by. 
+            backend_type: Optional backend type to filter by.
                          If None, returns merged headers from all backends.
 
         Returns:
@@ -143,7 +161,7 @@ class QuotaStatusService:
         with self._lock:
             if backend_type:
                 return dict(self._quotas.get(backend_type, {}))
-            
+
             # Merge all quotas (OpenAI/Codex usually takes priority for this proxy)
             merged = {}
             # Sort keys to ensure deterministic merging if multiple backends use same headers
