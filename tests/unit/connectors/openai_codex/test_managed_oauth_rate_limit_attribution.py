@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import tempfile
-import time
 from pathlib import Path
 
 import httpx
@@ -154,7 +153,8 @@ async def test_record_codex_quota_headers_targets_managed_oauth_account_id() -> 
 
 
 def test_cleared_if_local_rate_limit_expired_clears_elapsed_cooldown() -> None:
-    past = int(time.time() * 1000) - 60_000
+    base_ms = 1_700_000_000_000
+    past = base_ms - 60_000
     acc = ManagedOAuthAccount(
         account_id="x1",
         access_token="t",
@@ -170,7 +170,7 @@ async def test_load_all_accounts_persists_cleared_expired_rate_limited_until() -
     with tempfile.TemporaryDirectory() as temp_dir:
         storage_path = Path(temp_dir) / "managed_oauth"
         storage = ManagedOAuthStorageService(storage_path)
-        past = int(time.time() * 1000) - 3_600_000
+        past = 1_700_000_000_000 - 3_600_000
         await storage.save_account(
             ManagedOAuthAccount(
                 account_id="stale_rl",

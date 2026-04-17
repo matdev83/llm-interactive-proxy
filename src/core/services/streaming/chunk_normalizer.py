@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.core.domain.streaming.stop_chunk_with_usage import StopChunkWithUsage
 from src.core.domain.translation_utils.json_utils import (
     is_json_serializable,
     sanitize_dict_for_json,
@@ -72,6 +73,10 @@ def normalize_to_processed_chunk_content(content: Any) -> ProcessedChunkContent:
     if isinstance(content, bytearray):
 
         return bytes(content)
+
+    # StopChunkWithUsage overrides dict.items() to block blind JSON walks; copy first.
+    if isinstance(content, StopChunkWithUsage):
+        return dict(content)
 
     # Handle dict - normalize to dict[str, JsonValue]
     if isinstance(content, dict):

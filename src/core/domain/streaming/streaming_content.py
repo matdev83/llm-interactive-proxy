@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Internal marker carried only inside typed ``opaque_json_dict`` payloads so
+# ``from_typed_chunk`` can restore ``StopChunkWithUsage`` after ``to_typed_chunk``.
+_STREAMING_TYPED_STOP_WITH_USAGE_MARKER = "__llm_proxy_streaming_stop_with_usage__"
+
 
 @dataclass
 class StreamingContent:
@@ -320,6 +324,7 @@ class StreamingContent:
             # StopChunkWithUsage should be converted to opaque_json
             # Convert to plain dict first to avoid triggering protection
             plain_dict = dict(self.content)
+            plain_dict[_STREAMING_TYPED_STOP_WITH_USAGE_MARKER] = True
             payload = StreamingPayload(
                 kind="opaque_json_dict", opaque_json_dict=plain_dict
             )
@@ -465,7 +470,14 @@ class StreamingContent:
         if chunk.payload.kind == "text":
             content = chunk.payload.text or ""
         elif chunk.payload.kind == "opaque_json_dict":
-            content = chunk.payload.opaque_json_dict or {}
+            raw_opaque = chunk.payload.opaque_json_dict or {}
+            content = dict(raw_opaque) if isinstance(raw_opaque, dict) else {}
+            if isinstance(content, dict) and content.pop(
+                _STREAMING_TYPED_STOP_WITH_USAGE_MARKER, False
+            ):
+                from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+                content = StopChunkWithUsage(content)
         elif chunk.payload.kind == "opaque_json":
             if chunk.payload.opaque_json:
                 try:

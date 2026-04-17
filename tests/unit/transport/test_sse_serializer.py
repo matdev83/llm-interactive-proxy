@@ -477,8 +477,8 @@ class TestSSESerializerStopChunkWithUsage:
         payload = json.loads(json_line)
         assert payload["choices"][0]["finish_reason"] == "tool_calls"
 
-    def test_stop_chunk_with_usage_splits_content_from_final_usage_chunk(self) -> None:
-        """Combined content+usage terminal chunks must be split for legacy clients."""
+    def test_stop_chunk_with_usage_keeps_usage_on_single_sse_frame(self) -> None:
+        """StopChunkWithUsage must emit one OpenAI JSON object with top-level usage."""
         serializer = SSESerializer()
         chunk_data: dict[str, Any] = {
             "id": "chatcmpl-test-split",
@@ -508,16 +508,12 @@ class TestSSESerializerStopChunkWithUsage:
         result = serializer.serialize(chunk).decode("utf-8")
         events = [part for part in result.strip().split("\n\n") if part]
 
-        assert len(events) == 3
+        assert len(events) == 2
         first_payload = json.loads(events[0][6:])
-        second_payload = json.loads(events[1][6:])
 
         assert first_payload["choices"][0]["delta"]["content"] == "4"
-        assert "usage" not in first_payload
-
-        assert second_payload["choices"] == []
-        assert second_payload["usage"]["total_tokens"] == 16
-        assert events[2] == "data: [DONE]"
+        assert first_payload["usage"]["total_tokens"] == 16
+        assert events[1] == "data: [DONE]"
 
 
 class TestSSESerializerNormalChunks:

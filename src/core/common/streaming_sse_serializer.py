@@ -20,7 +20,10 @@ from src.core.domain.streaming.stop_chunk_with_usage import (
     StopChunkWithUsage,
     UsageChunkLeakError,
 )
-from src.core.domain.streaming.streaming_content import StreamingContent
+from src.core.domain.streaming.streaming_content import (
+    _STREAMING_TYPED_STOP_WITH_USAGE_MARKER,
+    StreamingContent,
+)
 from src.core.domain.translation_utils.openai_compat_ids import (
     coerce_openai_completion_id,
     normalize_tool_call_dict_id_inplace,
@@ -189,23 +192,17 @@ class SSESerializer:
         assert isinstance(content.content, StopChunkWithUsage)
         # Type hint for content.content as StopChunkWithUsage is already asserted
         plain_dict = dict(content.content)
+        plain_dict.pop(_STREAMING_TYPED_STOP_WITH_USAGE_MARKER, None)
         try:
             chunk = content.to_typed_chunk()
             self._ensure_openai_finish_reason_for_terminal_usage(plain_dict, chunk)
         except Exception:
             # Best-effort: usage chunks should never fail serialization.
             pass
-        usage_chunk = self._extract_legacy_openai_usage_chunk_payload(plain_dict)
-        if usage_chunk is not None:
-            content_payload = dict(plain_dict)
-            content_payload.pop("usage", None)
-            self._ensure_openai_compatible_top_level_id(content_payload)
-            self._ensure_openai_compatible_top_level_id(usage_chunk)
-            return (
-                f"data: {json.dumps(content_payload)}\n\n"
-                f"data: {json.dumps(usage_chunk)}\n\n"
-                "data: [DONE]\n\n"
-            ).encode()
+        # StopChunkWithUsage is the explicit terminal usage carrier: always one SSE
+        # frame with ``usage`` at the top level (OpenRouter-style). Legacy split
+        # usage events apply only to plain dict payloads via
+        # ``_serialize_openai_done_payload_with_optional_usage``.
         self._ensure_openai_compatible_top_level_id(plain_dict)
         return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
 
@@ -634,13 +631,41 @@ class SSESerializer:
                 return True
         return False
 
+    @staticmethod
+    def _payload_has_streaming_assistant_body_for_usage_split(
+        payload: dict[str, Any],
+    ) -> bool:
+        """True when the chunk carries assistant *body* that must stay usage-free.
+
+        Legacy Chat Completions clients mis-handle ``usage`` on the same SSE frame
+        as a normal assistant delta. Split usage only in that case. Pure terminal
+        stop frames (empty ``delta`` + ``finish_reason``, or ``role``-only deltas)
+        keep ``usage`` on the same JSON object (OpenRouter-style final chunk).
+        """
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return False
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            for container_key in ("delta", "message"):
+                container = choice.get(container_key)
+                if not isinstance(container, dict):
+                    continue
+                if any(
+                    container.get(key) not in (None, "", [], {})
+                    for key in ("content", "tool_calls", "function_call", "refusal")
+                ):
+                    return True
+        return False
+
     def _extract_legacy_openai_usage_chunk_payload(
         self, payload: dict[str, Any]
     ) -> dict[str, Any] | None:
         raw_usage = payload.get("usage")
         if not isinstance(raw_usage, dict):
             return None
-        if not self._payload_has_meaningful_openai_choices(payload):
+        if not self._payload_has_streaming_assistant_body_for_usage_split(payload):
             return None
         return self._build_legacy_openai_usage_chunk(payload, raw_usage)
 
@@ -692,6 +717,26 @@ class SSESerializer:
 
         usage_from_content = self._extract_usage_dict_for_legacy_openai(content)
         if usage_from_content is None:
+            return f"data: {json.dumps(content_payload)}\n\ndata: [DONE]\n\n".encode()
+
+        # Usage carried only on StreamingContent.usage (not embedded in the dict):
+        # merge into one terminal frame when this is not a legacy "assistant body +
+        # usage" split case (avoids an extra OpenAI ``choices:[]`` chunk that breaks
+        # Anthropic SSE conversion and OpenRouter-style single-frame finals).
+        if not isinstance(content_payload.get("usage"), dict) and (
+            not self._payload_has_streaming_assistant_body_for_usage_split(
+                content_payload
+            )
+        ):
+            merged = dict(content_payload)
+            merged["usage"] = usage_from_content
+            self._ensure_openai_compatible_top_level_id(merged)
+            return f"data: {json.dumps(merged)}\n\ndata: [DONE]\n\n".encode()
+
+        # Usage already embedded (e.g. streaming converter merged it); never append
+        # a second ``choices:[]`` usage-only chunk.
+        if isinstance(content_payload.get("usage"), dict):
+            self._ensure_openai_compatible_top_level_id(content_payload)
             return f"data: {json.dumps(content_payload)}\n\ndata: [DONE]\n\n".encode()
 
         usage_chunk = self._build_legacy_openai_usage_chunk(

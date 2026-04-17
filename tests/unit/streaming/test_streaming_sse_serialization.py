@@ -63,17 +63,15 @@ class TestStreamingContentToBytes:
         json_lines = [
             line[6:]
             for line in result_str.strip().split("\n\n")
-            if line.startswith("data: ")
+            if line.startswith("data: ") and line != "data: [DONE]"
         ]
+        assert len(json_lines) == 1
         main_json = json.loads(json_lines[0])
 
-        # Verify structure
+        # Verify structure (usage stays on the same OpenAI object as the stop chunk)
         assert main_json["id"] == "chatcmpl-test123"
         assert main_json["choices"][0]["delta"]["content"] == "4"
-
-        usage_json = json.loads(json_lines[1])
-        assert usage_json["choices"] == []
-        assert usage_json["usage"]["total_tokens"] == 16
+        assert main_json["usage"]["total_tokens"] == 16
 
     def test_serialize_openai_format_chunk_with_content(self):
         """OpenAI-format chunk with content should serialize correctly."""
@@ -264,8 +262,8 @@ class TestStreamingContentEdgeCases:
         # Should contain the actual content, not just [DONE]
         assert "Final answer" in result_str or "choices" in result_str
 
-    def test_terminal_finish_reason_with_usage_splits_legacy_usage_chunk(self):
-        """Terminal stop chunks with usage must emit a separate legacy usage event."""
+    def test_terminal_finish_reason_with_usage_keeps_usage_on_stop_chunk(self):
+        """Terminal empty-delta stop + usage stays on one SSE frame (OpenRouter-style)."""
         chunk_data = {
             "id": "chatcmpl-terminal-usage",
             "object": "chat.completion.chunk",
@@ -298,15 +296,12 @@ class TestStreamingContentEdgeCases:
             if line.startswith("data: {")
         ]
 
-        assert len(json_lines) == 2
+        assert len(json_lines) == 1
 
         terminal_chunk = json.loads(json_lines[0])
-        usage_chunk = json.loads(json_lines[1])
 
         assert terminal_chunk["choices"][0]["finish_reason"] == "stop"
-        assert "usage" not in terminal_chunk
-        assert usage_chunk["choices"] == []
-        assert usage_chunk["usage"]["total_tokens"] == 7
+        assert terminal_chunk["usage"]["total_tokens"] == 7
 
     def test_content_with_usage_metadata(self):
         """Content with usage in metadata should serialize correctly."""
