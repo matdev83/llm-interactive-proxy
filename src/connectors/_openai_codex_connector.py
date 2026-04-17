@@ -83,6 +83,7 @@ from src.connectors.openai_codex.utils import build_codex_user_agent, message_to
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
+    BackendError,
     InvalidRequestError,
     ServiceResolutionError,
 )
@@ -203,6 +204,7 @@ class OpenAICodexConnector(OpenAIConnector):
         self._reload_scheduling_event = threading.Event()
         self._reload_task_lock = threading.Lock()
         self._shutdown_requested = threading.Event()
+        self._usage_window_warmup_credentials_lock = asyncio.Lock()
 
         # Dependency resolution
         self._dependencies = dependencies or self._resolve_dependencies()
@@ -670,11 +672,29 @@ class OpenAICodexConnector(OpenAIConnector):
                 )
 
     async def list_managed_oauth_account_ids(self) -> list[str]:
-        """Return eligible managed OAuth account IDs for warm-up fan-out.
+        """Return managed OAuth account IDs for usage-window warm-up fan-out.
 
-        Accounts requiring re-auth are excluded. Allowed account filtering configured
-        in managed OAuth settings is applied by delegating to the credential manager.
+        Includes accounts under local rate-limit cooldown. Prefer the credential
+        manager implementation when present.
         """
+        cm_list = getattr(
+            self._credential_manager, "list_managed_oauth_account_ids", None
+        )
+        if callable(cm_list):
+            try:
+                raw = cm_list()
+                result = await raw if inspect.isawaitable(raw) else raw
+            except Exception as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Credential manager warm-up account enumeration failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
+            else:
+                if isinstance(result, list):
+                    return [str(x) for x in result if isinstance(x, str) and x.strip()]
+
         selector = getattr(self._credential_manager, "_managed_selector", None)
         if selector is None:
             return []
@@ -706,7 +726,7 @@ class OpenAICodexConnector(OpenAIConnector):
                     )
                 return [
                     account.account_id
-                    for account in eligible
+                    for account in available
                     if isinstance(account.account_id, str) and account.account_id
                 ]
         except Exception as exc:
@@ -717,6 +737,100 @@ class OpenAICodexConnector(OpenAIConnector):
                     exc_info=True,
                 )
         return []
+
+    @staticmethod
+    def _usage_window_warmup_managed_account_hint(
+        request: ConnectorChatCompletionsRequest,
+    ) -> tuple[bool, str | None]:
+        """Return ``(is_usage_window_warmup, managed_account_id_or_none)``."""
+        ctx = request.context
+        ext: dict[str, Any] = {}
+        if ctx is not None and isinstance(ctx.extensions, dict):
+            ext = ctx.extensions
+        if ext.get("usage_window_warmup") is not True:
+            return False, None
+        for key in ("warmup_target_account_id", "openai_codex_managed_account_id"):
+            raw = ext.get(key)
+            if isinstance(raw, str) and raw.strip():
+                return True, raw.strip()
+        domain = request.request
+        extra_body = getattr(domain, "extra_body", None)
+        if isinstance(extra_body, dict):
+            mid = extra_body.get("openai_codex_managed_account_id")
+            if isinstance(mid, str) and mid.strip():
+                return True, mid.strip()
+        return True, None
+
+    async def _prepare_usage_window_warmup_credentials(
+        self, request: ConnectorChatCompletionsRequest
+    ) -> Callable[[], Awaitable[None]] | None:
+        is_warmup, managed_id = self._usage_window_warmup_managed_account_hint(request)
+        if not is_warmup:
+            return None
+
+        snapshot: Mapping[str, Any] | None = None
+        begin_fn = getattr(
+            self._credential_manager, "begin_usage_window_warmup_override", None
+        )
+        end_fn = getattr(
+            self._credential_manager, "end_usage_window_warmup_override", None
+        )
+        if callable(begin_fn) and callable(end_fn):
+            raw_snapshot = begin_fn()
+            maybe_snapshot = (
+                await raw_snapshot
+                if inspect.isawaitable(raw_snapshot)
+                else raw_snapshot
+            )
+            if isinstance(maybe_snapshot, Mapping):
+                snapshot = cast(Mapping[str, Any], maybe_snapshot)
+
+        async def restore() -> None:
+            if snapshot is not None and callable(end_fn):
+                raw_restore = end_fn(snapshot)
+                if inspect.isawaitable(raw_restore):
+                    await raw_restore
+            token_after_restore = self._credential_manager.get_access_token()
+            if isinstance(token_after_restore, str) and token_after_restore.strip():
+                self.api_key = token_after_restore
+
+        fn = getattr(
+            self._credential_manager,
+            "ensure_usage_window_warmup_managed_account",
+            None,
+        )
+        if not callable(fn):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Usage window warm-up: credential manager missing "
+                    "ensure_usage_window_warmup_managed_account; skipping account override."
+                )
+            return restore if snapshot is not None else None
+        domain = request.request
+        sid_raw = getattr(domain, "session_id", None)
+        session_id = sid_raw if isinstance(sid_raw, str) and sid_raw.strip() else None
+        raw = fn(managed_id, session_id=session_id)
+        ok = await raw if inspect.isawaitable(raw) else bool(raw)
+        if not ok and managed_id is not None:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Usage window warm-up: could not bind requested managed account %s; failing targeted probe.",
+                    managed_id,
+                )
+            raise BackendError(
+                message=(
+                    "Usage window warm-up could not bind targeted managed account"
+                ),
+                details={
+                    "warmup_target_account_id": managed_id,
+                    "retryable": False,
+                    "status_code": 409,
+                },
+            )
+        token = self._credential_manager.get_access_token()
+        if isinstance(token, str) and token.strip():
+            self.api_key = token
+        return restore if snapshot is not None else None
 
     @property
     def _auth_credentials(self) -> dict[str, Any] | None:
@@ -1611,6 +1725,7 @@ class OpenAICodexConnector(OpenAIConnector):
         session_id: str | None = None,
         upstream_codex_error: Mapping[str, Any] | None = None,
         response_headers: Mapping[str, Any] | None = None,
+        managed_oauth_account_id: str | None = None,
     ) -> bool:
         """Rotate managed OAuth accounts on 429 responses when available."""
         rotate_method = getattr(self._credential_manager, "handle_rate_limit", None)
@@ -1623,6 +1738,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 session_id=session_id,
                 upstream_codex_error=upstream_codex_error,
                 response_headers=response_headers,
+                managed_oauth_account_id=managed_oauth_account_id,
             )
             rotated = await result if inspect.isawaitable(result) else bool(result)
         except Exception as exc:
@@ -1992,178 +2108,202 @@ class OpenAICodexConnector(OpenAIConnector):
                 request.cancellation_token
             )
 
-        request_data = request.request
-        processed_messages = list(request.processed_messages)
-        effective_model = request.effective_model
-        kwargs = dict(request.options) if request.options else {}
-
-        uri_params: dict[str, Any] = {}
-        model_for_parsing = effective_model
-        if ":" in model_for_parsing and not model_for_parsing.startswith("openai/"):
-            model_for_parsing = model_for_parsing.split(":", 1)[1]
-
-        extra_body_early = getattr(request_data, "extra_body", None) or {}
-        pre_resolved_uri = extra_body_early.get(RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
-        if isinstance(pre_resolved_uri, dict) and pre_resolved_uri:
-            uri_params = dict(pre_resolved_uri)
-
-        if "?" not in model_for_parsing:
-            effective_model = strip_vendor_prefix(
-                model_for_parsing, OPENAI_VENDOR_PREFIX
+        is_warmup_request, _ = self._usage_window_warmup_managed_account_hint(request)
+        warmup_lock_acquired = False
+        restore_warmup_credentials: Callable[[], Awaitable[None]] | None = None
+        try:
+            if is_warmup_request:
+                await self._usage_window_warmup_credentials_lock.acquire()
+                warmup_lock_acquired = True
+            restore_warmup_credentials = (
+                await self._prepare_usage_window_warmup_credentials(request)
             )
-        else:
-            try:
-                parsed = parse_model_with_params(model_for_parsing)
-                _, parsed_model, parsed_uri = (
-                    parsed.backend_type,
-                    parsed.model_name,
-                    parsed.uri_params,
-                )
-                if not uri_params:
-                    uri_params = parsed_uri
+
+            request_data = request.request
+            processed_messages = list(request.processed_messages)
+            effective_model = request.effective_model
+            kwargs = dict(request.options) if request.options else {}
+
+            uri_params: dict[str, Any] = {}
+            model_for_parsing = effective_model
+            if ":" in model_for_parsing and not model_for_parsing.startswith("openai/"):
+                model_for_parsing = model_for_parsing.split(":", 1)[1]
+
+            extra_body_early = getattr(request_data, "extra_body", None) or {}
+            pre_resolved_uri = extra_body_early.get(RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
+            if isinstance(pre_resolved_uri, dict) and pre_resolved_uri:
+                uri_params = dict(pre_resolved_uri)
+
+            if "?" not in model_for_parsing:
                 effective_model = strip_vendor_prefix(
-                    parsed_model, OPENAI_VENDOR_PREFIX
+                    model_for_parsing, OPENAI_VENDOR_PREFIX
                 )
-            except Exception as exc:
-                logger.debug("Failed to parse model URI params: %s", exc, exc_info=True)
-                if ":" in effective_model:
-                    effective_model = effective_model.split(":", 1)[1]
-                effective_model = strip_vendor_prefix(
-                    effective_model, OPENAI_VENDOR_PREFIX
+            else:
+                try:
+                    parsed = parse_model_with_params(model_for_parsing)
+                    _, parsed_model, parsed_uri = (
+                        parsed.backend_type,
+                        parsed.model_name,
+                        parsed.uri_params,
+                    )
+                    if not uri_params:
+                        uri_params = parsed_uri
+                    effective_model = strip_vendor_prefix(
+                        parsed_model, OPENAI_VENDOR_PREFIX
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to parse model URI params: %s", exc, exc_info=True
+                    )
+                    if ":" in effective_model:
+                        effective_model = effective_model.split(":", 1)[1]
+                    effective_model = strip_vendor_prefix(
+                        effective_model, OPENAI_VENDOR_PREFIX
+                    )
+                    if "?" in effective_model:
+                        effective_model = effective_model.split("?", 1)[0]
+
+            resolved_reasoning_effort = self._resolve_reasoning_effort(
+                effective_model, uri_params, request_data
+            )
+            if isinstance(request_data, dict):
+                request_data["_codex_resolved_reasoning_effort"] = (
+                    resolved_reasoning_effort
                 )
-                if "?" in effective_model:
-                    effective_model = effective_model.split("?", 1)[0]
+            else:
+                # CanonicalChatRequest / ChatRequest are frozen Pydantic models; normal setattr raises.
+                object.__setattr__(
+                    request_data,
+                    "_codex_resolved_reasoning_effort",
+                    resolved_reasoning_effort,
+                )
 
-        resolved_reasoning_effort = self._resolve_reasoning_effort(
-            effective_model, uri_params, request_data
-        )
-        if isinstance(request_data, dict):
-            request_data["_codex_resolved_reasoning_effort"] = resolved_reasoning_effort
-        else:
-            # CanonicalChatRequest / ChatRequest are frozen Pydantic models; normal setattr raises.
-            object.__setattr__(
-                request_data,
-                "_codex_resolved_reasoning_effort",
-                resolved_reasoning_effort,
-            )
-
-        ok = await self._validate_runtime_credentials()
-        errors = self.get_validation_errors()
-        if not ok:
-            self._degrade(errors)
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "error": "openai_codex_credentials_invalid",
-                    "message": "OpenAI Codex credentials validation failed: "
-                    f"{'; '.join(errors)}",
-                    "details": {
-                        "backend": self.name,
-                        "validation_errors": errors,
-                        "suggestion": "Please check your OAuth credentials file and ensure it contains valid tokens.access_token or OPENAI_API_KEY",
+            ok = await self._validate_runtime_credentials()
+            errors = self.get_validation_errors()
+            if not ok:
+                self._degrade(errors)
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "error": "openai_codex_credentials_invalid",
+                        "message": "OpenAI Codex credentials validation failed: "
+                        f"{'; '.join(errors)}",
+                        "details": {
+                            "backend": self.name,
+                            "validation_errors": errors,
+                            "suggestion": "Please check your OAuth credentials file and ensure it contains valid tokens.access_token or OPENAI_API_KEY",
+                        },
                     },
-                },
-            )
+                )
 
-        if not self.api_key:
-            self._degrade(["OAuth credentials not initialized"])
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "error": "openai_codex_credentials_unavailable",
-                    "message": "OpenAI Codex credentials not initialized. Backend may have failed to start.",
-                    "details": {
-                        "backend": self.name,
-                        "validation_errors": self.get_validation_errors(),
-                        "suggestion": "Check backend initialization logs. Ensure auth.json exists and contains valid tokens.",
+            if not self.api_key:
+                self._degrade(["OAuth credentials not initialized"])
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "error": "openai_codex_credentials_unavailable",
+                        "message": "OpenAI Codex credentials not initialized. Backend may have failed to start.",
+                        "details": {
+                            "backend": self.name,
+                            "validation_errors": self.get_validation_errors(),
+                            "suggestion": "Check backend initialization logs. Ensure auth.json exists and contains valid tokens.",
+                        },
                     },
-                },
-            )
+                )
 
-        if self._is_codex_model(effective_model):
-            try:
-                result = cast(
-                    ResponseEnvelope | StreamingResponseEnvelope,
-                    await self._call_codex_responses_api(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=effective_model,
-                        domain_request=request_data,
-                        options_metadata=(
-                            cast(Mapping[str, Any], md_raw)
-                            if isinstance((md_raw := kwargs.get("metadata")), Mapping)
-                            else None
+            if self._is_codex_model(effective_model):
+                try:
+                    result = cast(
+                        ResponseEnvelope | StreamingResponseEnvelope,
+                        await self._call_codex_responses_api(
+                            request_data=request_data,
+                            processed_messages=processed_messages,
+                            effective_model=effective_model,
+                            domain_request=request_data,
+                            options_metadata=(
+                                cast(Mapping[str, Any], md_raw)
+                                if isinstance(
+                                    (md_raw := kwargs.get("metadata")), Mapping
+                                )
+                                else None
+                            ),
+                            request_context=request.context,
                         ),
-                        request_context=request.context,
-                    ),
-                )
-                if not self.is_functional:
-                    self._recover()
-                return result
-            except Exception as exc:
-                status = getattr(exc, "status_code", None)
-                if status in (401, 403) and isinstance(
-                    exc, AuthenticationError | HTTPException | InvalidRequestError
-                ):
-                    self._degrade([f"Authentication failed: {exc!s}"])
-                raise
+                    )
+                    if not self.is_functional:
+                        self._recover()
+                    return result
+                except Exception as exc:
+                    status = getattr(exc, "status_code", None)
+                    if status in (401, 403) and isinstance(
+                        exc, AuthenticationError | HTTPException | InvalidRequestError
+                    ):
+                        self._degrade([f"Authentication failed: {exc!s}"])
+                    raise
 
-        requested_model_raw: str | None = None
-        if isinstance(request_data, dict):
-            request_model_value = request_data.get("model")
-            if isinstance(request_model_value, str):
-                requested_model_raw = request_model_value
-        else:
-            model_attr = getattr(request_data, "model", None)
-            if isinstance(model_attr, str):
-                requested_model_raw = model_attr
+            requested_model_raw: str | None = None
+            if isinstance(request_data, dict):
+                request_model_value = request_data.get("model")
+                if isinstance(request_model_value, str):
+                    requested_model_raw = request_model_value
+            else:
+                model_attr = getattr(request_data, "model", None)
+                if isinstance(model_attr, str):
+                    requested_model_raw = model_attr
 
-        explicit_codex_selection = False
-        if isinstance(requested_model_raw, str):
-            try:
-                parsed_requested_model = parse_model_with_params(requested_model_raw)
-                explicit_codex_selection = (
-                    parsed_requested_model.backend_type.lower()
-                    == self.backend_type.lower()
-                )
-            except Exception:
-                explicit_codex_selection = requested_model_raw.lower().startswith(
-                    f"{self.backend_type.lower()}:"
-                )
+            explicit_codex_selection = False
+            if isinstance(requested_model_raw, str):
+                try:
+                    parsed_requested_model = parse_model_with_params(
+                        requested_model_raw
+                    )
+                    explicit_codex_selection = (
+                        parsed_requested_model.backend_type.lower()
+                        == self.backend_type.lower()
+                    )
+                except Exception:
+                    explicit_codex_selection = requested_model_raw.lower().startswith(
+                        f"{self.backend_type.lower()}:"
+                    )
 
-        if explicit_codex_selection:
-            supported_models = ", ".join(self.SUPPORTED_CODEX_MODELS)
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "openai_codex_model_not_supported",
-                    "message": (
-                        "Model is not supported by the OpenAI Codex backend and was not "
-                        "forwarded to metered OpenAI API endpoints."
-                    ),
-                    "details": {
-                        "backend": self.name,
-                        "requested_model": effective_model,
-                        "supported_models": list(self.SUPPORTED_CODEX_MODELS),
-                        "suggestion": (
-                            "Use one of the supported Codex model slugs for this backend: "
-                            f"{supported_models}"
+            if explicit_codex_selection:
+                supported_models = ", ".join(self.SUPPORTED_CODEX_MODELS)
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "openai_codex_model_not_supported",
+                        "message": (
+                            "Model is not supported by the OpenAI Codex backend and was not "
+                            "forwarded to metered OpenAI API endpoints."
                         ),
+                        "details": {
+                            "backend": self.name,
+                            "requested_model": effective_model,
+                            "supported_models": list(self.SUPPORTED_CODEX_MODELS),
+                            "suggestion": (
+                                "Use one of the supported Codex model slugs for this backend: "
+                                f"{supported_models}"
+                            ),
+                        },
                     },
-                },
-            )
+                )
 
-        fallback_request = ConnectorChatCompletionsRequest(
-            request=request_data,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=request.identity,
-            cancellation_token=request.cancellation_token,
-            cancellation_coordinator=request.cancellation_coordinator,
-            context=request.context,
-            options=kwargs,
-        )
-        return await super().chat_completions(fallback_request)
+            fallback_request = ConnectorChatCompletionsRequest(
+                request=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                identity=request.identity,
+                cancellation_token=request.cancellation_token,
+                cancellation_coordinator=request.cancellation_coordinator,
+                context=request.context,
+                options=kwargs,
+            )
+            return await super().chat_completions(fallback_request)
+        finally:
+            if restore_warmup_credentials is not None:
+                await restore_warmup_credentials()
+            if warmup_lock_acquired:
+                self._usage_window_warmup_credentials_lock.release()
 
     async def _handle_non_streaming_response(
         self,

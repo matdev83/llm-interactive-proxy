@@ -163,7 +163,11 @@ class ICredentialManager(ABC):
 
     @abstractmethod
     async def list_managed_oauth_account_ids(self) -> list[str]:
-        """Return eligible managed OAuth account IDs for fan-out warm-up calls."""
+        """Return managed OAuth account IDs for fan-out usage-window warm-up calls.
+
+        Implementations should include accounts under **local** rate-limit cooldown
+        when those accounts are otherwise usable (``needs_reauth`` false, allowlist).
+        """
         ...
 
 

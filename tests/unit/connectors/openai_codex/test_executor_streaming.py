@@ -16,6 +16,7 @@ from src.connectors.openai_codex.continuation import (
 from src.connectors.openai_codex.contracts import CodexToolSchema
 from src.connectors.openai_codex.executor import ResponseExecutor
 from src.connectors.openai_codex.interfaces import ICompatibilityLayer
+from src.connectors.openai_codex_v2.ws_lineage import CodexWebsocketV2Lineage
 from src.core.common.exceptions import InvalidRequestError
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.translators.responses.streaming import (
@@ -482,12 +483,11 @@ class TestResponseExecutor:
         assert exc_info.value.status_code == 429
         mock_base_connector._handle_rate_limit_rotation.assert_awaited_once()
         mock_credential_manager.notify_codex_usage_limit_unrecovered.assert_awaited_once()
-        assert (
-            mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs[
-                "pool_exhaustion_confirmed"
-            ]
-            is False
+        notify_await_args = (
+            mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args
         )
+        assert notify_await_args is not None
+        assert notify_await_args.kwargs["pool_exhaustion_confirmed"] is False
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_429_usage_limit_notifies_when_rotation_exhausted(
@@ -2120,6 +2120,58 @@ class TestResponseExecutor:
         continuation.resolve_previous_response_id.assert_awaited_once()
         send_kwargs = ws_client.send_response_create.call_args.kwargs
         assert send_kwargs["previous_response_id"] == "resp_ws_prev"
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_websocket_v2_bootstraps_when_lineage_missing(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        monkeypatch,
+    ) -> None:
+        continuation = InMemoryCodexContinuationCoordinator()
+        await continuation.record_turn(
+            sample_context,
+            response_id="resp_ws_prev",
+            payload_dict={"input": [{"role": "user", "content": "earlier"}]},
+        )
+
+        async def ws_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_ws_terminal", "output": []},
+                metadata={"event_type": "response.completed", "done": True},
+            )
+
+        ws_client = MagicMock()
+        ws_client.disconnect = AsyncMock()
+        ws_client.send_response_create = MagicMock(return_value=ws_iterator())
+
+        monkeypatch.setattr(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            MagicMock(return_value=ws_client),
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+            use_websocket=True,
+            websocket_beta_mode="v2",
+            codex_ws_lineage=CodexWebsocketV2Lineage(continuation),
+            preserve_tools_on_managed_ws_continuation=True,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        send_kwargs = ws_client.send_response_create.call_args.kwargs
+        assert send_kwargs.get("previous_response_id") is None
+        assert send_kwargs["payload"]["input"] == [
+            item.model_dump(exclude_none=True) for item in streaming_payload.input
+        ]
 
     @pytest.mark.asyncio
     async def test_execute_streaming_websocket_replays_after_previous_response_miss(

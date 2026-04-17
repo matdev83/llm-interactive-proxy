@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import inspect
 import json
 import logging
 import os
@@ -1015,6 +1016,7 @@ class CredentialManager(ICredentialManager):
         headers: Mapping[str, Any],
         *,
         force: bool = False,
+        managed_oauth_account_id: str | None = None,
     ) -> None:
         """Persist last x-codex-* headers on the currently selected managed account.
 
@@ -1033,7 +1035,16 @@ class CredentialManager(ICredentialManager):
         if not captured:
             return
         async with self._codex_telemetry_lock:
-            current = self._managed_selector.get_current_account()
+            aid = (
+                str(managed_oauth_account_id).strip()
+                if isinstance(managed_oauth_account_id, str)
+                and managed_oauth_account_id.strip()
+                else ""
+            )
+            if aid:
+                current = self._managed_selector.get_account_by_id(aid)
+            else:
+                current = self._managed_selector.get_current_account()
             if current is None:
                 return
             now_m = time.monotonic()
@@ -1068,17 +1079,31 @@ class CredentialManager(ICredentialManager):
         session_id: str | None = None,
         upstream_codex_error: Mapping[str, Any] | None = None,
         response_headers: Mapping[str, Any] | None = None,
+        managed_oauth_account_id: str | None = None,
     ) -> bool:
         """Mark managed account as rate-limited and rotate to another account."""
         async with self._token_refresh_lock:
             if not await self._load_managed_auth(force_reload=True):
                 return False
-            if response_headers is not None:
+            cur_sel = self._managed_selector.get_current_account()
+            bound = (
+                str(managed_oauth_account_id).strip()
+                if isinstance(managed_oauth_account_id, str)
+                and managed_oauth_account_id.strip()
+                else ""
+            )
+            target_id = bound or (cur_sel.account_id if cur_sel is not None else None)
+            if response_headers is not None and target_id:
                 await self.record_codex_quota_headers(
                     response_headers,
                     force=True,
+                    managed_oauth_account_id=target_id,
                 )
-            current = self._managed_selector.get_current_account()
+            current = (
+                self._managed_selector.get_account_by_id(target_id)
+                if target_id
+                else None
+            )
             if current is not None:
                 emit_openai_codex_managed_oauth_rate_limit(
                     managed_account_id=current.account_id,
@@ -1141,7 +1166,8 @@ class CredentialManager(ICredentialManager):
                     retry_after_seconds=retry_after_seconds,
                     pool_exhaustion_confirmed=other_eligible == 0,
                 )
-            rotated = await self._managed_selector.rotate_on_rate_limit(
+            rotated = await self._managed_selector.rotate_on_rate_limit_for_account(
+                target_id,
                 retry_after_seconds=retry_after_seconds,
                 session_id=session_id,
                 codex_usage_limit_fields=usage_fields,
@@ -1305,6 +1331,29 @@ class CredentialManager(ICredentialManager):
             return ValidationResult.failure("No credentials loaded")
         return self._validate_credentials_structure(self._auth_credentials)
 
+    def snapshot_managed_oauth_storage_account_id(self) -> str | None:
+        """Return the managed OAuth storage ``account_id`` for the in-memory credential snapshot.
+
+        Used to attribute upstream quota signals to the account that last refreshed
+        outbound headers, without re-reading mutable selector state after an await.
+        """
+        if self._active_source != "managed":
+            return None
+        if self._managed_current_account is not None:
+            return self._managed_current_account.account_id
+        creds = self._auth_credentials
+        if not isinstance(creds, dict):
+            return None
+        mid = creds.get("managed_account_id")
+        if isinstance(mid, str) and mid.strip():
+            return mid.strip()
+        managed = creds.get("managed_oauth")
+        if isinstance(managed, dict):
+            nested = managed.get("account_id")
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+        return None
+
     def get_account_id(self) -> str | None:
         """Return ChatGPT account ID from loaded credentials.
 
@@ -1356,12 +1405,114 @@ class CredentialManager(ICredentialManager):
         return None
 
     async def list_managed_oauth_account_ids(self) -> list[str]:
-        """Return eligible managed OAuth account IDs for warm-up fan-out."""
+        """Return managed OAuth account IDs for usage-window warm-up fan-out.
+
+        Includes accounts under local rate-limit cooldown (warm-up still probes
+        upstream). Excludes ``needs_reauth`` and allowlist-filtered accounts.
+        """
         if not self._managed_enabled():
             return []
 
         await self._managed_selector.reload_accounts()
-        return await self._managed_selector.list_eligible_account_ids()
+        list_fn = getattr(
+            self._managed_selector, "list_available_managed_account_ids", None
+        )
+        if callable(list_fn):
+            result = list_fn()
+            ids = await result if inspect.isawaitable(result) else result
+            return list(ids) if isinstance(ids, list) else []
+        now_ms = int(time.time() * 1000)
+        available, _ = self._managed_selector._available_accounts(now_ms)  # type: ignore[reportPrivateUsage]
+        return [
+            account.account_id
+            for account in available
+            if isinstance(account.account_id, str) and account.account_id
+        ]
+
+    def begin_usage_window_warmup_override(self) -> dict[str, Any]:
+        """Capture mutable account selection state before warm-up account override."""
+        return {
+            "active_source": self._active_source,
+            "managed_current_account": self._managed_current_account,
+            "auth_credentials": deepcopy(self._auth_credentials),
+            "selector_current_account": self._managed_selector.get_current_account(),
+        }
+
+    def end_usage_window_warmup_override(self, snapshot: Mapping[str, Any]) -> None:
+        """Restore account selection state after warm-up request completes."""
+        active_source = snapshot.get("active_source")
+        if isinstance(active_source, str):
+            self._active_source = active_source
+
+        managed_current_account = snapshot.get("managed_current_account")
+        if isinstance(managed_current_account, ManagedOAuthAccount):
+            self._managed_current_account = managed_current_account
+        elif managed_current_account is None:
+            self._managed_current_account = None
+
+        auth_credentials = snapshot.get("auth_credentials")
+        self._auth_credentials = (
+            deepcopy(auth_credentials)
+            if isinstance(auth_credentials, dict) or auth_credentials is None
+            else self._auth_credentials
+        )
+
+        selector_current_account = snapshot.get("selector_current_account")
+        if isinstance(selector_current_account, ManagedOAuthAccount):
+            self._managed_selector._current_account = selector_current_account  # type: ignore[reportPrivateUsage]
+        elif selector_current_account is None:
+            self._managed_selector._current_account = None  # type: ignore[reportPrivateUsage]
+
+    async def ensure_usage_window_warmup_managed_account(
+        self,
+        managed_account_id: str | None,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        """Bind managed OAuth credentials for a usage-window warm-up request.
+
+        Ignores **local** per-account rate-limit cooldown so the request can still
+        reach Codex; upstream quotas still apply.
+        """
+        if not self._managed_enabled():
+            return await self._load_managed_auth(force_reload=False)
+
+        async with self._token_refresh_lock:
+            await self._managed_selector.reload_accounts()
+            if managed_account_id is not None and str(managed_account_id).strip():
+                activate = getattr(
+                    self._managed_selector, "activate_specific_account", None
+                )
+                if not callable(activate):
+                    return False
+                acc_result = activate(
+                    str(managed_account_id).strip(),
+                    session_id=session_id,
+                    ignore_local_rate_limits=True,
+                )
+                account = cast(
+                    ManagedOAuthAccount | None,
+                    await acc_result if inspect.isawaitable(acc_result) else acc_result,
+                )
+                if account is None:
+                    return False
+                self._managed_current_account = account
+                self._auth_credentials = self._managed_account_to_credentials(account)
+                self._active_source = "managed"
+                return True
+
+            account = await self._managed_selector.get_next_account(
+                session_id=session_id,
+                ignore_session_affinity=False,
+                wait_for_rate_limit_recovery=False,
+                ignore_local_rate_limits=True,
+            )
+            if account is None:
+                return False
+            self._managed_current_account = account
+            self._auth_credentials = self._managed_account_to_credentials(account)
+            self._active_source = "managed"
+            return True
 
 
 def _extract_chatgpt_account_id_from_jwt(token: str) -> str | None:

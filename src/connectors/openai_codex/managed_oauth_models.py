@@ -98,6 +98,22 @@ class ManagedOAuthAccount(BaseModel):
         current = now_ms if now_ms is not None else int(time.time() * 1000)
         return current < self.rate_limited_until
 
+    def cleared_if_local_rate_limit_expired(
+        self, now_ms: int | None = None
+    ) -> ManagedOAuthAccount:
+        """Return a copy with ``rate_limited_until`` cleared when cooldown elapsed."""
+        if self.rate_limited_until is None:
+            return self
+        current = now_ms if now_ms is not None else int(time.time() * 1000)
+        if current < self.rate_limited_until:
+            return self
+        return self.model_copy(
+            update={
+                "rate_limited_until": None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
     @property
     def status(self) -> Literal["valid", "expired", "needs_reauth", "rate_limited"]:
         if self.needs_reauth:

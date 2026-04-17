@@ -185,6 +185,21 @@ class ManagedOAuthAccountSelector:
         _, eligible = self._available_accounts(now_ms)
         return [account.account_id for account in eligible]
 
+    async def list_available_managed_account_ids(self) -> list[str]:
+        """Return managed account IDs that pass allowlist and are not ``needs_reauth``.
+
+        Includes accounts currently under **local** rate-limit cooldown. Used for
+        usage-window warm-up fan-out where upstream may still accept traffic.
+        """
+        await self._ensure_accounts_loaded()
+        now_ms = int(time.time() * 1000)
+        available, _ = self._available_accounts(now_ms)
+        return [
+            account.account_id
+            for account in available
+            if isinstance(account.account_id, str) and account.account_id
+        ]
+
     async def count_available_managed_accounts(self) -> int:
         """Count managed accounts that can participate in rotation (not needs_reauth)."""
         await self._ensure_accounts_loaded()
@@ -276,6 +291,7 @@ class ManagedOAuthAccountSelector:
         session_id: str | None = None,
         ignore_session_affinity: bool = False,
         wait_for_rate_limit_recovery: bool = True,
+        ignore_local_rate_limits: bool = False,
     ) -> ManagedOAuthAccount | None:
         """Return next usable account and perform proactive refresh.
 
@@ -285,6 +301,10 @@ class ManagedOAuthAccountSelector:
         is exceeded. Callers that must not block in-flight requests (for example
         :meth:`rotate_on_rate_limit`) should pass ``wait_for_rate_limit_recovery=False``
         to return ``None`` immediately in that situation.
+
+        When ``ignore_local_rate_limits`` is True, accounts under local
+        rate-limit cooldown are still selectable (used for usage-window warm-up
+        probes where local cooldown state may be stale).
         """
         await self._ensure_accounts_loaded()
 
@@ -295,6 +315,9 @@ class ManagedOAuthAccountSelector:
             available, eligible = self._available_accounts(now_ms)
             if not available:
                 return None
+
+            if ignore_local_rate_limits:
+                eligible = list(available)
 
             if not eligible:
                 if not wait_for_rate_limit_recovery:
@@ -358,8 +381,80 @@ class ManagedOAuthAccountSelector:
                 self._record_affinity(session_id, selected.account_id, now_s)
             return selected
 
+    async def activate_specific_account(
+        self,
+        account_id: str,
+        *,
+        session_id: str | None = None,
+        ignore_local_rate_limits: bool = False,
+    ) -> ManagedOAuthAccount | None:
+        """Load and select a managed account by storage or ChatGPT id.
+
+        Used for internal warm-up traffic that must hit a fixed account even when
+        :meth:`ManagedOAuthAccount.is_rate_limited` would normally exclude it.
+        """
+        await self._ensure_accounts_loaded()
+        needle = account_id.strip()
+        if not needle:
+            return None
+
+        now_ms = int(time.time() * 1000)
+        now_s = float(now_ms) / 1000.0
+        match: ManagedOAuthAccount | None = None
+        for account in self._accounts:
+            if not self._account_passes_allowlist(account):
+                continue
+            if account.needs_reauth:
+                continue
+            if account.account_id == needle or (
+                isinstance(account.chatgpt_account_id, str)
+                and account.chatgpt_account_id == needle
+            ):
+                match = account
+                break
+        if match is None:
+            return None
+        if not ignore_local_rate_limits and match.is_rate_limited(now_ms):
+            return None
+
+        selected = match
+        try:
+            selected = await self._refresh_service.refresh_if_needed(
+                selected,
+                buffer_ms=self._refresh_buffer_ms,
+            )
+        except ManagedOAuthRefreshError as exc:
+            if exc.needs_reauth:
+                selected = selected.mark_needs_reauth()
+                await self._storage.save_account(selected)
+                self._replace_account(selected)
+                if session_id:
+                    self._clear_affinity(session_id)
+                return None
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Managed OAuth refresh failed for %s: %s",
+                    selected.account_id,
+                    exc,
+                )
+
+        self._replace_account(selected)
+        self._current_account = selected
+        if session_id:
+            self._record_affinity(session_id, selected.account_id, now_s)
+        return selected
+
     def get_current_account(self) -> ManagedOAuthAccount | None:
         return self._current_account
+
+    def get_account_by_id(self, account_id: str) -> ManagedOAuthAccount | None:
+        needle = account_id.strip()
+        if not needle:
+            return None
+        for account in self._accounts:
+            if account.account_id == needle:
+                return account
+        return None
 
     def _replace_account(self, updated: ManagedOAuthAccount) -> None:
         for idx, account in enumerate(self._accounts):
@@ -384,16 +479,17 @@ class ManagedOAuthAccountSelector:
         self._replace_account(updated)
         await self._storage.save_account(updated)
 
-    async def mark_current_account_rate_limited(
+    async def mark_account_rate_limited(
         self,
+        account_id: str,
         retry_after_seconds: float | None,
         *,
         codex_usage_limit_fields: dict[str, Any] | None = None,
-    ) -> None:
-        if self._current_account is None:
-            return
-
-        acc = self._current_account
+    ) -> bool:
+        await self._ensure_accounts_loaded()
+        acc = self.get_account_by_id(account_id)
+        if acc is None:
+            return False
         if codex_usage_limit_fields:
             observed = datetime.now(timezone.utc).isoformat()
             snap = dict(codex_usage_limit_fields)
@@ -412,9 +508,53 @@ class ManagedOAuthAccountSelector:
         updated = acc.mark_rate_limited(
             retry_after_seconds, local_cooldown_cap_seconds=cap
         )
-        self._current_account = updated
         self._replace_account(updated)
+        if (
+            self._current_account is not None
+            and self._current_account.account_id == updated.account_id
+        ):
+            self._current_account = updated
         await self._storage.save_account(updated)
+        return True
+
+    async def mark_current_account_rate_limited(
+        self,
+        retry_after_seconds: float | None,
+        *,
+        codex_usage_limit_fields: dict[str, Any] | None = None,
+    ) -> None:
+        if self._current_account is None:
+            return
+        await self.mark_account_rate_limited(
+            self._current_account.account_id,
+            retry_after_seconds,
+            codex_usage_limit_fields=codex_usage_limit_fields,
+        )
+
+    async def rotate_on_rate_limit_for_account(
+        self,
+        account_id: str | None,
+        *,
+        retry_after_seconds: float | None,
+        session_id: str | None = None,
+        codex_usage_limit_fields: dict[str, Any] | None = None,
+    ) -> ManagedOAuthAccount | None:
+        if account_id:
+            await self.mark_account_rate_limited(
+                account_id,
+                retry_after_seconds,
+                codex_usage_limit_fields=codex_usage_limit_fields,
+            )
+        else:
+            await self.mark_current_account_rate_limited(
+                retry_after_seconds,
+                codex_usage_limit_fields=codex_usage_limit_fields,
+            )
+        return await self.get_next_account(
+            session_id=session_id,
+            ignore_session_affinity=True,
+            wait_for_rate_limit_recovery=False,
+        )
 
     async def rotate_on_rate_limit(
         self,
@@ -423,14 +563,13 @@ class ManagedOAuthAccountSelector:
         session_id: str | None = None,
         codex_usage_limit_fields: dict[str, Any] | None = None,
     ) -> ManagedOAuthAccount | None:
-        await self.mark_current_account_rate_limited(
-            retry_after_seconds,
-            codex_usage_limit_fields=codex_usage_limit_fields,
-        )
-        return await self.get_next_account(
+        cur = self._current_account
+        bound_id = cur.account_id if cur is not None else None
+        return await self.rotate_on_rate_limit_for_account(
+            bound_id,
+            retry_after_seconds=retry_after_seconds,
             session_id=session_id,
-            ignore_session_affinity=True,
-            wait_for_rate_limit_recovery=False,
+            codex_usage_limit_fields=codex_usage_limit_fields,
         )
 
     async def rotate_on_auth_failure(

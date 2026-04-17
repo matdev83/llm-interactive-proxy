@@ -540,6 +540,22 @@ class ResponseExecutor(IResponseExecutor):
             try:
                 while True:
                     ws_output_items: list[Any] = []
+                    self._refresh_headers_auth(
+                        current_headers,
+                        conversation_id,
+                        context.session_id,
+                    )
+                    snapshot_fn = getattr(
+                        self._credential_manager,
+                        "snapshot_managed_oauth_storage_account_id",
+                        None,
+                    )
+                    _raw_snapshot = snapshot_fn() if callable(snapshot_fn) else None
+                    handshake_managed_oauth_account_id = (
+                        str(_raw_snapshot)
+                        if isinstance(_raw_snapshot, str) and _raw_snapshot.strip()
+                        else None
+                    )
                     self._log_request_attempt(
                         context,
                         current_payload_dict,
@@ -581,11 +597,6 @@ class ResponseExecutor(IResponseExecutor):
                                 )
                                 await self._wait_for_auth_retry_delay(attempts_used)
                                 attempts_used += 1
-                                self._refresh_headers_auth(
-                                    current_headers,
-                                    conversation_id,
-                                    context.session_id,
-                                )
                                 continue
 
                         if status_code == 401 or status_code == 403:
@@ -647,9 +658,6 @@ class ResponseExecutor(IResponseExecutor):
                                 )
                             await self._wait_for_auth_retry_delay(attempts_used)
                             attempts_used += 1
-                            self._refresh_headers_auth(
-                                current_headers, conversation_id, context.session_id
-                            )
                             continue
                         if status_code == 429:
                             rd = detail if isinstance(detail, dict) else {}
@@ -670,6 +678,7 @@ class ResponseExecutor(IResponseExecutor):
                                     session_id=context.session_id,
                                     upstream_codex_error=rd or None,
                                     response_headers=None,
+                                    managed_oauth_account_id=handshake_managed_oauth_account_id,
                                 )
                                 if rotated:
                                     await self._invalidate_continuation_on_rotation(
@@ -678,11 +687,6 @@ class ResponseExecutor(IResponseExecutor):
                                     )
                                     await self._wait_for_auth_retry_delay(attempts_used)
                                     attempts_used += 1
-                                    self._refresh_headers_auth(
-                                        current_headers,
-                                        conversation_id,
-                                        context.session_id,
-                                    )
                                     continue
                             await self._notify_codex_quota_unrecovered(
                                 upstream_detail=rd or {},
@@ -764,8 +768,7 @@ class ResponseExecutor(IResponseExecutor):
                                 ):
                                     meta = processed_chunk.metadata
                                     if (
-                                        isinstance(meta, dict)
-                                        and meta.get("event_type")
+                                        meta.get("event_type")
                                         == "response.output_item.done"
                                     ):
                                         raw = self._coerce_stream_chunk_content(
@@ -1118,9 +1121,6 @@ class ResponseExecutor(IResponseExecutor):
 
                         await self._wait_for_auth_retry_delay(attempts_used)
                         attempts_used += 1
-                        self._refresh_headers_auth(
-                            current_headers, conversation_id, context.session_id
-                        )
                         # Restart the stream by continuing the outer while loop
                         continue
 
@@ -1360,7 +1360,7 @@ class ResponseExecutor(IResponseExecutor):
         extra = {
             k: v
             for k, v in handshake_headers.items()
-            if k in self._WS_HANDSHAKE_HEADER_ALLOWLIST and isinstance(v, str)
+            if k in self._WS_HANDSHAKE_HEADER_ALLOWLIST
         }
         request_context.extensions["codex_ws_extra_headers"] = cast(JsonValue, extra)
 
@@ -1763,6 +1763,7 @@ class ResponseExecutor(IResponseExecutor):
         session_id: str | None,
         upstream_codex_error: Mapping[str, Any] | None = None,
         response_headers: Mapping[str, Any] | None = None,
+        managed_oauth_account_id: str | None = None,
     ) -> bool:
         rotate_method = getattr(
             self._base_connector,
@@ -1770,12 +1771,20 @@ class ResponseExecutor(IResponseExecutor):
             None,
         )
         if callable(rotate_method):
-            result = rotate_method(
-                retry_after_seconds,
-                session_id=session_id,
-                upstream_codex_error=upstream_codex_error,
-                response_headers=response_headers,
-            )
+            rl_kw: dict[str, Any] = {
+                "session_id": session_id,
+                "upstream_codex_error": upstream_codex_error,
+                "response_headers": response_headers,
+            }
+            try:
+                if (
+                    "managed_oauth_account_id"
+                    in inspect.signature(rotate_method).parameters
+                ):
+                    rl_kw["managed_oauth_account_id"] = managed_oauth_account_id
+            except (TypeError, ValueError):
+                pass
+            result = rotate_method(retry_after_seconds, **rl_kw)
             rotated = await result if inspect.isawaitable(result) else bool(result)
             return bool(rotated)
 
@@ -1783,12 +1792,20 @@ class ResponseExecutor(IResponseExecutor):
         if not callable(fallback_rotate):
             return False
 
-        result = fallback_rotate(
-            retry_after_seconds,
-            session_id=session_id,
-            upstream_codex_error=upstream_codex_error,
-            response_headers=response_headers,
-        )
+        fb_kw: dict[str, Any] = {
+            "session_id": session_id,
+            "upstream_codex_error": upstream_codex_error,
+            "response_headers": response_headers,
+        }
+        try:
+            if (
+                "managed_oauth_account_id"
+                in inspect.signature(fallback_rotate).parameters
+            ):
+                fb_kw["managed_oauth_account_id"] = managed_oauth_account_id
+        except (TypeError, ValueError):
+            pass
+        result = fallback_rotate(retry_after_seconds, **fb_kw)
         rotated = await result if inspect.isawaitable(result) else bool(result)
         if rotated:
             new_token = self._credential_manager.get_access_token()
@@ -1974,9 +1991,9 @@ class ResponseExecutor(IResponseExecutor):
 
         # Fall back to heuristics based on codes/messages
         code = None
-        if isinstance(details, Mapping):  # type: ignore[unreachable]
+        if details is not None:
             code = details.get("code")
-        if code is None and isinstance(content, Mapping):  # type: ignore[unreachable]
+        if code is None:
             code = content.get("code")
 
         def _is_auth_code(value: Any) -> bool:

@@ -159,6 +159,90 @@ async def test_get_next_account_skip_recovery_wait_returns_immediately_when_all_
 
 
 @pytest.mark.asyncio
+async def test_get_next_account_ignore_local_rate_limits_selects_rl_pool() -> None:
+    """Warm-up style selection must bypass local cooldown when explicitly requested."""
+    with tempfile.TemporaryDirectory() as tmp:
+        storage_path = Path(tmp) / "oauth"
+        storage = ManagedOAuthStorageService(str(storage_path))
+        exp = 9_999_999_999_999
+        await storage.save_account(
+            ManagedOAuthAccount(
+                account_id="only_a",
+                access_token="ta",
+                refresh_token="ra",
+                expiry_date=exp,
+            )
+        )
+        await storage.save_account(
+            ManagedOAuthAccount(
+                account_id="only_b",
+                access_token="tb",
+                refresh_token="rb",
+                expiry_date=exp,
+            )
+        )
+        refresh = ManagedOAuthRefreshService(storage, http_client=None)
+        selector = ManagedOAuthAccountSelector(
+            storage,
+            refresh,
+            max_rate_limit_wait_seconds=0.001,
+            max_rate_limit_idle_polls=4,
+            rate_limit_local_cooldown_cap_seconds=3600.0,
+        )
+        await selector.reload_accounts()
+        first = await selector.get_next_account(ignore_session_affinity=True)
+        assert first is not None
+        await selector.mark_current_account_rate_limited(86_400.0)
+        second = await selector.get_next_account(ignore_session_affinity=True)
+        assert second is not None
+        await selector.mark_current_account_rate_limited(86_400.0)
+        third = await selector.get_next_account(
+            ignore_session_affinity=True,
+            wait_for_rate_limit_recovery=False,
+        )
+        assert third is None
+
+        warmed = await selector.get_next_account(
+            ignore_session_affinity=True,
+            wait_for_rate_limit_recovery=False,
+            ignore_local_rate_limits=True,
+        )
+        assert warmed is not None
+        assert warmed.account_id in {"only_a", "only_b"}
+
+
+@pytest.mark.asyncio
+async def test_activate_specific_account_requires_ignore_when_locally_rl() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        storage_path = Path(tmp) / "oauth"
+        storage = ManagedOAuthStorageService(str(storage_path))
+        exp = 9_999_999_999_999
+        base = ManagedOAuthAccount(
+            account_id="solo",
+            access_token="ts",
+            refresh_token="rs",
+            expiry_date=exp,
+        )
+        await storage.save_account(base.mark_rate_limited(86_400.0))
+        refresh = ManagedOAuthRefreshService(storage, http_client=None)
+        selector = ManagedOAuthAccountSelector(
+            storage,
+            refresh,
+            rate_limit_local_cooldown_cap_seconds=3600.0,
+        )
+        await selector.reload_accounts()
+        blocked = await selector.activate_specific_account(
+            "solo", ignore_local_rate_limits=False
+        )
+        assert blocked is None
+        allowed = await selector.activate_specific_account(
+            "solo", ignore_local_rate_limits=True
+        )
+        assert allowed is not None
+        assert allowed.account_id == "solo"
+
+
+@pytest.mark.asyncio
 @real_time(
     reason="Compare rate_limited_until from selector against wall clock for cap span."
 )

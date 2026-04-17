@@ -112,6 +112,11 @@ class ManagedOAuthStorageService:
             try:
                 parsed = json.loads(raw)
                 account = ManagedOAuthAccount.model_validate(parsed)
+                now_ms = int(time.time() * 1000)
+                normalized = account.cleared_if_local_rate_limit_expired(now_ms)
+                if normalized.rate_limited_until != account.rate_limited_until:
+                    await self.save_account(normalized)
+                    account = normalized
                 loaded.append(account)
             except Exception as exc:
                 logger.warning(
@@ -131,7 +136,7 @@ class ManagedOAuthStorageService:
         if raw is None:
             return None
         try:
-            return ManagedOAuthAccount.model_validate_json(raw)
+            account = ManagedOAuthAccount.model_validate_json(raw)
         except Exception as exc:
             logger.warning(
                 "Skipping invalid managed OAuth account file for %s: %s",
@@ -140,6 +145,12 @@ class ManagedOAuthStorageService:
                 exc_info=True,
             )
             return None
+        now_ms = int(time.time() * 1000)
+        normalized = account.cleared_if_local_rate_limit_expired(now_ms)
+        if normalized.rate_limited_until != account.rate_limited_until:
+            await self.save_account(normalized)
+            return normalized
+        return account
 
     @staticmethod
     def _atomic_replace_with_retry(

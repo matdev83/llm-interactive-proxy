@@ -787,9 +787,7 @@ class TestCredentialManager:
             assert on_disk.last_codex_quota_observed_at
 
     @pytest.mark.asyncio
-    async def test_list_managed_oauth_account_ids_returns_eligible_accounts(
-        self, manager
-    ):
+    async def test_list_managed_oauth_account_ids_excludes_needs_reauth(self, manager):
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_path = Path(temp_dir) / "managed_oauth"
             storage = ManagedOAuthStorageService(storage_path)
@@ -829,6 +827,134 @@ class TestCredentialManager:
             account_ids = await manager.list_managed_oauth_account_ids()
 
             assert account_ids == ["acct_a"]
+
+    @pytest.mark.asyncio
+    async def test_list_managed_oauth_account_ids_includes_local_rate_limited(
+        self, manager
+    ):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            exp = 9_999_999_999_999
+            rl_until = 9_999_999_999_000
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_ok",
+                    access_token="token_ok",
+                    refresh_token="refresh_ok",
+                    expiry_date=exp,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_rl",
+                    access_token="token_rl",
+                    refresh_token="refresh_rl",
+                    expiry_date=exp,
+                    rate_limited_until=rl_until,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+
+            account_ids = await manager.list_managed_oauth_account_ids()
+            assert set(account_ids) == {"acct_ok", "acct_rl"}
+
+    @pytest.mark.asyncio
+    async def test_ensure_usage_window_warmup_activates_rate_limited_account(
+        self, manager
+    ):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            exp = 9_999_999_999_999
+            rl_until = 9_999_999_999_000
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="ta",
+                    refresh_token="ra",
+                    expiry_date=exp,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_rl",
+                    access_token="tb",
+                    refresh_token="rb",
+                    expiry_date=exp,
+                    rate_limited_until=rl_until,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+
+            await manager.initialize(auth_path=None)
+            ok = await manager.ensure_usage_window_warmup_managed_account(
+                "acct_rl",
+                session_id="warmup-sess",
+            )
+            assert ok is True
+            cur = manager._managed_selector.get_current_account()
+            assert cur is not None
+            assert cur.account_id == "acct_rl"
+
+    def test_usage_window_warmup_override_snapshot_restore_roundtrip(self, manager):
+        selector_account = ManagedOAuthAccount(
+            account_id="selector-a",
+            access_token="selector-token",
+            refresh_token="selector-refresh",
+            expiry_date=9_999_999_999_999,
+        )
+        managed_account = ManagedOAuthAccount(
+            account_id="managed-a",
+            access_token="managed-token",
+            refresh_token="managed-refresh",
+            expiry_date=9_999_999_999_999,
+        )
+        manager._active_source = "managed"
+        manager._managed_selector._current_account = selector_account  # type: ignore[reportPrivateUsage]
+        manager._managed_current_account = managed_account
+        manager._auth_credentials = {"tokens": {"access_token": "baseline"}}
+
+        snapshot = manager.begin_usage_window_warmup_override()
+
+        manager._active_source = "legacy"
+        manager._managed_selector._current_account = None  # type: ignore[reportPrivateUsage]
+        manager._managed_current_account = None
+        manager._auth_credentials = {"tokens": {"access_token": "mutated"}}
+
+        manager.end_usage_window_warmup_override(snapshot)
+
+        assert manager._active_source == "managed"
+        assert manager._managed_selector.get_current_account() == selector_account
+        assert manager._managed_current_account == managed_account
+        assert manager._auth_credentials == {"tokens": {"access_token": "baseline"}}
+        assert manager._auth_credentials is not snapshot["auth_credentials"]
 
     @pytest.mark.asyncio
     async def test_record_codex_quota_headers_throttles_disk_writes(self, manager):
