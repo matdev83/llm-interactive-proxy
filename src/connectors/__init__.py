@@ -104,6 +104,30 @@ for module_info in pkgutil.iter_modules([str(_current_dir)]):
                 "Failed to import backend module %s: %s", module_name, e, exc_info=True
             )
 
+# ``pkgutil.iter_modules`` skips filenames starting with "_" (see loop above).
+# Codex connectors live in private shim modules but must still self-register.
+_private_connector_modules = ("_openai_codex_connector", "_openai_codex_v2_connector")
+if _is_multi_user_mode:
+    for _priv_name in _private_connector_modules:
+        if _priv_name not in _skipped_oauth_connectors and is_oauth_connector(
+            _priv_name
+        ):
+            _skipped_oauth_connectors.append(_priv_name)
+else:
+    for _priv_name in _private_connector_modules:
+        try:
+            importlib.import_module(f".{_priv_name}", package=__package__)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Imported private backend module: %s", _priv_name)
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to import private backend module %s: %s",
+                    _priv_name,
+                    e,
+                    exc_info=True,
+                )
+
 # Persist discovery diagnostics for registry/runtime error messaging.
 set_discovery_mode(is_multi_user_mode=_is_multi_user_mode)
 replace_skipped_oauth_connectors(_skipped_oauth_connectors)
