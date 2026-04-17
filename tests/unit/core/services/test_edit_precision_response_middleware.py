@@ -171,7 +171,7 @@ async def test_metadata_patch_file_error_sets_pending(
             "tool_calls": [
                 {
                     "function": {
-                        "name": "__proxy_use_mcp_tool",
+                        "name": "patch_file",
                         "arguments": arguments,
                     },
                     "result": {"success": False, "error": "diff_error"},

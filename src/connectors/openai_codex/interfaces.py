@@ -29,13 +29,13 @@ from src.connectors.openai_codex.contracts import (
     ToolExecutionResult,
 )
 from src.core.config.app_config import AppConfig
+from src.core.domain.openai_function_schema import OpenAIFunctionSchema
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
 from src.core.domain.validation import ValidationResult
-from src.core.services.universal_mcp_client import OpenAIFunctionSchema
 
 
 class ISettingsLoader(ABC):
@@ -476,15 +476,7 @@ class ICompatibilityLayer(ABC):
 
 
 class IToolExecutionService(ABC):
-    """Interface for executing proxy and MCP tools.
-
-    Preconditions:
-    - Tool name and arguments are validated
-
-    Postconditions:
-    - Tool results are formatted consistently
-    - Error reporting matches current behavior
-    """
+    """Interface for executing proxy-side tools (MCP runs in the agent, not here)."""
 
     @abstractmethod
     async def execute_proxy_tool(
@@ -503,43 +495,9 @@ class IToolExecutionService(ABC):
         ...
 
     @abstractmethod
-    async def execute_mcp_tool(
-        self, tool_name: str, arguments: ToolArguments, session_id: str | None = None
-    ) -> ToolExecutionResult:
-        """Execute an MCP tool and return formatted result.
-
-        Args:
-            tool_name: Name of the MCP tool to execute
-            arguments: Tool arguments
-            session_id: Optional session ID for telemetry
-
-        Returns:
-            Tool execution result with success/error status
-        """
-        ...
-
-    @abstractmethod
     def get_available_tool_schemas(self) -> list[OpenAIFunctionSchema]:
-        """Get schemas for all available tools (proxy + MCP).
+        """Get schemas for tools advertised by this service (may be empty)."""
 
-        Returns:
-            List of OpenAI function schemas
-        """
-        ...
-
-    @abstractmethod
-    async def connect_mcp_server(
-        self, server_name: str, server_config: dict[str, Any]
-    ) -> bool:
-        """Connect to an MCP server to make its tools available.
-
-        Args:
-            server_name: Unique name for the server
-            server_config: Server configuration
-
-        Returns:
-            True if connection successful, False otherwise
-        """
         ...
 
 

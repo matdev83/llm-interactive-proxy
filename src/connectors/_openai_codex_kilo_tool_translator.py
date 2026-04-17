@@ -148,11 +148,26 @@ class KiloToolTranslator:
                 result = self._translate_ask_followup_question(parsed)
                 execution_mode = "proxy"
             elif parsed.canonical_name == "use_mcp_tool":
-                result = self._translate_use_mcp_tool(parsed)
-                execution_mode = "mcp"
+                raise TranslationError(
+                    message=(
+                        "The proxy does not execute <use_mcp_tool>. Configure MCP servers "
+                        "in your Codex or ACP agent so the upstream model calls MCP tools "
+                        "there instead of through this proxy."
+                    ),
+                    tool_name="use_mcp_tool",
+                    error_code=CompatibilityErrorCode.UNSUPPORTED_TOOL,
+                    original_xml=parsed.raw_xml,
+                )
             elif parsed.canonical_name == "access_mcp_resource":
-                result = self._translate_access_mcp_resource(parsed)
-                execution_mode = "mcp"
+                raise TranslationError(
+                    message=(
+                        "The proxy does not execute <access_mcp_resource>. Use your "
+                        "agent's native MCP integration to read MCP resources."
+                    ),
+                    tool_name="access_mcp_resource",
+                    error_code=CompatibilityErrorCode.UNSUPPORTED_TOOL,
+                    original_xml=parsed.raw_xml,
+                )
             elif parsed.canonical_name in (
                 "search_and_replace",
                 "write_to_file",
@@ -565,117 +580,13 @@ class KiloToolTranslator:
                 session_id=session_id,
             )
 
-    def _translate_use_mcp_tool(
-        self, parsed: ParsedToolInvocation
-    ) -> KiloTranslationResult:
-        """Translate <use_mcp_tool> to appropriate format.
-
-        For patch_file tool, attempts to convert to Codex apply_patch grammar.
-        For other MCP tools, forwards to MCP server.
-
-        Args:
-            parsed: Parsed tool invocation
-
-        Returns:
-            Tuple of (tool_name, arguments)
-        """
-        arguments: dict[str, Any] = {}
-
-        # Extract tool name
-        tool_name = parsed.arguments.get("tool_name")
-        if not tool_name:
-            raise create_parameter_validation_error(
-                tool_name="use_mcp_tool",
-                message="Missing required 'tool_name' parameter in use_mcp_tool",
-                original_xml=parsed.raw_xml,
-                missing_parameters=["tool_name"],
-            )
-
-        # Extract tool arguments
-        tool_arguments = parsed.arguments.get("tool_arguments", {})
-
-        # Special handling for patch_file tool
-        if tool_name == "patch_file":
-            # Check if we can convert to Codex apply_patch grammar
-            if "diff" in tool_arguments or "patch" in tool_arguments:
-                # Try to use Codex apply_patch tool
-                # For now, forward to MCP server as fallback
-                # In a full implementation, we would parse the diff and convert to Codex format
-                if logger.isEnabledFor(TRACE_LEVEL):
-                    logger.log(
-                        TRACE_LEVEL,
-                        "Forwarding patch_file to MCP server (Codex apply_patch conversion not yet implemented)",
-                    )
-
-                # Return marker for MCP tool execution
-                arguments["tool_name"] = tool_name
-                arguments["tool_arguments"] = tool_arguments
-
-                return KiloTranslationResult("__proxy_use_mcp_tool", arguments)
-            else:
-                raise create_parameter_validation_error(
-                    tool_name="patch_file",
-                    message="Missing required 'diff' or 'patch' parameter for patch_file",
-                    original_xml=parsed.raw_xml,
-                    missing_parameters=["diff", "patch"],
-                )
-
-        # For other MCP tools, forward to MCP server
-        arguments["tool_name"] = tool_name
-        arguments["tool_arguments"] = tool_arguments
-
-        if logger.isEnabledFor(TRACE_LEVEL):
-            logger.log(
-                TRACE_LEVEL,
-                "Translated <use_mcp_tool> for MCP server forwarding: tool=%s",
-                tool_name,
-            )
-
-        return KiloTranslationResult("__proxy_use_mcp_tool", arguments)
-
-    def _translate_access_mcp_resource(
-        self, parsed: ParsedToolInvocation
-    ) -> KiloTranslationResult:
-        """Translate <access_mcp_resource> to Codex read_mcp_resource tool.
-
-        Args:
-            parsed: Parsed tool invocation
-
-        Returns:
-            Tuple of (tool_name, arguments)
-        """
-        arguments: dict[str, Any] = {}
-
-        # Extract URI
-        uri = parsed.arguments.get("uri")
-        if not uri:
-            raise create_parameter_validation_error(
-                tool_name="access_mcp_resource",
-                message="Missing required 'uri' parameter in access_mcp_resource",
-                original_xml=parsed.raw_xml,
-                missing_parameters=["uri"],
-            )
-
-        # Map to Codex read_mcp_resource tool with parameter renaming
-        # KiloCode uses 'uri', Codex might use 'resource_uri' or similar
-        arguments["uri"] = uri
-
-        if logger.isEnabledFor(TRACE_LEVEL):
-            logger.log(
-                TRACE_LEVEL,
-                "Translated <access_mcp_resource> to Codex read_mcp_resource tool: uri=%s",
-                uri,
-            )
-
-        # Return marker for MCP resource access
-        return KiloTranslationResult("__proxy_access_mcp_resource", arguments)
-
     def _translate_editing_tool(
         self, parsed: ParsedToolInvocation
     ) -> KiloTranslationResult:
-        """Translate editing tools (search_and_replace, write_to_file, etc.).
+        """Translate editing tools (search_and_replace, insert_content, edit_file).
 
         These tools are executed proxy-side using file system helpers.
+        ``<write_to_file>`` is not supported at the proxy (use Codex/ACP/IDE instead).
 
         Args:
             parsed: Parsed tool invocation
@@ -685,6 +596,17 @@ class KiloToolTranslator:
         """
         tool_name = parsed.canonical_name
         arguments: dict[str, Any] = {}
+
+        if tool_name == "write_to_file":
+            raise TranslationError(
+                message=(
+                    "The proxy does not execute <write_to_file>. Create or modify files "
+                    "through your Codex or ACP agent, or your IDE, instead of proxy-side writes."
+                ),
+                tool_name="write_to_file",
+                error_code=CompatibilityErrorCode.UNSUPPORTED_TOOL,
+                original_xml=parsed.raw_xml,
+            )
 
         if tool_name == "search_and_replace":
             # Validate required parameters
@@ -707,25 +629,6 @@ class KiloToolTranslator:
             arguments["path"] = parsed.arguments["path"]
             arguments["search"] = parsed.arguments["search"]
             arguments["replace"] = parsed.arguments["replace"]
-
-        elif tool_name == "write_to_file":
-            # Validate required parameters
-            missing = []
-            if "path" not in parsed.arguments:
-                missing.append("path")
-            if "content" not in parsed.arguments:
-                missing.append("content")
-
-            if missing:
-                raise create_parameter_validation_error(
-                    tool_name=tool_name,
-                    message=f"Missing required parameters: {', '.join(missing)}",
-                    original_xml=parsed.raw_xml,
-                    missing_parameters=missing,
-                )
-
-            arguments["path"] = parsed.arguments["path"]
-            arguments["content"] = parsed.arguments["content"]
 
         elif tool_name == "insert_content":
             # Validate required parameters
@@ -777,120 +680,6 @@ class KiloToolTranslator:
         # Return marker for proxy-side execution
         return KiloTranslationResult(f"__proxy_{tool_name}", arguments)
 
-    def _translate_mcp_parameters(
-        self, kilo_params: dict[str, Any], mcp_schema: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Translate KiloCode parameters to MCP parameter format.
-
-        Args:
-            kilo_params: Parameters from KiloCode tool invocation
-            mcp_schema: MCP tool schema with parameter definitions
-
-        Returns:
-            Translated parameters for MCP tool
-
-        Raises:
-            TranslationError: If parameter validation fails
-        """
-        translated = {}
-
-        # Get parameter definitions from schema
-        schema_params = mcp_schema.get("parameters", {})
-        if isinstance(schema_params, dict):
-            properties = schema_params.get("properties", {})
-            required = schema_params.get("required", [])
-        else:
-            properties = {}
-            required = []
-
-        # Validate required parameters are present
-        missing_params = []
-        for param_name in required:
-            if param_name not in kilo_params:
-                missing_params.append(param_name)
-
-        if missing_params:
-            raise create_parameter_validation_error(
-                tool_name="mcp_tool",
-                message=f"Missing required parameters: {', '.join(missing_params)}",
-                missing_parameters=missing_params,
-            )
-
-        # Translate each parameter
-        for param_name, param_value in kilo_params.items():
-            # Get parameter schema
-            param_schema = properties.get(param_name, {})
-            param_type = param_schema.get("type")
-
-            # Convert parameter types based on schema
-            if param_type == "integer":
-                # Convert string to int
-                if isinstance(param_value, str):
-                    try:
-                        translated[param_name] = int(param_value)
-                    except ValueError:
-                        raise create_parameter_validation_error(
-                            tool_name="mcp_tool",
-                            message=f"Invalid {param_type} value for parameter '{param_name}': {param_value}",
-                            invalid_parameters={
-                                param_name: f"Expected {param_type}, got string"
-                            },
-                        )
-                else:
-                    translated[param_name] = param_value
-            elif param_type == "number":
-                # Convert string to float
-                if isinstance(param_value, str):
-                    try:
-                        translated[param_name] = float(param_value)  # type: ignore[assignment]
-                    except ValueError:
-                        raise create_parameter_validation_error(
-                            tool_name="mcp_tool",
-                            message=f"Invalid {param_type} value for parameter '{param_name}': {param_value}",
-                            invalid_parameters={
-                                param_name: f"Expected {param_type}, got string"
-                            },
-                        )
-                else:
-                    translated[param_name] = param_value
-
-            elif param_type == "boolean":
-                # Convert string to bool
-                if isinstance(param_value, str):
-                    if param_value.lower() in ("true", "1", "yes"):
-                        translated[param_name] = True
-                    elif param_value.lower() in ("false", "0", "no"):
-                        translated[param_name] = False
-                    else:
-                        raise create_parameter_validation_error(
-                            tool_name="mcp_tool",
-                            message=f"Invalid boolean value for parameter '{param_name}': {param_value}",
-                            invalid_parameters={
-                                param_name: "Expected boolean, got invalid string"
-                            },
-                        )
-                else:
-                    translated[param_name] = bool(param_value)
-
-            else:
-                # Keep as-is for string, array, object types
-                translated[param_name] = param_value
-
-        # Handle optional parameters with default values
-        for param_name, param_schema in properties.items():
-            if param_name not in translated and "default" in param_schema:
-                translated[param_name] = param_schema["default"]
-
-        if logger.isEnabledFor(TRACE_LEVEL):
-            logger.log(
-                TRACE_LEVEL,
-                "Translated MCP parameters: %d input params -> %d output params",
-                len(kilo_params),
-                len(translated),
-            )
-
-        return translated
-
     def format_tool_result(
         self, tool_name: str, result: dict[str, Any] | UniversalToolResult
     ) -> str:
@@ -903,39 +692,6 @@ class KiloToolTranslator:
         Returns:
             Formatted result string in KiloCode format
         """
-        # Handle MCP results specially (check for MCP-specific fields first)
-        if isinstance(result, dict):
-            # Check for MCP response structure with content field
-            if "content" in result and "output" not in result:
-                # MCP result with content field
-                content = result["content"]
-                if isinstance(content, list):
-                    # Multiple content items
-                    content_str = "\n".join(str(item) for item in content)
-                else:
-                    content_str = str(content)
-
-                # Check for errors
-                if result.get("isError"):
-                    error_msg = result.get("error", content_str)
-                    return f"[{tool_name}] Error: {error_msg}"
-
-                return f"[{tool_name}] Result:\n{content_str}"
-
-            # Check for MCP response structure with result field (but not output)
-            elif (
-                "result" in result
-                and "output" not in result
-                and "exit_code" not in result
-            ):
-                # MCP result with result field
-                result_content = result["result"]
-                if result.get("isError"):
-                    error_msg = result.get("error", str(result_content))
-                    return f"[{tool_name}] Error: {error_msg}"
-
-                return f"[{tool_name}] Result:\n{result_content!s}"
-
         # Standard KiloCode format: [tool_name] Result: <content>
         output = result.get("output", "") if isinstance(result, dict) else str(result)
         exit_code = result.get("exit_code") if isinstance(result, dict) else None

@@ -86,7 +86,6 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         "src.core.services.uri_parameter_validator",
         "src.core.services.backend_service",
         "src.core.services.non_forwardable_message_enforcer",
-        "src.core.services.universal_mcp_client",
         "src.core.services.universal_tool_executor",
     )
 

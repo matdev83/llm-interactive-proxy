@@ -56,19 +56,17 @@ class KiloClientFamilyAdapter(IClientFamilyAdapter):
         "__proxy_attempt_completion",
         "__proxy_ask_followup_question",
         "__proxy_search_and_replace",
-        "__proxy_write_to_file",
         "__proxy_insert_content",
         "__proxy_edit_file",
-        "__proxy_use_mcp_tool",
-        "__proxy_access_mcp_resource",
     }
     _XML_BRIDGE_INSTRUCTIONS = (
         "Cline-family XML compatibility mode is active for this session. "
         "Do not emit native OpenAI/Codex function or custom tool calls in the response. "
         "When you need a tool, write a single XML tool invocation directly in assistant text using the client XML format. "
         "Prefer these XML tools: <execute_command>, <read_file>, <list_files>, <search_files>, "
-        "<attempt_completion>, <ask_followup_question>, <use_mcp_tool>, <access_mcp_resource>, "
-        "<search_and_replace>, <write_to_file>, <insert_content>, <edit_file>. "
+        "<attempt_completion>, <ask_followup_question>, "
+        "<search_and_replace>, <insert_content>, <edit_file>. "
+        "MCP servers must be configured in your Codex or ACP agent; this proxy does not run MCP. "
         "For command execution, use <execute_command>...</execute_command> rather than bash/shell JSON tool calls."
     )
 
@@ -158,30 +156,6 @@ class KiloClientFamilyAdapter(IClientFamilyAdapter):
                         ToolExecutionResult(
                             success=False,
                             result=f"[{actual_tool_name}] Error: {e!s}",
-                            error=str(e),
-                        )
-                    )
-
-            for tool in result.mcp_tools:
-                try:
-                    exec_result = await self._tool_execution_service.execute_mcp_tool(
-                        tool.name,
-                        ToolArguments(payload=tool.parameters or {}),
-                        context.session_id,
-                    )
-                    result.tool_results.append(exec_result)
-                except Exception as e:
-                    logger.error(
-                        "Failed to execute MCP tool %s: %s",
-                        tool.name,
-                        str(e),
-                        exc_info=True,
-                    )
-                    mcp_tool_name = (tool.parameters or {}).get("tool_name", "unknown")
-                    result.tool_results.append(
-                        ToolExecutionResult(
-                            success=False,
-                            result=f"[{mcp_tool_name}] Error: {e!s}",
                             error=str(e),
                         )
                     )

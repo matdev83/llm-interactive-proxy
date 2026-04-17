@@ -293,12 +293,11 @@ async def test_kilocode_complete_workflow(
     assert read_output["exit_code"] == 0
 
     # Step 2: Edit file
-    edit_xml = """<write_to_file>
+    edit_xml = """<search_and_replace>
 <path>test.py</path>
-<content>def hello():
-    print("world")
-</content>
-</write_to_file>"""
+<search>    pass</search>
+<replace>    print("world")</replace>
+</search_and_replace>"""
     edit_result = await translator.translate_tool_invocation(edit_xml, session_id)
     assert edit_result is not None
     edit_output = await executor.execute_tool(*edit_result)
@@ -479,18 +478,15 @@ async def test_kilocode_tool_translation_proxy_vs_provider_semantics(
             "__proxy_"
         ), f"Tool {result.tool_name} should be proxy-side"
 
-    # Test MCP tools (should be executed proxy-side via MCP client)
-    mcp_tools = [
-        '<use_mcp_tool tool_name="test_tool" tool_arguments="{}" />',
-    ]
+    # MCP XML is rejected at translation (MCP runs in the agent, not the proxy)
+    from src.connectors._openai_codex_compatibility_errors import CompatibilityErrorCode
+    from src.connectors._openai_codex_kilo_tool_translator import TranslationError
 
-    for xml_tool in mcp_tools:
-        result = await translator.translate_tool_invocation(xml_tool, "test_session")
-        assert result is not None
-        # MCP tools should have __proxy_ prefix
-        assert result.tool_name.startswith(
-            "__proxy_"
-        ), f"Tool {result.tool_name} should be proxy-side (MCP)"
+    with pytest.raises(TranslationError) as exc_info:
+        await translator.translate_tool_invocation(
+            '<use_mcp_tool tool_name="test_tool" tool_arguments="{}" />', "test_session"
+        )
+    assert exc_info.value.error_code == CompatibilityErrorCode.UNSUPPORTED_TOOL.value
 
 
 @pytest.mark.integration
@@ -595,109 +591,6 @@ async def test_tool_execution_result_formatting_kilocode(
     assert isinstance(error_result.result, str)
     # Error information should be included in the result string
     assert "Error" in error_result.result or "File not found" in error_result.result
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_tool_execution_order_proxy_then_mcp(
-    codex_connector: OpenAICodexConnector,
-):
-    """Test that tool execution happens in correct order: proxy tools, then MCP tools (Req 3.1)."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
-    from src.connectors.openai_codex.compat import CompatibilityLayer
-    from src.connectors.openai_codex.contracts import (
-        CodexRequestContext,
-        ProcessedMessage,
-    )
-    from src.connectors.openai_codex.tools import ToolExecutionService
-    from src.core.services.universal_tool_executor import UniversalToolExecutor
-
-    translator = KiloToolTranslator(codex_connector)
-    executor = UniversalToolExecutor(
-        working_directory=str(codex_connector._working_directory)
-    )
-    tool_service = ToolExecutionService(
-        universal_executor=executor, kilo_translator=translator
-    )
-
-    # Track execution order
-    execution_order = []
-
-    # Mock tool execution to track order
-    original_execute_proxy = tool_service.execute_proxy_tool
-    original_execute_mcp = tool_service.execute_mcp_tool
-
-    async def tracked_execute_proxy(*args, **kwargs):
-        execution_order.append("proxy")
-        return await original_execute_proxy(*args, **kwargs)
-
-    async def tracked_execute_mcp(*args, **kwargs):
-        execution_order.append("mcp")
-        return await original_execute_mcp(*args, **kwargs)
-
-    tool_service.execute_proxy_tool = tracked_execute_proxy
-    tool_service.execute_mcp_tool = tracked_execute_mcp
-
-    compat_layer = CompatibilityLayer(
-        kilo_translator=translator, tool_execution_service=tool_service
-    )
-
-    # Create context with both proxy and MCP tools
-    from src.connectors._openai_codex_capabilities import CodexClientCapabilities
-    from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-
-    messages = [
-        ProcessedMessage(
-            role="user",
-            content='<attempt_completion result="Done" /> <use_mcp_tool tool_name="test" tool_arguments="{}" />',
-        )
-    ]
-
-    request = CanonicalChatRequest(
-        model="gpt-5-codex",
-        messages=[ChatMessage(role="user", content="test")],
-        stream=False,
-    )
-
-    context = CodexRequestContext(
-        request=request,
-        processed_messages=messages,
-        effective_model="gpt-5-codex",
-        session_id="test_session",
-        capabilities=CodexClientCapabilities(),
-    )
-
-    # Mock session detector to return KiloCode
-    from src.connectors._openai_codex_session_detector import SessionDetector
-
-    mock_detector = AsyncMock(spec=SessionDetector)
-    mock_detector.detect = AsyncMock(
-        return_value=MagicMock(
-            is_kilocode=True, detection_method="test", confidence=1.0
-        )
-    )
-    compat_layer._session_detector = mock_detector
-
-    # Apply compatibility layer (should execute tools in order)
-    compat_result = await compat_layer.apply(context)
-
-    # Verify execution order: proxy tools first, then MCP tools
-    # Note: This test verifies the order within CompatibilityLayer.apply()
-    # The actual execution order depends on how tools are grouped in _translate_kilo_tools
-    assert len(execution_order) > 0, "At least one tool should have been executed"
-    # Verify that tools were actually translated
-    assert (
-        len(compat_result.proxy_tools) > 0 or len(compat_result.mcp_tools) > 0
-    ), "At least one tool should have been translated"
-    # Proxy tools should be executed before MCP tools
-    if "mcp" in execution_order:
-        first_mcp_index = execution_order.index("mcp")
-        # All proxy tools should come before first MCP tool
-        assert all(
-            execution_order[i] == "proxy" for i in range(first_mcp_index)
-        ), "Proxy tools should execute before MCP tools"
 
 
 @pytest.mark.integration

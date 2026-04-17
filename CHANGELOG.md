@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- **Proxy-side MCP**: Removed the in-process MCP client stub (`universal_mcp_client`), MCP branches from `UniversalToolExecutor`, and `execute_mcp_tool` / `connect_mcp_server` from the Codex tool execution service and interface. Kilo/Cline XML `<use_mcp_tool>` and `<access_mcp_resource>` are rejected at translation with `UNSUPPORTED_TOOL`; MCP must be configured on the upstream agent (Codex, ACP, etc.). `OpenAIFunctionSchema` now lives in `src.core.domain.openai_function_schema`.
+- **UniversalToolExecutor local shell**: The proxy no longer runs `shell` / `execute_command` via `subprocess` in `UniversalToolExecutor`; those tool names are rejected at `execute_tool` entry. Terminal execution remains the responsibility of Codex/ACP clients and upstream backends.
+- **Kilo `<write_to_file>` / proxy writes**: `<write_to_file>` is rejected at translation in `KiloToolTranslator`, and `write_to_file` / `__proxy_write_to_file` are rejected in `UniversalToolExecutor.execute_tool`. File creation must go through Codex/ACP agents or the IDE, not proxy-side writes.
 - **Gemini ACP Connector**: Removed `gemini-cli-acp` backend connector due to problematic implementation and poor fit with project architecture. All related code, tests, configuration, and documentation have been removed. The connector is no longer available in the backend registry.
 
 ### Added

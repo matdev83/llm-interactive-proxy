@@ -370,8 +370,8 @@ class OpenAICodexConnector(OpenAIConnector):
             IPayloadBuilder,
             IResponseExecutor,
             ISettingsLoader,
+            IToolExecutionService,
         )
-        from src.connectors.openai_codex.tools import IToolExecutionService
 
         errors: list[str] = []
 
@@ -505,7 +505,6 @@ class OpenAICodexConnector(OpenAIConnector):
             tool_service_type = type(dependencies.tool_execution_service)
             required_methods = [
                 "execute_proxy_tool",
-                "execute_mcp_tool",
                 "get_available_tool_schemas",
             ]
             if "MagicMock" in tool_service_type.__name__:

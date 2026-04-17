@@ -1,31 +1,25 @@
 """Universal tool execution service for dynamic tool compatibility.
 
-Subprocess / shell hygiene (Phase 3 audit, ``src/``):
-- ``shell=True``: only ``_execute_shell`` below (intentional shell-tool surface).
-- ``os.system``: none.
-- ``subprocess.Popen`` / ``run``: ACP connector (``shell=False``), Gemini token refresh
-  (``shell=False``), daemon re-exec (``shell=False``), regex worker helpers (argv list,
-  implicit ``shell=False``), CLI version probes (``shell=False``).
+Subprocess hygiene (Phase 3 audit, ``src/``):
+- ``os.system``: none in this module.
+- ``subprocess`` / local shell execution: **not used** here; ``shell`` / ``execute_command``
+  are rejected at :meth:`execute_tool` entry so the proxy process never runs model-driven
+  shells. ACP and other connectors use their own ``subprocess.Popen(..., shell=False)``
+  paths where needed.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
-import subprocess
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from src.core.domain.openai_function_schema import OpenAIFunctionSchema
 from src.core.domain.tool_results import UniversalToolResult
-from src.core.services.universal_mcp_client import (
-    MCPToolResult,
-    OpenAIFunctionSchema,
-    UniversalMCPClient,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +29,10 @@ class UniversalToolExecutor:
 
     This executor can handle:
     - Built-in file system operations
-    - MCP tools from any server
     - Custom tool implementations
     - Workflow markers and control tools
+
+    MCP is not executed in the proxy process; configure MCP in the upstream agent.
     """
 
     def __init__(
@@ -56,7 +51,6 @@ class UniversalToolExecutor:
         self.working_directory = Path(working_directory or os.getcwd())
         self.default_timeout = default_timeout
         self.result_format = result_format
-        self.mcp_client = UniversalMCPClient()
         self._custom_tool_handlers: dict[
             str, Callable[[dict[str, Any]], Awaitable[UniversalToolResult]]
         ] = {}
@@ -74,8 +68,6 @@ class UniversalToolExecutor:
                 "grep_files": self._execute_grep_files,
                 "codebase_search": self._execute_grep_files,  # Alias
                 "search_files": self._execute_grep_files,  # Alias
-                "shell": self._execute_shell,
-                "execute_command": self._execute_shell,  # Alias
                 "completion_marker": self._execute_completion_marker,
                 "attempt_completion": self._execute_completion_marker,  # Alias
                 "__proxy_attempt_completion": self._execute_completion_marker,  # Proxy alias
@@ -83,11 +75,8 @@ class UniversalToolExecutor:
                 "ask_followup_question": self._execute_followup_marker,  # Alias
                 "__proxy_ask_followup_question": self._execute_followup_marker,  # Proxy alias
                 "__proxy_search_and_replace": self._execute_search_and_replace,
-                "__proxy_write_to_file": self._execute_write_to_file,
                 "__proxy_insert_content": self._execute_insert_content,
                 "__proxy_edit_file": self._execute_edit_file,
-                "__proxy_use_mcp_tool": self._execute_generic_mcp_tool,
-                "__proxy_access_mcp_resource": self._execute_access_mcp_resource,
             }
         )
 
@@ -144,9 +133,9 @@ class UniversalToolExecutor:
 
         This method handles tools in the following priority order:
         1. Custom registered handlers (built-in file operations, markers, etc.)
-        2. MCP tools from connected servers
-        3. Generic MCP tool execution via use_mcp_tool pattern
-        4. Error for unknown tools
+        2. Error for unknown tools
+
+        MCP tool names are rejected: MCP runs in the agent, not in this proxy.
 
         Args:
             tool_name: Name of the tool to execute
@@ -156,6 +145,46 @@ class UniversalToolExecutor:
             UniversalToolResult containing the tool execution result
         """
         try:
+            # Never run arbitrary shell commands in the proxy process (model/client driven).
+            if tool_name in ("shell", "execute_command"):
+                return self._format_result(
+                    output=(
+                        "Local shell/execute_command execution is disabled on this proxy. "
+                        "Use your Codex or ACP client / upstream backend for terminal commands."
+                    ),
+                    exit_code=1,
+                    error="local_shell_execution_disabled",
+                    tool_name=tool_name,
+                )
+
+            if tool_name in ("write_to_file", "__proxy_write_to_file"):
+                return self._format_result(
+                    output=(
+                        "Local write_to_file execution is disabled on this proxy. "
+                        "Use your Codex or ACP agent or IDE to write files."
+                    ),
+                    exit_code=1,
+                    error="local_write_to_file_disabled",
+                    tool_name=tool_name,
+                )
+
+            if tool_name in (
+                "use_mcp_tool",
+                "access_mcp_resource",
+                "__proxy_use_mcp_tool",
+                "__proxy_access_mcp_resource",
+            ):
+                return self._format_result(
+                    output=(
+                        "MCP tools are not executed by this proxy. Configure MCP in your "
+                        "Codex or ACP agent (or other upstream client) so the model invokes "
+                        "MCP there instead of proxy-side."
+                    ),
+                    exit_code=1,
+                    error="mcp_execution_not_supported_in_proxy",
+                    tool_name=tool_name,
+                )
+
             # 1. Check for custom registered handlers first
             if tool_name in self._custom_tool_handlers:
                 handler = self._custom_tool_handlers[tool_name]
@@ -164,19 +193,7 @@ class UniversalToolExecutor:
                     return result
                 return self._format_result_from_dict(tool_name, result)
 
-            # 2. Check if it's an MCP tool from connected servers
-            if self.mcp_client.is_mcp_tool(tool_name):
-                mcp_result = await self.mcp_client.execute_tool(tool_name, arguments)
-                return self._format_result_from_dict(tool_name, mcp_result)
-
-            # 3. Handle generic MCP tool execution pattern
-            if tool_name == "use_mcp_tool":
-                generic_result = await self._execute_generic_mcp_tool(arguments)
-                if isinstance(generic_result, UniversalToolResult):
-                    return generic_result
-                return self._format_result_from_dict(tool_name, generic_result)
-
-            # 4. Unknown tool - return error
+            # 2. Unknown tool - return error
             available_tools = self.get_available_tools()
             return self._format_result(
                 output=f"Unknown tool: {tool_name}. Available tools: {available_tools}",
@@ -196,14 +213,10 @@ class UniversalToolExecutor:
             )
 
     def _format_result_from_dict(
-        self, tool_name: str, result: dict[str, Any] | MCPToolResult
+        self, tool_name: str, result: dict[str, Any]
     ) -> UniversalToolResult:
         """Convert a dictionary result to a UniversalToolResult."""
-        # Handle MCPToolResult by converting to dict first
-        if isinstance(result, MCPToolResult):
-            result_dict = result.model_dump()
-        else:
-            result_dict = result
+        result_dict = dict(result)
 
         output = result_dict.pop("output", "")
         exit_code = result_dict.pop("exit_code", 0)
@@ -240,9 +253,6 @@ class UniversalToolExecutor:
             List of available tool names
         """
         available_tools = list(self._custom_tool_handlers.keys())
-        available_tools.extend(
-            [tool.name for tool in self.mcp_client.get_available_tools()]
-        )
         return sorted(available_tools)
 
     def format_result_for_kilocode(self, tool_name: str, result: dict[str, Any]) -> str:
@@ -272,11 +282,11 @@ class UniversalToolExecutor:
             ... })
             "[read_file] Result:\\nfile content"
 
-            >>> executor.format_result_for_kilocode("shell", {
-            ...     "error": "Command not found",
+            >>> executor.format_result_for_kilocode("grep_files", {
+            ...     "error": "Invalid regex",
             ...     "exit_code": 1
             ... })
-            "[shell] Error: Command not found"
+            "[grep_files] Error: Invalid regex"
         """
         # Check for explicit success flag
         if "success" in result:
@@ -303,216 +313,6 @@ class UniversalToolExecutor:
                 return f"[{tool_name}] Error: Execution timed out"
 
             return f"[{tool_name}] Error: {error}"
-
-    async def connect_mcp_server(
-        self, server_name: str, server_config: dict[str, Any]
-    ) -> bool:
-        """Connect to an MCP server to make its tools available.
-
-        Args:
-            server_name: Unique name for the server
-            server_config: Server configuration
-
-        Returns:
-            True if connection successful, False otherwise
-        """
-        return await self.mcp_client.connect_to_server(server_name, server_config)
-
-    async def _execute_generic_mcp_tool(
-        self, arguments: dict[str, Any]
-    ) -> UniversalToolResult:
-        """Execute a generic MCP tool via the use_mcp_tool pattern.
-
-        This handles the KiloCode pattern: <use_mcp_tool tool_name="..." ...>
-        Includes schema translation for MCP tool parameters.
-        """
-        tool_name = arguments.get("tool_name")
-        if not tool_name:
-            return self._format_result(
-                output="Error: tool_name is required for use_mcp_tool",
-                exit_code=1,
-                error="Missing tool_name parameter",
-                tool_name="use_mcp_tool",
-            )
-
-        # Extract tool arguments
-        tool_arguments = arguments.get("tool_arguments", {})
-        if not tool_arguments and "arguments" in arguments:
-            raw_args = arguments["arguments"]
-            if isinstance(raw_args, str):
-                try:
-                    tool_arguments = json.loads(raw_args)
-                except json.JSONDecodeError:
-                    tool_arguments = {"content": raw_args}
-            elif isinstance(raw_args, Mapping):
-                tool_arguments = dict(raw_args)
-        if isinstance(tool_arguments, str):
-            try:
-                tool_arguments = json.loads(tool_arguments)
-            except json.JSONDecodeError:
-                # If it's not valid JSON, treat as raw string content
-                tool_arguments = {"content": tool_arguments}
-
-        # Add any other parameters as tool arguments (excluding known meta parameters)
-        for key, value in arguments.items():
-            if key not in ["tool_name", "tool_arguments", "arguments"]:
-                tool_arguments[key] = value
-
-        # Perform schema translation if needed
-        # This translates KiloCode parameter names to MCP parameter names
-        translated_arguments = self._translate_mcp_tool_schema(
-            tool_name, tool_arguments
-        )
-
-        # Check if MCP tool is available
-        if not self.mcp_client.is_mcp_tool(tool_name):
-            # Tool not found in connected MCP servers
-            available_tools = [
-                tool.name for tool in self.mcp_client.get_available_tools()
-            ]
-            error_msg = (
-                f"MCP tool '{tool_name}' is not available. "
-                f"Available MCP tools: {', '.join(available_tools) if available_tools else 'none'}"
-            )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=f"MCP tool '{tool_name}' not found",
-                tool_name="use_mcp_tool",
-            )
-
-        # Execute the MCP tool
-        try:
-            result = await self.mcp_client.execute_tool(tool_name, translated_arguments)
-
-            # Format result in KiloCode's expected format
-            if self.result_format == "kilo_standard":
-                # Handle both dict and MCPToolResult
-                if isinstance(result, MCPToolResult):
-                    output = result.output
-                else:
-                    output = result.get("output", "")
-
-                if not output.startswith(f"[{tool_name}]"):
-                    if isinstance(result, MCPToolResult):
-                        # Create new MCPToolResult with modified output
-                        result = MCPToolResult(
-                            output=f"[{tool_name}] Result:\n{output}",
-                            exit_code=result.exit_code,
-                            error=result.error,
-                            tool_name=result.tool_name,
-                            server_name=result.server_name,
-                            mcp_result=result.mcp_result,
-                        )
-                    else:
-                        result["output"] = f"[{tool_name}] Result:\n{output}"
-
-            return self._format_result_from_dict(tool_name, result)
-
-        except ConnectionError as e:
-            # Network/connection errors when communicating with MCP server
-            error_msg = (
-                f"Error: Failed to connect to MCP server for tool '{tool_name}': {e!s}"
-            )
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "MCP tool connection error: %s",
-                    e,
-                    exc_info=True,
-                    extra={"tool_name": tool_name, "arguments": translated_arguments},
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=str(e),
-                tool_name="use_mcp_tool",
-            )
-        except TimeoutError as e:
-            # Timeout errors when waiting for MCP server response
-            error_msg = f"Error: MCP tool '{tool_name}' execution timed out: {e!s}"
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "MCP tool timeout error: %s",
-                    e,
-                    exc_info=True,
-                    extra={"tool_name": tool_name, "arguments": translated_arguments},
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=str(e),
-                tool_name="use_mcp_tool",
-            )
-        except (ValueError, KeyError, TypeError) as e:
-            # Argument validation errors or protocol/data structure errors
-            error_msg = f"Error: Invalid arguments or data format for MCP tool '{tool_name}': {e!s}"
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "MCP tool argument/data error: %s",
-                    e,
-                    exc_info=True,
-                    extra={"tool_name": tool_name, "arguments": translated_arguments},
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=str(e),
-                tool_name="use_mcp_tool",
-            )
-        except Exception as e:
-            error_msg = f"Error executing MCP tool '{tool_name}': {e!s}"
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "MCP tool execution failed: %s",
-                    e,
-                    exc_info=True,
-                    extra={"tool_name": tool_name, "arguments": translated_arguments},
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=str(e),
-                tool_name="use_mcp_tool",
-            )
-
-    def _translate_mcp_tool_schema(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Translate KiloCode parameter names to MCP parameter names.
-
-        This handles common parameter name differences between KiloCode and MCP tools.
-
-        Args:
-            tool_name: Name of the MCP tool
-            arguments: Original arguments from KiloCode
-
-        Returns:
-            Translated arguments for MCP tool
-        """
-        # Common parameter name mappings
-        # KiloCode name -> MCP name
-        common_mappings = {
-            "file_path": "path",
-            "dir_path": "path",
-            "search_pattern": "pattern",
-            "search_query": "query",
-        }
-
-        translated = {}
-        for key, value in arguments.items():
-            # Check if this parameter needs translation
-            translated_key = common_mappings.get(key, key)
-            translated[translated_key] = value
-
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Translated MCP tool parameters for '%s': %s -> %s",
-                tool_name,
-                arguments,
-                translated,
-            )
-
-        return translated
 
     async def _execute_read_file(
         self, arguments: dict[str, Any]
@@ -907,186 +707,6 @@ class UniversalToolExecutor:
             tool_name="followup_marker",
         )
 
-    async def _execute_shell(self, arguments: dict[str, Any]) -> UniversalToolResult:
-        """Execute shell command with output capture and exit code handling.
-
-        Args:
-            arguments: Dictionary containing:
-                - command: Command string to execute
-                - working_dir: Optional working directory
-                - timeout: Optional timeout in seconds
-
-        Returns:
-            Dictionary with output, exit_code, and error information
-        """
-        # Security invariants (shell tool):
-        # - Working directory is always ``subprocess.run(..., cwd=...)``; it is never
-        #   concatenated into the shell string, so path metacharacters in cwd cannot
-        #   break out of quoting in ``command``.
-        # - ``command`` is model-controlled; dangerous-command / policy layers are
-        #   expected to run upstream of this executor.
-        # - If future code builds shell strings that embed paths or other untrusted
-        #   segments, quote each segment with ``shlex.quote`` (POSIX) or avoid the
-        #   shell entirely (``shell=False`` + argv list).
-        command = arguments.get("command")
-        if not command:
-            error_msg = "Error: command is required"
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error="Missing command parameter",
-                tool_name="shell",
-            )
-
-        working_dir = arguments.get("working_dir")
-        timeout = arguments.get("timeout", self.default_timeout)
-
-        # Resolve working directory
-        if working_dir:
-            resolved_working_dir = self.working_directory / working_dir
-            resolved_working_dir = resolved_working_dir.resolve()
-        else:
-            resolved_working_dir = self.working_directory
-
-        try:
-            # Ensure working directory exists
-            if not resolved_working_dir.exists():
-                error_msg = f"Error: Working directory not found: {working_dir}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Working directory does not exist: {working_dir}",
-                    tool_name="shell",
-                )
-
-            # Execute command with timeout
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Executing shell command: %s (timeout: %ds, cwd: %s)",
-                    command,
-                    timeout,
-                    working_dir,
-                )
-
-            # Run command in executor to avoid blocking
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: subprocess.run(  # nosec: B602 - Intentional shell execution for shell tool functionality
-                    command,
-                    shell=True,
-                    capture_output=True,
-                    cwd=str(resolved_working_dir),
-                    timeout=timeout,
-                    text=True,
-                    errors="replace",
-                ),
-            )
-
-            # Decode output
-            stdout_text = result.stdout.strip() if result.stdout else ""
-            stderr_text = result.stderr.strip() if result.stderr else ""
-
-            # Combine stdout and stderr
-            output_parts = []
-            if stdout_text:
-                output_parts.append(stdout_text)
-            if stderr_text:
-                output_parts.append(f"STDERR:\n{stderr_text}")
-
-            output = "\n".join(output_parts) if output_parts else "(no output)"
-
-            exit_code = result.returncode
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Command completed with exit code %d (output length: %d bytes)",
-                    exit_code,
-                    len(output),
-                )
-
-            return self._format_result(
-                output=output,
-                exit_code=exit_code,
-                tool_name="shell",
-                command=command,
-                working_directory=str(resolved_working_dir),
-            )
-
-        except subprocess.TimeoutExpired:
-            error_msg = f"Error: Command timed out after {timeout} seconds"
-            return self._format_result(
-                output=error_msg,
-                exit_code=124,  # Standard timeout exit code
-                error=f"Command execution timed out after {timeout}s",
-                tool_name="shell",
-            )
-        except subprocess.CalledProcessError as e:
-            # CalledProcessError occurs when a subprocess returns a non-zero exit code
-            # Note: subprocess.run() doesn't raise this by default, but it's good to catch
-            # in case the implementation changes or for other subprocess calls
-            error_msg = (
-                f"Error: Command failed with exit code {e.returncode}: {command}"
-            )
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Subprocess command failed: %s",
-                    e,
-                    exc_info=True,
-                    extra={"command": command, "exit_code": e.returncode},
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=e.returncode if e.returncode else 1,
-                error=str(e),
-                tool_name="shell",
-            )
-        except FileNotFoundError as e:
-            error_msg = f"Error: Command not found: {command}"
-            return self._format_result(
-                output=error_msg,
-                exit_code=127,  # Standard "command not found" exit code
-                error=str(e),
-                tool_name="shell",
-            )
-        except PermissionError:
-            error_msg = f"Error: Permission denied executing command: {command}"
-            return self._format_result(
-                output=error_msg,
-                exit_code=126,  # Standard "permission denied" exit code
-                error="Permission denied",
-                tool_name="shell",
-            )
-        except OSError as e:
-            # OSError includes PermissionError, FileNotFoundError, and other OS-level errors
-            # This catches any OSError not already handled above
-            error_msg = f"Error executing command: {e!s}"
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "OS error executing shell command: %s",
-                    e,
-                    exc_info=True,
-                    extra={"command": command},
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=str(e),
-                tool_name="shell",
-            )
-        except Exception as e:
-            error_msg = f"Error executing command: {e!s}"
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Unexpected error executing shell command: %s", e, exc_info=True
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=str(e),
-                tool_name="shell",
-            )
-
     def _format_result(
         self, output: str, exit_code: int, tool_name: str, **kwargs: Any
     ) -> UniversalToolResult:
@@ -1104,7 +724,7 @@ class UniversalToolExecutor:
         # Apply KiloCode formatting if enabled
         if self.result_format == "kilo_standard" and not output.startswith("["):
             # Format output with [tool_name] Result: prefix
-            # Skip if output already has a tool name prefix (e.g., from MCP tools)
+            # Skip if output already has a tool name prefix
             output = f"[{tool_name}] Result:\n{output}"
 
         return UniversalToolResult(
@@ -1115,20 +735,12 @@ class UniversalToolExecutor:
         )
 
     def get_tool_schemas(self) -> list[OpenAIFunctionSchema]:
-        """Get OpenAI-compatible schemas for all available tools.
+        """Get OpenAI-compatible schemas advertised by this executor.
 
-        Returns:
-            List of OpenAI function schemas for built-in and MCP tools
+        Built-in proxy tools are handled without separate schemas here; discovery
+        comes from the upstream Codex/agent capabilities.
         """
-        schemas: list[OpenAIFunctionSchema] = []
-
-        # Add MCP tool schemas (return models directly for strong typing)
-        schemas.extend(self.mcp_client.get_tool_schemas())
-
-        # Note: Built-in tools don't need schemas as they're handled internally
-        # The tool discovery should come from the actual backend/client capabilities
-
-        return schemas
+        return []
 
     async def _execute_search_and_replace(
         self, arguments: dict[str, Any]
@@ -1238,85 +850,6 @@ class UniversalToolExecutor:
                 exit_code=1,
                 error=str(e),
                 tool_name="search_and_replace",
-            )
-
-    async def _execute_write_to_file(
-        self, arguments: dict[str, Any]
-    ) -> UniversalToolResult:
-        """Execute write_to_file tool to write content to a file.
-
-        Args:
-            arguments: Dictionary containing:
-                - path: File path
-                - content: Content to write
-
-        Returns:
-            Dictionary with output, exit_code, and metadata
-        """
-        file_path = arguments.get("path")
-        content = arguments.get("content")
-
-        if not file_path:
-            error_msg = "Error: path is required"
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error="Missing path parameter",
-                tool_name="write_to_file",
-            )
-
-        if content is None:
-            error_msg = "Error: content is required"
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error="Missing content parameter",
-                tool_name="write_to_file",
-            )
-
-        try:
-            resolved_path = self._validate_path(file_path)
-
-            # Create parent directories if they don't exist
-            resolved_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Write content to file
-            await asyncio.to_thread(
-                lambda: resolved_path.write_text(content, encoding="utf-8")
-            )
-
-            output = f"Successfully wrote {len(content)} bytes to {file_path}"
-
-            return self._format_result(
-                output=output,
-                exit_code=0,
-                tool_name="write_to_file",
-                file_path=str(resolved_path),
-                size=len(content),
-            )
-
-        except PermissionError:
-            error_msg = f"Error: Permission denied writing to file: {file_path}"
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error="Permission denied",
-                tool_name="write_to_file",
-            )
-        except Exception as e:
-            error_msg = f"Error writing to file {file_path}: {e!s}"
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Unexpected error writing to file: %s",
-                    e,
-                    exc_info=True,
-                    extra={"file_path": file_path},
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=str(e),
-                tool_name="write_to_file",
             )
 
     async def _execute_insert_content(
@@ -1493,62 +1026,6 @@ class UniversalToolExecutor:
                 tool_name="edit_file",
             )
 
-    async def _execute_access_mcp_resource(
-        self, arguments: dict[str, Any]
-    ) -> UniversalToolResult:
-        """Execute access_mcp_resource to read an MCP resource.
-
-        Args:
-            arguments: Dictionary containing:
-                - uri: Resource URI to access
-
-        Returns:
-            Dictionary with output, exit_code, and metadata
-        """
-        uri = arguments.get("uri")
-        if not uri:
-            error_msg = "Error: uri is required for access_mcp_resource"
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error="Missing uri parameter",
-                tool_name="access_mcp_resource",
-            )
-
-        try:
-            # Access the MCP resource
-            result = await self.mcp_client.read_resource(uri)
-
-            # Format the result
-            if isinstance(result, dict):
-                # If result is a dict, extract content or convert to string
-                content = result.get("content", str(result))
-            else:
-                content = str(result)
-
-            return self._format_result(
-                output=content,
-                exit_code=0,
-                tool_name="access_mcp_resource",
-                uri=uri,
-            )
-
-        except Exception as e:
-            error_msg = f"Error accessing MCP resource {uri}: {e!s}"
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Failed to access MCP resource: %s",
-                    e,
-                    exc_info=True,
-                    extra={"uri": uri},
-                )
-            return self._format_result(
-                output=error_msg,
-                exit_code=1,
-                error=str(e),
-                tool_name="access_mcp_resource",
-            )
-
     async def cleanup(self) -> None:
-        """Clean up resources and disconnect from MCP servers."""
-        await self.mcp_client.disconnect_all()
+        """Release executor resources (no-op; MCP is not hosted in-proxy)."""
+        return

@@ -335,16 +335,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                         message.setdefault("tool_calls", []).append(tool_call_entry)
 
                 # Determine execution mode based on tool name prefix
-                if tool_name.startswith(
-                    ("__proxy_use_mcp_tool", "__proxy_access_mcp_resource")
-                ):
-                    tool_schema = CodexToolSchema(
-                        name=tool_name,
-                        description=None,
-                        parameters=arguments if isinstance(arguments, dict) else {},
-                    )
-                    result["mcp_tools"].append(tool_schema)
-                elif tool_name.startswith("__proxy_"):
+                if tool_name.startswith("__proxy_"):
                     tool_schema = CodexToolSchema(
                         name=tool_name,
                         description=None,

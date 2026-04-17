@@ -77,11 +77,6 @@ class TestCompatibilityLayer:
                 success=True, result="[read_file] Result: success", error=None
             )
         )
-        service.execute_mcp_tool = AsyncMock(
-            return_value=ToolExecutionResult(
-                success=True, result="[mcp_tool] Result: success", error=None
-            )
-        )
         return service
 
     @pytest.fixture

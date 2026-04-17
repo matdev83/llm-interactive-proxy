@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -205,13 +205,12 @@ class TestReadEditCompletionFlow:
         assert "def hello():" in read_output["output"]
         assert "[read_file] Result:" in read_output["output"]
 
-        # Step 2: Edit file (write_to_file)
-        edit_xml = """<write_to_file>
+        # Step 2: Edit file (search_and_replace; proxy write_to_file disabled)
+        edit_xml = """<search_and_replace>
 <path>test.py</path>
-<content>def hello():
-    print("world")
-</content>
-</write_to_file>"""
+<search>    pass</search>
+<replace>    print("world")</replace>
+</search_and_replace>"""
 
         edit_result = await translator.translate_tool_invocation(
             edit_xml, session_id="test_session"
@@ -219,7 +218,7 @@ class TestReadEditCompletionFlow:
 
         assert edit_result is not None
         tool_name, arguments = edit_result
-        assert tool_name == "__proxy_write_to_file"
+        assert tool_name == "__proxy_search_and_replace"
 
         edit_output = await executor.execute_tool(tool_name, arguments)
         assert edit_output["exit_code"] == 0
@@ -376,86 +375,48 @@ class TestSearchReplaceVerifyFlow:
         )
 
 
-class TestMCPToolUsage:
-    """Test MCP tool usage through compatibility layer."""
+class TestMcpXmlRejectedAtProxy:
+    """MCP XML must not be translated into proxy-side MCP execution."""
 
     @pytest.mark.asyncio
-    async def test_mcp_tool_forwarding(self, codex_connector: OpenAICodexConnector):
-        """Test generic MCP tool forwarding."""
-        from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
-        from src.core.services.universal_mcp_client import UniversalMCPClient
-        from src.core.services.universal_tool_executor import UniversalToolExecutor
+    async def test_use_mcp_tool_raises_unsupported(self, codex_connector):
+        from src.connectors._openai_codex_compatibility_errors import (
+            CompatibilityErrorCode,
+        )
+        from src.connectors._openai_codex_kilo_tool_translator import (
+            KiloToolTranslator,
+            TranslationError,
+        )
 
         translator = KiloToolTranslator(codex_connector)
-        executor = UniversalToolExecutor(result_format="kilo_standard")
-
-        # Create mock MCP client
-        mock_mcp_client = MagicMock(spec=UniversalMCPClient)
-        mock_mcp_client.execute_tool = AsyncMock(
-            return_value={
-                "output": "MCP tool executed successfully",
-                "exit_code": 0,
-                "tool_name": "custom_tool",
-            }
-        )
-        executor.mcp_client = mock_mcp_client
-
-        # Test MCP tool invocation
         mcp_xml = """<use_mcp_tool name="custom_tool">
             <arguments>
                 <param1>value1</param1>
             </arguments>
         </use_mcp_tool>"""
 
-        mcp_result = await translator.translate_tool_invocation(
-            mcp_xml, session_id="test_session"
-        )
-
-        assert mcp_result is not None
-        tool_name, arguments = mcp_result
-        assert tool_name == "__proxy_use_mcp_tool"
-        assert arguments["tool_name"] == "custom_tool"
-
-        mcp_output = await executor.execute_tool(tool_name, arguments)
-        assert mcp_output["exit_code"] == 0
-        assert "custom_tool" in mcp_output["output"]
+        with pytest.raises(TranslationError) as exc_info:
+            await translator.translate_tool_invocation(mcp_xml, session_id="test_session")
+        assert exc_info.value.error_code == CompatibilityErrorCode.UNSUPPORTED_TOOL.value
 
     @pytest.mark.asyncio
-    async def test_access_mcp_resource(self, codex_connector: OpenAICodexConnector):
-        """Test MCP resource access."""
-        from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
-        from src.core.services.universal_mcp_client import UniversalMCPClient
-        from src.core.services.universal_tool_executor import UniversalToolExecutor
+    async def test_access_mcp_resource_raises_unsupported(self, codex_connector):
+        from src.connectors._openai_codex_compatibility_errors import (
+            CompatibilityErrorCode,
+        )
+        from src.connectors._openai_codex_kilo_tool_translator import (
+            KiloToolTranslator,
+            TranslationError,
+        )
 
         translator = KiloToolTranslator(codex_connector)
-        executor = UniversalToolExecutor(result_format="kilo_standard")
-
-        # Create mock MCP client
-        mock_mcp_client = MagicMock(spec=UniversalMCPClient)
-        mock_mcp_client.read_resource = AsyncMock(
-            return_value={
-                "content": "Resource content here",
-                "uri": "file://test/resource.txt",
-                "mimeType": "text/plain",
-            }
-        )
-        executor.mcp_client = mock_mcp_client
-
-        # Test resource access
         resource_xml = '<access_mcp_resource uri="file://test/resource.txt" />'
 
-        resource_result = await translator.translate_tool_invocation(
-            resource_xml, session_id="test_session"
-        )
-
-        assert resource_result is not None
-        tool_name, arguments = resource_result
-        assert tool_name == "__proxy_access_mcp_resource"
-        assert arguments["uri"] == "file://test/resource.txt"
-
-        resource_output = await executor.execute_tool(tool_name, arguments)
-        assert resource_output["exit_code"] == 0
-        assert "Resource content here" in resource_output["output"]
+        with pytest.raises(TranslationError) as exc_info:
+            await translator.translate_tool_invocation(
+                resource_xml, session_id="test_session"
+            )
+        assert exc_info.value.error_code == CompatibilityErrorCode.UNSUPPORTED_TOOL.value
 
 
 class TestNonKiloCodeClientCompatibility:
@@ -673,12 +634,11 @@ class TestEndToEndWithMockCodexAPI:
         assert search_output["exit_code"] == 0
 
         # 4. Edit file
-        edit_xml = """<write_to_file>
+        edit_xml = """<search_and_replace>
 <path>test.py</path>
-<content>def hello():
-    print("updated")
-</content>
-</write_to_file>"""
+<search>    pass</search>
+<replace>    print("updated")</replace>
+</search_and_replace>"""
         edit_result = await translator.translate_tool_invocation(edit_xml, session_id)
         assert edit_result is not None
         edit_output = await executor.execute_tool(*edit_result)

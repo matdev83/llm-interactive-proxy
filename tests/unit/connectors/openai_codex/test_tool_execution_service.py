@@ -1,6 +1,6 @@
 """Unit tests for ToolExecutionService.
 
-Tests cover proxy tool execution, MCP tool execution, error handling, and result formatting.
+Tests cover proxy tool execution, error handling, and result formatting.
 """
 
 from __future__ import annotations
@@ -33,9 +33,6 @@ class TestToolExecutionService:
         translator.handle_conversation_control = AsyncMock(
             return_value="[attempt_completion] Task completion acknowledged: done"
         )
-        translator._translate_mcp_parameters = MagicMock(
-            side_effect=lambda params, schema: params
-        )
         return translator
 
     @pytest.fixture
@@ -46,17 +43,6 @@ class TestToolExecutionService:
             return_value={"output": "execution result", "exit_code": 0}
         )
         return executor
-
-    @pytest.fixture
-    def mock_mcp_client(self):
-        """Create a mock MCP client."""
-        client = AsyncMock()
-        client.call_tool = AsyncMock(
-            return_value={"content": "mcp result", "isError": False}
-        )
-        client.is_connected = MagicMock(return_value=True)
-        client.get_tool_schema = AsyncMock(return_value=None)
-        return client
 
     def test_service_implements_interface(self, service):
         """Verify service implements IToolExecutionService interface."""
@@ -199,139 +185,11 @@ class TestToolExecutionService:
         assert result.success is True
         assert "execution result" in result.result
 
-    @pytest.mark.asyncio
-    async def test_execute_mcp_tool_success(
-        self, service, mock_mcp_client, mock_kilo_translator
-    ):
-        """Test successful MCP tool execution."""
-        service._mcp_client = mock_mcp_client
-        service._kilo_translator = mock_kilo_translator
+    def test_get_available_tool_schemas_delegates_to_executor(self, service):
+        """Schemas come from UniversalToolExecutor (empty when no advertised tools)."""
+        mock_executor = MagicMock()
+        mock_executor.get_tool_schemas.return_value = []
+        service._universal_executor = mock_executor
 
-        arguments = ToolArguments(
-            payload={"tool_name": "test_mcp_tool", "tool_arguments": {"param": "value"}}
-        )
-        result = await service.execute_mcp_tool(
-            "__proxy_use_mcp_tool", arguments, "test-session-123"
-        )
-
-        assert isinstance(result, ToolExecutionResult)
-        assert result.success is True
-        mock_mcp_client.call_tool.assert_called_once_with(
-            "test_mcp_tool", {"param": "value"}
-        )
-        mock_kilo_translator.format_tool_result.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_execute_mcp_tool_missing_tool_name(self, service):
-        """Test MCP tool execution with missing tool_name parameter."""
-        arguments = ToolArguments(payload={"tool_arguments": {"param": "value"}})
-        result = await service.execute_mcp_tool(
-            "__proxy_use_mcp_tool", arguments, "test-session-123"
-        )
-
-        assert isinstance(result, ToolExecutionResult)
-        assert result.success is False
-        assert (
-            "tool_name" in result.error.lower()
-            or "missing" in result.error.lower()
-            or "invalid" in result.error.lower()
-        )
-
-    @pytest.mark.asyncio
-    async def test_execute_mcp_tool_invalid_tool_name(self, service):
-        """Test MCP tool execution with invalid tool_name parameter."""
-        arguments = ToolArguments(payload={"tool_name": None, "tool_arguments": {}})
-        result = await service.execute_mcp_tool(
-            "__proxy_use_mcp_tool", arguments, "test-session-123"
-        )
-
-        assert isinstance(result, ToolExecutionResult)
-        assert result.success is False
-        assert "tool_name" in result.error.lower() or "invalid" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_execute_mcp_tool_no_mcp_client(self, service):
-        """Test MCP tool execution when MCP client is not available."""
-        service._mcp_client = None
-
-        arguments = ToolArguments(
-            payload={"tool_name": "test_tool", "tool_arguments": {}}
-        )
-        result = await service.execute_mcp_tool(
-            "__proxy_use_mcp_tool", arguments, "test-session-123"
-        )
-
-        assert isinstance(result, ToolExecutionResult)
-        assert result.success is False
-        assert "mcp" in result.error.lower() or "not available" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_execute_mcp_tool_timeout(self, service, mock_mcp_client):
-        """Test MCP tool execution timeout handling."""
-        import asyncio
-
-        service._mcp_client = mock_mcp_client
-        mock_mcp_client.call_tool = AsyncMock(side_effect=asyncio.TimeoutError())
-
-        arguments = ToolArguments(
-            payload={"tool_name": "test_tool", "tool_arguments": {}}
-        )
-        result = await service.execute_mcp_tool(
-            "__proxy_use_mcp_tool", arguments, "test-session-123"
-        )
-
-        assert isinstance(result, ToolExecutionResult)
-        assert result.success is False
-        assert "timeout" in result.error.lower() or "timed out" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_execute_mcp_tool_execution_error(self, service, mock_mcp_client):
-        """Test MCP tool execution error handling."""
-        service._mcp_client = mock_mcp_client
-        mock_mcp_client.call_tool = AsyncMock(
-            side_effect=Exception("MCP execution failed")
-        )
-
-        arguments = ToolArguments(
-            payload={"tool_name": "test_tool", "tool_arguments": {}}
-        )
-        result = await service.execute_mcp_tool(
-            "__proxy_use_mcp_tool", arguments, "test-session-123"
-        )
-
-        assert isinstance(result, ToolExecutionResult)
-        assert result.success is False
-        assert "failed" in result.error.lower()
-
-    @pytest.mark.asyncio
-    async def test_execute_mcp_tool_no_formatting(self, service, mock_mcp_client):
-        """Test MCP tool execution without KiloToolTranslator formatting."""
-        service._mcp_client = mock_mcp_client
-        service._kilo_translator = None
-
-        arguments = ToolArguments(
-            payload={"tool_name": "test_tool", "tool_arguments": {}}
-        )
-        result = await service.execute_mcp_tool(
-            "__proxy_use_mcp_tool", arguments, "test-session-123"
-        )
-
-        assert isinstance(result, ToolExecutionResult)
-        assert result.success is True
-        assert "mcp result" in result.result
-
-    @pytest.mark.asyncio
-    async def test_execute_mcp_tool_missing_tool_arguments(
-        self, service, mock_mcp_client
-    ):
-        """Test MCP tool execution with missing tool_arguments (should default to empty dict)."""
-        service._mcp_client = mock_mcp_client
-
-        arguments = ToolArguments(payload={"tool_name": "test_tool"})
-        result = await service.execute_mcp_tool(
-            "__proxy_use_mcp_tool", arguments, "test-session-123"
-        )
-
-        assert isinstance(result, ToolExecutionResult)
-        assert result.success is True
-        mock_mcp_client.call_tool.assert_called_once_with("test_tool", {})
+        assert service.get_available_tool_schemas() == []
+        mock_executor.get_tool_schemas.assert_called_once()

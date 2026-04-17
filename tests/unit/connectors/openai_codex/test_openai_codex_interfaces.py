@@ -214,7 +214,6 @@ class TestIToolExecutionService:
     def test_interface_has_execute_methods(self):
         """Test that IToolExecutionService defines execute methods."""
         assert hasattr(IToolExecutionService, "execute_proxy_tool")
-        assert hasattr(IToolExecutionService, "execute_mcp_tool")
 
     @pytest.mark.asyncio
     async def test_mock_implementation(self):
@@ -222,11 +221,7 @@ class TestIToolExecutionService:
         mock_service = Mock(spec=IToolExecutionService)
         tool_result = Mock(spec=ToolExecutionResult)
         mock_service.execute_proxy_tool.return_value = tool_result
-        mock_service.execute_mcp_tool.return_value = tool_result
 
         args = Mock(spec=ToolArguments)
         proxy_result = await mock_service.execute_proxy_tool("tool_name", args)
         assert proxy_result == tool_result
-
-        mcp_result = await mock_service.execute_mcp_tool("tool_name", args)
-        assert mcp_result == tool_result

@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock
 
 import pytest
+from src.connectors._openai_codex_compatibility_errors import CompatibilityErrorCode
 from src.connectors._openai_codex_kilo_tool_translator import (
     KiloToolTranslator,
     TranslationError,
@@ -965,13 +966,14 @@ class TestConversationControl:
         assert "Should I continue?" in response_question
 
 
-class TestTranslateUseMcpTool:
-    """Test translation of <use_mcp_tool> tags."""
+class TestMcpXmlRejected:
+    """<use_mcp_tool> / <access_mcp_resource> are not executed by the proxy."""
 
     @pytest.mark.asyncio
-    async def test_translate_use_mcp_tool_patch_file_with_diff(self, translator):
-        """Test translating use_mcp_tool with patch_file tool and diff."""
-        xml = """<use_mcp_tool name="patch_file">
+    @pytest.mark.parametrize(
+        "xml",
+        [
+            """<use_mcp_tool name="patch_file">
             <arguments>
                 <diff>--- a/file.py
 +++ b/file.py
@@ -980,143 +982,28 @@ class TestTranslateUseMcpTool:
 +new line
 </diff>
             </arguments>
-        </use_mcp_tool>"""
-
-        result = await translator.translate_tool_invocation(xml)
-
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_use_mcp_tool"
-        assert arguments["tool_name"] == "patch_file"
-        assert "diff" in arguments["tool_arguments"]
-
-    @pytest.mark.asyncio
-    async def test_translate_use_mcp_tool_patch_file_with_tool_name_element(
-        self, translator
-    ):
-        """Test parsing when tool name provided via <tool_name> element."""
-        xml = """<use_mcp_tool>
-            <tool_name>patch_file</tool_name>
-            <arguments>
-                <diff>--- a/foo.py
-+++ b/foo.py
-@@ -1 +1 @@
--old
-+new
-</diff>
-            </arguments>
-        </use_mcp_tool>"""
-
-        result = await translator.translate_tool_invocation(xml)
-
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_use_mcp_tool"
-        assert arguments["tool_name"] == "patch_file"
-        assert "diff" in arguments["tool_arguments"]
-
-    @pytest.mark.asyncio
-    async def test_translate_use_mcp_tool_patch_file_with_tool_name_attribute(
-        self, translator
-    ):
-        """Test parsing when tool name provided via tool_name attribute."""
-        xml = """<use_mcp_tool tool_name="patch_file">
-            <arguments>
-                <patch>diff content</patch>
-            </arguments>
-        </use_mcp_tool>"""
-
-        result = await translator.translate_tool_invocation(xml)
-
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_use_mcp_tool"
-        assert arguments["tool_name"] == "patch_file"
-        assert "patch" in arguments["tool_arguments"]
-
-    @pytest.mark.asyncio
-    async def test_translate_use_mcp_tool_patch_file_with_patch(self, translator):
-        """Test translating use_mcp_tool with patch_file tool and patch parameter."""
-        xml = """<use_mcp_tool name="patch_file">
-            <arguments>
-                <patch>diff content here</patch>
-            </arguments>
-        </use_mcp_tool>"""
-
-        result = await translator.translate_tool_invocation(xml)
-
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_use_mcp_tool"
-        assert arguments["tool_name"] == "patch_file"
-        assert "patch" in arguments["tool_arguments"]
-
-    @pytest.mark.asyncio
-    async def test_translate_use_mcp_tool_patch_file_missing_diff_raises_error(
-        self, translator
-    ):
-        """Test that patch_file without diff/patch raises error."""
-        xml = """<use_mcp_tool name="patch_file">
-            <arguments>
-                <file>test.py</file>
-            </arguments>
-        </use_mcp_tool>"""
-
-        with pytest.raises(TranslationError) as exc_info:
-            await translator.translate_tool_invocation(xml)
-
-        # Error can be COMPAT_E003 (parameter validation) or COMPAT_E007 (wrapped)
-        assert exc_info.value.error_code in ("COMPAT_E003", "COMPAT_E007")
-        assert (
-            "diff" in str(exc_info.value).lower()
-            or "patch" in str(exc_info.value).lower()
-        )
-
-    @pytest.mark.asyncio
-    async def test_translate_use_mcp_tool_generic_tool(self, translator):
-        """Test translating use_mcp_tool with generic MCP tool."""
-        xml = """<use_mcp_tool name="custom_tool">
+        </use_mcp_tool>""",
+            """<use_mcp_tool name="custom_tool">
             <arguments>
                 <param1>value1</param1>
-                <param2>value2</param2>
             </arguments>
-        </use_mcp_tool>"""
-
-        result = await translator.translate_tool_invocation(xml)
-
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_use_mcp_tool"
-        assert arguments["tool_name"] == "custom_tool"
-        assert arguments["tool_arguments"]["param1"] == "value1"
-        assert arguments["tool_arguments"]["param2"] == "value2"
-
-    @pytest.mark.asyncio
-    async def test_translate_use_mcp_tool_missing_name_raises_error(self, translator):
-        """Test that use_mcp_tool without name raises error."""
-        xml = """<use_mcp_tool>
-            <arguments>
-                <param>value</param>
-            </arguments>
-        </use_mcp_tool>"""
-
+        </use_mcp_tool>""",
+            '<use_mcp_tool name="simple_tool"></use_mcp_tool>',
+        ],
+    )
+    async def test_use_mcp_tool_always_unsupported(self, translator, xml):
         with pytest.raises(TranslationError) as exc_info:
             await translator.translate_tool_invocation(xml)
-
-        assert exc_info.value.error_code in ("COMPAT_E002", "COMPAT_E003")
+        assert exc_info.value.error_code == CompatibilityErrorCode.UNSUPPORTED_TOOL.value
+        assert exc_info.value.tool_name == "use_mcp_tool"
 
     @pytest.mark.asyncio
-    async def test_translate_use_mcp_tool_empty_arguments(self, translator):
-        """Test translating use_mcp_tool with empty arguments."""
-        xml = '<use_mcp_tool name="simple_tool"></use_mcp_tool>'
-
-        result = await translator.translate_tool_invocation(xml)
-
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_use_mcp_tool"
-        assert arguments["tool_name"] == "simple_tool"
-        assert arguments["tool_arguments"] == {}
+    async def test_access_mcp_resource_unsupported(self, translator):
+        xml = '<access_mcp_resource uri="file://test/resource.txt" />'
+        with pytest.raises(TranslationError) as exc_info:
+            await translator.translate_tool_invocation(xml)
+        assert exc_info.value.error_code == CompatibilityErrorCode.UNSUPPORTED_TOOL.value
+        assert exc_info.value.tool_name == "access_mcp_resource"
 
 
 class TestTranslateSearchAndReplace:
@@ -1207,68 +1094,36 @@ class TestTranslateSearchAndReplace:
 
 
 class TestTranslateWriteToFile:
-    """Test translation of <write_to_file> tags."""
+    """<write_to_file> is rejected at the proxy (not translated to a proxy tool)."""
 
     @pytest.mark.asyncio
-    async def test_translate_write_to_file_basic(self, translator):
-        """Test translating write_to_file with path and content."""
+    async def test_translate_write_to_file_rejected(self, translator):
         xml = """<write_to_file>
             <path>output.txt</path>
             <content>Hello, World!</content>
         </write_to_file>"""
 
-        result = await translator.translate_tool_invocation(xml)
+        with pytest.raises(TranslationError) as exc_info:
+            await translator.translate_tool_invocation(xml)
 
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_write_to_file"
-        assert arguments["path"] == "output.txt"
-        assert arguments["content"] == "Hello, World!"
+        assert exc_info.value.error_code == CompatibilityErrorCode.UNSUPPORTED_TOOL.value
+        assert exc_info.value.tool_name == "write_to_file"
 
     @pytest.mark.asyncio
-    async def test_translate_write_to_file_multiline_content(self, translator):
-        """Test translating write_to_file with multiline content."""
+    async def test_translate_write_to_file_multiline_rejected(self, translator):
         xml = """<write_to_file>
             <path>script.py</path>
-            <content>#!/usr/bin/env python3
-import sys
-
-def main():
-    print("Hello")
-
-if __name__ == "__main__":
-    main()
-</content>
+            <content>line1
+line2</content>
         </write_to_file>"""
 
-        result = await translator.translate_tool_invocation(xml)
+        with pytest.raises(TranslationError) as exc_info:
+            await translator.translate_tool_invocation(xml)
 
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_write_to_file"
-        assert arguments["path"] == "script.py"
-        assert "#!/usr/bin/env python3" in arguments["content"]
-        assert "def main():" in arguments["content"]
+        assert exc_info.value.error_code == CompatibilityErrorCode.UNSUPPORTED_TOOL.value
 
     @pytest.mark.asyncio
-    async def test_translate_write_to_file_empty_content(self, translator):
-        """Test translating write_to_file with empty content."""
-        xml = """<write_to_file>
-            <path>empty.txt</path>
-            <content></content>
-        </write_to_file>"""
-
-        result = await translator.translate_tool_invocation(xml)
-
-        assert result is not None
-        tool_name, arguments = result
-        assert tool_name == "__proxy_write_to_file"
-        assert arguments["path"] == "empty.txt"
-        assert arguments["content"] == ""
-
-    @pytest.mark.asyncio
-    async def test_translate_write_to_file_missing_path_raises_error(self, translator):
-        """Test that write_to_file without path raises error."""
+    async def test_translate_write_to_file_missing_path_still_rejected(self, translator):
         xml = """<write_to_file>
             <content>content</content>
         </write_to_file>"""
@@ -1276,13 +1131,15 @@ if __name__ == "__main__":
         with pytest.raises(TranslationError) as exc_info:
             await translator.translate_tool_invocation(xml)
 
-        assert exc_info.value.error_code in ("COMPAT_E002", "COMPAT_E003")
+        assert exc_info.value.error_code in (
+            CompatibilityErrorCode.UNSUPPORTED_TOOL.value,
+            CompatibilityErrorCode.INVALID_XML_SYNTAX.value,
+        )
 
     @pytest.mark.asyncio
-    async def test_translate_write_to_file_missing_content_raises_error(
+    async def test_translate_write_to_file_missing_content_still_rejected(
         self, translator
     ):
-        """Test that write_to_file without content raises error."""
         xml = """<write_to_file>
             <path>file.txt</path>
         </write_to_file>"""
@@ -1290,7 +1147,10 @@ if __name__ == "__main__":
         with pytest.raises(TranslationError) as exc_info:
             await translator.translate_tool_invocation(xml)
 
-        assert exc_info.value.error_code in ("COMPAT_E002", "COMPAT_E003")
+        assert exc_info.value.error_code in (
+            CompatibilityErrorCode.UNSUPPORTED_TOOL.value,
+            CompatibilityErrorCode.INVALID_XML_SYNTAX.value,
+        )
 
 
 class TestTranslateInsertContent:
