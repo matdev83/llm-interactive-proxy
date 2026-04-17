@@ -31,13 +31,9 @@ class ToolCallRepairService(IToolCallRepairService):
 
     # Pre-compiled regex patterns for performance optimization
     # These patterns are compiled once at class definition time instead of on every instance creation
-    _JSON_PATTERN = re.compile(
-        r"(\{?\s*\"(function_call|tool)\":\s*\{.*\}\s*\})", re.DOTALL
-    )
     _TEXT_PATTERN = re.compile(
         r"(?:TOOL CALL|Function call|Call)\s*:\s*(\w+)\s*(.*)", re.IGNORECASE
     )
-    _CODE_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*\}\s*)\s*```", re.DOTALL)
     # Include colon in tag names to support namespaced tags like
     # <ClientControls:run_terminal_command> used by Factory Droid
     _XML_SNIPPET_PATTERN = re.compile(
@@ -91,24 +87,18 @@ class ToolCallRepairService(IToolCallRepairService):
 
         # Attempt to detect using code block patterns only if backticks present
         if "```" in content:
-            match = self._CODE_BLOCK_PATTERN.search(content)
-            if match:
-                result = self._process_json_match(match.group(1), match.group(0))
+            extracted_fence = self._extract_json_from_code_fences(content)
+            if extracted_fence:
+                result = self._process_json_match(extracted_fence, extracted_fence)
                 if result:
                     return result
 
         # Attempt to detect using JSON patterns only if likely keys present
         if '"function_call"' in content or '"tool"' in content:
-            # Prefer fast balanced-object extraction over regex
+            # Balanced-object extraction (linear); avoid greedy-regex fallback (ReDoS).
             extracted = self._extract_json_object_near_key(content)
             if extracted:
                 processed = self._process_json_match(extracted, extracted)
-                if processed:
-                    return processed
-            # Fallback to regex if balanced extraction failed
-            match = self._JSON_PATTERN.search(content)
-            if match:
-                processed = self._process_json_match(match.group(1), match.group(0))
                 if processed:
                     return processed
 
@@ -388,6 +378,49 @@ class ToolCallRepairService(IToolCallRepairService):
                     f"Error processing text tool call match: {e}", exc_info=True
                 )
         return None
+
+    def _extract_json_from_code_fences(self, content: str) -> str | None:
+        """Return balanced JSON containing tool/function_call from a markdown fence.
+
+        Uses only ``str.find`` and :meth:`_extract_json_object_near_key` so pathological
+        payloads cannot trigger catastrophic backtracking (ReDoS).
+        """
+        marker = "```"
+        search_pos = 0
+        while True:
+            open_idx = content.find(marker, search_pos)
+            if open_idx == -1:
+                return None
+
+            i = open_idx + len(marker)
+            if content[i : i + 4].lower() == "json":
+                i += 4
+            while i < len(content) and content[i] in " \t\r":
+                i += 1
+            if i < len(content) and content[i] == "\n":
+                i += 1
+
+            body_start = i
+            close_idx = content.find(marker, body_start)
+            if close_idx == -1:
+                search_pos = open_idx + 1
+                continue
+
+            if close_idx - body_start > MAX_JSON_PARSE_SIZE:
+                search_pos = close_idx + len(marker)
+                continue
+
+            body = content[body_start:close_idx]
+            stripped = body.strip()
+            if '"function_call"' not in stripped and '"tool"' not in stripped:
+                search_pos = close_idx + len(marker)
+                continue
+
+            extracted = self._extract_json_object_near_key(stripped)
+            if extracted:
+                return extracted
+
+            search_pos = close_idx + len(marker)
 
     def _extract_json_object_near_key(self, text: str) -> str | None:
         """

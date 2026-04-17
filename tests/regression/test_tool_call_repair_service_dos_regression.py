@@ -167,6 +167,41 @@ class TestToolCallRepairServiceDoSRegression:
             result is not None and result.tool_call["function"]["name"] == "test_tool"
         ), "Deeply nested JSON should be handled gracefully"
 
+    @real_time(
+        reason="ReDoS regression: pathological whitespace must not stall regex engine."
+    )
+    def test_redos_malformed_function_call_json_rejected_quickly(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        """Unclosed JSON with huge whitespace must not hang (no greedy-regex fallback)."""
+        n = 80_000
+        payload = '{"function_call": {' + (" " * n) + '"a"'
+        start_time = time.time()
+        result = repair_service.repair_tool_calls(payload)
+        duration = time.time() - start_time
+
+        assert (
+            duration < 1.0
+        ), f"Malformed JSON repair took {duration:.2f}s; expected <1s (ReDoS guard)."
+        assert result is None
+
+    @real_time(reason="ReDoS regression: fenced path used linear extraction only.")
+    def test_redos_malformed_tool_json_in_code_fence_rejected_quickly(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        """Fenced unclosed tool JSON with huge whitespace must complete quickly."""
+        n = 80_000
+        inner = '{"tool": {' + (" " * n) + '"a"'
+        content = f"```json\n{inner}\n```"
+        start_time = time.time()
+        result = repair_service.repair_tool_calls(content)
+        duration = time.time() - start_time
+
+        assert (
+            duration < 1.0
+        ), f"Fenced malformed JSON took {duration:.2f}s; expected <1s (ReDoS guard)."
+        assert result is None
+
     def test_max_json_parse_size_constant(self) -> None:
         """Test that MAX_JSON_PARSE_SIZE constant is defined correctly."""
         # Verify the constant exists and has reasonable value
