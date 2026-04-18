@@ -1531,6 +1531,7 @@ async def test_default_rules_apply_category_file_read_details_for_non_shell_tool
         enabled=True,
         min_bytes=0,
         marker=CompressionMarkerConfig(enabled=False),
+        disable_tools=[],
         rules=DynamicCompressionConfig().rules,
     )
 

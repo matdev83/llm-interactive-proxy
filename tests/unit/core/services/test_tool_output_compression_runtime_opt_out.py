@@ -32,6 +32,42 @@ def _shell_pair(*, content: str, command: str = "git status") -> list[ChatMessag
     ]
 
 
+def _read_pair(*, content: str, path: str = "src/example.py") -> list[ChatMessage]:
+    return [
+        ChatMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc-1",
+                    function=FunctionCall(
+                        name="read",
+                        arguments=f'{{"path":"{path}"}}',
+                    ),
+                )
+            ],
+        ),
+        ChatMessage(role="tool", tool_call_id="tc-1", content=content),
+    ]
+
+
+def _read_file_pair(*, content: str, path: str = "src/example.py") -> list[ChatMessage]:
+    return [
+        ChatMessage(
+            role="assistant",
+            tool_calls=[
+                ToolCall(
+                    id="tc-1",
+                    function=FunctionCall(
+                        name="read_file",
+                        arguments=f'{{"path":"{path}"}}',
+                    ),
+                )
+            ],
+        ),
+        ChatMessage(role="tool", tool_call_id="tc-1", content=content),
+    ]
+
+
 @pytest.mark.asyncio
 async def test_disable_tools_bypasses_compression_and_markers() -> None:
     service = ToolOutputCompressionService()
@@ -143,3 +179,43 @@ async def test_disable_tools_wins_over_command_prefix_disable_mismatch() -> None
 
     assert result.messages[-1].content == payload
     assert result.records[-1].applied is False
+
+
+@pytest.mark.asyncio
+async def test_default_read_disable_tool_bypasses_compression_and_markers() -> None:
+    service = ToolOutputCompressionService()
+    payload = ("def alpha():\n" + "    value = 1\n" * 500).strip()
+    messages = _read_pair(content=payload)
+    config = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+    )
+
+    result = await service.compress_messages(messages=messages, config=config)
+
+    assert result.messages[-1].content == payload
+    record = result.records[-1]
+    assert record.applied is False
+    assert record.marker_inserted is False
+    assert record.identity.tool_name == "read"
+
+
+@pytest.mark.asyncio
+async def test_default_read_file_disable_tool_bypasses_compression_and_markers() -> (
+    None
+):
+    service = ToolOutputCompressionService()
+    payload = ("def beta():\n" + "    value = 2\n" * 500).strip()
+    messages = _read_file_pair(content=payload)
+    config = DynamicCompressionConfig(
+        enabled=True,
+        min_bytes=0,
+    )
+
+    result = await service.compress_messages(messages=messages, config=config)
+
+    assert result.messages[-1].content == payload
+    record = result.records[-1]
+    assert record.applied is False
+    assert record.marker_inserted is False
+    assert record.identity.tool_name == "read_file"

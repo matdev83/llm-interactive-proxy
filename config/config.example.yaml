@@ -239,7 +239,7 @@ dynamic_compression:
     hint_in_text: false         # append handle hint to plain text outputs when allowed
   disable_categories: []        # e.g. ["search"]
   disable_methods: []           # e.g. ["line_dedupe"]
-  disable_tools: []             # e.g. ["shell"]
+  disable_tools: ["read", "read_file"]  # built-in defaults protect high-signal file reads; add e.g. ["shell"] to opt out others
   disable_tool_name_substrings: []  # e.g. ["fff", "mcp_"] matches anywhere in tool name
   disable_command_prefixes: []  # e.g. ["git diff --stat"]
   # Listing/search/read strategy tuning

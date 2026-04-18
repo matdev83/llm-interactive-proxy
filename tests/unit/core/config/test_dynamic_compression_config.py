@@ -63,6 +63,7 @@ def test_dynamic_compression_defaults_are_safe() -> None:
     assert cfg.per_output_evaluation_log_level == "debug"
     assert cfg.marker.enabled is True
     assert cfg.marker.structured_payload_mode == "out_of_band_only"
+    assert cfg.disable_tools == ["read", "read_file"]
 
 
 def test_dynamic_compression_defaults_include_rtk_generic_primitives() -> None:
@@ -151,6 +152,13 @@ def test_default_category_rules_cover_non_shell_tool_families() -> None:
         selected = selector.select_rule(context, cfg)
         assert selected is not None
         assert selected.name == expected_rule
+
+
+def test_disable_tools_default_includes_read() -> None:
+    cfg = DynamicCompressionConfig()
+
+    assert "read" in cfg.disable_tools
+    assert "read_file" in cfg.disable_tools
 
 
 def test_default_missing_family_rules_cover_task_list_families() -> None:

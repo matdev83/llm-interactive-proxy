@@ -1097,7 +1097,7 @@ class DynamicCompressionConfig(ValueObject):
     file_detail_last_n_lines: int | None = Field(default=None, ge=0)
     disable_categories: list[str] = Field(default_factory=list)
     disable_methods: list[str] = Field(default_factory=list)
-    disable_tools: list[str] = Field(default_factory=list)
+    disable_tools: list[str] = Field(default_factory=lambda: ["read", "read_file"])
     disable_tool_name_substrings: list[str] = Field(default_factory=list)
     disable_command_prefixes: list[str] = Field(default_factory=list)
     rules: list[CompressionRule] = Field(default_factory=_default_compression_rules)
