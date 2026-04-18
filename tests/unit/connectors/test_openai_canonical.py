@@ -672,3 +672,16 @@ class TestOpenAIPayloadCleaning:
         assert _LLM_PROXY_STREAM_URL_KEY not in cleaned
         assert _LLM_PROXY_STREAM_HEADERS_KEY not in cleaned
         assert cleaned.get("model") == "gpt-4"
+
+    def test_clean_openai_payload_strips_request_context_tokens(self, openai_connector):
+        cleaned = openai_connector._clean_openai_payload(
+            {
+                "model": "gpt-4",
+                "messages": [],
+                "request_context_tokens": 8192,
+                "metadata": {"request_context_tokens": 4096, "source": "test"},
+            }
+        )
+
+        assert "request_context_tokens" not in cleaned
+        assert cleaned.get("metadata") == {"source": "test"}

@@ -1333,6 +1333,7 @@ class OpenAIConnector(LLMBackend):
             "agent",
             "session_id",
             "reasoning_effort",
+            "request_context_tokens",
             _LLM_PROXY_STREAM_URL_KEY,
             _LLM_PROXY_STREAM_HEADERS_KEY,
             _LLM_PROXY_REQUEST_ID_KEY,
