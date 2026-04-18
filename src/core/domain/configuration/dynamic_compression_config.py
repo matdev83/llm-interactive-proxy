@@ -184,6 +184,7 @@ def _default_method_states() -> dict[str, bool]:
         "log_line_dedupe": True,
         "sensitive_field_projection": True,
         "declarative_rule_filter": True,
+        "git_status": True,
     }
 
 
@@ -227,6 +228,7 @@ def _builtin_tool_family_coverage_rules() -> list[CompressionRule]:
     af = ["ansi_normalize", "failure_focus_generic", "line_dedupe"]
     ad = ["ansi_normalize", "diagnostics_grouping", "line_dedupe"]
     stats_p = ["ansi_normalize", "stats_extraction_summary", "line_dedupe"]
+    git_status_p = ["ansi_normalize", "git_status", "line_dedupe"]
     diff_p = ["ansi_normalize", "diff_compact", "line_dedupe"]
 
     rules: list[CompressionRule] = [
@@ -264,7 +266,7 @@ def _builtin_tool_family_coverage_rules() -> list[CompressionRule]:
             pipeline=list(diff_p),
         ),
         CompressionRule(
-            name="git_status_stats_first",
+            name="git_status_structured",
             priority=12,
             when=CompressionRulePredicate(
                 command_prefix="git status",
@@ -273,7 +275,7 @@ def _builtin_tool_family_coverage_rules() -> list[CompressionRule]:
                 has_explicit_format=False,
                 min_bytes=400,
             ),
-            pipeline=list(stats_p),
+            pipeline=list(git_status_p),
         ),
         CompressionRule(
             name="git_log_stats_first",

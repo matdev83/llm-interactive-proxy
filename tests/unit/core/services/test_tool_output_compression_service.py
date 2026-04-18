@@ -1314,9 +1314,14 @@ async def test_service_uses_effective_runtime_diff_limits() -> None:
         "diff --git a/src/main.py b/src/main.py",
         "--- a/src/main.py",
         "+++ b/src/main.py",
-        "@@ -1,2 +1,10 @@ def build():",
+        "@@ -1,2 +1,50 @@ def build():",
     ]
-    diff_lines.extend([f"+added line {idx}" for idx in range(10)])
+    diff_lines.extend([f"+added line {idx}" for idx in range(50)])
+    diff_lines.append("diff --git a/src/util.py b/src/util.py")
+    diff_lines.append("--- a/src/util.py")
+    diff_lines.append("+++ b/src/util.py")
+    diff_lines.append("@@ -1,3 +1,40 @@")
+    diff_lines.extend([f"+util line {idx}" for idx in range(40)])
     messages = _build_tool_messages("git diff", "\n".join(diff_lines))
     cfg = DynamicCompressionConfig(
         enabled=True,
@@ -1340,7 +1345,7 @@ async def test_service_uses_effective_runtime_diff_limits() -> None:
     result = await service.compress_messages(messages=messages, config=cfg)
     compressed = str(result.messages[1].content)
 
-    assert "lines truncated" in compressed
+    assert "lines skipped" in compressed
 
 
 @pytest.mark.asyncio
@@ -1541,7 +1546,7 @@ async def test_default_rules_apply_category_file_read_details_for_non_shell_tool
 
 
 @pytest.mark.asyncio
-async def test_default_rules_route_git_status_through_stats_first_pipeline() -> None:
+async def test_default_rules_route_git_status_through_structured_pipeline() -> None:
     service = _build_service_with_default_registry()
     lines = ["## develop...origin/develop"]
     lines += [f" M services/long_name_module_{i:02d}.py" for i in range(20)]
@@ -1557,7 +1562,8 @@ async def test_default_rules_route_git_status_through_stats_first_pipeline() -> 
     result = await service.compress_messages(messages=messages, config=cfg)
     compressed = str(result.messages[1].content)
 
-    assert "git status: paths=" in compressed
+    assert "develop" in compressed
+    assert "unstaged:" in compressed
     assert "services/long_name_module_00.py" in compressed
 
 

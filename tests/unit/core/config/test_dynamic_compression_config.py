@@ -79,6 +79,7 @@ def test_dynamic_compression_defaults_include_rtk_generic_primitives() -> None:
     assert cfg.methods["diff_compact"] is True
     assert cfg.methods["mutating_success_ack"] is True
     assert cfg.methods["stats_extraction_summary"] is True
+    assert cfg.methods["git_status"] is True
     assert cfg.methods["directory_tree_summary"] is True
     assert cfg.methods["search_results_grouping"] is True
     assert cfg.methods["file_detail_levels"] is True
@@ -97,7 +98,7 @@ def test_dynamic_compression_defaults_include_rtk_generic_primitives() -> None:
     assert "cargo_outputs" in rule_names
     assert "json_ndjson_structural" in rule_names
     assert "xml_machine_safeguard" in rule_names
-    assert "git_status_stats_first" in rule_names
+    assert "git_status_structured" in rule_names
     assert "git_diff_compact" in rule_names
     assert "diff_command_compact" in rule_names
     assert any(name.startswith("git_mutating__") for name in rule_names)

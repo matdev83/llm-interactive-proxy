@@ -1155,7 +1155,12 @@ class ToolOutputCompressionService:
                 break
 
             out_bytes = len(result_content.encode("utf-8"))
-            if out_bytes > in_bytes:
+            allow_structured_git_status = (
+                method_name == "git_status"
+                and (context.identity.command_signature or "").lower() == "git"
+                and "status" in (context.identity.command_prefix or "").lower()
+            )
+            if out_bytes > in_bytes and not allow_structured_git_status:
                 method_records.append(
                     CompressionMethodRecord(
                         name=method_name,
