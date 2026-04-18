@@ -49,22 +49,17 @@ class TestPathTraversalSecurity:
         )
 
     @pytest.mark.asyncio
-    async def test_write_file_outside_workspace_blocked(
+    async def test_write_to_file_disabled(
         self, executor: UniversalToolExecutor, temp_workspace: Path
     ) -> None:
-        """Test that writing a file outside the workspace is blocked."""
-        # Try to write using ..
+        """Proxy-side write_to_file is disabled (no file is written)."""
         result = await executor.execute_tool(
             "__proxy_write_to_file", {"path": "../hacked.txt", "content": "hacked"}
         )
 
         assert result["exit_code"] == 1
-        assert (
-            "Access denied" in result["output"]
-            or "outside working directory" in result["output"]
-        )
+        assert result.get("error") == "local_write_to_file_disabled"
 
-        # Verify file was not created
         outside_file = temp_workspace.parent / "hacked.txt"
         assert not outside_file.exists()
 

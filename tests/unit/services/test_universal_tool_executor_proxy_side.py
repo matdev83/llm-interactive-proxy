@@ -192,131 +192,51 @@ class TestListDirExecution:
         assert ".hidden" in result["output"]
 
 
-class TestShellExecution:
-    """Tests for shell command execution."""
+class TestWriteToFileToolDisabled:
+    """Local write_to_file must never run in the proxy process."""
 
     @pytest.mark.asyncio
-    async def test_execute_command_success(
+    async def test_write_to_file_rejected(
         self, executor: UniversalToolExecutor
     ) -> None:
-        """Test successful command execution."""
-        # Use a simple cross-platform command
+        result = await executor.execute_tool(
+            "write_to_file", {"path": "x.txt", "content": "x"}
+        )
+        assert result["exit_code"] == 1
+        assert result.get("error") == "local_write_to_file_disabled"
+
+    @pytest.mark.asyncio
+    async def test_proxy_write_to_file_name_rejected(
+        self, executor: UniversalToolExecutor
+    ) -> None:
+        result = await executor.execute_tool(
+            "__proxy_write_to_file", {"path": "x.txt", "content": "x"}
+        )
+        assert result["exit_code"] == 1
+        assert result.get("error") == "local_write_to_file_disabled"
+
+
+class TestShellToolDisabled:
+    """Local shell execution must never run in the proxy process."""
+
+    @pytest.mark.asyncio
+    async def test_shell_is_rejected(self, executor: UniversalToolExecutor) -> None:
         result = await executor.execute_tool("shell", {"command": "echo Hello"})
 
-        assert result["exit_code"] == 0
-        assert "Hello" in result["output"]
-        assert "[shell] Result:" in result["output"]
-
-    @pytest.mark.asyncio
-    async def test_execute_command_with_exit_code(
-        self, executor: UniversalToolExecutor
-    ) -> None:
-        """Test command execution with non-zero exit code."""
-        # Use a command that will fail
-        result = await executor.execute_tool("shell", {"command": "exit 42"})
-
-        assert result["exit_code"] == 42
-
-    @pytest.mark.asyncio
-    async def test_execute_command_missing_command(
-        self, executor: UniversalToolExecutor
-    ) -> None:
-        """Test error handling for missing command parameter."""
-        result = await executor.execute_tool("shell", {})
-
         assert result["exit_code"] == 1
-        assert "command is required" in result["output"]
+        assert result.get("error") == "local_shell_execution_disabled"
+        assert "disabled" in result["output"].lower()
 
-    @pytest.mark.slow
     @pytest.mark.asyncio
-    async def test_execute_command_timeout(
+    async def test_execute_command_alias_rejected(
         self, executor: UniversalToolExecutor
     ) -> None:
-        """Test timeout handling for long-running commands.
-
-        Uses minimal timeouts to keep test fast while validating behavior.
-        """
-        # Create a command that runs longer than the timeout
-        # Using short durations to keep test fast
-        import platform
-
-        if platform.system() == "Windows":
-            # Use ping with minimal count on Windows (2s is enough)
-            sleep_cmd = "ping -n 3 127.0.0.1 > nul"
-        else:
-            sleep_cmd = "sleep 2"
-
-        result = await executor.execute_tool(
-            "shell", {"command": sleep_cmd, "timeout": 0.5}  # 0.5s timeout for speed
-        )
-
-        # Should have a non-zero exit code and timeout message
-        assert result["exit_code"] != 0
-        assert (
-            "timed out" in result["output"].lower()
-            or "timeout" in result.get("error", "").lower()
-        )
-
-    @pytest.mark.asyncio
-    async def test_execute_command_with_working_dir(
-        self, executor: UniversalToolExecutor, temp_workspace: Path
-    ) -> None:
-        """Test command execution with custom working directory."""
-        import platform
-
-        if platform.system() == "Windows":
-            # Use 'echo %CD%' to print the current directory on Windows
-            result = await executor.execute_tool(
-                "shell", {"command": "echo %CD%", "working_dir": "subdir"}
-            )
-        else:
-            # Use 'pwd' command on Unix
-            result = await executor.execute_tool(
-                "shell", {"command": "pwd", "working_dir": "subdir"}
-            )
-
-        assert result["exit_code"] == 0
-        assert "subdir" in result["output"]
-
-    @pytest.mark.asyncio
-    async def test_execute_command_invalid_working_dir(
-        self, executor: UniversalToolExecutor
-    ) -> None:
-        """Test error handling for invalid working directory."""
-        result = await executor.execute_tool(
-            "shell", {"command": "echo test", "working_dir": "nonexistent"}
-        )
-
-        assert result["exit_code"] == 1
-        assert "Working directory not found" in result["output"]
-
-    @pytest.mark.asyncio
-    async def test_execute_command_stderr_capture(
-        self, executor: UniversalToolExecutor
-    ) -> None:
-        """Test that stderr is captured in output."""
-        import platform
-
-        if platform.system() == "Windows":
-            # Redirect to stderr on Windows
-            cmd = "echo Error message 1>&2"
-        else:
-            # Redirect to stderr on Unix
-            cmd = "echo Error message >&2"
-
-        result = await executor.execute_tool("shell", {"command": cmd})
-
-        assert "Error message" in result["output"] or "STDERR" in result["output"]
-
-    @pytest.mark.asyncio
-    async def test_execute_command_alias(self, executor: UniversalToolExecutor) -> None:
-        """Test execute_command alias for shell tool."""
         result = await executor.execute_tool(
             "execute_command", {"command": "echo Test"}
         )
 
-        assert result["exit_code"] == 0
-        assert "Test" in result["output"]
+        assert result["exit_code"] == 1
+        assert result.get("error") == "local_shell_execution_disabled"
 
 
 class TestResultFormatting:
