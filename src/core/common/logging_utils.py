@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
 import structlog
 
+from src.core.app.constants.logging_constants import TRACE_LEVEL
+
 # Type variable for generic functions
 T = TypeVar("T")
 
@@ -663,6 +665,13 @@ def configure_logging_with_environment_tagging(
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     # Verbose SSL / client setup lines at DEBUG
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    # `websockets` logs every inbound frame at DEBUG (extremely noisy for tool
+    # call argument deltas). Enable wire-level logs only at application TRACE.
+    _ws_logger = logging.getLogger("websockets")
+    if level <= TRACE_LEVEL:
+        _ws_logger.setLevel(logging.NOTSET)
+    else:
+        _ws_logger.setLevel(logging.WARNING)
     # Suppress aiosqlite debug logs - very verbose operation-level logging
     # (connection open/close, cursor operations, query execution details)
     logging.getLogger("aiosqlite").setLevel(logging.INFO)

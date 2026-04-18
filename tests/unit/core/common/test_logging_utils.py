@@ -5,9 +5,11 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.logging_utils import (
     ApiKeyRedactionFilter,
     _discover_api_keys_from_config_backends,
+    configure_logging_with_environment_tagging,
     discover_api_keys_from_config_and_env,
     format_for_debug_log,
     install_api_key_redaction_filter,
@@ -443,9 +445,7 @@ class _FakePydanticBackends:
         if name.startswith("_"):
             raise AttributeError(name)
         if "-" in name:
-            raise AttributeError(
-                f"'BackendSettings' object has no attribute '{name}'"
-            )
+            raise AttributeError(f"'BackendSettings' object has no attribute '{name}'")
         return MagicMock()
 
     def get_named_backend_configs(self) -> dict[str, object]:
@@ -517,7 +517,17 @@ class TestHyphenatedBackendNameSupport:
             _discover_api_keys_from_config_backends(mock_config, found)
 
             # Should not log any "Skipping malformed backend config" debug error
-            debug_calls = [
-                call.args[0] for call in mock_logger.debug.call_args_list
-            ]
+            debug_calls = [call.args[0] for call in mock_logger.debug.call_args_list]
             assert not any("Skipping malformed" in msg for msg in debug_calls)
+
+
+class TestConfigureLoggingWebsocketsVerbosity:
+    """`websockets` emits per-frame DEBUG logs; tune it with application log level."""
+
+    def test_debug_sets_websockets_logger_to_warning(self) -> None:
+        configure_logging_with_environment_tagging(level=logging.DEBUG)
+        assert logging.getLogger("websockets").level == logging.WARNING
+
+    def test_trace_sets_websockets_logger_to_notset(self) -> None:
+        configure_logging_with_environment_tagging(level=TRACE_LEVEL)
+        assert logging.getLogger("websockets").level == logging.NOTSET
