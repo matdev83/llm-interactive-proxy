@@ -568,3 +568,34 @@ async def test_weighted_coordinator_raises_when_all_branches_exceed_max_context(
 
     assert exc_info.value.details.get("reason") == "max_context_exhausted"
     assert leaf_resolver.calls == []
+
+
+@pytest.mark.asyncio
+async def test_single_leaf_selector_respects_max_context() -> None:
+    parser = CompositeSelectorParser()
+    routing_input = CompositeRoutingInput(
+        selector="[max_context=10]openai:gpt-4",
+        surface=RoutingSurface.MAIN,
+        request_context_tokens=100,
+    )
+    plan = parser.parse(routing_input)
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={"openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4"))}
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.0
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+
+    with pytest.raises(RoutingError) as exc_info:
+        await coordinator.execute(
+            plan=plan,
+            routing_input=routing_input,
+            request=_request(),
+            context=_context(),
+        )
+
+    assert exc_info.value.details.get("reason") == "max_context_exceeded"
+    assert leaf_resolver.calls == []

@@ -660,6 +660,49 @@ async def test_weighted_max_context_filtering_applies_per_request() -> None:
 
 
 @pytest.mark.asyncio
+async def test_request_context_tokens_override_is_forwarded_to_composite_routing() -> (
+    None
+):
+    session_service = MagicMock()
+    session_service.get_session = AsyncMock(return_value=None)
+    routing_service = MagicMock()
+    routing_service.resolve_backend_instance.return_value = "openai"
+    model_alias_resolver = MagicMock()
+    model_alias_resolver.resolve.return_value = "[max_context=100]openai:gpt-4o"
+    planning_phase_manager = MagicMock()
+    planning_phase_manager.apply_if_needed = AsyncMock()
+    backend_lifecycle_manager = MagicMock()
+    backend_lifecycle_manager.get_disabled_backends.return_value = {}
+    composite_routing_service = MagicMock()
+    composite_routing_service.resolve_target = AsyncMock(
+        return_value=BackendTarget(backend="openai", model="gpt-4o", uri_params={})
+    )
+    resolver = BackendModelResolver(
+        session_service=session_service,
+        model_alias_resolver=model_alias_resolver,
+        planning_phase_manager=planning_phase_manager,
+        backend_lifecycle_manager=backend_lifecycle_manager,
+        config=AppConfig(),
+        routing_service=routing_service,
+        composite_routing_service=composite_routing_service,
+    )
+
+    request = ChatRequest(
+        model="[max_context=100]openai:gpt-4o",
+        messages=[ChatMessage(role="user", content="hello")],
+        extra_body={"request_context_tokens": 321},
+    )
+
+    await resolver.resolve_target(request, context=_context("main"))
+
+    assert composite_routing_service.resolve_target.await_args is not None
+    routing_input = composite_routing_service.resolve_target.await_args.kwargs[
+        "routing_input"
+    ]
+    assert routing_input.request_context_tokens == 321
+
+
+@pytest.mark.asyncio
 async def test_model_alias_resolving_to_composite_selector_is_parsed_and_routed() -> (
     None
 ):

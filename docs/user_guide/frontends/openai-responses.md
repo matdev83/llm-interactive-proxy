@@ -107,6 +107,23 @@ The OpenAI Responses API frontend (`/v1/responses`) provides full compatibility 
 | `agent` | string | Agent identifier |
 | `extra_body` | object | Additional parameters passed through to backend |
 
+`extra_body` can also carry proxy-only routing hints. When your model selector
+uses composite routing with `[max_context=N]`, set
+`extra_body.request_context_tokens` to tell the proxy the exact token count for
+this request. That override is used when deciding which branches remain eligible.
+
+Example:
+
+```json
+{
+  "model": "[max_context=8192]openai:gpt-4o|anthropic:claude-3-5-sonnet",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "extra_body": {
+    "request_context_tokens": 9000
+  }
+}
+```
+
 ## Response Format
 
 | Field | Type | Description |

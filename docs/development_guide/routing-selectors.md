@@ -50,9 +50,29 @@ This distributes traffic 75% to OpenAI and 25% to Anthropic.
 `[max_context=N]` excludes a branch when the current request context size exceeds `N` tokens.
 Token counting uses `tiktoken` with model-family-aware encoding heuristics.
 
+For request paths that already know the exact prompt size, callers can pass
+`request_context_tokens` in the request `extra_body` to override heuristic token
+estimation for that request. This override is evaluated per request and applies
+to single-leaf, failover, and weighted selectors.
+
 Examples:
 - `[weight=3,max_context=128000]openai:gpt-4o^[weight=1]anthropic:claude-3-5-sonnet`
 - `[first,max_context=164000,weight=4]opencode-go:glm-5.1^[weight=1]openai:gpt-4o`
+
+Request override example:
+
+```json
+{
+  "model": "[max_context=8192]openai:gpt-4o|anthropic:claude-3-5-sonnet",
+  "messages": [{"role": "user", "content": "Hello"}],
+  "extra_body": {
+    "request_context_tokens": 9000
+  }
+}
+```
+
+In this example, the OpenAI branch is skipped because the override exceeds its
+`max_context` limit, so routing proceeds to the next eligible branch.
 
 #### First-Request Override in Weighted Routing
 

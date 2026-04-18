@@ -83,6 +83,39 @@ class CompositeRoutingCoordinator:
         )
         root = plan.root_node
         if isinstance(root, CompositeLeafNode):
+            if not self._is_branch_eligible_for_max_context(
+                leaf=root,
+                request_context_tokens=routing_input.request_context_tokens,
+                request=request,
+                token_cache={},
+            ):
+                if should_publish:
+                    self._diagnostics_publisher.publish_exhaustion(
+                        context=context,
+                        selector=routing_input.selector,
+                        surface=routing_input.surface,
+                        reason="max_context_exceeded",
+                        details={
+                            "request_context_tokens": routing_input.request_context_tokens,
+                            "max_context_tokens": root.leaf_selector.max_context_tokens,
+                        },
+                        branch_history=[
+                            self._branch_history_entry(
+                                selector_fragment=root.leaf_selector.normalized_selector,
+                                outcome_category=CompositeBranchOutcomeCategory.INELIGIBLE.value,
+                                reason_code="max_context_exceeded",
+                            )
+                        ],
+                    )
+                raise RoutingError(
+                    message="Leaf selector exceeded max_context constraint.",
+                    details={
+                        "code": "temporarily_unavailable",
+                        "category": "availability",
+                        "retryable": True,
+                        "reason": "max_context_exceeded",
+                    },
+                )
             resolved = await self._resolve_leaf(
                 request=request,
                 context=context,

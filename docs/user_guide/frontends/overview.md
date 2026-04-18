@@ -61,6 +61,10 @@ All frontends share common proxy features:
 - **Wire Capture**: Request/response logging (see [Wire Capture](../debugging/wire-capture.md))
 - **In-Chat Commands**: Dynamic configuration via `!/` commands
 
+For OpenAI-compatible request bodies, `extra_body` can also carry proxy-only
+routing hints such as `request_context_tokens`, which helps composite selectors
+using `[max_context=N]` make exact per-request routing decisions.
+
 ## Related Documentation
 
 - [Backend Overview](../backends/overview.md) - Configure which LLM providers the proxy connects to

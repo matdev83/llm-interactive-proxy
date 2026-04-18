@@ -78,6 +78,28 @@ The OpenAI Chat Completions frontend provides full compatibility with the OpenAI
 | `agent` | string | Agent identifier |
 | `extra_body` | object | Additional parameters passed to backend |
 
+`extra_body` also supports proxy-only routing hints. For composite selectors that
+use `[max_context=N]`, you can set `extra_body.request_context_tokens` to provide
+an exact token count for the current request instead of relying on heuristic
+token estimation.
+
+Example:
+
+```json
+{
+  "model": "[max_context=8192]openai:gpt-4o|anthropic:claude-3-5-sonnet",
+  "messages": [
+    {"role": "user", "content": "Hello"}
+  ],
+  "extra_body": {
+    "request_context_tokens": 9000
+  }
+}
+```
+
+With this override, the proxy skips branches whose `max_context` is smaller than
+`9000` for this request.
+
 ## Message Format
 
 ```json

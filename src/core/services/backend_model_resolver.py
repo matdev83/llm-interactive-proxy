@@ -172,6 +172,9 @@ class BackendModelResolver(IBackendModelResolver):
                     configured_max_hops=self._resolve_max_hops_from_config(),
                     default_backend=self._resolve_default_backend(),
                     prefer_first_weighted_branch=prefer_first_weighted_branch,
+                    request_context_tokens=self._extract_request_context_tokens(
+                        request
+                    ),
                 )
                 try:
                     return await self._composite_routing_service.resolve_target(
@@ -360,34 +363,33 @@ class BackendModelResolver(IBackendModelResolver):
             static_route = app_config.backends.static_route
             # Parse static route via canonical parser so URI-like params are handled
             # the same way as request model selectors.
-            if isinstance(static_route, str):
-                parsed_static = parse_model_with_params(static_route, "")
+            parsed_static = parse_model_with_params(static_route, "")
 
-                if has_explicit_backend_selector(static_route):
-                    forced_backend = parsed_static.backend_type
-                    forced_model = parsed_static.model_name
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            f"Applying static_route override: {backend_type}:{effective_model} -> {forced_backend}:{forced_model}"
-                        )
-                    backend_type = forced_backend
-                    effective_model = forced_model
-                else:
-                    raise ConfigurationError(
-                        message=(
-                            "Invalid runtime static_route. "
-                            "Expected explicit backend:model selector."
-                        ),
-                        details={
-                            "error_code": "invalid_static_route_format",
-                            "static_route": static_route,
-                            "expected_format": "<backend_name>:<model_name>",
-                        },
+            if has_explicit_backend_selector(static_route):
+                forced_backend = parsed_static.backend_type
+                forced_model = parsed_static.model_name
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Applying static_route override: {backend_type}:{effective_model} -> {forced_backend}:{forced_model}"
                     )
+                backend_type = forced_backend
+                effective_model = forced_model
+            else:
+                raise ConfigurationError(
+                    message=(
+                        "Invalid runtime static_route. "
+                        "Expected explicit backend:model selector."
+                    ),
+                    details={
+                        "error_code": "invalid_static_route_format",
+                        "static_route": static_route,
+                        "expected_format": "<backend_name>:<model_name>",
+                    },
+                )
 
-                if parsed_static.uri_params:
-                    # Static-route parameters override request-provided URI params.
-                    uri_params = {**uri_params, **parsed_static.uri_params}
+            if parsed_static.uri_params:
+                # Static-route parameters override request-provided URI params.
+                uri_params = {**uri_params, **parsed_static.uri_params}
         elif logger.isEnabledFor(logging.DEBUG):
             if skip_static_route:
                 logger.debug(
@@ -403,7 +405,7 @@ class BackendModelResolver(IBackendModelResolver):
         if backend_type in ACP_BACKEND_TYPES:
             extra = request.extra_body if isinstance(request.extra_body, dict) else None
             session_workspace: dict[str, str] | None = None
-            if session is not None and session.state is not None:
+            if session is not None:
                 pd = getattr(session.state, "project_dir", None)
                 if isinstance(pd, str) and pd.strip():
                     session_workspace = {"project_dir": pd.strip()}
@@ -694,6 +696,23 @@ class BackendModelResolver(IBackendModelResolver):
                 return normalized_context
 
         return {}
+
+    @staticmethod
+    def _extract_request_context_tokens(request: ChatRequest) -> int | None:
+        extra_body = getattr(request, "extra_body", None)
+        if not isinstance(extra_body, dict):
+            return None
+
+        raw_value = extra_body.get("request_context_tokens")
+        if isinstance(raw_value, bool):
+            return None
+        if isinstance(raw_value, int):
+            return raw_value if raw_value >= 0 else None
+        if isinstance(raw_value, str):
+            stripped = raw_value.strip()
+            if stripped.isdigit():
+                return int(stripped)
+        return None
 
     @staticmethod
     def _persist_uri_params_in_context(
