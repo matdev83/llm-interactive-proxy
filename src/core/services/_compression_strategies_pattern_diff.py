@@ -407,9 +407,9 @@ class DiffCompactStrategy:
 
             if len(result) >= max_total_lines:
                 result.append(
-                    f"... (remaining files omitted; "
-                    f"use 'git diff --stat' for overview or "
-                    f"'git diff <file>' for focused review)"
+                    "... (remaining files omitted; "
+                    "use 'git diff --stat' for overview or "
+                    "'git diff <file>' for focused review)"
                 )
                 truncated = True
                 break

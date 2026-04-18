@@ -8,11 +8,7 @@
 
 Turn any compatible AI client into a safer, smarter, multi-provider agent platform.
 
-`LLM Interactive Proxy` is a universal translation, routing, and control layer for modern AI clients. Point OpenAI-compatible apps, Anthropic tools, Gemini integrations, and agentic coding workflows at one local or shared endpoint, then gain routing, failover, built-in security, automated steering, session intelligence, observability, and cross-provider flexibility without rewriting your client.
-
-If your current setup feels fragile, expensive, opaque, or locked to one vendor, this project is designed to change that.
-
-It is a compatibility layer, a security layer, a traffic control plane, a debugging surface, and a workflow improver for serious agentic use.
+`LLM Interactive Proxy` is a universal translation, routing, and control layer for modern AI clients. Point OpenAI-compatible apps, Anthropic tools, Gemini integrations, and agentic coding workflows at one local or shared endpoint, then gain routing, failover, built-in security, automated steering, session intelligence, observability, and cross-provider flexibility without rewriting your client. If that matches your needs, it is also a compatibility layer, a security layer, a traffic control plane, a debugging surface, and a workflow improver for serious agentic use.
 
 > **Active Development**: This project is continuously evolving with new backends, routing features, and reliability improvements. See the [CHANGELOG](CHANGELOG.md) for the latest additions.
 
@@ -227,16 +223,9 @@ python -m src.core.cli --multi-user-mode --host=0.0.0.0 --api-keys key1,key2
 See [Access Modes](docs/user_guide/access-modes.md) for the security model and deployment guidance.
 
 ## Documentation Map
-- **[Quick Start](docs/user_guide/quick-start.md)** - Get running fast
-- **[User Guide](docs/user_guide/index.md)** - End-user documentation and feature catalog
-- **[Configuration Guide](docs/user_guide/configuration.md)** - Flags, config, and operational settings
-- **[Token Saving Guide](docs/user_guide/features/token-saving.md)** - Understand context compaction and dynamic tool-output compression
-- **[Frontend Overview](docs/user_guide/frontends/overview.md)** - Choose the right API surface
-- **[Backends Overview](docs/user_guide/backends/overview.md)** - Provider setup and switching
-- **[Security Docs](docs/user_guide/security/authentication.md)** - Authentication and key-handling guidance
-- **[Development Guide](docs/development_guide/index.md)** - Architecture, local development, testing, and contributing
-- **[CHANGELOG](CHANGELOG.md)** - Release history
-- **[CONTRIBUTING](CONTRIBUTING.md)** - Contribution guidelines
+- End-user: **[User Guide](docs/user_guide/index.md)** (index), **[Quick Start](docs/user_guide/quick-start.md)**, **[Configuration](docs/user_guide/configuration.md)**, **[Token saving](docs/user_guide/features/token-saving.md)**
+- API surfaces: **[Frontends](docs/user_guide/frontends/overview.md)**, **[Backends](docs/user_guide/backends/overview.md)**, **[Security](docs/user_guide/security/authentication.md)**
+- Project: **[Development](docs/development_guide/index.md)**, **[CHANGELOG](CHANGELOG.md)**, **[CONTRIBUTING](CONTRIBUTING.md)**
 
 ## Development
 ```bash
@@ -251,7 +240,5 @@ python -m black .
 ```
 See the [Development Guide](docs/development_guide/index.md) for architecture, contribution workflow, and extra dev scripts.
 
-## Support
-[GitHub Issues](https://github.com/matdev83/llm-interactive-proxy/issues) and [Discussions](https://github.com/matdev83/llm-interactive-proxy/discussions).
-## License
-This project is licensed under the [GNU AGPL v3.0 or later](LICENSE).
+## Support & License
+[GitHub Issues](https://github.com/matdev83/llm-interactive-proxy/issues) and [Discussions](https://github.com/matdev83/llm-interactive-proxy/discussions). Licensed under [GNU AGPL v3.0 or later](LICENSE).

@@ -609,7 +609,7 @@ def _git_status_collect_long_format(
         if line.startswith("Untracked files"):
             section = "untracked"
             continue
-        if line.startswith("All conflicts fixed") or line.startswith("Unmerged paths"):
+        if line.startswith(("All conflicts fixed", "Unmerged paths")):
             section = "unmerged"
             continue
         pm = _GIT_LONG_PATH_RE.match(line)

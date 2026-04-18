@@ -903,8 +903,10 @@ class TestPayloadBuilder:
         assert payload.instructions is not None
         assert "System instructions" in payload.instructions
         assert "Factory Droid compatibility mode" in payload.instructions
-        assert "Emit only these tool names when tools are needed" in payload.instructions
-        assert "`Read`, `LS`, `Execute`, `Edit`" in payload.instructions
+        assert "Use only tool names that are actually available" in payload.instructions
+        # Resolved tools sit on the payload, not on context.request, so the bridge
+        # falls back to the full native Droid tool name list (sorted).
+        assert "`Create`, `Edit`, `Execute`" in payload.instructions
 
     def test_build_translated_payload_prepends_droid_bridge_message(
         self,
