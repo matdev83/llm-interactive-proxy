@@ -809,6 +809,77 @@ class TestPayloadBuilder:
         assert payload.input[0].role == "developer"
         assert "OpenCode compatibility mode" in str(payload.input[0].content)
 
+    def test_build_translated_payload_appends_pi_bridge(
+        self,
+        builder,
+        mock_connector,
+        mock_prompt_resolver,
+        mock_tool_schema_resolver,
+        sample_context,
+    ):
+        """Pi sessions should receive bridge instructions for pi-native tools."""
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_prompt_resolver.resolve_system_prompt.return_value = "System instructions"
+        mock_tool_schema_resolver.resolve_tool_schema.return_value = [
+            CodexToolSchema(name="bash", parameters={}),
+            CodexToolSchema(name="read", parameters={}),
+            CodexToolSchema(name="edit", parameters={}),
+        ]
+        sample_context.metadata = {"headers": {"user-agent": "OpenAI/JS 6.26.0"}}
+        sample_context.processed_messages = [
+            ProcessedMessage(
+                role="developer",
+                content=(
+                    "You are an expert coding assistant operating inside pi, a coding agent harness.\n"
+                    "Available tools:\n"
+                    "- bash: Execute bash commands (ls, grep, find, etc.)\n"
+                    "Current working directory: C:/repo\n"
+                ),
+            ),
+            ProcessedMessage(role="user", content="hello"),
+        ]
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.instructions is not None
+        assert "System instructions" in payload.instructions
+        assert "Pi compatibility mode" in payload.instructions
+        assert "use pi's `edit` tool" in payload.instructions.lower()
+
+    def test_build_translated_payload_prepends_pi_bridge_message(
+        self,
+        builder,
+        mock_connector,
+        mock_tool_schema_resolver,
+        sample_context,
+    ):
+        """Translated pi payloads should prepend a developer bridge message."""
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_tool_schema_resolver.resolve_tool_schema.return_value = [
+            CodexToolSchema(name="bash", parameters={}),
+            CodexToolSchema(name="read", parameters={}),
+        ]
+        sample_context.metadata = {"agent": "OpenAI/JS 6.26.0"}
+        sample_context.processed_messages = [
+            ProcessedMessage(
+                role="developer",
+                content=(
+                    "You are an expert coding assistant operating inside pi, a coding agent harness.\n"
+                    "Available tools:\n"
+                    "- bash: Execute bash commands (ls, grep, find, etc.)\n"
+                    "Current working directory: C:/repo\n"
+                ),
+            ),
+            ProcessedMessage(role="user", content="hello"),
+        ]
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.input
+        assert payload.input[0].type == "message"
+        assert payload.input[0].role == "developer"
+        assert "Pi compatibility mode" in str(payload.input[0].content)
+
     def test_build_translated_payload_prepends_kilocode_family_bridge_message(
         self,
         builder,

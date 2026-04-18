@@ -13,6 +13,9 @@ from src.connectors.openai_codex.client_families.kilo_adapter import (
 from src.connectors.openai_codex.client_families.opencode_adapter import (
     OpenCodeClientFamilyAdapter,
 )
+from src.connectors.openai_codex.client_families.pi_adapter import (
+    PiClientFamilyAdapter,
+)
 from src.connectors.openai_codex.client_families.registry import ClientFamilyRegistry
 
 __all__ = [
@@ -22,4 +25,5 @@ __all__ = [
     "IClientFamilyAdapter",
     "KiloClientFamilyAdapter",
     "OpenCodeClientFamilyAdapter",
+    "PiClientFamilyAdapter",
 ]

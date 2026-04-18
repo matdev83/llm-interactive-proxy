@@ -15,6 +15,7 @@ from src.connectors.openai_codex.client_families import (
     DroidClientFamilyAdapter,
     KiloClientFamilyAdapter,
     OpenCodeClientFamilyAdapter,
+    PiClientFamilyAdapter,
 )
 from src.connectors.openai_codex.contracts import (
     CodexConnectorSettings,
@@ -79,6 +80,7 @@ class PayloadBuilder(IPayloadBuilder):
         self._family_registry = ClientFamilyRegistry(
             adapters=[
                 OpenCodeClientFamilyAdapter(),
+                PiClientFamilyAdapter(),
                 KiloClientFamilyAdapter(
                     session_detector=None,
                     kilo_translator=None,

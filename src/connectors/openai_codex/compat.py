@@ -15,6 +15,8 @@ from src.connectors.openai_codex.client_families import (
     ClientFamilyRegistry,
     DroidClientFamilyAdapter,
     KiloClientFamilyAdapter,
+    OpenCodeClientFamilyAdapter,
+    PiClientFamilyAdapter,
 )
 from src.connectors.openai_codex.contracts import (
     CodexRequestContext,
@@ -77,6 +79,7 @@ class CompatibilityLayer(ICompatibilityLayer):
     def _build_family_registry(self) -> ClientFamilyRegistry:
         return ClientFamilyRegistry(
             adapters=[
+                OpenCodeClientFamilyAdapter(),
                 KiloClientFamilyAdapter(
                     session_detector=self._session_detector,
                     kilo_translator=self._kilo_translator,
@@ -84,6 +87,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                     translate_kilo_tools=self._translate_kilo_tools,
                     clean_xml_from_message=self._clean_xml_from_message,
                 ),
+                PiClientFamilyAdapter(),
                 DroidClientFamilyAdapter(
                     droid_detector=self._droid_detector,
                     droid_translator=self._droid_translator,
