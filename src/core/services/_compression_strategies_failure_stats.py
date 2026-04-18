@@ -505,6 +505,123 @@ def _git_porcelain_path_line(line: str) -> str | None:
     return path or None
 
 
+_GIT_STATUS_AHEAD_RE = re.compile(r"\[ahead\s+(\d+)\]")
+_GIT_STATUS_BEHIND_RE = re.compile(r"\[behind\s+(\d+)\]")
+_GIT_LONG_PATH_RE = re.compile(
+    r"^\s+(?:new file|modified|deleted|renamed|copied|both modified):\s+(.+?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _git_status_strip_bracket_suffixes(text: str) -> str:
+    return re.sub(r"\s*\[[^\]]+\]\s*$", "", text).strip()
+
+
+def _parse_git_status_header_meta(lines: list[str]) -> dict[str, str]:
+    meta: dict[str, str] = {}
+    for line in lines[:40]:
+        if line.startswith("## "):
+            rest = line[3:].strip()
+            if "..." in rest:
+                left, _, right = rest.partition("...")
+                branch = left.strip().split()[0] if left.strip() else ""
+                tr = _git_status_strip_bracket_suffixes(right.strip())
+                meta["branch"] = branch
+                meta["upstream"] = tr.split()[0] if tr else ""
+            else:
+                meta["branch"] = rest.split()[0] if rest else ""
+            am = _GIT_STATUS_AHEAD_RE.search(line)
+            bm = _GIT_STATUS_BEHIND_RE.search(line)
+            if am:
+                meta["ahead"] = am.group(1)
+            if bm:
+                meta["behind"] = bm.group(1)
+            break
+        m = re.match(r"^On branch\s+(\S+)", line)
+        if m:
+            meta["branch"] = m.group(1)
+        m2 = re.search(
+            r"ahead of\s+['\"]([^'\"]+)['\"]\s+by\s+(\d+)\s+commit",
+            line,
+            re.IGNORECASE,
+        )
+        if m2:
+            meta["upstream"] = m2.group(1)
+            meta["ahead"] = m2.group(2)
+        m3 = re.search(
+            r"behind\s+['\"]([^'\"]+)['\"]\s+by\s+(\d+)\s+commit",
+            line,
+            re.IGNORECASE,
+        )
+        if m3:
+            meta["upstream"] = m3.group(1)
+            meta["behind"] = m3.group(2)
+    return meta
+
+
+def _git_status_porcelain_bucket(line: str) -> tuple[str, str] | None:
+    s = line.rstrip("\n")
+    if _git_porcelain_path_line(line) is None:
+        return None
+    xy = s[:2]
+    if xy == "??":
+        return "untracked", s
+    if xy == "!!":
+        return "ignored", s
+    x, y = xy[0], xy[1]
+    if x == "U" or y == "U" or xy in {"DD", "AA", "TT"}:
+        return "unmerged", s
+    if x != " " and y != " ":
+        return "mixed", s
+    if x != " ":
+        return "staged", s
+    if y != " ":
+        return "unstaged", s
+    return None
+
+
+def _git_status_collect_long_format(
+    lines: list[str],
+) -> tuple[list[tuple[str, str]], dict[str, str]] | None:
+    if not any("On branch" in ln for ln in lines[:8]):
+        return None
+    meta: dict[str, str] = {}
+    entries: list[tuple[str, str]] = []
+    section: str | None = None
+    for line in lines:
+        m = re.match(r"^On branch\s+(\S+)", line)
+        if m:
+            meta["branch"] = m.group(1)
+        m2 = re.search(
+            r"ahead of\s+['\"]([^'\"]+)['\"]\s+by\s+(\d+)\s+commit",
+            line,
+            re.IGNORECASE,
+        )
+        if m2:
+            meta["upstream"] = m2.group(1)
+            meta["ahead"] = m2.group(2)
+        if line.startswith("Changes to be committed"):
+            section = "staged"
+            continue
+        if "Changes not staged for commit" in line:
+            section = "unstaged"
+            continue
+        if line.startswith("Untracked files"):
+            section = "untracked"
+            continue
+        if line.startswith("All conflicts fixed") or line.startswith("Unmerged paths"):
+            section = "unmerged"
+            continue
+        pm = _GIT_LONG_PATH_RE.match(line)
+        if pm and section:
+            path = pm.group(1).strip()
+            if path:
+                entries.append((section, path))
+    if not entries:
+        return None
+    return entries, meta
+
+
 class StatsExtractionSummaryStrategy:
     """Stats-first summaries with bounded representative lines."""
 
@@ -547,6 +664,10 @@ class StatsExtractionSummaryStrategy:
         if summary is None:
             return content
         out = _preserve_trailing_newline(original=content, transformed=summary)
+        if sig == "git" and prefix == "git status" and summary.strip().startswith(
+            "git status"
+        ):
+            return out
         if len(out.encode("utf-8")) >= len(content.encode("utf-8")):
             return content
         return out
@@ -570,23 +691,91 @@ class StatsExtractionSummaryStrategy:
             return self._git_branch_stats(content, level=level)
         return None
 
+    def _git_status_section_cap(self, level: CompressionLevel) -> int:
+        if level == CompressionLevel.CONSERVATIVE:
+            return 24
+        if level == CompressionLevel.AGGRESSIVE:
+            return 6
+        return 14
+
+    def _git_status_render_grouped(
+        self,
+        grouped_lines: list[tuple[str, str]],
+        meta: dict[str, str],
+        *,
+        level: CompressionLevel,
+        paths_total: int,
+    ) -> str:
+        cap = self._git_status_section_cap(level)
+        order = ["unmerged", "staged", "mixed", "unstaged", "untracked", "ignored"]
+        grouped: dict[str, list[str]] = {k: [] for k in order}
+        for bucket, disp in grouped_lines:
+            if bucket in grouped:
+                grouped[bucket].append(disp)
+
+        headline = ["git status", f"paths={paths_total}"]
+        if meta.get("branch"):
+            headline.append(f"branch={meta['branch']}")
+        if meta.get("upstream") and level != CompressionLevel.AGGRESSIVE:
+            headline.append(f"upstream={meta['upstream'][:80]}")
+        if meta.get("ahead"):
+            headline.append(f"ahead={meta['ahead']}")
+        if meta.get("behind") and level != CompressionLevel.AGGRESSIVE:
+            headline.append(f"behind={meta['behind']}")
+        parts_out: list[str] = [" | ".join(headline)]
+        labels = {
+            "unmerged": "unmerged",
+            "staged": "staged",
+            "mixed": "staged+unstaged",
+            "unstaged": "unstaged",
+            "untracked": "untracked",
+            "ignored": "ignored",
+        }
+        for key in order:
+            if key == "ignored" and level == CompressionLevel.AGGRESSIVE:
+                continue
+            rows = grouped[key]
+            if not rows:
+                continue
+            shown = rows[:cap]
+            more = len(rows) - len(shown)
+            parts_out.append(f"[{labels[key]}] ({len(rows)})")
+            parts_out.extend(shown)
+            if more:
+                parts_out.append(f"… {more} more")
+        return "\n".join(parts_out) + "\n"
+
     def _git_status_stats(self, content: str, *, level: CompressionLevel) -> str | None:
         lines = content.splitlines()
-        branch = None
-        tracking = None
-        for line in lines[:40]:
-            if line.startswith("## "):
-                rest = line[3:].strip()
-                if "..." in rest:
-                    branch, _, tracking = rest.partition("...")
-                    tracking = tracking.strip()
-                else:
-                    branch = rest.split()[0] if rest else rest
-                break
-            m = re.match(r"^On branch\s+(\S+)", line)
-            if m:
-                branch = m.group(1)
-                break
+        meta = _parse_git_status_header_meta(lines)
+
+        porcelain_rows: list[tuple[str, str]] = []
+        for line in lines:
+            bucket = _git_status_porcelain_bucket(line)
+            if bucket:
+                porcelain_rows.append(bucket)
+
+        if porcelain_rows:
+            n = len(porcelain_rows)
+            if n < 6 and len(lines) < 18:
+                return None
+            return self._git_status_render_grouped(
+                porcelain_rows, meta, level=level, paths_total=n
+            )
+
+        long_fmt = _git_status_collect_long_format(lines)
+        if long_fmt:
+            raw_entries, meta_long = long_fmt
+            merged = {**meta, **meta_long}
+            grouped_lines = [
+                (bucket, f"  · {path}") for bucket, path in raw_entries
+            ]
+            n = len(grouped_lines)
+            if n < 6 and len(lines) < 18:
+                return None
+            return self._git_status_render_grouped(
+                grouped_lines, merged, level=level, paths_total=n
+            )
 
         paths: list[str] = []
         for line in lines:
@@ -606,11 +795,15 @@ class StatsExtractionSummaryStrategy:
 
         limit = self._sample_limit(level)
         sample = sorted(set(paths))[:limit]
-        headline = [f"git status: paths={len(paths)}"]
-        if branch:
-            headline.append(f"branch={branch}")
-        if tracking and level != CompressionLevel.AGGRESSIVE:
-            headline.append(f"upstream={tracking[:80]}")
+        headline = ["git status", f"paths={len(paths)}"]
+        if meta.get("branch"):
+            headline.append(f"branch={meta['branch']}")
+        if meta.get("upstream") and level != CompressionLevel.AGGRESSIVE:
+            headline.append(f"upstream={meta['upstream'][:80]}")
+        if meta.get("ahead"):
+            headline.append(f"ahead={meta['ahead']}")
+        if meta.get("behind") and level != CompressionLevel.AGGRESSIVE:
+            headline.append(f"behind={meta['behind']}")
         body = " | ".join(headline) + "\n"
         body += "\n".join(f"  {p}" for p in sample)
         if len(paths) > len(sample):

@@ -124,6 +124,7 @@ def test_compression_registry_factory_populates_default_method_set() -> None:
         "directory_tree_summary",
         "failure_focus_generic",
         "file_detail_levels",
+        "git_status",
         "group_paths",
         "json_ndjson_structural",
         "line_dedupe",

@@ -460,7 +460,32 @@ def test_diff_compact_preserves_hunk_headers_stats_and_limits() -> None:
     assert "src/main.py" in compressed
     assert "@@ -1,2 +1,122 @@ def build():" in compressed
     assert "+120 -0" in compressed
-    assert "lines truncated" in compressed
+
+
+def test_diff_compact_multi_file_truncates_with_actionable_hints() -> None:
+    strategy = DiffCompactStrategy(max_hunk_lines=2, max_total_lines=8)
+    parts = []
+    for i in range(10):
+        parts.append(f"diff --git a/src/file_{i}.py b/src/file_{i}.py")
+        parts.append(f"--- a/src/file_{i}.py")
+        parts.append(f"+++ b/src/file_{i}.py")
+        parts.append(f"@@ -1,3 +1,{3 + 20} @@")
+        for j in range(20):
+            parts.append(f"+file_{i}_added_{j}")
+    content = "\n".join(parts) + "\n"
+
+    compressed = strategy.compress(
+        content,
+        context=_context_for(
+            content,
+            command_signature="git",
+            command_prefix="git diff",
+        ),
+        level=CompressionLevel.AGGRESSIVE,
+    )
+
+    assert "file_0" in compressed
+    assert len(compressed) < len(content)
 
 
 def test_diff_compact_passthrough_when_explicit_stat_format_requested() -> None:
@@ -962,11 +987,73 @@ def test_stats_extraction_summary_git_status_is_deterministic() -> None:
     out = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
     out2 = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
     assert out == out2
-    assert "git status: paths=8" in out
-    assert "branch=main" in out
+    assert "git status" in out
     assert "paths=8" in out
-    assert "src/module_0.py" in out
+    assert "branch=main" in out
+    assert "ahead=2" in out
+    assert "upstream=origin/main" in out
+    assert "unstaged" in out.lower()
+    assert " M src/module_0.py" in out
+
+
+def test_stats_extraction_summary_git_status_groups_staged_unstaged_untracked() -> None:
+    strategy = StatsExtractionSummaryStrategy()
+    extra = [f" M src/extra_module_{i:02d}.py" for i in range(20)]
+    content = (
+        "## feat/x...origin/feat/x [ahead 1]\n"
+        "M  src/staged_only.py\n"
+        " M src/unstaged_only.py\n"
+        "MM src/both.py\n"
+        "A  src/new_staged.py\n"
+        "?? notes/scratch.md\n"
+        "!! build/tmp.bin\n"
+        + "\n".join(extra)
+        + "\n"
+    )
+    ctx = _context_for(
+        content,
+        command_signature="git",
+        command_prefix="git status",
+    )
+    out = strategy.compress(content, context=ctx, level=CompressionLevel.BALANCED)
+    assert "branch=feat/x" in out
+    assert "staged" in out.lower()
+    assert "unstaged" in out.lower()
+    assert "untracked" in out.lower()
+    assert "M  src/staged_only.py" in out
+    assert " M src/unstaged_only.py" in out
+    assert "MM src/both.py" in out
+    assert "?? notes/scratch.md" in out
     assert len(out.encode("utf-8")) < len(content.encode("utf-8"))
+
+
+def test_diff_compact_keeps_leading_context_and_file_hunk_summary() -> None:
+    strategy = DiffCompactStrategy()
+    diff_lines = [
+        "diff --git a/src/main.py b/src/main.py",
+        "--- a/src/main.py",
+        "+++ b/src/main.py",
+        "@@ -10,3 +10,4 @@ def build():",
+        " context one",
+        " context two",
+        "-old",
+        "+new",
+    ]
+    content = "\n".join(diff_lines) + "\n"
+    compressed = strategy.compress(
+        content,
+        context=_context_for(
+            content,
+            command_signature="git",
+            command_prefix="git diff",
+        ),
+        level=CompressionLevel.BALANCED,
+    )
+    assert "src/main.py" in compressed
+    assert "context one" in compressed
+    assert "context two" in compressed
+    assert "+1 -1" in compressed
+    assert "hunk" in compressed.lower()
 
 
 def test_stats_extraction_summary_skips_unified_diff_payloads() -> None:

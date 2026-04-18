@@ -52,6 +52,7 @@ def register_tool_output_compression_services(
         FailureFocusGenericStrategy,
         FailurePreservingTruncateStrategy,
         FileDetailLevelsStrategy,
+        GitStatusStrategy,
         LineDedupeStrategy,
         MutatingSuccessAckStrategy,
         OutputPatternMatchRule,
@@ -209,6 +210,7 @@ def register_tool_output_compression_services(
         )
         registry.register("mutating_success_ack", MutatingSuccessAckStrategy())
         registry.register("stats_extraction_summary", StatsExtractionSummaryStrategy())
+        registry.register("git_status", GitStatusStrategy())
         return registry
 
     register_singleton_if_absent(

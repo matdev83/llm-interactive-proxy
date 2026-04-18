@@ -12,6 +12,7 @@ from src.core.services._compression_strategies_failure_stats import (
 from src.core.services._compression_strategies_file_detail import (
     FileDetailLevelsStrategy,
 )
+from src.core.services._compression_strategies_git_status import GitStatusStrategy
 from src.core.services._compression_strategies_pattern_diff import (
     DiffCompactStrategy,
     OutputPatternMatchRule,
@@ -36,6 +37,7 @@ __all__ = [
     "FailureFocusGenericStrategy",
     "FailurePreservingTruncateStrategy",
     "FileDetailLevelsStrategy",
+    "GitStatusStrategy",
     "LineDedupeStrategy",
     "MutatingSuccessAckStrategy",
     "OutputPatternMatchRule",

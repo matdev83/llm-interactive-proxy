@@ -186,9 +186,11 @@ class DiffCompactStrategy:
         *,
         max_hunk_lines: int = 100,
         max_total_lines: int = 500,
+        single_file_hunk_boost: int = 60,
     ) -> None:
         self._max_hunk_lines = max(1, int(max_hunk_lines))
         self._max_total_lines = max(10, int(max_total_lines))
+        self._single_file_hunk_boost = max(0, int(single_file_hunk_boost))
 
     def compress(
         self,
@@ -210,6 +212,12 @@ class DiffCompactStrategy:
             return content
 
         max_hunk_lines, max_total_lines = self._limits_for_level(level)
+
+        file_count = content.count("diff --git ")
+        if file_count <= 1:
+            max_hunk_lines += self._single_file_hunk_boost
+            max_total_lines += self._single_file_hunk_boost * 4
+
         compacted = self._compact_diff(
             diff=content,
             max_hunk_lines=max_hunk_lines,
@@ -219,12 +227,12 @@ class DiffCompactStrategy:
 
     def _limits_for_level(self, level: CompressionLevel) -> tuple[int, int]:
         if level == CompressionLevel.CONSERVATIVE:
-            return self._max_hunk_lines + 20, self._max_total_lines + 200
+            return self._max_hunk_lines + 40, self._max_total_lines + 300
         if level == CompressionLevel.AGGRESSIVE:
             return max(20, self._max_hunk_lines - 20), max(
                 120, self._max_total_lines - 150
             )
-        return self._max_hunk_lines, self._max_total_lines
+        return self._max_hunk_lines + 20, self._max_total_lines + 100
 
     @staticmethod
     def _looks_like_unified_diff(content: str) -> bool:
@@ -273,24 +281,43 @@ class DiffCompactStrategy:
         hunk_shown = 0
         hunk_skipped = 0
         truncated = False
+        file_name_line_index: int | None = None
+        hunk_count = 0
+        leading_context_left = 0
+        seen_change_in_hunk = False
 
         def flush_hunk() -> None:
             nonlocal hunk_skipped, truncated
             if hunk_skipped > 0:
-                result.append(f"  ... ({hunk_skipped} lines truncated)")
+                result.append(
+                    f"  ... ({hunk_skipped} lines skipped in this hunk; "
+                    f"use 'git diff <file>' for full content)"
+                )
                 truncated = True
                 hunk_skipped = 0
 
         def flush_file_stats() -> None:
-            if current_file and (added > 0 or removed > 0):
-                result.append(f"  +{added} -{removed}")
+            nonlocal file_name_line_index
+            if file_name_line_index is None:
+                return
+            if current_file and (added or removed or hunk_count):
+                parts: list[str] = []
+                if added or removed:
+                    parts.append(f"+{added} -{removed}")
+                if hunk_count:
+                    parts.append(f"{hunk_count} hunks")
+                if parts:
+                    result[file_name_line_index] = f"{current_file}  ({' | '.join(parts)})"
+            file_name_line_index = None
 
         def begin_file(file_name: str) -> None:
-            nonlocal current_file, added, removed, in_hunk, hunk_shown
+            nonlocal current_file, added, removed, in_hunk, hunk_shown, hunk_count, file_name_line_index
             current_file = file_name or "unknown"
             if result:
                 result.append("")
+            file_name_line_index = len(result)
             result.append(current_file)
+            hunk_count = 0
             added = 0
             removed = 0
             in_hunk = False
@@ -324,7 +351,11 @@ class DiffCompactStrategy:
                         hunk_shown = 0
                     index += 2
                     if len(result) >= max_total_lines:
-                        result.append("... (more changes truncated)")
+                        result.append(
+                            f"... (remaining {current_file} changes and "
+                            f"other files omitted; use specific 'git diff "
+                            f"<file>' for focused review)"
+                        )
                         truncated = True
                         break
                     continue
@@ -334,6 +365,9 @@ class DiffCompactStrategy:
                     begin_file("unknown")
                 in_hunk = True
                 hunk_shown = 0
+                leading_context_left = 2
+                seen_change_in_hunk = False
+                hunk_count += 1
                 result.append(f"  {line}")
             elif in_hunk:
                 is_added = line.startswith("+") and not line.startswith("+++")
@@ -344,25 +378,39 @@ class DiffCompactStrategy:
 
                 if is_added:
                     added += 1
+                    seen_change_in_hunk = True
                 elif is_removed:
                     removed += 1
+                    seen_change_in_hunk = True
 
                 if not (is_added or is_removed or is_context):
                     index += 1
                     continue
 
-                # Keep bounded detail lines per hunk while retaining headers.
-                if hunk_shown < max_hunk_lines:
-                    if is_context and hunk_shown == 0:
+                if is_context:
+                    if leading_context_left > 0 and hunk_shown < max_hunk_lines:
+                        result.append(f"  {line}")
+                        leading_context_left -= 1
+                        hunk_shown += 1
+                    elif not seen_change_in_hunk:
                         pass
-                    else:
+                    elif hunk_shown < max_hunk_lines:
                         result.append(f"  {line}")
                         hunk_shown += 1
+                    else:
+                        hunk_skipped += 1
+                elif hunk_shown < max_hunk_lines:
+                    result.append(f"  {line}")
+                    hunk_shown += 1
                 else:
                     hunk_skipped += 1
 
             if len(result) >= max_total_lines:
-                result.append("... (more changes truncated)")
+                result.append(
+                    f"... (remaining files omitted; "
+                    f"use 'git diff --stat' for overview or "
+                    f"'git diff <file>' for focused review)"
+                )
                 truncated = True
                 break
             index += 1
@@ -371,6 +419,9 @@ class DiffCompactStrategy:
         flush_file_stats()
 
         if truncated:
-            result.append("[full diff available via explicit diff command]")
+            result.append(
+                "[diff output was compacted; use 'git diff <file>' "
+                "to see full changes for a specific file]"
+            )
 
         return "\n".join(result)
