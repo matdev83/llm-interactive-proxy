@@ -880,6 +880,54 @@ class TestPayloadBuilder:
         assert payload.input[0].role == "developer"
         assert "Pi compatibility mode" in str(payload.input[0].content)
 
+    def test_build_translated_payload_appends_droid_bridge(
+        self,
+        builder,
+        mock_connector,
+        mock_prompt_resolver,
+        mock_tool_schema_resolver,
+        sample_context,
+    ):
+        """Factory Droid sessions should receive Droid-specific steering instructions."""
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_prompt_resolver.resolve_system_prompt.return_value = "System instructions"
+        mock_tool_schema_resolver.resolve_tool_schema.return_value = [
+            CodexToolSchema(name="Read", parameters={}),
+            CodexToolSchema(name="Execute", parameters={}),
+            CodexToolSchema(name="TodoWrite", parameters={}),
+        ]
+        sample_context.metadata = {"headers": {"user-agent": "factory-cli/0.27.1"}}
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.instructions is not None
+        assert "System instructions" in payload.instructions
+        assert "Factory Droid compatibility mode" in payload.instructions
+        assert "Emit only these tool names when tools are needed" in payload.instructions
+        assert "`Read`, `LS`, `Execute`, `Edit`" in payload.instructions
+
+    def test_build_translated_payload_prepends_droid_bridge_message(
+        self,
+        builder,
+        mock_connector,
+        mock_tool_schema_resolver,
+        sample_context,
+    ):
+        """Translated Factory Droid payloads should prepend a developer bridge message."""
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_tool_schema_resolver.resolve_tool_schema.return_value = [
+            CodexToolSchema(name="Read", parameters={}),
+            CodexToolSchema(name="Execute", parameters={}),
+        ]
+        sample_context.metadata = {"headers": {"user-agent": "factory-cli/0.27.1"}}
+
+        payload = builder.build_payload(sample_context)
+
+        assert payload.input
+        assert payload.input[0].type == "message"
+        assert payload.input[0].role == "developer"
+        assert "Factory Droid compatibility mode" in str(payload.input[0].content)
+
     def test_build_translated_payload_prepends_kilocode_family_bridge_message(
         self,
         builder,

@@ -374,3 +374,54 @@ async def test_non_text_message_parts_do_not_false_match_prefix() -> None:
     assert "prefix" in reason
     assert "previous_response_id" not in out
     assert out["input"] == followup["input"]
+
+
+@pytest.mark.asyncio
+async def test_uses_lineage_response_id_when_coordinator_snapshot_is_missing() -> None:
+    coord = InMemoryCodexContinuationCoordinator()
+    lineage = CodexWebsocketV2Lineage(coord)
+    ctx = _ctx()
+    u1 = {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "inspect repo"}],
+    }
+    tool_call = {
+        "type": "function_call",
+        "call_id": "call_1",
+        "name": "bash",
+        "arguments": '{"command":"git status --short"}',
+    }
+    tool_output = {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": "M src/connectors/openai_codex/executor.py",
+    }
+    u2 = {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "continue"}],
+    }
+    base = {"model": "gpt-5.4", "instructions": "sys", "tools": []}
+
+    await lineage.record_completed_websocket_turn(
+        ctx,
+        sent_payload={**base, "input": [u1]},
+        response_id="resp_ws_1",
+        items_added=[tool_call],
+    )
+
+    followup = {**base, "input": [u1, tool_call, tool_output, u2]}
+    payload = dict(followup)
+
+    handled, out, reason, proxy = await lineage.try_prepare_websocket_continuation(
+        continuation_context=ctx,
+        payload_dict=payload,
+        full_payload_dict=followup,
+    )
+
+    assert handled is True
+    assert proxy is True
+    assert reason.startswith("ws_v2_delta")
+    assert out["previous_response_id"] == "resp_ws_1"
+    assert out["input"] == [tool_output, u2]

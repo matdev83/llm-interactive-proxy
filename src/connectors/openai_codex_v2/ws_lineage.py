@@ -59,15 +59,19 @@ class CodexWebsocketV2Lineage:
         if "previous_response_id" in payload_dict:
             return True, payload_dict, "client_previous_response_id_present", False
 
-        previous_response_id = await self._coordinator.resolve_previous_response_id(
-            continuation_context
-        )
-        if not previous_response_id:
-            return True, payload_dict, "no_previous_response_id_available", False
-
         key = self._key(continuation_context)
         async with self._lock:
             entry = self._entries.get(key)
+
+        previous_response_id = await self._coordinator.resolve_previous_response_id(
+            continuation_context
+        )
+        if not previous_response_id and isinstance(entry, dict):
+            candidate_response_id = entry.get("response_id")
+            if isinstance(candidate_response_id, str) and candidate_response_id.strip():
+                previous_response_id = candidate_response_id.strip()
+        if not previous_response_id:
+            return True, payload_dict, "no_previous_response_id_available", False
 
         if entry is None:
             payload_dict.pop("previous_response_id", None)

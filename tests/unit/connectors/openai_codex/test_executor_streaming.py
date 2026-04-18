@@ -13,11 +13,15 @@ from src.connectors.contracts import ConnectorRequestContext
 from src.connectors.openai_codex.continuation import (
     InMemoryCodexContinuationCoordinator,
 )
-from src.connectors.openai_codex.contracts import CodexToolSchema
+from src.connectors.openai_codex.contracts import (
+    CodexPayload,
+    CodexToolSchema,
+    CompatibilityState,
+)
 from src.connectors.openai_codex.executor import ResponseExecutor
 from src.connectors.openai_codex.interfaces import ICompatibilityLayer
 from src.connectors.openai_codex_v2.ws_lineage import CodexWebsocketV2Lineage
-from src.core.common.exceptions import InvalidRequestError
+from src.core.common.exceptions import InvalidRequestError, RateLimitExceededError
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.translators.responses.streaming import (
     reset_active_responses_stream_context,
@@ -342,8 +346,9 @@ class TestResponseExecutor:
 
         assert exc_info.value.status_code == 400
         assert isinstance(exc_info.value.detail, dict)
-        assert exc_info.value.detail["error"] == "codex_instructions_invalid"
-        assert "prompt_mode" in exc_info.value.detail["suggestion"]
+        detail = exc_info.value.detail
+        assert detail.get("error") == "codex_instructions_invalid"
+        assert "prompt_mode" in str(detail.get("suggestion", ""))
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_uses_retry_after_from_error_detail(
@@ -531,11 +536,105 @@ class TestResponseExecutor:
 
         assert exc_info.value.status_code == 429
         mock_credential_manager.notify_codex_usage_limit_unrecovered.assert_awaited_once()
-        notify_kw = (
-            mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args.kwargs
+        await_args = (
+            mock_credential_manager.notify_codex_usage_limit_unrecovered.await_args
         )
+        assert await_args is not None
+        notify_kw = cast(dict[str, Any], await_args.kwargs)
         assert notify_kw["upstream_detail"] == detail
         assert notify_kw["pool_exhaustion_confirmed"] is True
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_iterator_rate_limit_rotation_retry(
+        self, executor, mock_base_connector, sample_context, streaming_payload
+    ) -> None:
+        """Iterator-time 429 before visible output should rotate managed account and retry."""
+
+        async def failing_iterator():
+            raise RateLimitExceededError(
+                "WebSocket error: The usage limit has been reached",
+                details={
+                    "code": "usage_limit_reached",
+                    "message": "The usage limit has been reached",
+                    "retry_after_seconds": 60,
+                },
+            )
+            yield  # pragma: no cover
+
+        async def success_iterator():
+            return
+            yield  # pragma: no cover
+
+        failing_handle = MagicMock()
+        failing_handle.headers = {}
+        failing_handle.cancel_callback = AsyncMock()
+        failing_handle.iterator = failing_iterator()
+
+        success_handle = MagicMock()
+        success_handle.headers = {}
+        success_handle.cancel_callback = AsyncMock()
+        success_handle.iterator = success_iterator()
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=[failing_handle, success_handle]
+        )
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=True)
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
+        assert mock_base_connector._handle_streaming_response.await_count == 2
+        mock_base_connector._handle_rate_limit_rotation.assert_awaited_once_with(
+            60.0,
+            session_id=sample_context.session_id,
+            upstream_codex_error={
+                "code": "usage_limit_reached",
+                "message": "The usage limit has been reached",
+                "retry_after_seconds": 60,
+            },
+            response_headers=None,
+        )
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_iterator_rate_limit_does_not_retry_after_visible_output(
+        self, executor, mock_base_connector, sample_context, streaming_payload
+    ) -> None:
+        """Iterator-time 429 after visible output should surface the error without rotation."""
+
+        chunk = ProcessedResponse(
+            content={"choices": [{"delta": {"content": "visible output"}}]}
+        )
+
+        async def failing_iterator():
+            yield chunk
+            raise RateLimitExceededError(
+                "WebSocket error: The usage limit has been reached",
+                details={"message": "The usage limit has been reached"},
+            )
+
+        failing_handle = MagicMock()
+        failing_handle.headers = {}
+        failing_handle.cancel_callback = AsyncMock()
+        failing_handle.iterator = failing_iterator()
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            return_value=failing_handle
+        )
+        mock_base_connector._handle_rate_limit_rotation = AsyncMock(return_value=True)
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+
+        received = []
+        with pytest.raises(RateLimitExceededError) as exc_info:
+            async for item in result.content:
+                received.append(item)
+
+        assert received == [chunk]
+        assert exc_info.value.status_code == 429
+        mock_base_connector._handle_rate_limit_rotation.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_execute_streaming_handshake_auth_retry_exhausted(
@@ -564,7 +663,7 @@ class TestResponseExecutor:
 
         # Exception is raised when consuming the stream
         assert result.content is not None
-        content = cast(AsyncIterator[ProcessedResponse], result.content)
+        content = result.content
         with pytest.raises(HTTPException) as exc_info:
             async for _ in content:
                 pass
@@ -829,7 +928,7 @@ class TestResponseExecutor:
 
         # Should raise after retries exhausted
         assert result.content is not None
-        content = cast(AsyncIterator[ProcessedResponse], result.content)
+        content = result.content
         with pytest.raises(HTTPException) as exc_info:
             async for _ in content:
                 pass
@@ -863,7 +962,7 @@ class TestResponseExecutor:
 
         # Exception is raised when consuming the stream after refresh fails
         assert result.content is not None
-        content = cast(AsyncIterator[ProcessedResponse], result.content)
+        content = result.content
         with pytest.raises(HTTPException) as exc_info:
             async for _ in content:
                 pass
@@ -1917,7 +2016,7 @@ class TestResponseExecutor:
 
         first_result = await executor.execute(first_payload, sample_context)
         assert first_result.content is not None
-        first_stream = cast(AsyncIterator[ProcessedResponse], first_result.content)
+        first_stream = first_result.content
         first_chunk = await anext(first_stream)
         assert isinstance(first_chunk, ProcessedResponse)
         await cast(Any, first_stream).aclose()
@@ -2174,6 +2273,457 @@ class TestResponseExecutor:
         ]
 
     @pytest.mark.asyncio
+    async def test_execute_streaming_websocket_v2_preserves_lineage_on_early_tool_turn_close(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        monkeypatch,
+    ) -> None:
+        continuation = InMemoryCodexContinuationCoordinator()
+        lineage = CodexWebsocketV2Lineage(continuation)
+        first_input: list[dict[str, Any]] = [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "inspect repo"}],
+            }
+        ]
+        second_input: list[dict[str, Any]] = [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "inspect repo"}],
+            },
+            {
+                "type": "function_call",
+                "call_id": "call_1",
+                "name": "bash",
+                "arguments": '{"command":"git status --short"}',
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "M src/connectors/openai_codex/executor.py",
+            },
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "continue"}],
+            },
+        ]
+
+        first_payload = CodexPayload(
+            model="gpt-5.4-mini",
+            input=cast(Any, first_input),
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            stream=True,
+            include=[],
+            prompt_cache_key="test-key",
+        )
+        second_payload = CodexPayload(
+            model="gpt-5.4-mini",
+            input=cast(Any, second_input),
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            stream=True,
+            include=[],
+            prompt_cache_key="test-key",
+        )
+
+        async def first_ws_iterator():
+            yield ProcessedResponse(
+                content={"response": {"id": "resp_ws_1"}, "type": "response.created"},
+                metadata={"event_type": "response.created"},
+            )
+            yield ProcessedResponse(
+                content={
+                    "type": "response.output_item.done",
+                    "item": {
+                        "type": "function_call",
+                        "id": "fc_1",
+                        "call_id": "call_1",
+                        "name": "bash",
+                        "arguments": '{"command":"git status --short"}',
+                        "status": "completed",
+                    },
+                },
+                metadata={"event_type": "response.output_item.done"},
+            )
+
+        async def second_ws_iterator():
+            yield ProcessedResponse(
+                content={"id": "resp_ws_2", "output": []},
+                metadata={"event_type": "response.completed", "done": True},
+            )
+
+        send_calls: list[dict[str, Any]] = []
+
+        def send_side_effect(**kwargs: Any):
+            send_calls.append(kwargs)
+            if len(send_calls) == 1:
+                return first_ws_iterator()
+            return second_ws_iterator()
+
+        ws_client = MagicMock()
+        ws_client.disconnect = AsyncMock()
+        ws_client.send_response_create = MagicMock(side_effect=send_side_effect)
+
+        monkeypatch.setattr(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            MagicMock(return_value=ws_client),
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+            use_websocket=True,
+            websocket_beta_mode="v2",
+            codex_ws_lineage=lineage,
+            preserve_tools_on_managed_ws_continuation=True,
+        )
+
+        first_result = await executor.execute(first_payload, sample_context)
+        assert first_result.content is not None
+        observed_tool_chunk = False
+        first_stream = cast(Any, first_result.content)
+        async for chunk in first_stream:
+            if chunk.metadata.get("event_type") == "response.output_item.done":
+                observed_tool_chunk = True
+                await first_stream.aclose()
+                break
+
+        assert observed_tool_chunk is True
+
+        second_result = await executor.execute(second_payload, sample_context)
+        assert second_result.content is not None
+        async for _ in second_result.content:
+            pass
+
+        assert len(send_calls) == 2
+        second_send = send_calls[1]
+        assert second_send["previous_response_id"] == "resp_ws_1"
+        assert second_send["payload"]["input"] == [
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "M src/connectors/openai_codex/executor.py",
+            },
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "continue"}],
+            },
+        ]
+
+    @pytest.mark.asyncio
+    async def test_normalize_processed_stream_chunk_marks_tool_call_emission(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+    ) -> None:
+        mock_base_connector.translation_service = TranslationService()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+        )
+
+        chunk = ProcessedResponse(
+            content={
+                "type": "response.output_item.done",
+                "output_index": 1,
+                "item": {
+                    "id": "fc_ws_tool",
+                    "type": "function_call",
+                    "name": "shell",
+                    "arguments": '{"command":["bash","-lc","git status --short"]}',
+                },
+            },
+            metadata={"event_type": "response.output_item.done"},
+        )
+
+        normalized = executor._normalize_processed_stream_chunk(chunk)
+
+        assert normalized.metadata.get("tool_call_emitted") is True
+        assert normalized.metadata.get("finish_reason") == "tool_calls"
+        content = cast(dict[str, Any], normalized.content)
+        assert content["choices"][0]["finish_reason"] == "tool_calls"
+
+    @pytest.mark.asyncio
+    async def test_normalize_processed_stream_chunk_marks_function_call_done_as_tool_output(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+    ) -> None:
+        mock_base_connector.translation_service = TranslationService()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+        )
+
+        chunk = ProcessedResponse(
+            content={
+                "type": "response.function_call_arguments.done",
+                "item_id": "fc_ws_tool",
+                "arguments": '{"command":["bash","-lc","git status --short"]}',
+            },
+            metadata={"event_type": "response.function_call_arguments.done"},
+        )
+
+        normalized = executor._normalize_processed_stream_chunk(chunk)
+
+        assert normalized.metadata.get("tool_call_emitted") is True
+        assert normalized.metadata.get("finish_reason") == "tool_calls"
+        content = cast(dict[str, Any], normalized.content)
+        assert content["choices"][0]["delta"] == {}
+
+    @pytest.mark.asyncio
+    async def test_normalize_processed_stream_chunk_overrides_falsey_tool_markers(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+    ) -> None:
+        mock_base_connector.translation_service = TranslationService()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+        )
+
+        chunk = ProcessedResponse(
+            content={
+                "type": "response.function_call_arguments.done",
+                "item_id": "fc_ws_tool",
+                "arguments": '{"command":["bash","-lc","git status --short"]}',
+            },
+            metadata={
+                "event_type": "response.function_call_arguments.done",
+                "tool_call_emitted": False,
+                "finish_reason": None,
+            },
+        )
+
+        normalized = executor._normalize_processed_stream_chunk(chunk)
+
+        assert normalized.metadata.get("tool_call_emitted") is True
+        assert normalized.metadata.get("finish_reason") == "tool_calls"
+
+    @pytest.mark.asyncio
+    async def test_normalize_processed_stream_chunk_marks_local_shell_item_done_as_tool_output(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+    ) -> None:
+        mock_base_connector.translation_service = TranslationService()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+        )
+
+        chunk = ProcessedResponse(
+            content={
+                "type": "response.output_item.done",
+                "item": {
+                    "type": "local_shell_call",
+                    "id": "shell_1",
+                    "call_id": "call_1",
+                    "action": {"command": ["bash", "-lc", "git status --short"]},
+                },
+            },
+            metadata={"event_type": "response.output_item.done"},
+        )
+
+        normalized = executor._normalize_processed_stream_chunk(chunk)
+
+        assert normalized.metadata.get("tool_call_emitted") is True
+        assert normalized.metadata.get("finish_reason") == "tool_calls"
+        content = cast(dict[str, Any], normalized.content)
+        tool_call = content["choices"][0]["delta"]["tool_calls"][0]
+        assert tool_call["function"]["name"] == "bash"
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_websocket_does_not_persist_provisional_lineage_on_tool_call_only_turn(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        monkeypatch,
+    ) -> None:
+        sample_context.metadata = {"compatibility_state": CompatibilityState()}
+        mock_base_connector.translation_service = TranslationService()
+        continuation = InMemoryCodexContinuationCoordinator()
+        ws_lineage = CodexWebsocketV2Lineage(continuation)
+
+        async def ws_stream():
+            yield ProcessedResponse(
+                content={
+                    "type": "response.created",
+                    "response": {"id": "resp_ws_tool_only", "model": "gpt-5.4-mini"},
+                },
+                metadata={"event_type": "response.created"},
+            )
+            yield ProcessedResponse(
+                content={
+                    "type": "response.output_item.done",
+                    "output_index": 1,
+                    "item": {
+                        "id": "fc_ws_tool_only",
+                        "type": "function_call",
+                        "name": "bash",
+                        "call_id": "call_ws_tool_only",
+                        "arguments": '{"command":"git status --short --untracked-files=all"}',
+                    },
+                },
+                metadata={"event_type": "response.output_item.done"},
+            )
+
+        ws_client = MagicMock()
+        ws_client.disconnect = AsyncMock()
+        ws_client.send_response_create = MagicMock(return_value=ws_stream())
+
+        monkeypatch.setattr(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            MagicMock(return_value=ws_client),
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+            use_websocket=True,
+            websocket_beta_mode="v2",
+            codex_ws_lineage=ws_lineage,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        chunks = [c async for c in result.content]
+
+        assert len(chunks) == 2
+        previous_response_id = await continuation.resolve_previous_response_id(
+            sample_context
+        )
+        assert previous_response_id is None
+        handled, prepared_payload, reason, proxy_managed = (
+            await ws_lineage.try_prepare_websocket_continuation(
+                continuation_context=sample_context,
+                payload_dict={
+                    "model": "gpt-5.4-mini",
+                    "input": [
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "follow up"}],
+                        }
+                    ],
+                    "stream": True,
+                    "tools": [],
+                },
+                full_payload_dict={
+                    "model": "gpt-5.4-mini",
+                    "input": [
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "follow up"}],
+                        }
+                    ],
+                    "stream": True,
+                    "tools": [],
+                },
+            )
+        )
+        assert handled is True
+        assert prepared_payload.get("previous_response_id") is None
+        assert reason == "no_previous_response_id_available"
+        assert proxy_managed is False
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_websocket_preserves_tool_marker_through_compatibility_translation(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        monkeypatch,
+    ) -> None:
+        class PassthroughCompatibilityLayer(ICompatibilityLayer):
+            async def apply(self, context):
+                raise NotImplementedError
+
+            async def translate_stream_chunk(self, chunk, state):
+                raw = cast(ProcessedResponse, chunk.raw)
+                translated = ProcessedResponse(
+                    content=raw.content,
+                    usage=raw.usage,
+                    metadata={},
+                )
+                return type(chunk)(raw=translated)
+
+            async def cleanup_state(self, state):
+                return None
+
+            def create_state(self):
+                return MagicMock()
+
+            def detect_incompatible_tool_calls(self, tool_calls, context):
+                return []
+
+            def append_incompatible_tool_steering(
+                self, payload_dict, incompatible_tool_names, context
+            ):
+                return payload_dict
+
+        compatibility_state = CompatibilityState()
+        sample_context.metadata = {"compatibility_state": compatibility_state}
+        mock_base_connector.translation_service = TranslationService()
+
+        async def ws_stream():
+            yield ProcessedResponse(
+                content={
+                    "type": "response.output_item.done",
+                    "output_index": 1,
+                    "item": {
+                        "id": "fc_ws_tool",
+                        "type": "function_call",
+                        "name": "shell",
+                        "arguments": '{"command":["bash","-lc","git status --short"]}',
+                    },
+                },
+                metadata={"event_type": "response.output_item.done"},
+            )
+
+        ws_client = MagicMock()
+        ws_client.disconnect = AsyncMock()
+        ws_client.send_response_create = MagicMock(return_value=ws_stream())
+
+        monkeypatch.setattr(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            MagicMock(return_value=ws_client),
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            compatibility_layer=PassthroughCompatibilityLayer(),
+            use_websocket=True,
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        assert result.content is not None
+        chunks = [c async for c in result.content]
+
+        assert len(chunks) == 1
+        assert chunks[0].metadata.get("tool_call_emitted") is True
+        assert chunks[0].metadata.get("finish_reason") == "tool_calls"
+
+    @pytest.mark.asyncio
     async def test_execute_streaming_websocket_replays_after_previous_response_miss(
         self,
         mock_base_connector,
@@ -2245,6 +2795,73 @@ class TestResponseExecutor:
         assert first_kw["previous_response_id"] == "resp_prev_missing"
         assert second_kw.get("previous_response_id") is None
         continuation.invalidate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execute_streaming_websocket_previous_response_miss_logs_without_traceback(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+        monkeypatch,
+        caplog,
+    ) -> None:
+        continuation = AsyncMock()
+        continuation.resolve_previous_response_id = AsyncMock(
+            return_value="resp_prev_missing"
+        )
+
+        async def gen_fail():
+            if True:
+                raise InvalidRequestError(
+                    message="Previous response not found",
+                    details={"code": "previous_response_not_found"},
+                )
+            yield ProcessedResponse(content={})  # pragma: no cover
+
+        async def gen_ok():
+            yield ProcessedResponse(
+                content={"id": "resp_recovered_ws", "output": []},
+                metadata={"event_type": "response.done", "done": True},
+            )
+
+        calls = {"n": 0}
+
+        def send_side_effect(*args: object, **kwargs: object):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return gen_fail()
+            return gen_ok()
+
+        ws_client = MagicMock()
+        ws_client.disconnect = AsyncMock()
+        ws_client.send_response_create = MagicMock(side_effect=send_side_effect)
+
+        monkeypatch.setattr(
+            "src.connectors.openai_websocket_client.OpenAIWebSocketClient",
+            MagicMock(return_value=ws_client),
+        )
+
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            continuation_coordinator=continuation,
+            use_websocket=True,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = await executor.execute(streaming_payload, sample_context)
+            assert result.content is not None
+            async for _ in result.content:
+                pass
+
+        records = [
+            record
+            for record in caplog.records
+            if "Handled Codex WebSocket recovery condition" in record.getMessage()
+        ]
+        assert records
+        assert all(record.exc_info is None for record in records)
 
     @pytest.mark.asyncio
     async def test_execute_streaming_websocket_transport_passes_capture_context(

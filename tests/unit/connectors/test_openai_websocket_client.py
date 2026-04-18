@@ -2,6 +2,7 @@
 
 import inspect
 import json
+import logging
 from enum import Enum
 from unittest.mock import AsyncMock, patch
 
@@ -13,6 +14,7 @@ pytestmark = pytest.mark.xdist_group("openai_websocket_boundary_capture")
 from src.core.common.exceptions import (
     AuthenticationError,
     InvalidRequestError,
+    RateLimitExceededError,
     ServiceUnavailableError,
 )
 
@@ -342,6 +344,43 @@ async def test_error_handling_previous_response_not_found(ws_client):
 
 
 @pytest.mark.asyncio
+async def test_previous_response_not_found_logs_without_traceback(ws_client, caplog):
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+
+        error_event = {
+            "type": "error",
+            "error": {
+                "code": "previous_response_not_found",
+                "message": "Response not found",
+            },
+        }
+
+        async def mock_aiter(self):
+            yield json.dumps(error_event)
+
+        mock_ws.__aiter__ = lambda self: mock_aiter(self)
+        mock_connect.return_value = mock_ws
+
+        await ws_client.connect()
+
+        with caplog.at_level(logging.WARNING), pytest.raises(InvalidRequestError):
+            async for _ in ws_client.send_response_create(
+                {"model": "gpt-4o", "input": "Test"}
+            ):
+                pass
+
+        records = [
+            record
+            for record in caplog.records
+            if "Handled WebSocket streaming recovery condition" in record.getMessage()
+        ]
+        assert records
+        assert all(record.exc_info is None for record in records)
+
+
+@pytest.mark.asyncio
 async def test_error_handling_connection_limit(ws_client):
     """Test error handling for connection limit reached."""
     with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
@@ -368,6 +407,38 @@ async def test_error_handling_connection_limit(ws_client):
         with pytest.raises(ServiceUnavailableError):
             async for _ in ws_client.send_response_create(payload):
                 pass
+
+
+@pytest.mark.asyncio
+async def test_error_handling_usage_limit_maps_to_rate_limit(ws_client):
+    """Quota exhaustion from the websocket backend must trigger 429 semantics."""
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+
+        error_event = {
+            "type": "error",
+            "error": {
+                "code": "usage_limit_reached",
+                "message": "The usage limit has been reached",
+            },
+        }
+
+        async def mock_aiter(self):
+            yield json.dumps(error_event)
+
+        mock_ws.__aiter__ = lambda self: mock_aiter(self)
+        mock_connect.return_value = mock_ws
+
+        await ws_client.connect()
+
+        payload = {"model": "gpt-4o", "input": "Test"}
+        with pytest.raises(RateLimitExceededError) as exc_info:
+            async for _ in ws_client.send_response_create(payload):
+                pass
+
+        assert "usage limit" in exc_info.value.message.lower()
+        assert exc_info.value.details["code"] == "usage_limit_reached"
 
 
 @pytest.mark.asyncio
@@ -498,6 +569,107 @@ async def test_event_to_processed_response_preserves_output_item_done_payload(
     assert result is not None
     assert result.metadata["event_type"] == "response.output_item.done"
     assert result.content == event_data
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "event_type",
+    [
+        "codex.rate_limits",
+        "codex.usage",
+        "codex.ping",
+        "codex.telemetry",
+        "codex.connection_info",
+    ],
+)
+def test_event_to_processed_response_skips_all_codex_prefixed_events(
+    ws_client, event_type
+):
+    """Any codex.* transport telemetry must never surface as assistant output."""
+    event_data = {
+        "type": event_type,
+        "plan_type": "team",
+        "rate_limits": {"allowed": True},
+    }
+
+    result = ws_client._event_to_processed_response(event_data)
+
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_send_response_create_skips_codex_rate_limit_events(ws_client):
+    """Quota telemetry should be ignored while waiting for the real response."""
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+
+        rate_limits = {
+            "type": "codex.rate_limits",
+            "plan_type": "team",
+            "rate_limits": {"allowed": True, "limit_reached": False},
+        }
+        completed = {
+            "type": "response.completed",
+            "response": {"id": "resp_ws2", "output": []},
+        }
+
+        async def mock_aiter(self):
+            yield json.dumps(rate_limits)
+            yield json.dumps(completed)
+
+        mock_ws.__aiter__ = lambda self: mock_aiter(self)
+        mock_connect.return_value = mock_ws
+
+        await ws_client.connect()
+
+        payload = {"model": "gpt-4o", "input": "Test message"}
+        responses = []
+        async for response in ws_client.send_response_create(payload):
+            responses.append(response)
+
+        assert len(responses) == 1
+        assert responses[0].metadata.get("event_type") == "response.completed"
+
+
+@pytest.mark.asyncio
+async def test_send_response_create_skips_multiple_codex_telemetry_variants(
+    ws_client,
+):
+    """All codex.* events must be silently consumed, never forwarded."""
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+
+        completed = {
+            "type": "response.completed",
+            "response": {"id": "resp_ws3", "output": []},
+        }
+
+        async def mock_aiter(self):
+            yield json.dumps(
+                {"type": "codex.rate_limits", "rate_limits": {"allowed": True}}
+            )
+            yield json.dumps(
+                {"type": "codex.usage", "usage": {"tokens": 42}}
+            )
+            yield json.dumps(
+                {"type": "codex.ping", "timestamp": 1234567890}
+            )
+            yield json.dumps(completed)
+
+        mock_ws.__aiter__ = lambda self: mock_aiter(self)
+        mock_connect.return_value = mock_ws
+
+        await ws_client.connect()
+
+        payload = {"model": "gpt-4o", "input": "Test"}
+        responses = []
+        async for response in ws_client.send_response_create(payload):
+            responses.append(response)
+
+        assert len(responses) == 1
+        assert responses[0].metadata.get("event_type") == "response.completed"
 
 
 @pytest.mark.asyncio

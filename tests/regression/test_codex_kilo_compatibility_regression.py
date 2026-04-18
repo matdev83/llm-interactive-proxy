@@ -274,6 +274,7 @@ class TestUniversalExecutorBypassPrevention:
         This verifies that file operations cannot access files outside
         the working directory using path traversal.
         """
+        from src.connectors._openai_codex_compatibility_errors import TranslationError
         from src.connectors._openai_codex_kilo_tool_translator import KiloToolTranslator
         from src.core.services.universal_tool_executor import UniversalToolExecutor
 
@@ -290,9 +291,13 @@ class TestUniversalExecutorBypassPrevention:
         ]
 
         for traversal_xml in traversal_attempts:
-            result = await translator.translate_tool_invocation(
-                traversal_xml, session_id="test_session"
-            )
+            try:
+                result = await translator.translate_tool_invocation(
+                    traversal_xml, session_id="test_session"
+                )
+            except TranslationError:
+                assert "write_to_file" in traversal_xml
+                continue
 
             if result is not None:
                 tool_name, arguments = result

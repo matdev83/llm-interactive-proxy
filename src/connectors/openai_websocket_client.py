@@ -20,9 +20,11 @@ from cachetools import TTLCache
 from websockets.exceptions import WebSocketException  # type: ignore[import-untyped]
 
 from src.connectors.contracts import ConnectorRequestContext
+from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
     InvalidRequestError,
+    RateLimitExceededError,
     ServiceUnavailableError,
 )
 from src.core.common.wire_boundary_capture import (
@@ -32,6 +34,15 @@ from src.core.common.wire_boundary_capture import (
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _is_expected_recoverable_ws_error(exc: Exception) -> bool:
+    if isinstance(exc, RateLimitExceededError):
+        return True
+    if isinstance(exc, InvalidRequestError):
+        return exc.details.get("code") == "previous_response_not_found"
+    return False
+
 
 # WebSocket connection timeout per OpenAI documentation (60 minutes)
 WS_CONNECTION_TIMEOUT = 3600
@@ -252,7 +263,7 @@ class OpenAIWebSocketClient:
             ServiceUnavailableError: If connection fails
         """
         extra = None
-        if context is not None and isinstance(context.extensions, dict):
+        if context is not None:
             candidate = context.extensions.get("codex_ws_extra_headers")
             if isinstance(candidate, dict):
                 extra = {str(k): str(v) for k, v in candidate.items() if v is not None}
@@ -332,14 +343,20 @@ class OpenAIWebSocketClient:
 
                 event_data_type = event_data.get("type")
 
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Received event type: %s", event_data_type)
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(TRACE_LEVEL, "Received event type: %s", event_data_type)
 
                 # Handle error events
                 if event_data_type == "error":
                     error_info = event_data.get("error", {})
                     error_code = error_info.get("code", "unknown_error")
                     error_message = error_info.get("message", "Unknown WebSocket error")
+                    error_code_text = (
+                        error_code.lower() if isinstance(error_code, str) else ""
+                    )
+                    error_message_text = (
+                        error_message.lower() if isinstance(error_message, str) else ""
+                    )
 
                     if error_code == "previous_response_not_found":
                         raise InvalidRequestError(
@@ -352,6 +369,21 @@ class OpenAIWebSocketClient:
                     if error_code == "websocket_connection_limit_reached":
                         raise ServiceUnavailableError(
                             message="WebSocket connection limit reached (60 minutes)"
+                        )
+                    if (
+                        "usage_limit" in error_code_text
+                        or "rate_limit" in error_code_text
+                        or "quota" in error_code_text
+                        or "usage limit" in error_message_text
+                        or "rate limit" in error_message_text
+                        or "quota" in error_message_text
+                    ):
+                        raise RateLimitExceededError(
+                            message=f"WebSocket error: {error_message}",
+                            details={
+                                "code": error_code,
+                                "message": error_message,
+                            },
                         )
 
                     raise ServiceUnavailableError(
@@ -377,7 +409,13 @@ class OpenAIWebSocketClient:
                     break
 
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
+            if _is_expected_recoverable_ws_error(e):
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Handled WebSocket streaming recovery condition: %s",
+                        e,
+                    )
+            elif logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     "Error during WebSocket streaming: %s",
                     e,
@@ -398,8 +436,16 @@ class OpenAIWebSocketClient:
         """
         event_type = event_data.get("type")
 
-        # Skip session events
-        if event_type in ("session.created", "session.updated"):
+        # Skip transport/session/telemetry events that must never reach clients.
+        _SKIP_EXACT = frozenset(
+            {
+                "session.created",
+                "session.updated",
+            }
+        )
+        if event_type in _SKIP_EXACT or (
+            isinstance(event_type, str) and event_type.startswith("codex.")
+        ):
             return None
 
         # Convert response events to streaming format

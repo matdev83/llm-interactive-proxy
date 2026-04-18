@@ -55,7 +55,9 @@ from src.connectors.openai_codex.utils import (
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
     AuthenticationError,
+    InvalidRequestError,
     LLMProxyError,
+    RateLimitExceededError,
 )
 from src.core.common.resilience_retry import AsyncRetryExecutor, RetryPolicy
 from src.core.domain.responses import (
@@ -250,7 +252,13 @@ class _CodexTransportAdapter:
                     # Pass through ProcessedResponse from WebSocket client
                     yield response_chunk
             except Exception as e:
-                if logger.isEnabledFor(logging.ERROR):
+                if _is_expected_recoverable_codex_ws_error(e):
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Handled Codex WebSocket recovery condition: %s",
+                            e,
+                        )
+                elif logger.isEnabledFor(logging.ERROR):
                     logger.error(
                         "Error in Codex WebSocket stream: %s",
                         e,
@@ -295,6 +303,15 @@ class _CodexRetryDelayError(Exception):
     def __init__(self, delay_seconds: float) -> None:
         super().__init__(f"codex_auth_retry_delay:{delay_seconds}")
         self.delay_seconds = delay_seconds
+
+
+def _is_expected_recoverable_codex_ws_error(exc: Exception) -> bool:
+    if isinstance(exc, RateLimitExceededError):
+        return True
+    if isinstance(exc, InvalidRequestError):
+        details = exc.details
+        return details.get("code") == "previous_response_not_found"
+    return False
 
 
 class ResponseExecutor(IResponseExecutor):
@@ -738,12 +755,20 @@ class ResponseExecutor(IResponseExecutor):
                                     observed_response_id = (
                                         candidate_observed_response_id
                                     )
-                                    await self._persist_observed_continuation(
-                                        continuation_context,
-                                        response_id=observed_response_id,
-                                        payload_dict=replay_payload_dict,
-                                    )
-                                    observed_response_id_persisted = True
+                                    if not use_websocket_transport:
+                                        await self._persist_observed_continuation(
+                                            continuation_context,
+                                            response_id=observed_response_id,
+                                            payload_dict=replay_payload_dict,
+                                        )
+                                        observed_response_id_persisted = True
+                                    elif self._codex_ws_lineage is not None:
+                                        await self._persist_observed_ws_lineage(
+                                            continuation_context,
+                                            response_id=observed_response_id,
+                                            payload_dict=replay_payload_dict,
+                                            items_added=ws_output_items,
+                                        )
                                     logger.info(
                                         "Observed Codex response id mid-stream and persisted provisional continuation state (response_id=%s, mode=%s).",
                                         observed_response_id,
@@ -780,6 +805,13 @@ class ResponseExecutor(IResponseExecutor):
                                                 ws_output_items.append(
                                                     copy.deepcopy(item)
                                                 )
+                                                if observed_response_id is not None:
+                                                    await self._persist_observed_ws_lineage(
+                                                        continuation_context,
+                                                        response_id=observed_response_id,
+                                                        payload_dict=replay_payload_dict,
+                                                        items_added=ws_output_items,
+                                                    )
                                 processed_chunk = (
                                     self._normalize_processed_stream_chunk(
                                         processed_chunk
@@ -879,6 +911,9 @@ class ResponseExecutor(IResponseExecutor):
                                 # Apply compatibility layer translation if available
                                 if self._compatibility_layer and compatibility_state:
                                     try:
+                                        pre_translation_metadata = dict(
+                                            processed_chunk.metadata or {}
+                                        )
                                         chunk_wrapper = ProviderStreamChunk(
                                             raw=processed_chunk
                                         )
@@ -893,6 +928,18 @@ class ResponseExecutor(IResponseExecutor):
                                         else:
                                             processed_chunk = cast(
                                                 ProcessedResponse, translated_chunk
+                                            )
+                                        if pre_translation_metadata:
+                                            merged_metadata = dict(
+                                                pre_translation_metadata
+                                            )
+                                            merged_metadata.update(
+                                                processed_chunk.metadata or {}
+                                            )
+                                            processed_chunk = ProcessedResponse(
+                                                content=processed_chunk.content,
+                                                usage=processed_chunk.usage,
+                                                metadata=merged_metadata,
                                             )
                                     except Exception as e:
                                         if logger.isEnabledFor(TRACE_LEVEL):
@@ -947,6 +994,66 @@ class ResponseExecutor(IResponseExecutor):
                                 )
                             else:
                                 raise
+                        elif (
+                            isinstance(exc, HTTPException | LLMProxyError)
+                            and not visible_output_emitted
+                        ):
+                            status_code, detail = _codex_initiate_streaming_error_view(
+                                exc
+                            )
+                            if status_code == 429:
+                                rd = detail if isinstance(detail, dict) else {}
+                                retry_after_seconds = (
+                                    self._extract_retry_after_from_payload(rd)
+                                )
+                                rl_rotation_cap = max(1, max_retries)
+                                rate_limit_rotation_attempted = (
+                                    attempts_used < rl_rotation_cap
+                                )
+                                rotated = False
+                                if rate_limit_rotation_attempted:
+                                    rotated = await self._handle_rate_limit_rotation(
+                                        retry_after_seconds=retry_after_seconds,
+                                        session_id=context.session_id,
+                                        upstream_codex_error=rd or None,
+                                        response_headers=None,
+                                        managed_oauth_account_id=handshake_managed_oauth_account_id,
+                                    )
+                                    if rotated:
+                                        await self._invalidate_continuation_on_rotation(
+                                            continuation_context,
+                                            reason="rate_limit_rotation",
+                                        )
+                                        await self._wait_for_auth_retry_delay(
+                                            attempts_used
+                                        )
+                                        attempts_used += 1
+                                        restart_stream = True
+                                if restart_stream:
+                                    continue
+                                await self._notify_codex_quota_unrecovered(
+                                    upstream_detail=rd or {},
+                                    retry_after_seconds=retry_after_seconds,
+                                    pool_exhaustion_confirmed=(
+                                        rate_limit_rotation_attempted and not rotated
+                                    ),
+                                )
+                                if isinstance(exc, LLMProxyError):
+                                    raise map_domain_exception_to_http_exception(
+                                        exc
+                                    ) from exc
+                                raise HTTPException(
+                                    status_code=status_code,
+                                    detail=detail,
+                                ) from exc
+                            if isinstance(exc, LLMProxyError):
+                                raise map_domain_exception_to_http_exception(
+                                    exc
+                                ) from exc
+                            raise HTTPException(
+                                status_code=status_code,
+                                detail=detail,
+                            ) from exc
                         else:
                             raise
 
@@ -1325,6 +1432,23 @@ class ResponseExecutor(IResponseExecutor):
             payload_dict,
         )
 
+    async def _persist_observed_ws_lineage(
+        self,
+        context: CodexRequestContext,
+        *,
+        response_id: str,
+        payload_dict: dict[str, Any],
+        items_added: list[Any],
+    ) -> None:
+        if self._codex_ws_lineage is None:
+            return
+        await self._codex_ws_lineage.record_completed_websocket_turn(
+            context,
+            sent_payload=copy.deepcopy(payload_dict),
+            response_id=response_id,
+            items_added=items_added,
+        )
+
     async def _invalidate_continuation_on_rotation(
         self, context: CodexRequestContext, *, reason: str
     ) -> None:
@@ -1540,7 +1664,7 @@ class ResponseExecutor(IResponseExecutor):
     def _normalize_processed_stream_chunk(
         self, chunk: ProcessedResponse
     ) -> ProcessedResponse:
-        metadata = chunk.metadata
+        metadata = dict(chunk.metadata)
         event_type = metadata.get("event_type")
         if not isinstance(event_type, str):
             return chunk
@@ -1567,11 +1691,56 @@ class ResponseExecutor(IResponseExecutor):
         if translated_content is None:
             return chunk
 
+        if self._translated_chunk_contains_tool_call(
+            translated_content
+        ) or self._raw_responses_event_completes_tool_call(event_type, content_dict):
+            metadata["tool_call_emitted"] = True
+            if (
+                not isinstance(metadata.get("finish_reason"), str)
+                or not str(metadata.get("finish_reason")).strip()
+            ):
+                metadata["finish_reason"] = "tool_calls"
+
         return ProcessedResponse(
             content=translated_content,
             usage=chunk.usage,
-            metadata=dict(metadata),
+            metadata=metadata,
         )
+
+    @staticmethod
+    def _raw_responses_event_completes_tool_call(
+        event_type: str, content_dict: dict[str, Any]
+    ) -> bool:
+        if event_type == "response.function_call_arguments.done":
+            call_id = content_dict.get("item_id") or content_dict.get("call_id")
+            arguments = content_dict.get("arguments")
+            return bool(call_id) and arguments is not None
+
+        if event_type != "response.output_item.done":
+            return False
+
+        item = content_dict.get("item")
+        if not isinstance(item, Mapping):
+            return False
+
+        item_type = item.get("type")
+        return item_type in {"function_call", "custom_tool_call", "local_shell_call"}
+
+    @staticmethod
+    def _translated_chunk_contains_tool_call(content_dict: dict[str, Any]) -> bool:
+        choices = content_dict.get("choices")
+        if not isinstance(choices, list):
+            return False
+        for choice in choices:
+            if not isinstance(choice, Mapping):
+                continue
+            finish_reason = choice.get("finish_reason")
+            if finish_reason == "tool_calls":
+                return True
+            delta = choice.get("delta") or choice.get("message")
+            if isinstance(delta, Mapping) and delta.get("tool_calls"):
+                return True
+        return False
 
     def _extract_terminal_response_id(self, chunk: ProcessedResponse) -> str | None:
         metadata = chunk.metadata
