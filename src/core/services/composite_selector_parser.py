@@ -24,18 +24,22 @@ from src.core.domain.model_utils import (
 
 __all__ = ["CompositeSelectorParser"]
 
-_WEIGHT_PREFIX_PATTERN = re.compile(r"^\[weight=([^\]]+)\](.*)$")
-_FIRST_PREFIX_PATTERN = re.compile(r"^\[first(?:=(true|yes|1))?\](.*)$", re.IGNORECASE)
-_FIRST_NEGATIVE_PREFIX_PATTERN = re.compile(
-    r"^\[first=(false|no|0)\](.*)$", re.IGNORECASE
-)
 _INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
+_ANNOTATION_TRUE_VALUES = {"true", "yes", "1"}
+_ANNOTATION_FALSE_VALUES = {"false", "no", "0"}
 
 
 @dataclass(frozen=True)
 class _LeafParseResult:
     leaf: CompositeLeafSelector
     normalized_leaf_for_plan: str
+
+
+@dataclass(frozen=True)
+class _PrefixAnnotations:
+    weight_annotation: int | None = None
+    first_annotation: bool = False
+    max_context_tokens: int | None = None
 
 
 class CompositeSelectorParser:
@@ -197,46 +201,39 @@ class CompositeSelectorParser:
         normalized_leaf_selector = raw_leaf_text
         normalized_leaf_for_plan = raw_leaf_text
 
-        if is_weighted_group:
-            remaining = raw_leaf_text
-            weight_annotation = None
-            first_annotation = False
+        annotations, normalized_leaf_selector = self._extract_prefix_annotations(
+            raw_leaf_text,
+            source_selector=routing_input.selector,
+        )
+        weight_annotation = annotations.weight_annotation
+        first_annotation = annotations.first_annotation
 
-            # Extract first prefix regardless of order (could be [first] or [weight=N])
-            first_annotation, remaining = self._extract_first_prefix(
-                remaining,
-                source_selector=routing_input.selector,
-            )
-            weight_annotation, remaining = self._extract_weight_prefix(
-                remaining,
-                source_selector=routing_input.selector,
-            )
-
-            # If first pass didn't find [first], try after extracting [weight]
-            if not first_annotation:
-                first_annotation, remaining = self._extract_first_prefix(
-                    remaining,
-                    source_selector=routing_input.selector,
-                )
-
-            normalized_leaf_selector = remaining
-            if weight_annotation is None:
-                weight_annotation = 1
-            prefix_parts = ""
-            prefix_parts += f"[weight={weight_annotation}]"
-            prefix_parts += "[first]" if first_annotation else ""
-            normalized_leaf_for_plan = f"{prefix_parts}{normalized_leaf_selector}"
-        elif raw_leaf_text.startswith("[weight="):
+        if weight_annotation is not None and not is_weighted_group:
             self._raise_validation_error(
                 code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                 selector=routing_input.selector,
                 message="Weight annotations are only supported for weighted ('^') selectors.",
             )
-        elif "[first" in raw_leaf_text.lower() and raw_leaf_text.startswith("[first"):
+        if first_annotation and not is_weighted_group:
             self._raise_validation_error(
                 code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                 selector=routing_input.selector,
                 message="First annotations are only supported for weighted ('^') selectors.",
+            )
+
+        if is_weighted_group:
+            if weight_annotation is None:
+                weight_annotation = 1
+            prefix_parts = f"[weight={weight_annotation}]"
+            if first_annotation:
+                prefix_parts += "[first]"
+            if annotations.max_context_tokens is not None:
+                prefix_parts += f"[max_context={annotations.max_context_tokens}]"
+            normalized_leaf_for_plan = f"{prefix_parts}{normalized_leaf_selector}"
+        elif annotations.max_context_tokens is not None:
+            normalized_leaf_for_plan = (
+                f"[max_context={annotations.max_context_tokens}]"
+                f"{normalized_leaf_selector}"
             )
 
         parsed_leaf = parse_model_with_params(
@@ -280,6 +277,7 @@ class CompositeSelectorParser:
             normalized_selector=normalized_leaf_selector,
             weight_annotation=weight_annotation if is_weighted_group else None,
             first_annotation=first_annotation if is_weighted_group else False,
+            max_context_tokens=annotations.max_context_tokens,
             uri_params=parsed_leaf.uri_params,
             backend_type=parsed_leaf.backend_type,
             model_name=parsed_leaf.model_name,
@@ -289,81 +287,179 @@ class CompositeSelectorParser:
             normalized_leaf_for_plan=normalized_leaf_for_plan,
         )
 
-    def _extract_weight_prefix(
+    def _extract_prefix_annotations(
         self,
         leaf_text: str,
         *,
         source_selector: str,
-    ) -> tuple[int | None, str]:
-        if "[weight=" in leaf_text and not leaf_text.startswith("[weight="):
+    ) -> tuple[_PrefixAnnotations, str]:
+        remaining = leaf_text
+        weight_annotation: int | None = None
+        first_annotation = False
+        max_context_tokens: int | None = None
+
+        while remaining.startswith("["):
+            closing_index = remaining.find("]")
+            if closing_index <= 0:
+                self._raise_validation_error(
+                    code=CompositeValidationErrorCode.SYNTAX_ERROR,
+                    selector=source_selector,
+                    message="Unclosed annotation prefix bracket in selector branch.",
+                )
+
+            annotation_block = remaining[1:closing_index].strip()
+            trailing = remaining[closing_index + 1 :]
+            if not annotation_block:
+                self._raise_validation_error(
+                    code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                    selector=source_selector,
+                    message="Empty annotation block is not supported.",
+                )
+
+            entries = [item.strip() for item in annotation_block.split(",")]
+            if any(not item for item in entries):
+                self._raise_validation_error(
+                    code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                    selector=source_selector,
+                    message="Malformed annotation list in selector branch.",
+                )
+
+            for entry in entries:
+                key: str
+                raw_value: str | None
+                if "=" in entry:
+                    left, right = entry.split("=", 1)
+                    key = left.strip().lower()
+                    raw_value = right.strip()
+                else:
+                    key = entry.strip().lower()
+                    raw_value = None
+
+                if key == "weight":
+                    if weight_annotation is not None:
+                        self._raise_validation_error(
+                            code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                            selector=source_selector,
+                            message="Duplicate [weight=N] annotations are not supported.",
+                        )
+                    weight_annotation = self._parse_positive_integer_annotation(
+                        key="weight",
+                        raw_value=raw_value,
+                        source_selector=source_selector,
+                        error_code=CompositeValidationErrorCode.INVALID_WEIGHT,
+                    )
+                    continue
+
+                if key == "max_context":
+                    if max_context_tokens is not None:
+                        self._raise_validation_error(
+                            code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                            selector=source_selector,
+                            message="Duplicate [max_context=N] annotations are not supported.",
+                        )
+                    max_context_tokens = self._parse_positive_integer_annotation(
+                        key="max_context",
+                        raw_value=raw_value,
+                        source_selector=source_selector,
+                        error_code=CompositeValidationErrorCode.INVALID_MAX_CONTEXT,
+                    )
+                    continue
+
+                if key == "first":
+                    if first_annotation:
+                        self._raise_validation_error(
+                            code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                            selector=source_selector,
+                            message="Duplicate [first] annotations are not supported.",
+                        )
+                    first_annotation = self._parse_first_annotation(
+                        raw_value=raw_value,
+                        source_selector=source_selector,
+                    )
+                    continue
+
+                self._raise_validation_error(
+                    code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                    selector=source_selector,
+                    message=f"Unsupported annotation key '{key}'.",
+                )
+
+            remaining = trailing
+
+        if leaf_text.startswith("[") and (not remaining or remaining[0].isspace()):
             self._raise_validation_error(
                 code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                 selector=source_selector,
-                message="[weight=N] annotations must appear as a prefix.",
+                message="Annotation prefixes must appear immediately before a selector without whitespace.",
             )
 
-        match = _WEIGHT_PREFIX_PATTERN.match(leaf_text)
-        if not match:
-            return None, leaf_text
+        return (
+            _PrefixAnnotations(
+                weight_annotation=weight_annotation,
+                first_annotation=first_annotation,
+                max_context_tokens=max_context_tokens,
+            ),
+            remaining.strip(),
+        )
 
-        weight_raw = (match.group(1) or "").strip()
-        trailing_selector = match.group(2) or ""
-        if not trailing_selector or trailing_selector[0].isspace():
-            self._raise_validation_error(
-                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
-                selector=source_selector,
-                message=(
-                    "[weight=N] must appear immediately before a selector without whitespace."
-                ),
-            )
-
-        if not _INTEGER_PATTERN.fullmatch(weight_raw):
-            self._raise_validation_error(
-                code=CompositeValidationErrorCode.INVALID_WEIGHT,
-                selector=source_selector,
-                message=f"Invalid [weight=N] annotation '{weight_raw}'.",
-            )
-
-        weight_value = int(weight_raw)
-        if weight_value <= 0:
-            self._raise_validation_error(
-                code=CompositeValidationErrorCode.INVALID_WEIGHT,
-                selector=source_selector,
-                message=f"Weight must be a positive integer, received {weight_value}.",
-            )
-
-        return weight_value, trailing_selector.strip()
-
-    def _extract_first_prefix(
+    def _parse_positive_integer_annotation(
         self,
-        leaf_text: str,
         *,
+        key: str,
+        raw_value: str | None,
         source_selector: str,
-    ) -> tuple[bool, str]:
-        # Reject negative forms like [first=false], [first=0], [first=no]
-        neg_match = _FIRST_NEGATIVE_PREFIX_PATTERN.match(leaf_text)
-        if neg_match:
+        error_code: CompositeValidationErrorCode,
+    ) -> int:
+        value_text = "" if raw_value is None else raw_value.strip()
+        if not value_text:
+            self._raise_validation_error(
+                code=error_code,
+                selector=source_selector,
+                message=f"Invalid [{key}=N] annotation '{value_text}'.",
+            )
+
+        if not _INTEGER_PATTERN.fullmatch(value_text):
+            self._raise_validation_error(
+                code=error_code,
+                selector=source_selector,
+                message=f"Invalid [{key}=N] annotation '{value_text}'.",
+            )
+
+        value = int(value_text)
+        if value <= 0:
+            self._raise_validation_error(
+                code=error_code,
+                selector=source_selector,
+                message=f"{key} must be a positive integer, received {value}.",
+            )
+        return value
+
+    def _parse_first_annotation(
+        self,
+        *,
+        raw_value: str | None,
+        source_selector: str,
+    ) -> bool:
+        if raw_value is None:
+            return True
+
+        normalized_value = raw_value.strip().lower()
+        if normalized_value in _ANNOTATION_TRUE_VALUES:
+            return True
+        if normalized_value in _ANNOTATION_FALSE_VALUES:
             self._raise_validation_error(
                 code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                 selector=source_selector,
-                message=f"Unsupported [first] annotation '{neg_match.group(0)}'. Use [first] without negation.",
+                message=f"Unsupported [first] annotation '[first={raw_value}]'. Use [first] without negation.",
             )
-
-        match = _FIRST_PREFIX_PATTERN.match(leaf_text)
-        if not match:
-            return False, leaf_text
-
-        trailing_selector = match.group(2) or ""
-        if not trailing_selector or trailing_selector[0].isspace():
-            self._raise_validation_error(
-                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
-                selector=source_selector,
-                message=(
-                    "[first] must appear immediately before a selector without whitespace."
-                ),
-            )
-
-        return True, trailing_selector.strip()
+        self._raise_validation_error(
+            code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+            selector=source_selector,
+            message=(
+                f"Unsupported [first] annotation '[first={raw_value}]'. "
+                "Accepted forms: [first], [first=1], [first=yes], [first=true]."
+            ),
+        )
 
     @staticmethod
     def _raise_validation_error(

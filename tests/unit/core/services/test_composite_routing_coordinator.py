@@ -479,3 +479,92 @@ async def test_weighted_coordinator_retry_does_not_use_first_tag() -> None:
     state = cast(dict[str, Any], context.extensions[COMPOSITE_ROUTING_STATE_KEY])
     assert state["selected_selector"] == "anthropic:claude-3-5-sonnet"
     assert state["hop_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_excludes_branches_over_max_context() -> None:
+    parser = CompositeSelectorParser()
+    routing_input = CompositeRoutingInput(
+        selector=(
+            "[weight=10,max_context=10]openai:gpt-4^"
+            "[weight=1,max_context=1000]anthropic:claude-3-5-sonnet"
+        ),
+        surface=RoutingSurface.MAIN,
+        request_context_tokens=100,
+    )
+    plan = parser.parse(routing_input)
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4")),
+            "anthropic:claude-3-5-sonnet": _LeafOutcome(
+                target=_target("anthropic", "claude-3-5-sonnet")
+            ),
+        }
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.0
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    context = _context()
+
+    result = await coordinator.execute(
+        plan=plan,
+        routing_input=routing_input,
+        request=_request(),
+        context=context,
+    )
+
+    assert result.backend == "anthropic"
+    assert leaf_resolver.calls == ["anthropic:claude-3-5-sonnet"]
+    diagnostics = context.extensions.get("composite_routing_diagnostics")
+    assert isinstance(diagnostics, dict)
+    branch_history = diagnostics.get("branch_history")
+    assert isinstance(branch_history, list)
+    assert any(
+        isinstance(entry, dict)
+        and entry.get("selector_fragment") == "openai:gpt-4"
+        and entry.get("outcome_category") == "ineligible"
+        and entry.get("reason_code") == "max_context_exceeded"
+        for entry in branch_history
+    )
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_raises_when_all_branches_exceed_max_context() -> (
+    None
+):
+    parser = CompositeSelectorParser()
+    routing_input = CompositeRoutingInput(
+        selector="[max_context=10]openai:gpt-4^[max_context=20]anthropic:claude-3-5-sonnet",
+        surface=RoutingSurface.MAIN,
+        request_context_tokens=100,
+    )
+    plan = parser.parse(routing_input)
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4")),
+            "anthropic:claude-3-5-sonnet": _LeafOutcome(
+                target=_target("anthropic", "claude-3-5-sonnet")
+            ),
+        }
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.0
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    context = _context()
+
+    with pytest.raises(RoutingError) as exc_info:
+        await coordinator.execute(
+            plan=plan,
+            routing_input=routing_input,
+            request=_request(),
+            context=context,
+        )
+
+    assert exc_info.value.details.get("reason") == "max_context_exhausted"
+    assert leaf_resolver.calls == []

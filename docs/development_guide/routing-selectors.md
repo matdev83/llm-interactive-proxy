@@ -39,13 +39,20 @@ The proxy advances left-to-right through the chain when failures occur, sharing 
 
 #### Weighted Routing
 
-Uses `^` with optional `[weight=N]` prefixes for weighted distribution:
+Uses `^` with optional `[weight=N]` and `[max_context=N]` prefixes for weighted distribution:
 
 ```
 [weight=3]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet
 ```
 
 This distributes traffic 75% to OpenAI and 25% to Anthropic.
+
+`[max_context=N]` excludes a branch when the current request context size exceeds `N` tokens.
+Token counting uses `tiktoken` with model-family-aware encoding heuristics.
+
+Examples:
+- `[weight=3,max_context=128000]openai:gpt-4o^[weight=1]anthropic:claude-3-5-sonnet`
+- `[first,max_context=164000,weight=4]opencode-go:glm-5.1^[weight=1]openai:gpt-4o`
 
 #### First-Request Override in Weighted Routing
 
@@ -73,6 +80,13 @@ Combining both annotations on the same branch:
 ```
 
 This uses gpt-4 for the first session request, then routes 75% / 25% weighted distribution from the second request onward.
+
+`[max_context=N]` can be combined with `[first]` and `[weight=N]` in a single block or across consecutive blocks. These forms are equivalent:
+
+```
+[first,max_context=164000,weight=4]openai:gpt-4
+[weight=4][first][max_context=164000]openai:gpt-4
+```
 
 ### Selector Rules
 

@@ -435,8 +435,7 @@ def _collect_runtime_referenced_backends(config: AppConfig) -> set[str]:
     )
     for raw_name, value in named_cfgs.items():
         if (
-            not isinstance(raw_name, str)
-            or not raw_name
+            not raw_name
             or raw_name.startswith("_")
             or raw_name in {"default_backend", "static_route"}
             or raw_name in BackendSettings.model_fields
@@ -534,12 +533,7 @@ def _collect_runtime_constrained_backend_names(config: AppConfig) -> list[str]:
         cast(dict[str, Any], _raw_cb) if isinstance(_raw_cb, dict) else {}
     )
     for raw_name, value in _named_items.items():
-        if (
-            not isinstance(raw_name, str)
-            or not raw_name
-            or raw_name == "default_backend"
-            or raw_name.startswith("_")
-        ):
+        if not raw_name or raw_name == "default_backend" or raw_name.startswith("_"):
             continue
         if "." in raw_name:
             configured_names.append(raw_name)
@@ -743,7 +737,7 @@ def validate_model_aliases(config: AppConfig) -> None:
     - Regex pattern syntax is valid.
     - Replacement does not begin with '^' (weighted branch separator), which would
       yield an empty first branch and a confusing parser error.
-    - Replacement string is valid composite routing grammar (|, ^, [weight=N]).
+    - Replacement string is valid composite routing grammar (|, ^, [weight=N], [first], [max_context=N]).
     - No raw separator characters in query-param values.
     - Explicit backend names reference registered backends.
 

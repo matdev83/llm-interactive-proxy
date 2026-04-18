@@ -11,6 +11,52 @@ logger = logging.getLogger(__name__)
 # Cache tiktoken encoding for better performance
 _tiktoken_encoding = None
 _tiktoken_lock = threading.Lock()
+_model_tokenizer_cache: dict[str, Any] = {}
+
+_MODEL_TOKENIZER_FAMILIES: list[tuple[tuple[str, ...], str]] = [
+    (("gpt-5", "gpt-4.1", "gpt-4o", "o1", "o3", "o4", "codex"), "o200k_base"),
+    (
+        (
+            "claude",
+            "gemini",
+            "llama",
+            "mistral",
+            "mixtral",
+            "deepseek",
+            "qwen",
+            "glm",
+            "kimi",
+            "yi",
+            "minimax",
+            "moonshot",
+        ),
+        "cl100k_base",
+    ),
+]
+
+
+def _resolve_encoding_for_model(
+    *,
+    tiktoken_module: Any,
+    model: str | None,
+) -> Any:
+    if not model:
+        return tiktoken_module.get_encoding("cl100k_base")
+
+    normalized_model = model.strip().lower()
+    cached = _model_tokenizer_cache.get(normalized_model)
+    if cached is not None:
+        return cached
+
+    family_encoding = "cl100k_base"
+    for needles, encoding_name in _MODEL_TOKENIZER_FAMILIES:
+        if any(needle in normalized_model for needle in needles):
+            family_encoding = encoding_name
+            break
+
+    encoding = tiktoken_module.get_encoding(family_encoding)
+    _model_tokenizer_cache[normalized_model] = encoding
+    return encoding
 
 
 async def count_tokens_async(text: str, model: str | None = None) -> int:
@@ -61,6 +107,15 @@ def count_tokens(text: str, model: str | None = None) -> int:
                     import tiktoken  # type: ignore
 
                     _tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
+
+        if model and model.strip():
+            import tiktoken  # type: ignore
+
+            model_encoding = _resolve_encoding_for_model(
+                tiktoken_module=tiktoken,
+                model=model,
+            )
+            return len(model_encoding.encode(text))
 
         return len(_tiktoken_encoding.encode(text))
     except (ImportError, AttributeError, TypeError, KeyError):

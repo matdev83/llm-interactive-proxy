@@ -189,6 +189,11 @@ The proxy uses a flexible selector syntax for routing requests to backends:
 ```bash
 --default-backend "[weight=3]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet"
 ```
+
+**Weighted routing with context limits:** Use `[max_context=N]` to skip branches that cannot handle larger requests
+```bash
+--default-backend "[weight=3,max_context=128000]openai:gpt-4o^[weight=1]anthropic:claude-3-5-sonnet"
+```
 When a weighted branch fails before meaningful output starts, runtime recovery can
 re-roll within the same request by excluding the failed branch and choosing from the remaining weighted leaves.
 

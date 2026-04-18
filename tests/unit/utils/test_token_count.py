@@ -70,3 +70,46 @@ def test_extract_prompt_text_with_tool_response():
     result = extract_prompt_text(messages)
     assert result == "tool: Sunny"
 
+
+def test_count_tokens_uses_model_family_specific_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.core.utils.token_count as token_count_module
+
+    token_count_module._tiktoken_encoding = None
+    token_count_module._model_tokenizer_cache.clear()
+
+    class _Encoding:
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        def encode(self, _text: str) -> list[int]:
+            if self._name == "o200k_base":
+                return [1, 2, 3, 4]
+            return [1, 2]
+
+    class _FakeTikToken:
+        @staticmethod
+        def get_encoding(name: str) -> _Encoding:
+            return _Encoding(name)
+
+    original_import = builtins.__import__
+
+    def _import_with_fake_tiktoken(
+        name: str,
+        globals_: dict | None = None,
+        locals_: dict | None = None,
+        fromlist: tuple[str, ...] = (),
+        level: int = 0,
+    ) -> object:
+        if name == "tiktoken":
+            return _FakeTikToken
+        return original_import(name, globals_, locals_, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", _import_with_fake_tiktoken)
+
+    high_context_tokens = token_count_module.count_tokens("hello", model="gpt-5.1")
+    generic_tokens = token_count_module.count_tokens("hello", model="claude-3-5-sonnet")
+
+    assert high_context_tokens == 4
+    assert generic_tokens == 2

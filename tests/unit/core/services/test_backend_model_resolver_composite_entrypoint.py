@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -120,6 +121,17 @@ def _attach_deterministic_weighted_composite(
         coordinator=coordinator,
         diagnostics_publisher=diagnostics,
     )
+
+
+def _patch_session_service(
+    resolver: BackendModelResolver,
+    session: Session,
+) -> MagicMock:
+    mock = MagicMock()
+    mock.get_session = AsyncMock(return_value=session)
+    mock.update_session = AsyncMock()
+    resolver._session_service = mock  # type: ignore[assignment]
+    return mock
 
 
 @pytest.mark.asyncio
@@ -603,6 +615,51 @@ async def test_composite_weighted_numbered_instances_respects_deterministic_rand
 
 
 @pytest.mark.asyncio
+async def test_weighted_max_context_filtering_applies_per_request() -> None:
+    resolver = _build_resolver_with_real_composite()
+    _attach_deterministic_weighted_composite(resolver, random_for_weights=lambda: 0.0)
+    selector = (
+        "[weight=50,max_context=40]openai:gpt-small-window^"
+        "[weight=1,max_context=100000]anthropic:claude-large-window"
+    )
+
+    first_result = await resolver.resolve_target(
+        ChatRequest(
+            model=selector,
+            messages=[ChatMessage(role="user", content="short prompt")],
+            extra_body={},
+        ),
+        context=_context("main"),
+    )
+
+    second_context = _context("main")
+    second_result = await resolver.resolve_target(
+        ChatRequest(
+            model=selector,
+            messages=[ChatMessage(role="user", content="long " * 1000)],
+            extra_body={},
+        ),
+        context=second_context,
+    )
+
+    assert first_result.backend == "openai"
+    assert first_result.model == "gpt-small-window"
+    assert second_result.backend == "anthropic"
+    assert second_result.model == "claude-large-window"
+
+    diagnostics = second_context.extensions.get("composite_routing_diagnostics")
+    assert isinstance(diagnostics, dict)
+    branch_history = diagnostics.get("branch_history")
+    assert isinstance(branch_history, list)
+    assert any(
+        isinstance(entry, dict)
+        and entry.get("selector_fragment") == "openai:gpt-small-window"
+        and entry.get("reason_code") == "max_context_exceeded"
+        for entry in branch_history
+    )
+
+
+@pytest.mark.asyncio
 async def test_model_alias_resolving_to_composite_selector_is_parsed_and_routed() -> (
     None
 ):
@@ -719,8 +776,7 @@ async def test_first_request_in_session_uses_first_tagged_branch() -> None:
         session_id="session-main",
         state=SessionState(weighted_first_request_consumed=False),
     )
-    resolver._session_service.get_session = AsyncMock(return_value=session)
-    resolver._session_service.update_session = AsyncMock()
+    _patch_session_service(resolver, session)
 
     result = await resolver.resolve_target(
         _request("[first]openai:first-model^[weight=100]openai:weighted-model"),
@@ -739,8 +795,7 @@ async def test_second_request_in_session_uses_weighted_routing() -> None:
         session_id="session-main",
         state=SessionState(weighted_first_request_consumed=True),
     )
-    resolver._session_service.get_session = AsyncMock(return_value=session)
-    resolver._session_service.update_session = AsyncMock()
+    _patch_session_service(resolver, session)
 
     result = await resolver.resolve_target(
         _request("[first]openai:first-model^[weight=100]openai:weighted-model"),
@@ -759,8 +814,7 @@ async def test_first_request_flag_is_consumed_after_routing() -> None:
         session_id="session-main",
         state=SessionState(weighted_first_request_consumed=False),
     )
-    resolver._session_service.get_session = AsyncMock(return_value=session)
-    resolver._session_service.update_session = AsyncMock()
+    session_mock = _patch_session_service(resolver, session)
 
     await resolver.resolve_target(
         _request("[first]openai:first-model^[weight=100]openai:weighted-model"),
@@ -768,7 +822,7 @@ async def test_first_request_flag_is_consumed_after_routing() -> None:
     )
 
     assert getattr(session.state, "weighted_first_request_consumed", False) is True
-    assert resolver._session_service.update_session.await_count == 1
+    assert session_mock.update_session.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -881,9 +935,9 @@ async def test_single_composite_leaf_parse_model_with_params_invoked_once() -> N
     )
 
     parse_calls = {"n": 0}
-    real_parse = model_utils_module.parse_model_with_params
+    real_parse = cast(Callable[..., object], model_utils_module.parse_model_with_params)
 
-    def _counting_parse(*args: object, **kwargs: object) -> object:
+    def _counting_parse(*args: Any, **kwargs: Any) -> object:
         parse_calls["n"] += 1
         return real_parse(*args, **kwargs)
 

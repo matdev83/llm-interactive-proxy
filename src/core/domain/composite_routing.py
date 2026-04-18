@@ -44,6 +44,7 @@ class CompositeValidationErrorCode(str, Enum):
     SYNTAX_ERROR = "syntax_error"
     UNSUPPORTED_CONSTRUCT = "unsupported_construct"
     INVALID_WEIGHT = "invalid_weight"
+    INVALID_MAX_CONTEXT = "invalid_max_context"
     INVALID_LEAF = "invalid_leaf"
 
 
@@ -108,6 +109,7 @@ class CompositeLeafSelector(DomainModel):
     normalized_selector: str
     weight_annotation: int | None = None
     first_annotation: bool = False
+    max_context_tokens: int | None = None
     uri_params: dict[str, JsonValue] = Field(default_factory=dict)
     backend_type: str = ""
     model_name: str = ""
@@ -129,11 +131,18 @@ class CompositeLeafSelector(DomainModel):
             raise ValueError("weight annotation must be positive")
         return value
 
+    @field_validator("max_context_tokens")
+    @classmethod
+    def _validate_max_context_tokens(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if value <= 0:
+            raise ValueError("max_context_tokens must be positive")
+        return value
+
     @field_validator("first_annotation")
     @classmethod
     def _validate_first_annotation(cls, value: bool) -> bool:
-        if not isinstance(value, bool):
-            raise ValueError("first_annotation must be a boolean")
         return value
 
 
@@ -305,6 +314,7 @@ class CompositeRoutingInput(DomainModel):
     max_branch_history: int = _DEFAULT_BRANCH_HISTORY_LIMIT
     default_backend: str = ""
     prefer_first_weighted_branch: bool = False
+    request_context_tokens: int | None = None
 
     @field_validator("selector")
     @classmethod
@@ -318,6 +328,13 @@ class CompositeRoutingInput(DomainModel):
     @classmethod
     def _bound_history_limit(cls, value: int) -> int:
         return max(1, value)
+
+    @field_validator("request_context_tokens")
+    @classmethod
+    def _bound_request_context_tokens(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        return max(0, value)
 
 
 class CompositeRoutingSuccess(DomainModel):

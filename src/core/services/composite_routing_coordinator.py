@@ -36,6 +36,7 @@ from src.core.services.composite_routing_state import (
     build_failover_exhausted_error,
 )
 from src.core.services.weighted_branch_selector import WeightedBranchSelector
+from src.core.utils.token_count import count_tokens, extract_prompt_text
 
 logger = logging.getLogger(__name__)
 
@@ -104,9 +105,48 @@ class CompositeRoutingCoordinator:
                 )
             return resolved
         if isinstance(root, CompositeWeightedGroupNode):
-            selected_leaf = self._weighted_branch_selector.select(
-                root, prefer_first=routing_input.prefer_first_weighted_branch
+            # Evaluate max_context eligibility for this request before weighted selection.
+            token_cache: dict[str, int] = {}
+            eligible_weighted_children, filtered_weighted_history = (
+                self._filter_children_by_max_context(
+                    children=root.children,
+                    request_context_tokens=routing_input.request_context_tokens,
+                    request=request,
+                    token_cache=token_cache,
+                )
             )
+            if not eligible_weighted_children:
+                if should_publish:
+                    self._diagnostics_publisher.publish_exhaustion(
+                        context=context,
+                        selector=routing_input.selector,
+                        surface=routing_input.surface,
+                        reason="max_context_exhausted",
+                        details={
+                            "request_context_tokens": routing_input.request_context_tokens,
+                            "branch_count": len(root.children),
+                        },
+                        branch_history=filtered_weighted_history,
+                    )
+                raise RoutingError(
+                    message="All weighted branches exceeded max_context constraints.",
+                    details={
+                        "code": "temporarily_unavailable",
+                        "category": "availability",
+                        "retryable": True,
+                        "reason": "max_context_exhausted",
+                    },
+                )
+
+            if len(eligible_weighted_children) == 1:
+                selected_leaf = eligible_weighted_children[0]
+            else:
+                selected_leaf = self._weighted_branch_selector.select(
+                    CompositeWeightedGroupNode(
+                        children=list(eligible_weighted_children)
+                    ),
+                    prefer_first=routing_input.prefer_first_weighted_branch,
+                )
             resolved = await self._resolve_leaf(
                 request=request,
                 context=context,
@@ -122,12 +162,13 @@ class CompositeRoutingCoordinator:
                 )
             self._persist_weighted_retry_state(
                 context=context,
-                node=root,
+                eligible_leaves=eligible_weighted_children,
                 selected_leaf=selected_leaf,
                 configured_max_hops=routing_input.configured_max_hops,
             )
             if should_publish:
-                branch_history = [
+                branch_history = list(filtered_weighted_history)
+                branch_history.extend(
                     self._branch_history_entry(
                         selector_fragment=leaf.leaf_selector.normalized_selector,
                         outcome_category=(
@@ -141,8 +182,8 @@ class CompositeRoutingCoordinator:
                             else "weighted_random_non_winner"
                         ),
                     )
-                    for leaf in root.children
-                ]
+                    for leaf in eligible_weighted_children
+                )
                 self._diagnostics_publisher.publish_selected_target(
                     context=context,
                     selector=routing_input.selector,
@@ -152,21 +193,12 @@ class CompositeRoutingCoordinator:
                     branch_history=branch_history,
                 )
             return resolved
-        if isinstance(root, CompositeFailoverGroupNode):
-            return await self._execute_failover_chain(
-                node=root,
-                routing_input=routing_input,
-                request=request,
-                context=context,
-                should_publish_diagnostics=should_publish,
-            )
-        raise RoutingError(
-            message="Unsupported composite route node encountered.",
-            details={
-                "code": "routing_validation_failed",
-                "reason": "unsupported_node_type",
-                "selector": plan.normalized_selector,
-            },
+        return await self._execute_failover_chain(
+            node=root,
+            routing_input=routing_input,
+            request=request,
+            context=context,
+            should_publish_diagnostics=should_publish,
         )
 
     async def _resolve_leaf(
@@ -201,6 +233,7 @@ class CompositeRoutingCoordinator:
         branch_history: list[dict[str, JsonValue]] = []
         branch_history_omitted = 0
         history_limit = routing_input.max_branch_history
+        token_cache: dict[str, int] = {}
         if should_publish_diagnostics and branch_index > 0:
             for skipped_selector in branches[:branch_index]:
                 branch_history_omitted = self._append_branch_history(
@@ -238,6 +271,27 @@ class CompositeRoutingCoordinator:
 
         while branch_index < len(node.children):
             current_branch = node.children[branch_index]
+            if not self._is_branch_eligible_for_max_context(
+                leaf=current_branch,
+                request_context_tokens=routing_input.request_context_tokens,
+                request=request,
+                token_cache=token_cache,
+            ):
+                if should_publish_diagnostics:
+                    branch_history_omitted = self._append_branch_history(
+                        branch_history=branch_history,
+                        entry=self._branch_history_entry(
+                            selector_fragment=current_branch.leaf_selector.normalized_selector,
+                            outcome_category=CompositeBranchOutcomeCategory.INELIGIBLE.value,
+                            reason_code="max_context_exceeded",
+                        ),
+                        limit=history_limit,
+                        omitted=branch_history_omitted,
+                    )
+                state["next_index"] = branch_index + 1
+                self._persist_state(context=context, state=state)
+                branch_index += 1
+                continue
             try:
                 resolved = await self._resolve_leaf(
                     request=request,
@@ -411,7 +465,7 @@ class CompositeRoutingCoordinator:
     def _classify_branch_error(self, error: Exception) -> tuple[str, str]:
         reason_code = self._extract_reason_code(error)
         if isinstance(error, RoutingError):
-            details = error.details if isinstance(error.details, dict) else {}
+            details = error.details
             category = details.get("category")
             if category == "validation" or reason_code == "unknown_model":
                 return (
@@ -448,7 +502,7 @@ class CompositeRoutingCoordinator:
     @staticmethod
     def _extract_reason_code(error: Exception) -> str:
         if isinstance(error, RoutingError):
-            details = error.details if isinstance(error.details, dict) else {}
+            details = error.details
             code = details.get("code")
             if isinstance(code, str) and code.strip():
                 return code.strip()
@@ -514,17 +568,17 @@ class CompositeRoutingCoordinator:
     def _persist_weighted_retry_state(
         *,
         context: RequestContext | None,
-        node: CompositeWeightedGroupNode,
+        eligible_leaves: Sequence[CompositeLeafNode],
         selected_leaf: CompositeLeafNode,
         configured_max_hops: int | None,
     ) -> None:
         if context is None:
             return
-        branches: list[WeightedRetryBranch] = []
-        for child in node.children:
+        persisted_branches: list[WeightedRetryBranch] = []
+        for child in eligible_leaves:
             raw = child.leaf_selector.weight_annotation
             resolved_weight = 1 if raw is None else raw
-            branches.append(
+            persisted_branches.append(
                 {
                     "selector": child.leaf_selector.normalized_selector,
                     "weight": resolved_weight,
@@ -533,13 +587,97 @@ class CompositeRoutingCoordinator:
         max_hops = CompositeRoutingAttemptContext.resolve_max_hops(configured_max_hops)
         persisted: WeightedRetryRuntimeState = {
             "mode": WEIGHTED_RETRY_MODE,
-            "branches": branches,
+            "branches": persisted_branches,
             "excluded_selectors": [],
             "selected_selector": selected_leaf.leaf_selector.normalized_selector,
             "hop_count": 0,
             "max_hops": max_hops,
         }
         context.extensions[COMPOSITE_ROUTING_STATE_KEY] = cast(JsonValue, persisted)
+
+    @staticmethod
+    def _is_branch_eligible_for_max_context(
+        *,
+        leaf: CompositeLeafNode,
+        request_context_tokens: int | None,
+        request: ChatRequest,
+        token_cache: dict[str, int],
+    ) -> bool:
+        max_context_tokens = leaf.leaf_selector.max_context_tokens
+        if max_context_tokens is None:
+            return True
+        resolved_request_tokens = (
+            CompositeRoutingCoordinator._resolve_request_tokens_for_leaf(
+                leaf=leaf,
+                request_context_tokens=request_context_tokens,
+                request=request,
+                token_cache=token_cache,
+            )
+        )
+        if resolved_request_tokens is None:
+            return True
+        return resolved_request_tokens <= max_context_tokens
+
+    def _filter_children_by_max_context(
+        self,
+        *,
+        children: Sequence[CompositeLeafNode],
+        request_context_tokens: int | None,
+        request: ChatRequest,
+        token_cache: dict[str, int],
+    ) -> tuple[list[CompositeLeafNode], list[dict[str, JsonValue]]]:
+        eligible: list[CompositeLeafNode] = []
+        ineligible_history: list[dict[str, JsonValue]] = []
+        for child in children:
+            if self._is_branch_eligible_for_max_context(
+                leaf=child,
+                request_context_tokens=request_context_tokens,
+                request=request,
+                token_cache=token_cache,
+            ):
+                eligible.append(child)
+                continue
+            ineligible_history.append(
+                self._branch_history_entry(
+                    selector_fragment=child.leaf_selector.normalized_selector,
+                    outcome_category=CompositeBranchOutcomeCategory.INELIGIBLE.value,
+                    reason_code="max_context_exceeded",
+                )
+            )
+        return eligible, ineligible_history
+
+    @staticmethod
+    def _resolve_request_tokens_for_leaf(
+        *,
+        leaf: CompositeLeafNode,
+        request_context_tokens: int | None,
+        request: ChatRequest,
+        token_cache: dict[str, int],
+    ) -> int | None:
+        if request_context_tokens is not None:
+            return request_context_tokens
+
+        model_hint = leaf.leaf_selector.model_name.strip()
+        if not model_hint:
+            model_hint = leaf.leaf_selector.normalized_selector
+
+        cached_tokens = token_cache.get(model_hint)
+        if cached_tokens is not None:
+            return cached_tokens
+
+        try:
+            prompt_text = extract_prompt_text(request.messages)
+            resolved_tokens = count_tokens(prompt_text, model=model_hint)
+        except (TypeError, ValueError, AttributeError, KeyError):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to estimate request context tokens for max_context; branch remains eligible.",
+                    exc_info=True,
+                )
+            return None
+
+        token_cache[model_hint] = resolved_tokens
+        return resolved_tokens
 
     @staticmethod
     def _persist_state(

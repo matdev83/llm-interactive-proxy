@@ -750,6 +750,10 @@ model_aliases:
   - pattern: "^gpt-4-(.*)"
     replacement: "openai:gpt-4-\1"
 
+  # Weighted replacement with request-size guardrails
+  - pattern: "^coding$"
+    replacement: "[first,max_context=164000,weight=4]opencode-go:glm-5.1^[weight=2,max_context=128000]opencode-go:kimi-k2.5^openai:gpt-4o"
+
 # Reasoning Aliases (Shorthands)
 reasoning_aliases:
   reasoning_alias_settings: []

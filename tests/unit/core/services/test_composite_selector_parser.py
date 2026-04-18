@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 from src.core.domain.composite_routing import (
-    CompositeLeafNode,
     CompositeRoutingInput,
     CompositeSelectorValidationError,
     CompositeValidationErrorCode,
@@ -39,7 +38,6 @@ def test_parse_failover_selector_is_deterministic_and_normalized() -> None:
     normalized_children = [
         child.leaf_selector.normalized_selector
         for child in first_plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
     ]
     assert normalized_children == ["openai:gpt-4", "anthropic:claude-3-5-sonnet"]
 
@@ -50,9 +48,7 @@ def test_parse_weighted_selector_applies_default_and_explicit_weights() -> None:
 
     assert plan.root_node.kind == "weighted_group"
     weights = [
-        child.leaf_selector.weight_annotation
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
+        child.leaf_selector.weight_annotation for child in plan.root_node.children
     ]
     assert weights == [3, 1]
 
@@ -110,11 +106,7 @@ def test_parse_real_world_weighted_route_with_explicit_and_default_branch_weight
     plan = _parse(parser, selector)
 
     assert plan.root_node.kind == "weighted_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
+    leaves = [child.leaf_selector for child in plan.root_node.children]
     assert [leaf.weight_annotation for leaf in leaves] == [3, 2, 1]
     assert leaves[0].uri_params == {}
     assert leaves[0].backend_type == "opencode-go"
@@ -151,11 +143,7 @@ def test_parse_preserves_leaf_local_uri_params_per_branch() -> None:
     )
 
     assert plan.root_node.kind == "failover_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
+    leaves = [child.leaf_selector for child in plan.root_node.children]
     assert leaves[0].uri_params == {"temperature": "0.1"}
     assert leaves[1].uri_params == {
         "temperature": "0.8",
@@ -236,11 +224,7 @@ def test_parse_operator_in_query_value_is_treated_as_composite_separator() -> No
 
     plan = _parse(parser, "openai:gpt-4?filter=a^b")
     assert plan.root_node.kind == "weighted_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
+    leaves = [child.leaf_selector for child in plan.root_node.children]
     assert leaves[0].uri_params == {"filter": "a"}
     assert leaves[1].model_name == "b"
 
@@ -254,11 +238,7 @@ def test_parse_url_encoded_operator_in_query_value_preserves_value() -> None:
     plan = _parse(parser, "openai:gpt-4^anthropic:claude-3?note=x%5Ey")
 
     assert plan.root_node.kind == "weighted_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
+    leaves = [child.leaf_selector for child in plan.root_node.children]
     assert len(leaves) == 2
     assert leaves[1].uri_params == {"note": "x^y"}
 
@@ -277,11 +257,7 @@ def test_parse_weighted_selector_accepts_first_annotation_forms(
     plan = _parse(parser, selector)
 
     assert plan.root_node.kind == "weighted_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
+    leaves = [child.leaf_selector for child in plan.root_node.children]
     assert len(leaves) == 2
     assert leaves[0].first_annotation is True
     assert leaves[1].first_annotation is False
@@ -323,11 +299,7 @@ def test_parse_weighted_selector_accepts_mixed_weight_and_first_annotations() ->
     plan = _parse(parser, selector)
 
     assert plan.root_node.kind == "weighted_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
+    leaves = [child.leaf_selector for child in plan.root_node.children]
     assert len(leaves) == 2
     assert leaves[0].weight_annotation == 3
     assert leaves[0].first_annotation is True
@@ -342,11 +314,7 @@ def test_parse_weighted_selector_first_before_weight() -> None:
     plan = _parse(parser, selector)
 
     assert plan.root_node.kind == "weighted_group"
-    leaves = [
-        child.leaf_selector
-        for child in plan.root_node.children
-        if isinstance(child, CompositeLeafNode)
-    ]
+    leaves = [child.leaf_selector for child in plan.root_node.children]
     assert leaves[0].weight_annotation == 5
     assert leaves[0].first_annotation is True
 
@@ -380,3 +348,85 @@ def test_parse_weighted_selector_normalizes_first_in_output() -> None:
 
     assert "[first]" in plan.normalized_selector
     assert "[weight=3]" in plan.normalized_selector
+
+
+def test_parse_weighted_selector_supports_max_context_prefix() -> None:
+    parser = CompositeSelectorParser()
+
+    plan = _parse(
+        parser,
+        "[weight=2,max_context=128000]openai:gpt-4^anthropic:claude-3",
+    )
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert len(leaves) == 2
+    assert leaves[0].weight_annotation == 2
+    assert leaves[0].max_context_tokens == 128000
+    assert leaves[1].max_context_tokens is None
+
+
+def test_parse_weighted_selector_supports_mixed_prefix_order_in_single_block() -> None:
+    parser = CompositeSelectorParser()
+
+    plan = _parse(
+        parser,
+        "[first,max_context=164000,weight=4]openai:gpt-4^anthropic:claude-3",
+    )
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert len(leaves) == 2
+    assert leaves[0].first_annotation is True
+    assert leaves[0].weight_annotation == 4
+    assert leaves[0].max_context_tokens == 164000
+    assert (
+        plan.normalized_selector
+        == "[weight=4][first][max_context=164000]openai:gpt-4^[weight=1]anthropic:claude-3"
+    )
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        "[max_context=0]openai:gpt-4^anthropic:claude-3",
+        "[max_context=-1]openai:gpt-4^anthropic:claude-3",
+        "[max_context=abc]openai:gpt-4^anthropic:claude-3",
+    ],
+)
+def test_parse_rejects_invalid_max_context_values(selector: str) -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, selector)
+
+    assert (
+        exc_info.value.envelope.code == CompositeValidationErrorCode.INVALID_MAX_CONTEXT
+    )
+
+
+def test_parse_rejects_unknown_prefix_annotation() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "[foo=1]openai:gpt-4^anthropic:claude-3")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+
+
+def test_parse_rejects_duplicate_max_context_annotation() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(
+            parser,
+            "[max_context=1000,max_context=2000]openai:gpt-4^anthropic:claude-3",
+        )
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
