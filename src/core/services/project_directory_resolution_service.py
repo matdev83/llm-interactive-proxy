@@ -1620,7 +1620,6 @@ class ProjectDirectoryResolutionService:
                 logger.warning(
                     "Failed to parse XML in directory response: %s",
                     e,
-                    exc_info=True,
                 )
             return None, f"invalid XML: {e}"
         if root.tag != "directory-resolution-response":

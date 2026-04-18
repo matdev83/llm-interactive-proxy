@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path, PureWindowsPath
 from typing import Literal
 from unittest.mock import AsyncMock
@@ -1712,3 +1713,19 @@ class TestParseDirectoryResponseWithNoisyInput:
         assert directory is None
         assert error is not None
         assert "invalid XML" in error
+
+    def test_rejects_non_xml_response_without_traceback(self, caplog) -> None:
+        service = self._build_service()
+        with caplog.at_level(logging.WARNING):
+            directory, error = service._parse_directory_response(
+                "Sorry, I cannot help with that."
+            )
+        assert directory is None
+        assert error is not None
+        records = [
+            record
+            for record in caplog.records
+            if "Failed to parse XML in directory response" in record.getMessage()
+        ]
+        assert records
+        assert all(record.exc_info is None for record in records)
