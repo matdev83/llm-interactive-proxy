@@ -9,7 +9,10 @@ from pydantic.types import JsonValue
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.response_processor_interface import (
+    ProcessedChunkContent,
+    ProcessedResponse,
+)
 
 from tests.helpers.backend_request_manager_fixtures import (
     create_backend_request_manager,
@@ -222,6 +225,244 @@ async def test_empty_stream_retry_respects_max_limit() -> None:
         and isinstance(chunk.metadata.get("error"), dict)
         for chunk in chunks
     )
+
+
+@pytest.mark.asyncio
+async def test_terminal_tool_calls_stream_is_not_retried_as_empty() -> None:
+    """Tool-call terminal chunks are meaningful and must not trigger empty retry."""
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
+    manager = create_backend_request_manager(
+        backend_processor=backend_processor,
+        response_processor=response_processor,
+    )
+
+    original_request = ChatRequest(
+        model="openai",
+        messages=[ChatMessage(role="user", content="use a tool")],
+        stream=True,
+    )
+
+    async def tool_only_stream() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(
+            content="",
+            metadata=_meta({"finish_reason": "tool_calls", "is_done": True}),
+        )
+
+    backend_processor.process_backend_request.return_value = StreamingResponseEnvelope(
+        content=tool_only_stream()
+    )
+
+    envelope = await manager.process_backend_request(
+        original_request,
+        "session-tool-calls",
+        _make_context(),
+    )
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
+    assert envelope.content is not None
+    chunks = [chunk async for chunk in envelope.content]
+
+    assert backend_processor.process_backend_request.await_count == 1
+    assert len(chunks) == 1
+    assert chunks[0].metadata.get("finish_reason") == "tool_calls"
+
+
+@pytest.mark.asyncio
+async def test_tool_call_emitted_marker_suppresses_empty_stream_retry() -> None:
+    """Explicit tool-call markers must suppress empty-stream retry."""
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
+    manager = create_backend_request_manager(
+        backend_processor=backend_processor,
+        response_processor=response_processor,
+    )
+
+    original_request = ChatRequest(
+        model="openai",
+        messages=[ChatMessage(role="user", content="use a tool")],
+        stream=True,
+    )
+
+    async def tool_marker_stream() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(
+            content="",
+            metadata=_meta({"tool_call_emitted": True, "is_done": True}),
+        )
+
+    backend_processor.process_backend_request.return_value = StreamingResponseEnvelope(
+        content=tool_marker_stream()
+    )
+
+    envelope = await manager.process_backend_request(
+        original_request,
+        "session-tool-marker",
+        _make_context(),
+    )
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
+    assert envelope.content is not None
+    chunks = [chunk async for chunk in envelope.content]
+
+    assert backend_processor.process_backend_request.await_count == 1
+    assert len(chunks) == 1
+    assert chunks[0].metadata.get("tool_call_emitted") is True
+
+
+@pytest.mark.asyncio
+async def test_nested_terminal_stop_chunk_is_not_treated_as_empty_stream() -> None:
+    """Nested terminal stop chunks must count as meaningful to avoid false retries."""
+    manager = create_backend_request_manager()
+    handler = cast(Any, manager._post_backend_response_coordinator._streaming_handler)
+
+    nested_chunk = ProcessedResponse(
+        content=cast(
+            ProcessedChunkContent,
+            ProcessedResponse(
+                content={
+                    "id": "resp_nested_stop",
+                    "object": "response.chunk",
+                    "created": 123,
+                    "model": "gpt-5.4-mini",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"total_tokens": 10},
+                },
+                metadata=_meta({"finish_reason": "stop", "is_done": True}),
+            ),
+        ),
+        metadata=_meta({"session_id": "session-nested-stop"}),
+    )
+
+    assert handler._chunk_has_meaningful_output(nested_chunk) is True
+
+
+@pytest.mark.asyncio
+async def test_processed_response_with_nested_tool_call_dict_is_meaningful() -> None:
+    """Nested ProcessedResponse payloads from the stream normalizer must still count."""
+    manager = create_backend_request_manager()
+    handler = cast(Any, manager._post_backend_response_coordinator._streaming_handler)
+
+    nested_chunk = ProcessedResponse(
+        content=cast(
+            ProcessedChunkContent,
+            ProcessedResponse(
+                content={
+                    "id": "resp_nested_tool",
+                    "object": "response.chunk",
+                    "created": 123,
+                    "model": "gpt-5.4-mini",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "id": "fc_nested_tool",
+                                        "index": 0,
+                                        "type": "function",
+                                        "function": {
+                                            "name": "bash",
+                                            "arguments": '{"command":"git status --short"}',
+                                        },
+                                    }
+                                ]
+                            },
+                            "finish_reason": "tool_calls",
+                        }
+                    ],
+                },
+                metadata=_meta(
+                    {"tool_call_emitted": True, "finish_reason": "tool_calls"}
+                ),
+            ),
+        ),
+        metadata=_meta({"session_id": "session-nested-tool"}),
+    )
+
+    assert handler._chunk_has_meaningful_output(nested_chunk) is True
+
+
+@pytest.mark.asyncio
+async def test_ws_tool_call_chunk_without_marker_still_avoids_empty_retry() -> None:
+    """Canonical tool-call chunks should suppress empty retry even if metadata was lost."""
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
+    manager = create_backend_request_manager(
+        backend_processor=backend_processor,
+        response_processor=response_processor,
+    )
+
+    original_request = ChatRequest(
+        model="openai",
+        messages=[ChatMessage(role="user", content="use a tool")],
+        stream=True,
+    )
+
+    async def tool_chunk_stream() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(
+            content={
+                "id": "resp_ws_tool",
+                "object": "response.chunk",
+                "created": 123,
+                "model": "gpt-5.4-mini",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "id": "fc_ws_tool",
+                                    "index": 0,
+                                    "type": "function",
+                                    "function": {
+                                        "name": "bash",
+                                        "arguments": '{"command":"git status --short"}',
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            },
+            metadata=_meta(
+                {"event_type": "response.output_item.done", "is_done": True}
+            ),
+        )
+
+    backend_processor.process_backend_request.return_value = StreamingResponseEnvelope(
+        content=tool_chunk_stream()
+    )
+
+    envelope = await manager.process_backend_request(
+        original_request,
+        "session-ws-tool-no-marker",
+        _make_context(),
+    )
+
+    assert isinstance(envelope, StreamingResponseEnvelope)
+    assert envelope.content is not None
+    chunks = [chunk async for chunk in envelope.content]
+
+    assert backend_processor.process_backend_request.await_count == 1
+    assert len(chunks) == 1
+    content = cast(dict[str, Any], chunks[0].content)
+    assert content["choices"][0]["finish_reason"] == "tool_calls"
 
 
 @pytest.mark.asyncio

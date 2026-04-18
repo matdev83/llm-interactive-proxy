@@ -404,6 +404,8 @@ class BackendStreamingResponseHandler:
     def _metadata_has_meaningful_output(self, metadata: dict[str, Any]) -> bool:
         if metadata.get("error"):
             return True
+        if metadata.get("tool_call_emitted") is True:
+            return True
 
         accumulated_content = metadata.get("accumulated_content")
         if isinstance(accumulated_content, str) and accumulated_content.strip():
