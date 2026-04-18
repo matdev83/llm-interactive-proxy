@@ -17,7 +17,7 @@ class InspectCliConfig:
     direction: str | None = None
     backend: str | None = None
     list_backends: bool = False
-    max_data: int = 200
+    max_data: int = 4096
     status_summary: bool = False
     verbose: bool = False
     search: str | None = None

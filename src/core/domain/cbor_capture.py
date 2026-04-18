@@ -76,6 +76,7 @@ class CaptureMetadata:
     websocket_message_type: str | None = None  # "text" | "binary"
     compression_correlation_id: str | None = None
     compression_records_count: int | None = None
+    capture_debug: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values for compact CBOR."""
@@ -166,6 +167,8 @@ class CaptureMetadata:
             result["ccid"] = self.compression_correlation_id
         if self.compression_records_count is not None:
             result["crc"] = self.compression_records_count
+        if self.capture_debug is not None:
+            result["cdb"] = self.capture_debug
         return result
 
     @classmethod
@@ -215,6 +218,7 @@ class CaptureMetadata:
             websocket_message_type=data.get("ws_message_type"),
             compression_correlation_id=data.get("ccid"),
             compression_records_count=data.get("crc"),
+            capture_debug=data.get("cdb"),
         )
 
 
@@ -269,6 +273,7 @@ class CapturedWireEvent:
     websocket_message_type: str | None = None
     compression_correlation_id: str | None = None
     compression_records_count: int | None = None
+    capture_debug: dict[str, Any] | None = None
 
     def __init__(
         self,
@@ -321,6 +326,7 @@ class CapturedWireEvent:
         websocket_message_type: str | None = None,
         compression_correlation_id: str | None = None,
         compression_records_count: int | None = None,
+        capture_debug: dict[str, Any] | None = None,
     ) -> None:
         if metadata is not None:
             if session_id is None:
@@ -409,6 +415,8 @@ class CapturedWireEvent:
                 compression_correlation_id = metadata.compression_correlation_id
             if compression_records_count is None:
                 compression_records_count = metadata.compression_records_count
+            if capture_debug is None:
+                capture_debug = metadata.capture_debug
 
         object.__setattr__(self, "timestamp", timestamp)
         object.__setattr__(self, "direction", direction)
@@ -465,6 +473,7 @@ class CapturedWireEvent:
             "compression_records_count",
             compression_records_count,
         )
+        object.__setattr__(self, "capture_debug", capture_debug)
 
     @classmethod
     def from_metadata(
@@ -532,6 +541,7 @@ class CapturedWireEvent:
             websocket_message_type=self.websocket_message_type,
             compression_correlation_id=self.compression_correlation_id,
             compression_records_count=self.compression_records_count,
+            capture_debug=self.capture_debug,
         )
 
     def to_dict(self) -> dict[str, Any]:

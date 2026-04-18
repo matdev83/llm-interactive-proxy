@@ -283,7 +283,7 @@ def print_entries(
     *,
     out: TextIO | None = None,
     max_entries: int = 20,
-    max_data_length: int = 200,
+    max_data_length: int = 4096,
     direction_filter: int | None = None,
     backend_filter: str | None = None,
     verbose: bool = False,

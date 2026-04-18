@@ -110,6 +110,18 @@ class TestCaptureMetadata:
         assert result["ccid"] == "ccid-abc"
         assert result["crc"] == 3
 
+    def test_capture_debug_roundtrip(self) -> None:
+        capture_debug = {
+            "instructions_len": 10,
+            "instructions_suffix": "abcdefghij",
+            "ws_event_type": "response.create",
+        }
+        meta = CaptureMetadata(session_id="s1", capture_debug=capture_debug)
+        dumped = meta.to_dict()
+        assert dumped["cdb"] == capture_debug
+        restored = CaptureMetadata.from_dict(dumped)
+        assert restored.capture_debug == capture_debug
+
     def test_from_dict_roundtrip(self):
         """Test from_dict recreates original metadata."""
         original = CaptureMetadata(
@@ -762,6 +774,38 @@ class TestCborWireCaptureService:
         assert entry["dir"] == CaptureDirection.PROXY_TO_BACKEND
         assert entry["data"] == b'{"test": "data"}'
         assert entry["meta"]["be"] == "openai"
+
+    @pytest.mark.asyncio
+    async def test_capture_outbound_request_persists_capture_debug_metadata(
+        self, capture_service
+    ) -> None:
+        await capture_service.capture_outbound_request(
+            context=None,
+            session_id="test-sess",
+            backend="openai_codex",
+            model="gpt-4",
+            key_name="OPENAI_KEY",
+            request_payload=b'{"x":1}',
+            capture_metadata={
+                "transport": "websocket",
+                "protocol_event": "frame",
+                "websocket_message_type": "text",
+                "capture_debug": {
+                    "instructions_len": 3,
+                    "instructions_suffix": "abc",
+                    "ws_event_type": "response.create",
+                },
+            },
+        )
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+        assert len(entries) >= 2
+        entry = entries[1]
+        assert entry["meta"]["cdb"]["instructions_suffix"] == "abc"
+        assert entry["meta"]["cdb"]["ws_event_type"] == "response.create"
 
     @pytest.mark.asyncio
     async def test_capture_inbound_response(self, capture_service):

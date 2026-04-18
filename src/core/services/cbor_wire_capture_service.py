@@ -494,6 +494,7 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 "compression_records_count": capture_metadata.get(
                     "compression_records_count"
                 ),
+                "capture_debug": capture_metadata.get("capture_debug"),
             }
 
         context_extensions = (
@@ -555,6 +556,7 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
         websocket_message_type: str | None = None
         compression_correlation_id: str | None = None
         compression_records_count: int | None = None
+        capture_debug: dict[str, Any] | None = None
 
         if eos_fields:
             eos_val = eos_fields.get("eos", False)
@@ -693,6 +695,10 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             ):
                 compression_records_count = int(compression_records_count_val)
 
+            capture_debug_val = capture_fields.get("capture_debug")
+            if isinstance(capture_debug_val, dict) and capture_debug_val:
+                capture_debug = capture_debug_val
+
         metadata = CaptureMetadata(
             session_id=resolved_session,
             a_session_id=a_session_id,
@@ -732,6 +738,7 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             websocket_message_type=websocket_message_type,
             compression_correlation_id=compression_correlation_id,
             compression_records_count=compression_records_count,
+            capture_debug=capture_debug,
         )
 
         return metadata

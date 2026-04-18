@@ -63,4 +63,5 @@ META_FIELD_NAMES = {
     "ws_message_type": "websocket_message_type",
     "ccid": "compression_correlation_id",
     "crc": "compression_records_count",
+    "cdb": "capture_debug",
 }

@@ -64,8 +64,8 @@ def build_parser(
     parser.add_argument(
         "--max-data",
         type=int,
-        default=200,
-        help="Maximum bytes of data to show per entry (default: 200)",
+        default=4096,
+        help="Maximum bytes of data to show per entry (default: 4096)",
     )
     parser.add_argument(
         "--status-summary",

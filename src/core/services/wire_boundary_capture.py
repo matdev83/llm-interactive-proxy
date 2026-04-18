@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any, cast
@@ -8,6 +9,7 @@ from urllib.parse import urlsplit
 
 import httpx
 import requests  # type: ignore[import-untyped]
+from pydantic.types import JsonValue
 
 from src.connectors.contracts import ConnectorRequestContext
 from src.connectors.contracts.wire_capture_context import (
@@ -21,6 +23,58 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 
 logger = logging.getLogger(__name__)
 _HTTP_STREAM_CAPTURE_WRAPPED_EXTENSION = "llm_proxy_http_stream_capture_wrapped"
+_OUTBOUND_CAPTURE_DEBUG_MAX_PAYLOAD_BYTES = 512 * 1024
+_INSTRUCTION_SUFFIX_LEN = 512
+_INSTRUCTION_PREFIX_LEN = 128
+_INPUT_FULL_MAX_CHARS = 2048
+
+
+def build_outbound_capture_debug(
+    payload: bytes | bytearray | memoryview,
+) -> dict[str, Any] | None:
+    if not isinstance(payload, bytes | bytearray | memoryview):
+        return None
+    raw = bytes(payload)
+    if not raw or len(raw) > _OUTBOUND_CAPTURE_DEBUG_MAX_PAYLOAD_BYTES:
+        return None
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    debug: dict[str, Any] = {}
+    evt_type = obj.get("type")
+    if isinstance(evt_type, str) and evt_type:
+        debug["ws_event_type"] = evt_type[:200]
+
+    instr = obj.get("instructions")
+    if isinstance(instr, str) and instr:
+        n = len(instr)
+        debug["instructions_len"] = n
+        if n <= _INPUT_FULL_MAX_CHARS:
+            debug["instructions"] = instr
+        else:
+            debug["instructions_prefix"] = instr[:_INSTRUCTION_PREFIX_LEN]
+            debug["instructions_suffix"] = instr[-_INSTRUCTION_SUFFIX_LEN:]
+
+    inp = obj.get("input")
+    if isinstance(inp, str) and inp:
+        n = len(inp)
+        debug["input_len"] = n
+        if n <= _INPUT_FULL_MAX_CHARS:
+            debug["input"] = inp
+        else:
+            debug["input_prefix"] = inp[:_INSTRUCTION_PREFIX_LEN]
+            debug["input_suffix"] = inp[-_INSTRUCTION_SUFFIX_LEN:]
+    elif isinstance(inp, list):
+        debug["input_list_len"] = len(inp)
+
+    return debug or None
 
 
 def _is_cbor_wire_capture(wire_capture: IWireCapture | None) -> bool:
@@ -354,6 +408,20 @@ async def capture_http_outbound_request(
         return
 
     try:
+        merged_metadata_any: dict[str, Any] = dict(
+            merge_connector_wire_capture_extensions(
+                _http_capture_metadata(
+                    request=request,
+                    protocol_event="request",
+                ),
+                context,
+            )
+        )
+        body = request.content
+        if isinstance(body, bytes | bytearray | memoryview):
+            debug = build_outbound_capture_debug(body)
+            if debug:
+                merged_metadata_any["capture_debug"] = debug
         await wire_capture.capture_outbound_request(
             context=_build_request_context(context),
             session_id=_extract_session_id(context),
@@ -361,13 +429,7 @@ async def capture_http_outbound_request(
             model=model,
             key_name=key_name,
             request_payload=_build_http_request_bytes(request),
-            capture_metadata=merge_connector_wire_capture_extensions(
-                _http_capture_metadata(
-                    request=request,
-                    protocol_event="request",
-                ),
-                context,
-            ),
+            capture_metadata=cast(dict[str, JsonValue], merged_metadata_any),
         )
     except Exception:
         if logger.isEnabledFor(logging.DEBUG):
@@ -434,6 +496,23 @@ async def capture_requests_outbound_request(
         return
 
     try:
+        merged_metadata: dict[str, Any] = {
+            "transport": "http",
+            "protocol_event": "request",
+            "http_method": request.method or "GET",
+            "url": str(request.url or ""),
+        }
+        body = request.body
+        if isinstance(body, str):
+            body_bytes = body.encode("utf-8")
+        elif isinstance(body, bytes | bytearray | memoryview):
+            body_bytes = bytes(body)
+        else:
+            body_bytes = b""
+        if body_bytes:
+            debug = build_outbound_capture_debug(body_bytes)
+            if debug:
+                merged_metadata["capture_debug"] = debug
         await wire_capture.capture_outbound_request(
             context=_build_request_context(context),
             session_id=_extract_session_id(context),
@@ -441,12 +520,7 @@ async def capture_requests_outbound_request(
             model=model,
             key_name=key_name,
             request_payload=_build_requests_request_bytes(request),
-            capture_metadata={
-                "transport": "http",
-                "protocol_event": "request",
-                "http_method": request.method or "GET",
-                "url": str(request.url or ""),
-            },
+            capture_metadata=cast(dict[str, JsonValue], merged_metadata),
         )
     except Exception:
         if logger.isEnabledFor(logging.DEBUG):
@@ -510,6 +584,14 @@ async def capture_websocket_backend_outbound(
     ):
         return
     try:
+        merged_metadata: dict[str, Any] = {
+            "transport": "websocket",
+            "protocol_event": "frame",
+            "websocket_message_type": message_type,
+        }
+        debug = build_outbound_capture_debug(payload)
+        if debug:
+            merged_metadata["capture_debug"] = debug
         await wire_capture.capture_outbound_request(
             context=_build_request_context(context),
             session_id=_extract_session_id(context),
@@ -517,11 +599,7 @@ async def capture_websocket_backend_outbound(
             model=model,
             key_name=key_name,
             request_payload=payload,
-            capture_metadata={
-                "transport": "websocket",
-                "protocol_event": "frame",
-                "websocket_message_type": message_type,
-            },
+            capture_metadata=cast(dict[str, JsonValue], merged_metadata),
         )
     except Exception:
         if logger.isEnabledFor(logging.DEBUG):
