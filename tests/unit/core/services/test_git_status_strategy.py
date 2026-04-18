@@ -140,6 +140,15 @@ class TestGitStatusLongFormat:
         )
         assert "notes/scratch.md" in result
 
+    def test_skips_long_format_untracked_summary_sentence(self) -> None:
+        strategy = GitStatusStrategy()
+        result = strategy.compress(
+            _STATUS_LONG_STAGED_UNSTAGED_UNTRACKED,
+            context=_ctx(_STATUS_LONG_STAGED_UNSTAGED_UNTRACKED),
+            level=CompressionLevel.BALANCED,
+        )
+        assert "nothing added to commit but untracked files present" not in result
+
     def test_preserves_ahead_info(self) -> None:
         strategy = GitStatusStrategy()
         result = strategy.compress(

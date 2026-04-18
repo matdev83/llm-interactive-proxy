@@ -189,6 +189,8 @@ class GitStatusStrategy:
                     trimmed
                     and not trimmed.startswith("(")
                     and not trimmed.startswith("Untracked")
+                    and not trimmed.startswith("nothing added to commit")
+                    and not trimmed.startswith("nothing to commit")
                     and not trimmed.startswith("use ")
                 ):
                     untracked.append(trimmed)
