@@ -23,7 +23,7 @@ _DELETED_RE = re.compile(r"^\s+deleted:\s+(.+?)\s*$")
 _RENAMED_RE = re.compile(r"^\s+renamed:\s+(.+?)\s*$")
 _COPIED_RE = re.compile(r"^\s+copied:\s+(.+?)\s*$")
 
-_BRANCH_PORCELAIN_RE = re.compile(r"([^.]+)")
+_BRANCH_PORCELAIN_RE = re.compile(r"(\S+?)(?:\.\.\.|$)")
 _UPSTREAM_PORCELAIN_RE = re.compile(r"\.\.\.(\S+)")
 _AHEAD_PORCELAIN_RE = re.compile(r"\[ahead\s+(\d+)\]")
 _BEHIND_PORCELAIN_RE = re.compile(r"\[behind\s+(\d+)\]")
@@ -126,7 +126,7 @@ class GitStatusStrategy:
             elif xy[0] != " ":
                 staged.append(f"{_porcelain_x_marker(xy[0])} {path}")
             elif xy[1] != " ":
-                unstaged.append(f"~ {path}")
+                unstaged.append(f"{_porcelain_y_marker(xy[1])} {path}")
 
         return self._render(
             branch=branch,
@@ -181,7 +181,7 @@ class GitStatusStrategy:
                     staged.append(entry)
             elif section == "unstaged":
                 entry = self._parse_long_entry(line)
-                if entry and "~" in entry:
+                if entry:
                     unstaged.append(entry)
             elif section == "untracked":
                 trimmed = line.strip()
@@ -290,3 +290,12 @@ def _porcelain_x_marker(x: str) -> str:
         "R": "->",
         "C": "C",
     }.get(x.upper(), x)
+
+
+def _porcelain_y_marker(y: str) -> str:
+    return {
+        "M": "~",
+        "D": "-",
+        "R": "->",
+        "C": "C",
+    }.get(y.upper(), y)

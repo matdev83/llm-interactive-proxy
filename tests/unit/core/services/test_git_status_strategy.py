@@ -1,7 +1,7 @@
 """Tests for GitStatusStrategy — lean-ctx-inspired git status compression."""
+
 from __future__ import annotations
 
-import pytest
 from src.core.domain.configuration.dynamic_compression_config import CompressionLevel
 from src.core.domain.dynamic_compression import ToolOutputContext
 from src.core.services.compression_strategies import GitStatusStrategy
@@ -26,37 +26,37 @@ _STATUS_LONG_UNSTAGED = (
     "Your branch is up to date with 'origin/main'.\n"
     "\n"
     "Changes not staged for commit:\n"
-    "  (use \"git add <file>...\" to update what will be committed)\n"
+    '  (use "git add <file>..." to update what will be committed)\n'
     "\n"
     "\tmodified:   src/main.rs\n"
     "\tmodified:   src/lib.rs\n"
     "\n"
-    "no changes added to commit (use \"git add\" and/or \"git commit -a\")\n"
+    'no changes added to commit (use "git add" and/or "git commit -a")\n'
 )
 
 _STATUS_LONG_STAGED_UNSTAGED_UNTRACKED = (
     "On branch feature/x\n"
     "Your branch is ahead of 'origin/feature/x' by 2 commits.\n"
-    "  (use \"git push\" to publish your local commits)\n"
+    '  (use "git push" to publish your local commits)\n'
     "\n"
     "Changes to be committed:\n"
-    "  (use \"git restore --staged <file>...\" to unstage)\n"
+    '  (use "git restore --staged <file>..." to unstage)\n'
     "\tnew file:   src/new_module.py\n"
     "\tmodified:   src/existing.py\n"
     "\tdeleted:    src/old_module.py\n"
     "\trenamed:    src/a.py -> src/b.py\n"
     "\n"
     "Changes not staged for commit:\n"
-    "  (use \"git add <file>...\" to update what will be committed)\n"
+    '  (use "git add <file>..." to update what will be committed)\n'
     "\tmodified:   src/existing.py\n"
     "\tmodified:   src/other.py\n"
     "\n"
     "Untracked files:\n"
-    "  (use \"git add <file>...\" to include in what will be committed)\n"
+    '  (use "git add <file>..." to include in what will be committed)\n'
     "\tnotes/scratch.md\n"
     "\ttemp/\n"
     "\n"
-    "nothing added to commit but untracked files present (use \"git add\" to track)\n"
+    'nothing added to commit but untracked files present (use "git add" to track)\n'
 )
 
 _STATUS_CLEAN = (
@@ -318,3 +318,88 @@ class TestGitStatusExplicitFormatPassthrough:
             level=CompressionLevel.BALANCED,
         )
         assert result == content
+
+
+class TestGitStatusLongFormatUnstagedNonModify:
+    """Regression: long-format unstaged section must not drop deletions/renames."""
+
+    _STATUS_LONG_UNSTAGED_DELETE_AND_RENAME = (
+        "On branch main\n"
+        "Your branch is up to date with 'origin/main'.\n"
+        "\n"
+        "Changes not staged for commit:\n"
+        '  (use "git add <file>..." to update what will be committed)\n'
+        "\tmodified:   src/changed.py\n"
+        "\tdeleted:    src/old.py\n"
+        "\trenamed:    src/a.py -> src/b.py\n"
+        "\n"
+        'no changes added to commit (use "git add" and/or "git commit -a")\n'
+    )
+
+    def test_unstaged_deleted_file_appears_in_output(self) -> None:
+        strategy = GitStatusStrategy()
+        result = strategy.compress(
+            self._STATUS_LONG_UNSTAGED_DELETE_AND_RENAME,
+            context=_ctx(self._STATUS_LONG_UNSTAGED_DELETE_AND_RENAME),
+            level=CompressionLevel.BALANCED,
+        )
+        assert "src/old.py" in result
+        assert "- src/old.py" in result
+
+    def test_unstaged_renamed_file_appears_in_output(self) -> None:
+        strategy = GitStatusStrategy()
+        result = strategy.compress(
+            self._STATUS_LONG_UNSTAGED_DELETE_AND_RENAME,
+            context=_ctx(self._STATUS_LONG_UNSTAGED_DELETE_AND_RENAME),
+            level=CompressionLevel.BALANCED,
+        )
+        assert "src/a.py -> src/b.py" in result or "->" in result
+
+    def test_unstaged_modified_still_appears(self) -> None:
+        strategy = GitStatusStrategy()
+        result = strategy.compress(
+            self._STATUS_LONG_UNSTAGED_DELETE_AND_RENAME,
+            context=_ctx(self._STATUS_LONG_UNSTAGED_DELETE_AND_RENAME),
+            level=CompressionLevel.BALANCED,
+        )
+        assert "src/changed.py" in result
+
+
+class TestGitStatusPorcelainUnstagedChangeKind:
+    """Regression: porcelain unstaged Y-column must use correct change markers."""
+
+    def test_porcelain_unstaged_delete_shows_minus(self) -> None:
+        content = "## main\n D src/old.py\n"
+        strategy = GitStatusStrategy()
+        result = strategy.compress(
+            content, context=_ctx(content), level=CompressionLevel.BALANCED
+        )
+        assert "- src/old.py" in result
+
+    def test_porcelain_unstaged_modify_shows_tilde(self) -> None:
+        content = "## main\n M src/changed.py\n"
+        strategy = GitStatusStrategy()
+        result = strategy.compress(
+            content, context=_ctx(content), level=CompressionLevel.BALANCED
+        )
+        assert "~ src/changed.py" in result
+
+
+class TestGitStatusDottedBranchName:
+    """Regression: branch names with dots must not be truncated."""
+
+    def test_porcelain_dotted_branch_name_preserved(self) -> None:
+        content = "## release/1.2...origin/release/1.2\n M src/main.py\n"
+        strategy = GitStatusStrategy()
+        result = strategy.compress(
+            content, context=_ctx(content), level=CompressionLevel.BALANCED
+        )
+        assert "release/1.2" in result
+
+    def test_porcelain_complex_dotted_branch_name(self) -> None:
+        content = "## feature/v2.3.1-hotfix...origin/feature/v2.3.1-hotfix\n"
+        strategy = GitStatusStrategy()
+        result = strategy.compress(
+            content, context=_ctx(content), level=CompressionLevel.BALANCED
+        )
+        assert "feature/v2.3.1-hotfix" in result
