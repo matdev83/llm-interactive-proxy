@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 
 _DROID_BRIDGE_MARKER = "Factory Droid compatibility mode"
 _DROID_INCOMPATIBLE_MARKER = "Factory Droid incompatible tool retry"
+_DROID_CRITICAL_INSTRUCTION = (
+    "CRITICAL INSTRUCTION:\n"
+    "(a) NEVER run cat inside a bash command to create a file or append to an "
+    "existing file. Use respective tools provided by the Droid agent instead.\n"
+    "(b) DO NOT use bash commands like ls for listing, cat for viewing, grep for "
+    "string matching. Use respective tools provided by the Droid agent instead."
+)
 _DROID_NATIVE_TOOL_NAMES = {
     "Read",
     "LS",
@@ -502,7 +509,9 @@ class DroidClientFamilyAdapter(IClientFamilyAdapter):
             "- Use Droid argument shapes exactly for the native file/execute tools: `Read(file_path, offset?, limit?)`, `LS(directory_path?)`, `Execute(command, timeout?, cwd?)`, `Edit(file_path, old_str, new_str)`, `Grep(pattern, path?, file_pattern?, max_results?)`, `Glob(pattern, max_results?)`, `Create(file_path, content)`.\n"
             "- Do not emit Codex-native tool names such as `read`, `read_file`, `bash`, `shell`, `apply_patch`, `grep_files`, or `list_dir`.\n"
             "- Use `TodoWrite` instead of Codex task-planner tools, `WebSearch` for web search, and `FetchUrl` for direct URL fetches when those tools are available.\n"
-            "- Keep tool arguments as JSON objects; for `Execute`, the `command` value must be a single shell command string, not an array."
+            "- Keep tool arguments as JSON objects; for `Execute`, the `command` value must be a single shell command string, not an array.\n"
+            "\n"
+            f"{_DROID_CRITICAL_INSTRUCTION}"
         )
 
     def _resolve_supported_tool_names(self, context: CodexRequestContext) -> set[str]:
@@ -562,7 +571,9 @@ class DroidClientFamilyAdapter(IClientFamilyAdapter):
             f"- Use only Droid-compatible tools for this client: {available}.\n"
             "- Keep using any extra tools that are already available in this session, including `Skill`, `Task`, or `fff___*`, when they are the best fit.\n"
             "- Prefer `Execute` for terminal commands, `Read`/`LS` for filesystem inspection, `Edit`/`Create` for file changes, and `Grep`/`Glob` for search tasks.\n"
-            "- Keep Droid tool names in PascalCase and keep `Execute.command` as a single command string."
+            "- Keep Droid tool names in PascalCase and keep `Execute.command` as a single command string.\n"
+            "\n"
+            f"{_DROID_CRITICAL_INSTRUCTION}"
         )
 
     @staticmethod

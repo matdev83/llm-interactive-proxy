@@ -98,6 +98,28 @@ def test_adapt_payload_dict_preserves_responses_native_structure() -> None:
     assert adapted_input[3]["output"] == {"status": "ok"}
 
 
+def test_bridge_prompt_includes_critical_shell_and_file_rules() -> None:
+    adapter = OpenCodeClientFamilyAdapter()
+    context = _build_context(tools=[_tool("bash")])
+    payload: dict[str, object] = {
+        "model": "gpt-5.1-codex",
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            }
+        ],
+        "instructions": "Base",
+        "tools": [_tool("bash")],
+    }
+    adapted = adapter.adapt_payload_dict(payload, context)
+    instructions = cast(str, adapted["instructions"])
+    assert "CRITICAL INSTRUCTION:" in instructions
+    assert "NEVER run cat inside a bash command" in instructions
+    assert "DO NOT use bash commands like ls for listing" in instructions
+
+
 def test_adapt_payload_dict_appends_bridge_once() -> None:
     adapter = OpenCodeClientFamilyAdapter()
     context = _build_context(tools=[_tool("bash")])

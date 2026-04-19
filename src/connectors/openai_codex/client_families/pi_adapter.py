@@ -17,6 +17,13 @@ from src.connectors.openai_codex.contracts import (
 
 _PI_BRIDGE_MARKER = "Pi compatibility mode"
 _PI_INCOMPATIBLE_MARKER = "Pi incompatible tool retry"
+_PI_CRITICAL_INSTRUCTION = (
+    "CRITICAL INSTRUCTION:\n"
+    "(a) NEVER run cat inside a bash command to create a file or append to an "
+    "existing file. Use respective tools provided by the pi agent instead.\n"
+    "(b) DO NOT use bash commands like ls for listing, cat for viewing, grep for "
+    "string matching. Use respective tools provided by the pi agent instead."
+)
 _PI_PROMPT_MARKERS = (
     "operating inside pi",
     "coding agent harness",
@@ -241,7 +248,9 @@ class PiClientFamilyAdapter(IClientFamilyAdapter):
             "- Do not use `apply_patch`; use pi's `edit` tool for exact text replacement in a single file.\n"
             "- For `edit`, pass `path` plus an `edits` array of replacements with `oldText` and `newText`, each matched against the original file.\n"
             "- For file reads use `read` with `path` and optional `offset`/`limit`; for full rewrites use `write` with `path` and `content`.\n"
-            "- Keep responses concise and show file paths clearly."
+            "- Keep responses concise and show file paths clearly.\n"
+            "\n"
+            f"{_PI_CRITICAL_INSTRUCTION}"
         )
 
     def detect_incompatible_tool_calls(
@@ -336,7 +345,9 @@ class PiClientFamilyAdapter(IClientFamilyAdapter):
             "- This pi session can execute only the tools provided by the client.\n"
             f"- Use only these compatible tools: {available}.\n"
             "- Prefer `bash` for terminal commands, `read` for file inspection, `edit` for precise patches, and `write` for full rewrites.\n"
-            "- `apply_patch`, `shell`, and other Codex-native tools are not available in pi."
+            "- `apply_patch`, `shell`, and other Codex-native tools are not available in pi.\n"
+            "\n"
+            f"{_PI_CRITICAL_INSTRUCTION}"
         )
 
     @staticmethod

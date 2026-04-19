@@ -52,6 +52,34 @@ def _tool(name: str) -> dict[str, Any]:
     return {"type": "function", "function": {"name": name}}
 
 
+def test_pi_bridge_prompt_includes_critical_shell_and_file_rules() -> None:
+    adapter = PiClientFamilyAdapter()
+    context = _build_context(tools=[_tool("bash"), _tool("read"), _tool("edit")])
+    payload: dict[str, object] = {
+        "model": "gpt-5.1-codex",
+        "input": [
+            {
+                "type": "message",
+                "role": "developer",
+                "content": [{"type": "input_text", "text": _PI_PROMPT}],
+            },
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            },
+        ],
+        "instructions": "Base",
+        "tools": [_tool("bash"), _tool("read"), _tool("edit")],
+    }
+    adapted = adapter.adapt_payload_dict(payload, context)
+    instructions = cast(str, adapted["instructions"])
+    assert "CRITICAL INSTRUCTION:" in instructions
+    assert "NEVER run cat inside a bash command" in instructions
+    assert "DO NOT use bash commands like ls for listing" in instructions
+    assert "pi agent" in instructions
+
+
 def test_adapt_payload_dict_removes_pi_prompt_and_inserts_bridge_once() -> None:
     adapter = PiClientFamilyAdapter()
     context = _build_context(tools=[_tool("bash"), _tool("read"), _tool("edit")])
@@ -145,11 +173,11 @@ def test_pi_detection_requires_multiple_prompt_markers() -> None:
         context.request,
         "messages",
         [
-        ChatMessage(
-            role="developer",
-            content="Current working directory: C:/Users/Mateusz/source/repos/llm-interactive-proxy",
-        ),
-        ChatMessage(role="user", content="hello"),
+            ChatMessage(
+                role="developer",
+                content="Current working directory: C:/Users/Mateusz/source/repos/llm-interactive-proxy",
+            ),
+            ChatMessage(role="user", content="hello"),
         ],
     )
 

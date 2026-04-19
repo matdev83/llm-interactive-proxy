@@ -18,6 +18,13 @@ from src.connectors.openai_codex.contracts import (
 
 _OPENCODE_BRIDGE_MARKER = "OpenCode compatibility mode"
 _OPENCODE_INCOMPATIBLE_MARKER = "OpenCode incompatible tool retry"
+_OPENCODE_CRITICAL_INSTRUCTION = (
+    "CRITICAL INSTRUCTION:\n"
+    "(a) NEVER run cat inside a bash command to create a file or append to an "
+    "existing file. Use respective tools provided by the OpenCode agent instead.\n"
+    "(b) DO NOT use bash commands like ls for listing, cat for viewing, grep for "
+    "string matching. Use respective tools provided by the OpenCode agent instead."
+)
 
 
 class OpenCodeClientFamilyAdapter(IClientFamilyAdapter):
@@ -246,7 +253,9 @@ class OpenCodeClientFamilyAdapter(IClientFamilyAdapter):
             "- Do not use `apply_patch`; use the client's native file editing tools instead.\n"
             "- Do not use `update_plan` or `read_plan`; use the client's task tools instead.\n"
             "- If you need a working directory and the schema does not expose one, "
-            "mention it in `description`."
+            "mention it in `description`.\n"
+            "\n"
+            f"{_OPENCODE_CRITICAL_INSTRUCTION}"
         )
 
     def detect_incompatible_tool_calls(
@@ -349,7 +358,9 @@ class OpenCodeClientFamilyAdapter(IClientFamilyAdapter):
             f"- Use only tools compatible with this client: {available}.\n"
             "- Prefer shell execution via `bash`/`shell` for unsupported Codex operations.\n"
             "- For shell execution, arguments MUST be a JSON object with string "
-            "`command` and string `description`."
+            "`command` and string `description`.\n"
+            "\n"
+            f"{_OPENCODE_CRITICAL_INSTRUCTION}"
         )
 
     @staticmethod
