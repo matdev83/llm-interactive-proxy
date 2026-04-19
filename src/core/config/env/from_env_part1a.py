@@ -59,6 +59,13 @@ def build_config_part1a(
             path="disable_health_checks",
             resolution=resolution,
         ),
+        "disable_stale_acp_agent_kills": _env_to_bool(
+            "DISABLE_STALE_ACP_AGENT_KILLS",
+            False,
+            env,
+            path="disable_stale_acp_agent_kills",
+            resolution=resolution,
+        ),
         "enable_activity_tracking": _env_to_bool(
             "ENABLE_ACTIVITY_TRACKING",
             False,

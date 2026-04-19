@@ -568,6 +568,16 @@ class ArgumentParserBuilder:
     def _add_feature_flag_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add feature flags arguments."""
         parser.add_argument(
+            "--disable-stale-acp-agent-kills",
+            dest="disable_stale_acp_agent_kills",
+            action="store_true",
+            default=None,
+            help=(
+                "Disable idle shutdown timers for ACP agent subprocesses "
+                "(gemini-cli-acp, cursor-cli-acp)"
+            ),
+        )
+        parser.add_argument(
             "--disable-interactive-mode",
             action="store_true",
             default=None,

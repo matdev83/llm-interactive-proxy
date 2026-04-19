@@ -135,3 +135,5 @@ class ACPProcessRuntime:
     #: True while ACP reasoning/progress is being emitted as visible ``Thinking:``
     #: content so later deltas can append without reopening the block each time.
     acp_thinking_block_open: bool = False
+    #: Pending idle kill task for this pooled ACP runtime (if any).
+    stale_kill_task: Any = field(default=None)  # asyncio.Task | None

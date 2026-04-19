@@ -45,6 +45,18 @@ These entry points are defined in the sibling repo’s `pyproject.toml` under `[
 | `opencode-zen` | OpenCode Zen | OAuth | OpenCode Zen API (distinct from `opencode-go`) |
 | `qwen-oauth` | Alibaba Qwen (CLI) | Local OAuth token | Qwen CLI OAuth |
 
+## Agent Client Protocol (ACP) backends
+
+The `gemini-cli-acp` and `cursor-cli-acp` backends spawn a local agent subprocess for each pooled workspace/session key (see connector implementation for pooling). After each **completed chat turn** (assistant response finished), the proxy schedules termination of that subprocess if it stays **idle for 60 minutes**. When you send another message or reuse the same pooled agent, the pending timer is **cancelled**; after the next completed turn, a **new** 60-minute idle timer is scheduled.
+
+This idle cleanup is **enabled by default**. To disable it:
+
+- CLI: `--disable-stale-acp-agent-kills`
+- Environment: `DISABLE_STALE_ACP_AGENT_KILLS=true`
+- Configuration file: `disable_stale_acp_agent_kills: true`
+
+Precedence: **CLI** overrides **environment** overrides **configuration file**. INFO-level logs describe when a kill is scheduled, cancelled, or executed.
+
 ## Frontend APIs
 
 The proxy exposes multiple frontend APIs where clients connect. Each frontend implements a different LLM provider's API specification.

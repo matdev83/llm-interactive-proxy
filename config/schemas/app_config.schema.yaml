@@ -15,6 +15,7 @@ properties:
   gemini_credentials_path: { type: ["string", "null"] }
   auto_append_first_prompt_filename: { type: ["string", "null"] }
   disable_health_checks: { type: boolean }
+  disable_stale_acp_agent_kills: { type: boolean }
   enable_activity_tracking: { type: boolean }
   request_dedup_window: { type: number, minimum: 0 }
   request_dedup_max_cache: { type: integer, minimum: 1 }

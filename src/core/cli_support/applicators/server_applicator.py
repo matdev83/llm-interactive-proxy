@@ -64,6 +64,7 @@ class ServerApplicator:
         self._apply_auto_append_first_prompt_filename(args, overrides, resolution)
         self._apply_request_dedup(args, overrides, resolution)
         self._apply_thinking_budget(args, overrides, resolution)
+        self._apply_disable_stale_acp_agent_kills(args, overrides, resolution)
 
     def _apply_host(
         self,
@@ -244,3 +245,21 @@ class ServerApplicator:
                 ParameterSource.CLI,
                 origin="--thinking-budget",
             )
+
+    def _apply_disable_stale_acp_agent_kills(
+        self,
+        args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Apply --disable-stale-acp-agent-kills (ACP idle process termination)."""
+        raw = getattr(args, "disable_stale_acp_agent_kills", None)
+        if raw is not True:
+            return
+        overrides["disable_stale_acp_agent_kills"] = True
+        resolution.record(
+            "disable_stale_acp_agent_kills",
+            True,
+            ParameterSource.CLI,
+            origin="--disable-stale-acp-agent-kills",
+        )

@@ -45,6 +45,7 @@ class TestServerApplicator:
             request_dedup_window=None,
             disable_request_dedup=None,
             thinking_budget=None,
+            disable_stale_acp_agent_kills=None,
         )
 
     @pytest.fixture
@@ -238,6 +239,22 @@ class TestServerApplicator:
             cli_params = resolution.latest_by_source(ParameterSource.CLI)
             assert "session.planning_phase.overrides.thinking_budget" in cli_params
 
+    def test_apply_disable_stale_acp_agent_kills(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that --disable-stale-acp-agent-kills is applied."""
+        empty_args.disable_stale_acp_agent_kills = True
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert overrides.get("disable_stale_acp_agent_kills") is True
+        assert resolution.is_set("disable_stale_acp_agent_kills")
+        cli_params = resolution.latest_by_source(ParameterSource.CLI)
+        assert "disable_stale_acp_agent_kills" in cli_params
+
     def test_no_modifications_when_all_none(
         self,
         applicator,
@@ -280,6 +297,7 @@ class TestServerApplicator:
             "context_window_override",
             "enable_activity_tracking",
             "request_dedup_window",
+            "disable_stale_acp_agent_kills",
             "session",  # Contains nested thinking_budget
         }
         for key in overrides:

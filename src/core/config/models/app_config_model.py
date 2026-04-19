@@ -77,6 +77,8 @@ class AppConfigModel(DomainModel, IConfig):
     gemini_credentials_path: str | None = None
     gemini_read_timeout: float = 120.0  # Default 2 minutes
     disable_health_checks: bool = False
+    #: When True, do not start post-turn idle timers that terminate ACP agent subprocesses.
+    disable_stale_acp_agent_kills: bool = False
     enable_activity_tracking: bool = False
     auto_append_first_prompt_filename: str | None = None
     auto_append_first_prompt_text: str | None = Field(default=None, exclude=True)

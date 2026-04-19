@@ -78,6 +78,8 @@ ACP_AGENT_MESSAGE_CHUNK = "agent_message_chunk"
 ACP_AGENT_THOUGHT_CHUNK = "agent_thought_chunk"
 ACP_CANCEL_METHODS = ("session/cancel", "session/stop", "session/end")
 ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS = 12.0
+# Idle delay after a completed chat turn before terminating the pooled ACP subprocess.
+STALE_ACP_AGENT_KILL_DELAY_SECONDS = 3600.0
 # Increment when the canonicalization used for ACP history prefix hashes changes.
 HISTORY_PREFIX_HASH_VERSION = 2
 
@@ -187,6 +189,77 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         if isinstance(interval, int | float) and float(interval) > 0:
             return float(interval)
         return 12.0
+
+    def _stale_acp_kill_enabled(self) -> bool:
+        return not bool(getattr(self.config, "disable_stale_acp_agent_kills", False))
+
+    def _stale_acp_kill_delay_seconds(self) -> float:
+        return STALE_ACP_AGENT_KILL_DELAY_SECONDS
+
+    async def _cancel_stale_kill_timer(self, runtime: ACPProcessRuntime) -> None:
+        task = runtime.stale_kill_task
+        if task is None:
+            return
+        current = asyncio.current_task()
+        if task is current:
+            runtime.stale_kill_task = None
+            return
+        if not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        runtime.stale_kill_task = None
+
+    async def _schedule_stale_kill_after_turn(self, runtime: ACPProcessRuntime) -> None:
+        await self._cancel_stale_kill_timer(runtime)
+        if not self._stale_acp_kill_enabled():
+            return
+        delay = self._stale_acp_kill_delay_seconds()
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Scheduling stale ACP agent kill in %.0fs (backend=%s project=%s "
+                "model=%s client_session=%s)",
+                delay,
+                self.backend_type,
+                runtime.project_dir,
+                runtime.model,
+                runtime.client_session_id,
+            )
+        connector = self
+        runtime_ref = runtime
+
+        async def _run() -> None:
+            try:
+                await asyncio.sleep(delay)
+            except asyncio.CancelledError:
+                return
+            if not connector._stale_acp_kill_enabled():
+                return
+            proc = runtime_ref.process
+            if proc is None or proc.poll() is not None:
+                return
+            req_lock = runtime_ref.request_lock
+            if req_lock is not None and req_lock.locked():
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Stale ACP kill skipped: request in progress (backend=%s pid=%s)",
+                        connector.backend_type,
+                        getattr(proc, "pid", None),
+                    )
+                return
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Stale ACP agent idle timeout: terminating process (backend=%s "
+                    "pid=%s project=%s model=%s client_session=%s)",
+                    connector.backend_type,
+                    getattr(proc, "pid", None),
+                    runtime_ref.project_dir,
+                    runtime_ref.model,
+                    runtime_ref.client_session_id,
+                )
+            await connector._kill_runtime(runtime_ref)
+
+        runtime.stale_kill_task = asyncio.create_task(_run())
 
     @abstractmethod
     async def _build_acp_command(self, runtime: ACPProcessRuntime) -> list[str]:
@@ -419,6 +492,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 ) from exc
 
     async def _kill_runtime(self, runtime: ACPProcessRuntime) -> None:
+        await self._cancel_stale_kill_timer(runtime)
         assert runtime.process_lock is not None
         async with runtime.process_lock:
             process = runtime.process
@@ -1137,6 +1211,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         detected divergence, or send only the last user line on idempotent retries.
         """
 
+        await self._cancel_stale_kill_timer(runtime)
         await self._spawn_process(runtime)
         await self._initialize_runtime(runtime)
 
@@ -1229,6 +1304,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         finally:
             if runtime.cancellation_event is not None:
                 runtime.cancellation_event.clear()
+            await self._schedule_stale_kill_after_turn(runtime)
             await self._release_runtime_request_lock(runtime)
 
     async def _release_runtime_request_lock(self, runtime: ACPProcessRuntime) -> None:
@@ -1477,6 +1553,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                     and request.cancellation_token is not None
                 ):
                     request.cancellation_coordinator.cleanup(request.cancellation_token)
+                await self._schedule_stale_kill_after_turn(runtime)
 
     async def shutdown(self) -> None:
         await self._kill_all_runtimes()
