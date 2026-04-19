@@ -16,6 +16,7 @@ properties:
   auto_append_first_prompt_filename: { type: ["string", "null"] }
   disable_health_checks: { type: boolean }
   disable_stale_acp_agent_kills: { type: boolean }
+  stale_acp_agent_kill_idle_seconds: { type: number, minimum: 1, maximum: 604800 }
   enable_activity_tracking: { type: boolean }
   request_dedup_window: { type: number, minimum: 0 }
   request_dedup_max_cache: { type: integer, minimum: 1 }

@@ -578,6 +578,17 @@ class ArgumentParserBuilder:
             ),
         )
         parser.add_argument(
+            "--stale-acp-agent-kill-idle-seconds",
+            dest="stale_acp_agent_kill_idle_seconds",
+            type=float,
+            default=None,
+            metavar="SECONDS",
+            help=(
+                "ACP pooled subprocess idle kill delay in seconds after each completed "
+                "turn (default: 3600)."
+            ),
+        )
+        parser.add_argument(
             "--disable-interactive-mode",
             action="store_true",
             default=None,

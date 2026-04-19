@@ -66,6 +66,13 @@ def build_config_part1a(
             path="disable_stale_acp_agent_kills",
             resolution=resolution,
         ),
+        "stale_acp_agent_kill_idle_seconds": _env_to_float(
+            "STALE_ACP_AGENT_KILL_IDLE_SECONDS",
+            3600.0,
+            env,
+            path="stale_acp_agent_kill_idle_seconds",
+            resolution=resolution,
+        ),
         "enable_activity_tracking": _env_to_bool(
             "ENABLE_ACTIVITY_TRACKING",
             False,

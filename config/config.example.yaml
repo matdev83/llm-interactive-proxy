@@ -15,11 +15,17 @@ command_prefix: "!/"
 enable_activity_tracking: false
 
 # ACP backends (gemini-cli-acp, cursor-cli-acp): after each completed chat turn, schedule
-# termination of the pooled agent subprocess if idle for 60 minutes. Disable with:
+# termination of the pooled agent subprocess after idle seconds (default 3600 = 60 minutes).
+# Disable with:
 #   CLI: --disable-stale-acp-agent-kills
 #   Env: DISABLE_STALE_ACP_AGENT_KILLS=true
+# Override idle delay with:
+#   CLI: --stale-acp-agent-kill-idle-seconds <seconds>
+#   Env: STALE_ACP_AGENT_KILL_IDLE_SECONDS=<seconds>
+#   This file: stale_acp_agent_kill_idle_seconds: 7200
 # CLI overrides env overrides this file.
 disable_stale_acp_agent_kills: false
+stale_acp_agent_kill_idle_seconds: 3600
 
 # Append file contents once per session to the first user message (HTTP chat only).
 # File must be .txt or .md; read once at startup (restart to reload). INFO logs confirm

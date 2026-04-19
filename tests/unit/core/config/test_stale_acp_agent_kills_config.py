@@ -14,6 +14,24 @@ def test_app_config_default_disable_stale_acp_agent_kills_is_false() -> None:
     assert cfg.disable_stale_acp_agent_kills is False
 
 
+def test_app_config_default_stale_acp_agent_kill_idle_seconds() -> None:
+    cfg = AppConfig()
+    assert cfg.stale_acp_agent_kill_idle_seconds == 3600.0
+
+
+def test_from_env_sets_stale_acp_agent_kill_idle_seconds() -> None:
+    env = {"STALE_ACP_AGENT_KILL_IDLE_SECONDS": "120"}
+    cfg = AppConfig.from_env(environ=env)
+    assert cfg.stale_acp_agent_kill_idle_seconds == 120.0
+
+
+def test_cli_sets_stale_acp_agent_kill_idle_seconds() -> None:
+    with patch.dict("os.environ", {}, clear=True):
+        args = parse_cli_args(["--stale-acp-agent-kill-idle-seconds", "90"])
+        cfg = apply_cli_args(args)
+    assert cfg.stale_acp_agent_kill_idle_seconds == 90.0
+
+
 def test_from_env_sets_disable_stale_acp_agent_kills() -> None:
     env = {"DISABLE_STALE_ACP_AGENT_KILLS": "true"}
     cfg = AppConfig.from_env(environ=env)

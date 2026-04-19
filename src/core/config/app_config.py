@@ -138,6 +138,7 @@ class AppConfig(AppConfigModel):
             "vtc_client_patterns",
             "auto_append_first_prompt_filename",
             "disable_stale_acp_agent_kills",
+            "stale_acp_agent_kill_idle_seconds",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
 

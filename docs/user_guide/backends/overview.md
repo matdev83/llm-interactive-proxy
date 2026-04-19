@@ -47,13 +47,21 @@ These entry points are defined in the sibling repo’s `pyproject.toml` under `[
 
 ## Agent Client Protocol (ACP) backends
 
-The `gemini-cli-acp` and `cursor-cli-acp` backends spawn a local agent subprocess for each pooled workspace/session key (see connector implementation for pooling). After each **completed chat turn** (assistant response finished), the proxy schedules termination of that subprocess if it stays **idle for 60 minutes**. When you send another message or reuse the same pooled agent, the pending timer is **cancelled**; after the next completed turn, a **new** 60-minute idle timer is scheduled.
+The `gemini-cli-acp` and `cursor-cli-acp` backends spawn a local agent subprocess for each pooled workspace/session key (see connector implementation for pooling). After each **completed chat turn** (assistant response finished), the proxy schedules termination of that subprocess if it stays **idle** for `stale_acp_agent_kill_idle_seconds` (default **3600** seconds = 60 minutes). When you send another message or reuse the same pooled agent, the pending timer is **cancelled**; after the next completed turn, a **new** idle timer is scheduled.
 
 This idle cleanup is **enabled by default**. To disable it:
 
 - CLI: `--disable-stale-acp-agent-kills`
 - Environment: `DISABLE_STALE_ACP_AGENT_KILLS=true`
 - Configuration file: `disable_stale_acp_agent_kills: true`
+
+To change the idle delay:
+
+- CLI: `--stale-acp-agent-kill-idle-seconds <seconds>`
+- Environment: `STALE_ACP_AGENT_KILL_IDLE_SECONDS=<seconds>`
+- Configuration file: `stale_acp_agent_kill_idle_seconds: <seconds>`
+
+When **psutil** is installed (runtime dependency), before terminating a child the proxy checks that the OS process is still the same one it spawned (creation time and, when available, executable path), so an unrelated process that reused the PID is not killed. If psutil is missing, idle-kill falls back to the subprocess handle only (weaker).
 
 Precedence: **CLI** overrides **environment** overrides **configuration file**. INFO-level logs describe when a kill is scheduled, cancelled, or executed.
 

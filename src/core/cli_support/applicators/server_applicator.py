@@ -65,6 +65,7 @@ class ServerApplicator:
         self._apply_request_dedup(args, overrides, resolution)
         self._apply_thinking_budget(args, overrides, resolution)
         self._apply_disable_stale_acp_agent_kills(args, overrides, resolution)
+        self._apply_stale_acp_agent_kill_idle_seconds(args, overrides, resolution)
 
     def _apply_host(
         self,
@@ -262,4 +263,24 @@ class ServerApplicator:
             True,
             ParameterSource.CLI,
             origin="--disable-stale-acp-agent-kills",
+        )
+
+    def _apply_stale_acp_agent_kill_idle_seconds(
+        self,
+        args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Apply --stale-acp-agent-kill-idle-seconds (ACP idle process termination delay)."""
+        raw = getattr(args, "stale_acp_agent_kill_idle_seconds", None)
+        if raw is None:
+            return
+        value = float(raw)
+        overrides["stale_acp_agent_kill_idle_seconds"] = value
+        os.environ["STALE_ACP_AGENT_KILL_IDLE_SECONDS"] = str(value)
+        resolution.record(
+            "stale_acp_agent_kill_idle_seconds",
+            value,
+            ParameterSource.CLI,
+            origin="--stale-acp-agent-kill-idle-seconds",
         )

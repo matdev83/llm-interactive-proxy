@@ -388,7 +388,7 @@ path.
 
 #### Idle subprocess cleanup (ACP)
 
-After each completed chat turn, the proxy may terminate the pooled Gemini CLI ACP process if it stays idle for 60 minutes; new traffic cancels the pending shutdown. This matches the shared ACP behavior described under [Agent Client Protocol (ACP) backends in the overview](overview.md#agent-client-protocol-acp-backends). Disable via `--disable-stale-acp-agent-kills`, `DISABLE_STALE_ACP_AGENT_KILLS=true`, or `disable_stale_acp_agent_kills: true` (CLI overrides env overrides file).
+After each completed chat turn, the proxy may terminate the pooled Gemini CLI ACP process after it stays idle for `stale_acp_agent_kill_idle_seconds` (default 3600); new traffic cancels the pending shutdown. This matches the shared ACP behavior described under [Agent Client Protocol (ACP) backends in the overview](overview.md#agent-client-protocol-acp-backends). Disable via `--disable-stale-acp-agent-kills`, `DISABLE_STALE_ACP_AGENT_KILLS=true`, or `disable_stale_acp_agent_kills: true`. Override the delay with `--stale-acp-agent-kill-idle-seconds`, `STALE_ACP_AGENT_KILL_IDLE_SECONDS`, or `stale_acp_agent_kill_idle_seconds` in the config file (CLI overrides env overrides file).
 
 ### Usage
 

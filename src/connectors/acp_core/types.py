@@ -83,6 +83,15 @@ class AcpStreamPiece:
     reasoning_content: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class AcpSubprocessIdentity:
+    """OS-level fingerprint for a pooled ACP child process (PID reuse protection)."""
+
+    pid: int
+    create_time: float
+    exe_key: str = ""
+
+
 @dataclass(slots=True)
 class AcpToolStreamAccum:
     """Per-tool-call state for one ACP prompt stream (sizes and timing only)."""
@@ -137,3 +146,5 @@ class ACPProcessRuntime:
     acp_thinking_block_open: bool = False
     #: Pending idle kill task for this pooled ACP runtime (if any).
     stale_kill_task: Any = field(default=None)  # asyncio.Task | None
+    #: Captured when the child starts; used before idle-kill to detect PID reuse.
+    acp_subprocess_identity: AcpSubprocessIdentity | None = None

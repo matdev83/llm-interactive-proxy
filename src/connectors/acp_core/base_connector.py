@@ -14,6 +14,10 @@ from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
 
+from src.connectors.acp_core.acp_subprocess_identity import (
+    capture_acp_subprocess_identity,
+    stale_kill_still_same_os_process,
+)
 from src.connectors.acp_core.tool_markdown import (
     acp_tool_payload_should_emit,
     coalesce_acp_tool_call_update_session_dict,
@@ -78,8 +82,10 @@ ACP_AGENT_MESSAGE_CHUNK = "agent_message_chunk"
 ACP_AGENT_THOUGHT_CHUNK = "agent_thought_chunk"
 ACP_CANCEL_METHODS = ("session/cancel", "session/stop", "session/end")
 ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS = 12.0
-# Idle delay after a completed chat turn before terminating the pooled ACP subprocess.
-STALE_ACP_AGENT_KILL_DELAY_SECONDS = 3600.0
+# Default idle delay after a completed chat turn before terminating the pooled ACP child.
+# Override with ``stale_acp_agent_kill_idle_seconds`` (config / env / CLI).
+DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS = 3600.0
+_STALE_ACP_KILL_DELAY_MAX_SECONDS = 604800.0  # 7 days
 # Increment when the canonicalization used for ACP history prefix hashes changes.
 HISTORY_PREFIX_HASH_VERSION = 2
 
@@ -194,7 +200,17 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         return not bool(getattr(self.config, "disable_stale_acp_agent_kills", False))
 
     def _stale_acp_kill_delay_seconds(self) -> float:
-        return STALE_ACP_AGENT_KILL_DELAY_SECONDS
+        raw = getattr(
+            self.config,
+            "stale_acp_agent_kill_idle_seconds",
+            DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS,
+        )
+        if isinstance(raw, bool) or not isinstance(raw, int | float):
+            return DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS
+        v = float(raw)
+        if v != v:  # NaN
+            return DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS
+        return max(1.0, min(v, _STALE_ACP_KILL_DELAY_MAX_SECONDS))
 
     async def _cancel_stale_kill_timer(self, runtime: ACPProcessRuntime) -> None:
         task = runtime.stale_kill_task
@@ -238,6 +254,24 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             proc = runtime_ref.process
             if proc is None or proc.poll() is not None:
                 return
+            ident = runtime_ref.acp_subprocess_identity
+            if ident is not None and not stale_kill_still_same_os_process(proc, ident):
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Stale ACP kill skipped: OS process identity mismatch "
+                        "(backend=%s pid=%s project=%s)",
+                        connector.backend_type,
+                        getattr(proc, "pid", None),
+                        runtime_ref.project_dir,
+                    )
+                return
+            if ident is None and logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ACP stale kill has no subprocess identity fingerprint "
+                    "(backend=%s pid=%s); relying on subprocess handle state only",
+                    connector.backend_type,
+                    getattr(proc, "pid", None),
+                )
             req_lock = runtime_ref.request_lock
             if req_lock is not None and req_lock.locked():
                 if logger.isEnabledFor(logging.INFO):
@@ -476,6 +510,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 runtime.session_id = None
                 runtime.message_id = 0
                 runtime.history_state = None
+                runtime.acp_subprocess_identity = capture_acp_subprocess_identity(
+                    new_process, cmd
+                )
             except Exception as exc:
                 if new_process is not None:
                     self._cleanup_process(new_process)
@@ -483,6 +520,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 runtime.initialized = False
                 runtime.session_id = None
                 runtime.history_state = None
+                runtime.acp_subprocess_identity = None
                 raise APIConnectionError(
                     message=f"Failed to start ACP process: {exc}",
                     details={
@@ -524,6 +562,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         runtime.message_id = 0
         runtime.last_activity = 0.0
         runtime.history_state = None
+        runtime.acp_subprocess_identity = None
 
     def _cleanup_process(self, process: subprocess.Popen[bytes] | None = None) -> None:
         if process is None:

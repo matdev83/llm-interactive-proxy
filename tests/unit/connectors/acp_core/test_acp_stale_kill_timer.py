@@ -8,9 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.acp_core.base_connector import (
-    STALE_ACP_AGENT_KILL_DELAY_SECONDS,
+    DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS,
 )
-from src.connectors.acp_core.types import ACPProcessRuntime
+from src.connectors.acp_core.types import (
+    ACPProcessRuntime,
+    AcpSubprocessIdentity,
+)
 from tests.unit.connectors.acp_core.test_base_connector import DummyAcpConnector
 
 
@@ -18,6 +21,7 @@ from tests.unit.connectors.acp_core.test_base_connector import DummyAcpConnector
 def connector() -> DummyAcpConnector:
     cfg = MagicMock()
     cfg.disable_stale_acp_agent_kills = False
+    cfg.stale_acp_agent_kill_idle_seconds = 3600.0
     cfg.failure_handling = MagicMock()
     cfg.failure_handling.keepalive_interval = None
     return DummyAcpConnector(cfg, MagicMock())
@@ -28,8 +32,16 @@ def runtime(connector: DummyAcpConnector) -> ACPProcessRuntime:
     return connector._create_runtime(Path("/tmp/ws"), "m", "sid")
 
 
-def test_stale_kill_delay_constant_is_one_hour() -> None:
-    assert STALE_ACP_AGENT_KILL_DELAY_SECONDS == 3600.0
+def test_stale_kill_delay_default_is_one_hour(connector: DummyAcpConnector) -> None:
+    assert (
+        connector._stale_acp_kill_delay_seconds()
+        == DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS
+    )
+
+
+def test_stale_kill_delay_reads_config_seconds(connector: DummyAcpConnector) -> None:
+    connector.config.stale_acp_agent_kill_idle_seconds = 90.0
+    assert connector._stale_acp_kill_delay_seconds() == 90.0
 
 
 @pytest.mark.asyncio
@@ -95,6 +107,40 @@ async def test_stale_kill_task_calls_kill_runtime_after_delay(
         assert runtime.stale_kill_task is not None
         await asyncio.wait_for(runtime.stale_kill_task, timeout=2.0)
     mock_kill.assert_awaited_once_with(runtime)
+
+
+@pytest.mark.asyncio
+async def test_stale_kill_skipped_when_identity_mismatch(
+    connector: DummyAcpConnector,
+    runtime: ACPProcessRuntime,
+) -> None:
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.pid = 4242
+    runtime.process = mock_proc
+    runtime.acp_subprocess_identity = AcpSubprocessIdentity(
+        pid=4242, create_time=1.0, exe_key="x"
+    )
+    with (
+        patch.object(
+            connector,
+            "_stale_acp_kill_delay_seconds",
+            return_value=0.01,
+        ),
+        patch(
+            "src.connectors.acp_core.base_connector.stale_kill_still_same_os_process",
+            return_value=False,
+        ),
+        patch.object(
+            connector,
+            "_kill_runtime",
+            new_callable=AsyncMock,
+        ) as mock_kill,
+    ):
+        await connector._schedule_stale_kill_after_turn(runtime)
+        assert runtime.stale_kill_task is not None
+        await asyncio.wait_for(runtime.stale_kill_task, timeout=2.0)
+    mock_kill.assert_not_called()
 
 
 @pytest.mark.asyncio

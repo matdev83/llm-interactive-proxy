@@ -79,6 +79,13 @@ class AppConfigModel(DomainModel, IConfig):
     disable_health_checks: bool = False
     #: When True, do not start post-turn idle timers that terminate ACP agent subprocesses.
     disable_stale_acp_agent_kills: bool = False
+    #: Idle time (seconds) after a completed ACP chat turn before terminating the pooled child.
+    #: Default 3600 (60 minutes). CLI/env/file precedence matches other top-level settings.
+    stale_acp_agent_kill_idle_seconds: float = Field(
+        default=3600.0,
+        ge=1.0,
+        le=604800.0,
+    )
     enable_activity_tracking: bool = False
     auto_append_first_prompt_filename: str | None = None
     auto_append_first_prompt_text: str | None = Field(default=None, exclude=True)

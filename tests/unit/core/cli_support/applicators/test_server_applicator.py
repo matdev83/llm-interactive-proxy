@@ -46,6 +46,7 @@ class TestServerApplicator:
             disable_request_dedup=None,
             thinking_budget=None,
             disable_stale_acp_agent_kills=None,
+            stale_acp_agent_kill_idle_seconds=None,
         )
 
     @pytest.fixture
@@ -255,6 +256,24 @@ class TestServerApplicator:
         cli_params = resolution.latest_by_source(ParameterSource.CLI)
         assert "disable_stale_acp_agent_kills" in cli_params
 
+    def test_apply_stale_acp_agent_kill_idle_seconds(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that --stale-acp-agent-kill-idle-seconds is applied."""
+        empty_args.stale_acp_agent_kill_idle_seconds = 1800.0
+        with mock.patch.dict(os.environ, {}, clear=True):
+            applicator.apply(empty_args, overrides, resolution)
+
+            assert overrides.get("stale_acp_agent_kill_idle_seconds") == 1800.0
+            assert os.environ.get("STALE_ACP_AGENT_KILL_IDLE_SECONDS") == "1800.0"
+            assert resolution.is_set("stale_acp_agent_kill_idle_seconds")
+            cli_params = resolution.latest_by_source(ParameterSource.CLI)
+            assert "stale_acp_agent_kill_idle_seconds" in cli_params
+
     def test_no_modifications_when_all_none(
         self,
         applicator,
@@ -298,6 +317,7 @@ class TestServerApplicator:
             "enable_activity_tracking",
             "request_dedup_window",
             "disable_stale_acp_agent_kills",
+            "stale_acp_agent_kill_idle_seconds",
             "session",  # Contains nested thinking_budget
         }
         for key in overrides:
