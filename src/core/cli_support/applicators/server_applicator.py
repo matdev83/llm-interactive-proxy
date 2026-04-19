@@ -258,6 +258,7 @@ class ServerApplicator:
         if raw is not True:
             return
         overrides["disable_stale_acp_agent_kills"] = True
+        os.environ["DISABLE_STALE_ACP_AGENT_KILLS"] = "true"
         resolution.record(
             "disable_stale_acp_agent_kills",
             True,

@@ -246,52 +246,67 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
         async def _run() -> None:
             try:
-                await asyncio.sleep(delay)
-            except asyncio.CancelledError:
-                return
-            if not connector._stale_acp_kill_enabled():
-                return
-            proc = runtime_ref.process
-            if proc is None or proc.poll() is not None:
-                return
-            ident = runtime_ref.acp_subprocess_identity
-            if ident is not None and not stale_kill_still_same_os_process(proc, ident):
+                try:
+                    await asyncio.sleep(delay)
+                except asyncio.CancelledError:
+                    return
+                if not connector._stale_acp_kill_enabled():
+                    return
+                proc = runtime_ref.process
+                if proc is None or proc.poll() is not None:
+                    return
+                ident = runtime_ref.acp_subprocess_identity
+                if ident is not None and not stale_kill_still_same_os_process(
+                    proc, ident
+                ):
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Stale ACP kill skipped: OS process identity mismatch "
+                            "(backend=%s pid=%s project=%s)",
+                            connector.backend_type,
+                            getattr(proc, "pid", None),
+                            runtime_ref.project_dir,
+                        )
+                    return
+                if ident is None and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "ACP stale kill has no subprocess identity fingerprint "
+                        "(backend=%s pid=%s); relying on subprocess handle state only",
+                        connector.backend_type,
+                        getattr(proc, "pid", None),
+                    )
+                req_lock = runtime_ref.request_lock
+                if req_lock is not None and req_lock.locked():
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Stale ACP kill skipped: request in progress "
+                            "(backend=%s pid=%s)",
+                            connector.backend_type,
+                            getattr(proc, "pid", None),
+                        )
+                    return
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        "Stale ACP kill skipped: OS process identity mismatch "
-                        "(backend=%s pid=%s project=%s)",
+                        "Stale ACP agent idle timeout: terminating process (backend=%s "
+                        "pid=%s project=%s model=%s client_session=%s)",
                         connector.backend_type,
                         getattr(proc, "pid", None),
                         runtime_ref.project_dir,
+                        runtime_ref.model,
+                        runtime_ref.client_session_id,
                     )
-                return
-            if ident is None and logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "ACP stale kill has no subprocess identity fingerprint "
-                    "(backend=%s pid=%s); relying on subprocess handle state only",
+                await connector._kill_runtime(runtime_ref)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception(
+                    "Stale ACP agent kill task failed (backend=%s project=%s model=%s "
+                    "client_session=%s)",
                     connector.backend_type,
-                    getattr(proc, "pid", None),
-                )
-            req_lock = runtime_ref.request_lock
-            if req_lock is not None and req_lock.locked():
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Stale ACP kill skipped: request in progress (backend=%s pid=%s)",
-                        connector.backend_type,
-                        getattr(proc, "pid", None),
-                    )
-                return
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Stale ACP agent idle timeout: terminating process (backend=%s "
-                    "pid=%s project=%s model=%s client_session=%s)",
-                    connector.backend_type,
-                    getattr(proc, "pid", None),
                     runtime_ref.project_dir,
                     runtime_ref.model,
                     runtime_ref.client_session_id,
                 )
-            await connector._kill_runtime(runtime_ref)
 
         runtime.stale_kill_task = asyncio.create_task(_run())
 

@@ -92,3 +92,11 @@ def test_stale_kill_rejects_exe_mismatch(mock_popen: MagicMock) -> None:
 
 def test_stale_kill_false_when_identity_none(mock_popen: MagicMock) -> None:
     assert stale_kill_still_same_os_process(mock_popen, None) is False
+
+
+def test_stale_kill_true_when_psutil_unavailable_but_identity_present(
+    mock_popen: MagicMock,
+) -> None:
+    ident = AcpSubprocessIdentity(pid=9001, create_time=1.0, exe_key="a.exe")
+    with patch.object(sid_mod, "_psutil", None):
+        assert stale_kill_still_same_os_process(mock_popen, ident) is True

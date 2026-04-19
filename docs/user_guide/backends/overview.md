@@ -61,7 +61,7 @@ To change the idle delay:
 - Environment: `STALE_ACP_AGENT_KILL_IDLE_SECONDS=<seconds>`
 - Configuration file: `stale_acp_agent_kill_idle_seconds: <seconds>`
 
-When **psutil** is installed (runtime dependency), before terminating a child the proxy checks that the OS process is still the same one it spawned (creation time and, when available, executable path), so an unrelated process that reused the PID is not killed. If psutil is missing, idle-kill falls back to the subprocess handle only (weaker).
+**psutil** is a required runtime dependency (declared in `pyproject.toml`). Before terminating a child, the proxy uses it to verify the OS process is still the same one it spawned (creation time and, when available, executable path), so an unrelated process that reused the PID is not killed. The code also has a defensive import fallback: if `psutil` cannot be imported at runtime, idle-kill falls back to the subprocess handle only (weaker).
 
 Precedence: **CLI** overrides **environment** overrides **configuration file**. INFO-level logs describe when a kill is scheduled, cancelled, or executed.
 

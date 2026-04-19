@@ -91,7 +91,7 @@ def stale_kill_still_same_os_process(
         return False
 
     if _psutil is None:
-        return False
+        return True
 
     try:
         current = _psutil.Process(identity.pid)

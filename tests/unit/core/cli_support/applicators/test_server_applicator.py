@@ -249,12 +249,14 @@ class TestServerApplicator:
     ) -> None:
         """Test that --disable-stale-acp-agent-kills is applied."""
         empty_args.disable_stale_acp_agent_kills = True
-        applicator.apply(empty_args, overrides, resolution)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            applicator.apply(empty_args, overrides, resolution)
 
-        assert overrides.get("disable_stale_acp_agent_kills") is True
-        assert resolution.is_set("disable_stale_acp_agent_kills")
-        cli_params = resolution.latest_by_source(ParameterSource.CLI)
-        assert "disable_stale_acp_agent_kills" in cli_params
+            assert overrides.get("disable_stale_acp_agent_kills") is True
+            assert os.environ.get("DISABLE_STALE_ACP_AGENT_KILLS") == "true"
+            assert resolution.is_set("disable_stale_acp_agent_kills")
+            cli_params = resolution.latest_by_source(ParameterSource.CLI)
+            assert "disable_stale_acp_agent_kills" in cli_params
 
     def test_apply_stale_acp_agent_kill_idle_seconds(
         self,

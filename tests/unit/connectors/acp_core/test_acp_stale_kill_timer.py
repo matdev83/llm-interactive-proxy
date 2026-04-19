@@ -110,6 +110,35 @@ async def test_stale_kill_task_calls_kill_runtime_after_delay(
 
 
 @pytest.mark.asyncio
+async def test_stale_kill_task_logs_exception_when_kill_runtime_raises(
+    connector: DummyAcpConnector,
+    runtime: ACPProcessRuntime,
+) -> None:
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.pid = 4242
+    runtime.process = mock_proc
+    with (
+        patch.object(
+            connector,
+            "_stale_acp_kill_delay_seconds",
+            return_value=0.01,
+        ),
+        patch.object(
+            connector,
+            "_kill_runtime",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("boom"),
+        ),
+        patch("src.connectors.acp_core.base_connector.logger") as mock_logger,
+    ):
+        await connector._schedule_stale_kill_after_turn(runtime)
+        assert runtime.stale_kill_task is not None
+        await asyncio.wait_for(runtime.stale_kill_task, timeout=2.0)
+    mock_logger.exception.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_stale_kill_skipped_when_identity_mismatch(
     connector: DummyAcpConnector,
     runtime: ACPProcessRuntime,
