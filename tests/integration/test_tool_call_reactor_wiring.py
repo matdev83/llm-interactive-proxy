@@ -359,6 +359,7 @@ async def test_unified_steering_policy_priority_overrides():
     # BinaryFileEditPolicy has priority 90 (default)
     # ConfiguredRulesPolicy has priority 90
     # PytestFullSuitePolicy has priority 70
+    # CatFileEditsSteeringPolicy default 93; override to 65 so ordering matches assertions below
     # We want to override them such that InlinePythonPolicy runs first (highest priority)
     config = AppConfig.model_validate(
         {
@@ -370,6 +371,7 @@ async def test_unified_steering_policy_priority_overrides():
                         "configured_rules": 80,  # Override to make it lower than inline_python
                         "binary_file_edit": 75,  # Override to lower priority
                         "pytest_full_suite": 70,  # Keep default or override explicitly
+                        "cat_file_edits": 65,
                     },
                 },
             }
@@ -391,8 +393,8 @@ async def test_unified_steering_policy_priority_overrides():
 
     # Assert that policies are sorted by the overridden priorities
     policies = unified_handler._policies
-    # We expect 4 policies: InlinePythonPolicy, ConfiguredRulesPolicy, BinaryFileEditPolicy, PytestFullSuitePolicy
-    assert len(policies) == 4
+    # Five policies: inline_python, binary_file_edit, pytest_full_suite, cat_file_edits, configured_rules
+    assert len(policies) == 5
 
     # Find the policies by name and check their order based on overridden priorities
     policy_names_in_order = [p.name for p in policies]
@@ -405,6 +407,7 @@ async def test_unified_steering_policy_priority_overrides():
     assert policy_names_in_order[2] == "binary_file_edit"
     # Expect PytestFullSuitePolicy to be fourth due to priority 70
     assert policy_names_in_order[3] == "pytest_full_suite"
+    assert policy_names_in_order[4] == "cat_file_edits"
 
 
 @pytest.mark.asyncio

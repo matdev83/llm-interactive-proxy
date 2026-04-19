@@ -18,13 +18,14 @@ class ShellExecutionTools:
     EXECUTE_COMMAND: Final[str] = "execute_command"
     RUN_SHELL_COMMAND: Final[str] = "run_shell_command"
     RUN_TERMINAL_COMMAND: Final[str] = "run_terminal_command"
+    RUN_TERMINAL_CMD: Final[str] = "run_terminal_cmd"
     SHELL: Final[str] = "shell"
     LOCAL_SHELL: Final[str] = "local_shell"
     CONTAINER_EXEC: Final[str] = "container.exec"
 
     # Regex pattern for matching shell tool names
     PATTERN: Final[str] = (
-        r"\bexecute\b|execute_command|run_shell_command|run_terminal_command|exec_command|\bshell\b|\bbash\b|local_shell|container\.exec"
+        r"\bexecute\b|execute_command|run_shell_command|run_terminal_command|run_terminal_cmd|exec_command|\bshell\b|\bbash\b|local_shell|container\.exec"
     )
 
     @classmethod
@@ -38,6 +39,7 @@ class ShellExecutionTools:
             cls.EXECUTE_COMMAND,
             cls.RUN_SHELL_COMMAND,
             cls.RUN_TERMINAL_COMMAND,
+            cls.RUN_TERMINAL_CMD,
             cls.SHELL,
             cls.LOCAL_SHELL,
             cls.CONTAINER_EXEC,

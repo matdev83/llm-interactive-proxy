@@ -74,6 +74,12 @@ class ToolCallReactorConfig(DomainModel):
     binary_file_edit_steering_message: str | None = None
     """Optional custom steering message for binary file edit attempts."""
 
+    cat_file_edits_steering_enabled: bool = False
+    """Whether steering for cat output redirection (cat > / cat >>) is enabled."""
+
+    cat_file_edits_steering_message: str | None = None
+    """Optional custom steering message for cat-based file create/append attempts."""
+
     pytest_context_saving_enabled: bool = False
     """Whether pytest context-saving command rewrites are enabled."""
 
@@ -267,6 +273,8 @@ class SessionConfig(DomainModel):
     dangerous_command_steering_message: str | None = None
     pytest_full_suite_steering_enabled: bool | None = None
     pytest_full_suite_steering_message: str | None = None
+    cat_file_edits_steering_enabled: bool | None = None
+    cat_file_edits_steering_message: str | None = None
     test_execution_reminder_enabled: bool | None = None
     test_execution_reminder_message: str | None = None
     droid_path_fix_enabled: bool = False
@@ -375,6 +383,23 @@ class SessionConfig(DomainModel):
         else:
             values["pytest_full_suite_steering_message"] = reactor_config_dict.get(
                 "pytest_full_suite_steering_message"
+            )
+
+        cat_enabled = values.get("cat_file_edits_steering_enabled")
+        cat_message = values.get("cat_file_edits_steering_message")
+
+        if cat_enabled is not None:
+            reactor_config_dict["cat_file_edits_steering_enabled"] = cat_enabled
+        else:
+            values["cat_file_edits_steering_enabled"] = reactor_config_dict.get(
+                "cat_file_edits_steering_enabled", False
+            )
+
+        if cat_message is not None:
+            reactor_config_dict["cat_file_edits_steering_message"] = cat_message
+        else:
+            values["cat_file_edits_steering_message"] = reactor_config_dict.get(
+                "cat_file_edits_steering_message"
             )
 
         fix_think_tags = values.get("fix_think_tags_enabled")

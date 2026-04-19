@@ -388,6 +388,30 @@ def test_cli_pytest_full_suite_steering_flags() -> None:
         assert reactor_config.pytest_full_suite_steering_enabled is True
 
 
+def test_cli_cat_file_edits_steering_flags() -> None:
+    """Test CLI flags controlling cat file edits (redirection) steering."""
+
+    with patch("src.core.cli.load_config") as mock_load_config:
+        mock_load_config.return_value = AppConfig()
+        args_enable = parse_cli_args(["--enable-cat-file-edits-steering"])
+        assert args_enable.cat_file_edits_steering_enabled is True
+        config_enable = _unwrap_config(apply_cli_args(args_enable))
+        reactor_config = config_enable.session.tool_call_reactor
+        assert reactor_config.cat_file_edits_steering_enabled is True
+
+        existing_config = AppConfig(
+            session=AppConfig().session.model_copy(
+                update={"cat_file_edits_steering_enabled": True}
+            )
+        )
+        mock_load_config.return_value = existing_config
+        args_default = parse_cli_args([])
+        assert args_default.cat_file_edits_steering_enabled is None
+        config_default = _unwrap_config(apply_cli_args(args_default))
+        reactor_config = config_default.session.tool_call_reactor
+        assert reactor_config.cat_file_edits_steering_enabled is True
+
+
 def test_maybe_run_as_daemon_posix_continues(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure daemon mode continues execution on POSIX systems."""
     from src.core.config.app_config import LoggingConfig

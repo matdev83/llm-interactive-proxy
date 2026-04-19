@@ -37,6 +37,7 @@ class CommandExtractionService:
             r"execute_command",
             r"run_shell_command",
             r"run_terminal_command",
+            r"run_terminal_cmd",
             r"exec_command",
             r"\bshell\b",
             r"\bbash\b",

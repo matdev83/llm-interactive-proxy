@@ -423,6 +423,7 @@ class TestPytestFlags:
         [
             "--enable-pytest-full-suite-steering",
             "--disable-pytest-full-suite-steering",
+            "--enable-cat-file-edits-steering",
             "--enable-pytest-context-saving",
         ],
     )

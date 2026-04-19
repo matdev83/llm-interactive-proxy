@@ -109,6 +109,9 @@ session:
   # Tool call reactor steering for pytest full-suite runs (requires opt-in)
   pytest_full_suite_steering_enabled: false
 
+  # Steering for shell commands using cat > / cat >> to create or append files (opt-in)
+  cat_file_edits_steering_enabled: false
+
   # Test execution reminder system
   # Tracks file modifications and test executions, reminding agents to run tests
   # before completing tasks when code changes haven't been verified.

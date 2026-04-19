@@ -118,6 +118,7 @@ class SteeringStage(InitializationStage):
         """Register steering policies as singletons."""
         from src.services.steering.policies import (
             BinaryFileEditPolicy,
+            CatFileEditsSteeringPolicy,
             InlinePythonPolicy,
             PytestFullSuitePolicy,
         )
@@ -162,6 +163,20 @@ class SteeringStage(InitializationStage):
                 prompt_override_path=Path(
                     "config/prompts/steering_pytest_full_suite.md"
                 ),
+            ),
+        )
+
+        # Register CatFileEditsSteeringPolicy (opt-in)
+        services.add_singleton(
+            CatFileEditsSteeringPolicy,
+            implementation_factory=lambda provider: CatFileEditsSteeringPolicy(
+                message=getattr(
+                    reactor_config, "cat_file_edits_steering_message", None
+                ),
+                enabled=getattr(
+                    reactor_config, "cat_file_edits_steering_enabled", False
+                ),
+                prompt_override_path=Path("config/prompts/steering_cat_file_edits.md"),
             ),
         )
 
@@ -251,6 +266,7 @@ class SteeringStage(InitializationStage):
         from src.services.steering import UnifiedSteeringHandler
         from src.services.steering.policies import (
             BinaryFileEditPolicy,
+            CatFileEditsSteeringPolicy,
             InlinePythonPolicy,
             PytestFullSuitePolicy,
         )
@@ -261,6 +277,7 @@ class SteeringStage(InitializationStage):
                 provider.get_required_service(InlinePythonPolicy),
                 provider.get_required_service(BinaryFileEditPolicy),
                 provider.get_required_service(PytestFullSuitePolicy),
+                provider.get_required_service(CatFileEditsSteeringPolicy),
                 provider.get_required_service(ConfiguredRulesPolicy),
             ]
 

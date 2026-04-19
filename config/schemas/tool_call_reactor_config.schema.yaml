@@ -30,6 +30,12 @@ properties:
     type:
       - string
       - "null"
+  cat_file_edits_steering_enabled:
+    type: boolean
+  cat_file_edits_steering_message:
+    type:
+      - string
+      - "null"
   inline_python_steering_enabled:
     type: boolean
   inline_python_steering_message:

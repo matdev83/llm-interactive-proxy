@@ -227,6 +227,8 @@ properties:
       dangerous_command_steering_message: { type: ["string", "null"] }
       pytest_full_suite_steering_enabled: { type: boolean }
       pytest_full_suite_steering_message: { type: ["string", "null"] }
+      cat_file_edits_steering_enabled: { type: boolean }
+      cat_file_edits_steering_message: { type: ["string", "null"] }
       test_execution_reminder_enabled: { type: boolean }
       test_execution_reminder_message: { type: ["string", "null"] }
       fix_think_tags_enabled: { type: boolean }
@@ -310,6 +312,8 @@ properties:
           apply_diff_steering_message: { type: ["string", "null"] }
           pytest_full_suite_steering_enabled: { type: boolean }
           pytest_full_suite_steering_message: { type: ["string", "null"] }
+          cat_file_edits_steering_enabled: { type: boolean }
+          cat_file_edits_steering_message: { type: ["string", "null"] }
           inline_python_steering_enabled: { type: boolean }
           inline_python_steering_message: { type: ["string", "null"] }
           binary_file_edit_steering_enabled: { type: boolean }

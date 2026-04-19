@@ -385,6 +385,22 @@ class SessionApplicator:
                 origin="--enable/disable-pytest-full-suite-steering",
             )
 
+        if getattr(args, "cat_file_edits_steering_enabled", None) is not None:
+            session = overrides.setdefault("session", {})
+            session["cat_file_edits_steering_enabled"] = (
+                args.cat_file_edits_steering_enabled
+            )
+            tool_call_reactor = session.setdefault("tool_call_reactor", {})
+            tool_call_reactor["cat_file_edits_steering_enabled"] = (
+                args.cat_file_edits_steering_enabled
+            )
+            resolution.record(
+                "session.cat_file_edits_steering_enabled",
+                args.cat_file_edits_steering_enabled,
+                ParameterSource.CLI,
+                origin="--enable-cat-file-edits-steering",
+            )
+
         if getattr(args, "disable_binary_file_edit_steering", None) is True:
             session = overrides.setdefault("session", {})
             tool_call_reactor = session.setdefault("tool_call_reactor", {})

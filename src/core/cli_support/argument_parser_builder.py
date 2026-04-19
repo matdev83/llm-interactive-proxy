@@ -1168,6 +1168,15 @@ class ArgumentParserBuilder:
             help="Disable steering for full pytest suite commands (overrides config)",
         )
 
+        parser.add_argument(
+            "--enable-cat-file-edits-steering",
+            action="store_const",
+            const=True,
+            dest="cat_file_edits_steering_enabled",
+            default=None,
+            help="Enable steering for shell commands using cat > / cat >> to edit files (overrides config; off by default)",
+        )
+
         # Pytest context saving
         parser.add_argument(
             "--enable-pytest-context-saving",

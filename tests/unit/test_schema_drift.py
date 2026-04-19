@@ -163,6 +163,8 @@ apply_diff_steering_rate_limit_seconds: 60
 apply_diff_steering_message: "test message"
 pytest_full_suite_steering_enabled: false
 pytest_full_suite_steering_message: null
+cat_file_edits_steering_enabled: false
+cat_file_edits_steering_message: null
 inline_python_steering_enabled: true
 inline_python_steering_message: null
 binary_file_edit_steering_enabled: true

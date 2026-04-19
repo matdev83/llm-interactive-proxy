@@ -242,6 +242,8 @@ session:
   # Pytest Integration
   pytest_full_suite_steering_enabled: false
   pytest_full_suite_steering_message: null
+  cat_file_edits_steering_enabled: false
+  cat_file_edits_steering_message: null
   pytest_context_saving_enabled: false
   test_execution_reminder_enabled: false
   test_execution_reminder_message: null
@@ -292,6 +294,10 @@ session:
     apply_diff_steering_enabled: true
     apply_diff_steering_rate_limit_seconds: 60
     apply_diff_steering_message: null
+
+    # Opt-in: steer agents away from shell `cat >` / `cat >>` for file edits
+    cat_file_edits_steering_enabled: false
+    cat_file_edits_steering_message: null
     
     access_policies:           # List of access policies
       - name: "block-dangerous"

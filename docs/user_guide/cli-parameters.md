@@ -379,10 +379,12 @@ When auto-enabled with no explicit model configured, the system defaults to `ope
 | :--- | :--- | :--- |
 | `--enable-pytest-full-suite-steering` | `PYTEST_FULL_SUITE_STEERING_ENABLED=true` | Enable steering for full pytest suite. |
 | `--disable-pytest-full-suite-steering` | `PYTEST_FULL_SUITE_STEERING_ENABLED=false` | Disable steering for full pytest suite. |
+| `--enable-cat-file-edits-steering` | `CAT_FILE_EDITS_STEERING_ENABLED=true` | Enable steering when shell commands use `cat >` / `cat >>` to create or append files. Default is off; there is no CLI disable flag (use config or `CAT_FILE_EDITS_STEERING_ENABLED=false`). |
 | `--enable-pytest-context-saving` | N/A | Enable context saving rewrites. |
 | `--test-execution-reminder-enabled` | `TEST_EXECUTION_REMINDER_ENABLED=true` | Enable test execution reminder. |
 | `--no-test-execution-reminder-enabled` | `TEST_EXECUTION_REMINDER_ENABLED=false` | Disable test execution reminder. |
 | N/A | `PYTEST_FULL_SUITE_STEERING_MESSAGE` | Custom steering message. |
+| N/A | `CAT_FILE_EDITS_STEERING_MESSAGE` | Custom steering message for `cat` redirection file edits. |
 | N/A | `TEST_EXECUTION_REMINDER_MESSAGE` | Custom reminder message. |
 
 ### Empty Response Handling

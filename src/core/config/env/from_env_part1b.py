@@ -167,6 +167,20 @@ def apply_config_part1b(
             path="session.pytest_full_suite_steering_message",
             resolution=resolution,
         ),
+        "cat_file_edits_steering_enabled": _env_to_bool(
+            "CAT_FILE_EDITS_STEERING_ENABLED",
+            False,
+            env,
+            path="session.cat_file_edits_steering_enabled",
+            resolution=resolution,
+        ),
+        "cat_file_edits_steering_message": _get_env_value(
+            env,
+            "CAT_FILE_EDITS_STEERING_MESSAGE",
+            None,
+            path="session.cat_file_edits_steering_message",
+            resolution=resolution,
+        ),
         "test_execution_reminder_enabled": _env_to_bool(
             "TEST_EXECUTION_REMINDER_ENABLED",
             False,
