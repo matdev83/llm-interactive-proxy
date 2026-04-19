@@ -115,7 +115,6 @@ def stale_kill_still_same_os_process(
 
     if identity.exe_key:
         cur_exe = ""
-        cur_exe = ""
         with contextlib.suppress(_psutil.AccessDenied, _psutil.Error):
             cur_exe = _normalize_exe_key(current.exe())
         if cur_exe and cur_exe != identity.exe_key:

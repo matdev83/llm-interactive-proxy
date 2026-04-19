@@ -77,8 +77,8 @@ def test_load_config_merges_disable_stale_acp_agent_kills_from_env() -> None:
     assert cfg.disable_stale_acp_agent_kills is True
 
 
-def test_cli_overrides_env_false_stale_kills_enabled_via_cli() -> None:
-    """Env requests disable; CLI does not pass --disable -> env wins."""
+def test_env_disables_stale_kills_when_cli_not_passed() -> None:
+    """Env requests disable; CLI not used -> env applies."""
     merged = {"DISABLE_STALE_ACP_AGENT_KILLS": "true"}
     with patch.dict("os.environ", merged, clear=True):
         args = parse_cli_args([])
