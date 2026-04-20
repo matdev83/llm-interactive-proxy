@@ -55,6 +55,7 @@ class TestSessionApplicator:
             planning_phase_reasoning_effort=None,
             planning_phase_thinking_budget=None,
             pytest_full_suite_steering_enabled=None,
+            cat_file_edits_steering_enabled=None,
             pytest_context_saving_enabled=None,
             test_execution_reminder_enabled=None,
             fix_think_tags_enabled=None,
