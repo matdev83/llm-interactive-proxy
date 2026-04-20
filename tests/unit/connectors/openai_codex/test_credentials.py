@@ -29,6 +29,7 @@ from src.connectors.openai_codex.managed_oauth_models import (
     ManagedOAuthAccount,
     ManagedOAuthConfig,
 )
+from src.connectors.openai_codex.managed_oauth_refresh import ManagedOAuthRefreshError
 from src.connectors.openai_codex.managed_oauth_storage import ManagedOAuthStorageService
 from watchdog.events import FileSystemEvent  # type: ignore[reportAttributeAccessIssue]
 
@@ -267,6 +268,125 @@ class TestCredentialManager:
             result = await manager.refresh_access_token()
 
             assert result is False
+
+    @pytest.mark.asyncio
+    async def test_refresh_access_token_retries_on_read_timeout(
+        self, manager, temp_auth_file, http_client
+    ):
+        """Transient read timeouts should retry before failing refresh."""
+        await manager.initialize(auth_path=temp_auth_file)
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "access_token": "new_access_token",
+            "refresh_token": "new_refresh_token",
+        }
+
+        with (
+            patch.object(http_client, "post", new_callable=AsyncMock) as mock_post,
+            patch(
+                "src.connectors.openai_codex.credentials.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_post.side_effect = [
+                httpx.ReadTimeout("read timeout"),
+                mock_response,
+            ]
+
+            result = await manager.refresh_access_token()
+
+            assert result is True
+            assert manager.get_access_token() == "new_access_token"
+            assert mock_post.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_refresh_access_token_transient_errors_exhaust_retries(
+        self, manager, temp_auth_file, http_client
+    ):
+        """After max attempts, transient errors return False without raising."""
+        await manager.initialize(auth_path=temp_auth_file)
+
+        with (
+            patch.object(http_client, "post", new_callable=AsyncMock) as mock_post,
+            patch(
+                "src.connectors.openai_codex.credentials.asyncio.sleep",
+                new_callable=AsyncMock,
+            ),
+        ):
+            mock_post.side_effect = httpx.ReadTimeout("read timeout")
+
+            result = await manager.refresh_access_token()
+
+            assert result is False
+            assert mock_post.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_refresh_managed_transient_error_logs_without_exc_info(self, manager):
+        """Exhausted transient managed OAuth failures must not log traceback spam."""
+        account = ManagedOAuthAccount(
+            account_id="acct1",
+            access_token="a",
+            refresh_token="r",
+            expiry_date=1,
+        )
+        exc = ManagedOAuthRefreshError(
+            "failed after retries",
+            account_id="acct1",
+            from_transient_network=True,
+        )
+        with (
+            patch.object(
+                manager._managed_selector,
+                "get_current_account",
+                return_value=account,
+            ),
+            patch.object(
+                manager._managed_refresh,
+                "force_refresh",
+                AsyncMock(side_effect=exc),
+            ),
+            patch("src.connectors.openai_codex.credentials.logger") as log,
+        ):
+            result = await manager._refresh_managed_access_token()
+
+        assert result is False
+        log.warning.assert_called_once()
+        assert "exc_info" not in log.warning.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_refresh_managed_auth_error_logs_with_exc_info(self, manager):
+        """Non-transient managed OAuth errors keep exc_info for diagnosability."""
+        account = ManagedOAuthAccount(
+            account_id="acct2",
+            access_token="a",
+            refresh_token="r",
+            expiry_date=1,
+        )
+        exc = ManagedOAuthRefreshError(
+            "invalid_grant",
+            account_id="acct2",
+            from_transient_network=False,
+        )
+        with (
+            patch.object(
+                manager._managed_selector,
+                "get_current_account",
+                return_value=account,
+            ),
+            patch.object(
+                manager._managed_refresh,
+                "force_refresh",
+                AsyncMock(side_effect=exc),
+            ),
+            patch("src.connectors.openai_codex.credentials.logger") as log,
+        ):
+            result = await manager._refresh_managed_access_token()
+
+        assert result is False
+        log.warning.assert_called_once()
+        assert log.warning.call_args.kwargs.get("exc_info") is True
 
     @pytest.mark.asyncio
     async def test_refresh_access_token_no_refresh_token(

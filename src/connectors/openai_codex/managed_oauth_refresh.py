@@ -22,6 +22,17 @@ from src.connectors.openai_codex.managed_oauth_storage import ManagedOAuthStorag
 
 logger = logging.getLogger(__name__)
 
+# Match legacy credential refresh: slow token endpoint + transient errors are common.
+_MANAGED_OAUTH_TOKEN_TIMEOUT_S = 30.0
+
+
+def _is_transient_network_error(exc: BaseException) -> bool:
+    """True for transport-level failures that are worth retrying (like legacy OAuth POST)."""
+    return isinstance(
+        exc,
+        httpx.TimeoutException | httpx.ConnectError | httpx.ReadError,
+    )
+
 
 class ManagedOAuthRefreshError(RuntimeError):
     """Raised when token refresh fails for a managed account."""
@@ -32,10 +43,12 @@ class ManagedOAuthRefreshError(RuntimeError):
         *,
         account_id: str,
         needs_reauth: bool = False,
+        from_transient_network: bool = False,
     ) -> None:
         super().__init__(message)
         self.account_id = account_id
         self.needs_reauth = needs_reauth
+        self.from_transient_network = from_transient_network
 
 
 class ManagedOAuthRefreshService:
@@ -89,10 +102,20 @@ class ManagedOAuthRefreshService:
                 raise
             except Exception as exc:
                 last_error = exc
-                if attempt >= self._max_retries - 1:
+                if attempt + 1 >= self._max_retries:
                     break
                 delay = self._base_delay_seconds * (2**attempt)
-                if logger.isEnabledFor(logging.DEBUG):
+                if _is_transient_network_error(exc):
+                    logger.info(
+                        "Transient error during managed OAuth token refresh (%s, attempt %d/%d) "
+                        "for account %s; retrying in %.1fs",
+                        exc.__class__.__name__,
+                        attempt + 1,
+                        self._max_retries,
+                        account.account_id,
+                        delay,
+                    )
+                elif logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Managed OAuth refresh attempt %d/%d failed for %s; retrying in %.1fs",
                         attempt + 1,
@@ -103,9 +126,11 @@ class ManagedOAuthRefreshService:
                     )
                 await asyncio.sleep(delay)
 
+        assert last_error is not None
         raise ManagedOAuthRefreshError(
             f"Managed OAuth refresh failed after {self._max_retries} attempts: {last_error}",
             account_id=account.account_id,
+            from_transient_network=_is_transient_network_error(last_error),
         )
 
     async def _refresh_once(self, account: ManagedOAuthAccount) -> ManagedOAuthAccount:
@@ -139,7 +164,7 @@ class ManagedOAuthRefreshService:
             OPENAI_OAUTH_TOKEN_URL,
             json=payload,
             headers={"Content-Type": "application/json"},
-            timeout=15.0,
+            timeout=_MANAGED_OAUTH_TOKEN_TIMEOUT_S,
         )
 
         if response.status_code == 400:

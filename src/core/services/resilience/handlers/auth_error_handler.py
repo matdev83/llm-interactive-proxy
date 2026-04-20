@@ -121,6 +121,7 @@ class AuthErrorHandler(BaseErrorHandler):
             context.extra.get("is_personal_backend") is True
             or "oauth" in backend_type
             or "oauth" in instance_id_lower
+            or "codex" in instance_id_lower
         ):
             return ResilienceAction(
                 type=ActionType.PROCEED,

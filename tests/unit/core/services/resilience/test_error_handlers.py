@@ -263,6 +263,27 @@ class TestAuthErrorHandler:
             == InstanceStatus.ACTIVE
         )
 
+    def test_does_not_disable_openai_codex_scoped_instance_without_extra(self) -> None:
+        """Codex scoped ids include 'codex' and must not brick routing if extra is incomplete."""
+        manager = RateLimitStateManager()
+        handler = AuthErrorHandler(manager)
+
+        error = AuthenticationError("HTTP 401")
+        context = ErrorContext(
+            instance_id="openai-codex:llm-b2bua-test",
+            model="gpt-5",
+            error=error,
+            extra={},
+        )
+
+        action = handler.handle(context)
+
+        assert action.type == ActionType.PROCEED
+        assert (
+            manager.get_instance_status("openai-codex:llm-b2bua-test")
+            == InstanceStatus.ACTIVE
+        )
+
     def test_does_not_disable_opencode_go_on_auth_error(self) -> None:
         """OpenCode Go shares one key across protocol shapes; 401 must not brick routing."""
         manager = RateLimitStateManager()

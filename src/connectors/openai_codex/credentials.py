@@ -71,6 +71,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Legacy OAuth token endpoint: transient network issues are common; retry before failing refresh.
+_LEGACY_OAUTH_REFRESH_MAX_ATTEMPTS = 3
+_LEGACY_OAUTH_REFRESH_BASE_DELAY_S = 0.5
+_LEGACY_OAUTH_TOKEN_TIMEOUT_S = 30.0
+
 
 class OpenAICredentialsFileHandler(FileSystemEventHandler):
     """File watcher handler for OpenAI Codex credentials."""
@@ -882,7 +887,13 @@ class CredentialManager(ICredentialManager):
         try:
             updated = await self._managed_refresh.force_refresh(account)
         except ManagedOAuthRefreshError as exc:
-            if logger.isEnabledFor(logging.WARNING):
+            if exc.from_transient_network:
+                logger.warning(
+                    "Managed OAuth token refresh failed for account %s after retries: %s",
+                    exc.account_id,
+                    exc,
+                )
+            else:
                 logger.warning(
                     "Managed OAuth token refresh failed for account %s: %s",
                     exc.account_id,
@@ -933,17 +944,47 @@ class CredentialManager(ICredentialManager):
             "scope": "openid profile email",
         }
 
-        try:
-            response = await self._http_client.post(
-                OPENAI_OAUTH_TOKEN_URL,
-                json=payload,
-                headers={"Content-Type": "application/json"},
-                timeout=15.0,
-            )
-        except httpx.HTTPError as exc:
-            logger.warning(
-                "Failed to refresh OpenAI Codex token: %s", exc, exc_info=True
-            )
+        response: httpx.Response | None = None
+        for attempt in range(_LEGACY_OAUTH_REFRESH_MAX_ATTEMPTS):
+            try:
+                response = await self._http_client.post(
+                    OPENAI_OAUTH_TOKEN_URL,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=_LEGACY_OAUTH_TOKEN_TIMEOUT_S,
+                )
+                break
+            except (
+                httpx.TimeoutException,
+                httpx.ConnectError,
+                httpx.ReadError,
+            ) as exc:
+                if attempt + 1 < _LEGACY_OAUTH_REFRESH_MAX_ATTEMPTS:
+                    delay = _LEGACY_OAUTH_REFRESH_BASE_DELAY_S * (2**attempt)
+                    logger.info(
+                        "Transient error during OpenAI Codex token refresh (%s, attempt %d/%d); "
+                        "retrying in %.1fs",
+                        exc.__class__.__name__,
+                        attempt + 1,
+                        _LEGACY_OAUTH_REFRESH_MAX_ATTEMPTS,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                logger.warning(
+                    "Failed to refresh OpenAI Codex token after %d attempts (%s): %s",
+                    _LEGACY_OAUTH_REFRESH_MAX_ATTEMPTS,
+                    exc.__class__.__name__,
+                    exc,
+                )
+                return False
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "Failed to refresh OpenAI Codex token: %s", exc, exc_info=True
+                )
+                return False
+
+        if response is None:
             return False
 
         if response.status_code >= 400:

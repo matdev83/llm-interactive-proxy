@@ -6,12 +6,16 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic.types import JsonValue
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import (
     ProcessedChunkContent,
     ProcessedResponse,
+)
+from src.core.services.backend_request_manager.streaming_response_handler import (
+    BackendStreamingResponseHandler,
 )
 
 from tests.helpers.backend_request_manager_fixtures import (
@@ -1262,3 +1266,37 @@ async def test_dangerous_command_streaming_replays_and_hides_steering() -> None:
     assert "Proxy Steering Notice" in proxy_notice  # Escalating message
     assert "Steering instruction" in proxy_notice
     assert [chunk.content for chunk in chunks] == ["safer command"]
+
+
+def test_should_surface_pre_output_error_includes_bad_gateway() -> None:
+    """502/500 upstream failures must bypass empty-stream recovery (regression)."""
+    be502 = BackendError(
+        message="bad gateway",
+        backend_name="openai",
+        status_code=502,
+    )
+    assert BackendStreamingResponseHandler._should_surface_pre_output_error(
+        be502
+    ) is True
+
+    be500 = BackendError(
+        message="internal",
+        backend_name="openai",
+        status_code=500,
+    )
+    assert BackendStreamingResponseHandler._should_surface_pre_output_error(
+        be500
+    ) is True
+
+
+def test_should_surface_pre_output_error_considers_details_status_code() -> None:
+    """Some errors only carry HTTP status inside ``details``."""
+    be = BackendError(
+        message="wrapped",
+        backend_name="openai",
+        status_code=200,
+        details={"status_code": 502},
+    )
+    assert BackendStreamingResponseHandler._should_surface_pre_output_error(
+        be
+    ) is True

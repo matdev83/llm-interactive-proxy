@@ -573,7 +573,9 @@ class BackendStreamingResponseHandler:
             # Surface all 4xx client errors immediately, retrying them is useless
             if 400 <= status_code < 500:
                 return True
-            if status_code in {503, 504}:
+            # Common upstream / gateway failures: must not fall through to
+            # "empty model output" recovery (misleading user prompt append).
+            if status_code in {500, 502, 503, 504}:
                 return True
 
         details = getattr(stream_error, "details", None)
@@ -582,7 +584,7 @@ class BackendStreamingResponseHandler:
             if isinstance(details_status, int):
                 if 400 <= details_status < 500:
                     return True
-                if details_status in {503, 504}:
+                if details_status in {500, 502, 503, 504}:
                     return True
 
         return False
