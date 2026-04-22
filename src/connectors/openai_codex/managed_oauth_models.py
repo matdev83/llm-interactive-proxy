@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from datetime import datetime, timezone
@@ -246,6 +247,28 @@ class ManagedOAuthConfig(BaseModel):
     #: Max idle polls (sleeps) while all accounts are rate-limited before giving up
     #: (only when ``get_next_account`` is invoked with ``wait_for_rate_limit_recovery=True``).
     max_rate_limit_idle_polls: int = 48
+    #: Desktop notifications when remaining Codex quota (100 - used%%) drops below thresholds.
+    quota_remaining_alerts_enabled: bool = True
+    quota_remaining_alert_thresholds_percent: list[float] = Field(
+        default_factory=lambda: [25.0, 10.0],
+        description=(
+            "Alert when remaining quota is strictly below each value (percent of limit left). "
+            "Compared against x-codex-primary-used-percent / x-codex-secondary-used-percent."
+        ),
+    )
+
+    @field_validator("quota_remaining_alert_thresholds_percent", mode="after")
+    @classmethod
+    def _normalize_quota_remaining_thresholds(cls, v: list[float]) -> list[float]:
+        cleaned: list[float] = []
+        for raw in v:
+            if not isinstance(raw, int | float) or not math.isfinite(float(raw)):
+                continue
+            x = float(raw)
+            if 0.0 < x < 100.0:
+                cleaned.append(round(x, 6))
+        uniq = sorted(set(cleaned), reverse=True)
+        return uniq if uniq else [25.0, 10.0]
 
     @classmethod
     def from_mapping(

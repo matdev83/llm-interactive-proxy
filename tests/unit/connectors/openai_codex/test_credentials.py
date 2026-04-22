@@ -732,6 +732,73 @@ class TestCredentialManager:
             await mgr.shutdown()
 
     @pytest.mark.asyncio
+    async def test_evaluate_codex_remaining_quota_notifications_skips_when_disabled(
+        self, http_client
+    ) -> None:
+        from src.core.interfaces.notification_service_interface import (
+            INotificationService,
+        )
+
+        mock_svc = Mock(spec=INotificationService)
+        mock_svc.is_enabled = True
+        mock_svc.send_notification = AsyncMock(return_value="nid")
+        mgr = CredentialManager(http_client=http_client, notification_service=mock_svc)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mgr.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=False,
+                    storage_path=str(Path(temp_dir)),
+                    accounts="all",
+                    quota_remaining_alerts_enabled=False,
+                )
+            )
+        try:
+            await mgr.evaluate_codex_remaining_quota_notifications(
+                {"x-codex-primary-used-percent": "99"},
+            )
+            mock_svc.send_notification.assert_not_called()
+        finally:
+            await mgr.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_evaluate_codex_remaining_quota_notifications_legacy_email(
+        self, http_client
+    ) -> None:
+        from src.core.interfaces.notification_service_interface import (
+            INotificationService,
+        )
+
+        mock_svc = Mock(spec=INotificationService)
+        mock_svc.is_enabled = True
+        mock_svc.send_notification = AsyncMock(return_value="nid")
+        mgr = CredentialManager(http_client=http_client, notification_service=mock_svc)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mgr.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=False,
+                    storage_path=str(Path(temp_dir)),
+                    accounts="all",
+                    quota_remaining_alerts_enabled=True,
+                    quota_remaining_alert_thresholds_percent=[25.0],
+                )
+            )
+        mgr._auth_credentials = {
+            "tokens": {"access_token": "x"},
+            "user": {"email": "legacy@example.com"},
+            "account_id": "acct-legacy",
+        }
+        try:
+            await mgr.evaluate_codex_remaining_quota_notifications(
+                {"x-codex-primary-used-percent": "90"},
+            )
+            mock_svc.send_notification.assert_awaited_once()
+            msg = mock_svc.send_notification.call_args.kwargs["message"]
+            assert "legacy@example.com" in msg
+            assert "5 hour rolling window" in msg
+        finally:
+            await mgr.shutdown()
+
+    @pytest.mark.asyncio
     async def test_handle_rate_limit_rotates_to_next_managed_account(self, manager):
         """Rate-limit handling should rotate active managed account when possible."""
         with tempfile.TemporaryDirectory() as temp_dir:

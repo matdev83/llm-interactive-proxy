@@ -27,7 +27,9 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
 from src.connectors.openai_codex.codex_quota_notifications import (
+    collect_codex_remaining_pairs,
     maybe_notify_codex_quota_reached,
+    maybe_notify_codex_quota_remaining_low,
 )
 from src.connectors.openai_codex.codex_rate_limit_logging import (
     emit_openai_codex_managed_oauth_rate_limit,
@@ -385,6 +387,7 @@ class CredentialManager(ICredentialManager):
         self._http_client = http_client
         self._notification_service = notification_service
         self._codex_quota_notification_dedupe: set[tuple[str, str, str]] = set()
+        self._codex_remaining_quota_latch: set[tuple[str, str, float]] = set()
         self._auth_path: Path | None = None
         self._auth_credentials: dict[str, Any] | None = None
         self._last_modified: float = 0.0
@@ -1112,6 +1115,75 @@ class CredentialManager(ICredentialManager):
                 and self._managed_current_account.account_id == updated.account_id
             ):
                 self._managed_current_account = updated
+
+    async def evaluate_codex_remaining_quota_notifications(
+        self,
+        headers: Mapping[str, Any],
+        *,
+        managed_oauth_account_id: str | None = None,
+    ) -> None:
+        """Desktop alerts when x-codex-*-used-percent implies low remaining quota."""
+        cfg = self._managed_config
+        if not cfg.quota_remaining_alerts_enabled:
+            return
+        thresholds = list(cfg.quota_remaining_alert_thresholds_percent)
+        if not thresholds:
+            return
+        remaining_pairs = collect_codex_remaining_pairs(headers)
+        if not remaining_pairs:
+            return
+
+        async with self._codex_telemetry_lock:
+            account_id = "legacy-openai-codex"
+            email: str | None = None
+            chatgpt_account_id: str | None = None
+            resolved_managed = False
+            if self._managed_enabled():
+                aid = (
+                    str(managed_oauth_account_id).strip()
+                    if isinstance(managed_oauth_account_id, str)
+                    and managed_oauth_account_id.strip()
+                    else ""
+                )
+                current = (
+                    self._managed_selector.get_account_by_id(aid)
+                    if aid
+                    else self._managed_selector.get_current_account()
+                )
+                if current is not None:
+                    account_id = current.account_id
+                    email = current.email
+                    chatgpt_account_id = current.chatgpt_account_id
+                    resolved_managed = True
+
+            if not resolved_managed and isinstance(self._auth_credentials, Mapping):
+                managed = self._auth_credentials.get("managed_oauth")
+                if isinstance(managed, Mapping):
+                    mid = managed.get("account_id")
+                    if isinstance(mid, str) and mid.strip():
+                        account_id = mid.strip()
+                    cg = managed.get("chatgpt_account_id")
+                    if isinstance(cg, str) and cg.strip():
+                        chatgpt_account_id = cg.strip()
+                if account_id == "legacy-openai-codex":
+                    top_aid = self._auth_credentials.get("account_id")
+                    if isinstance(top_aid, str) and top_aid.strip():
+                        account_id = top_aid.strip()
+                user = self._auth_credentials.get("user")
+                if isinstance(user, Mapping):
+                    raw_email = user.get("email")
+                    if isinstance(raw_email, str) and raw_email.strip():
+                        email = raw_email.strip()
+
+        await maybe_notify_codex_quota_remaining_low(
+            self._notification_service,
+            self._codex_remaining_quota_latch,
+            managed_account_id=account_id,
+            email=email,
+            chatgpt_account_id=chatgpt_account_id,
+            threshold_percents=thresholds,
+            remaining_by_limit=remaining_pairs,
+        )
 
     async def handle_rate_limit(
         self,

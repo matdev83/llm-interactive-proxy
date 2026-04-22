@@ -6,6 +6,7 @@ CLI > ENV > YAML (app config), while preserving defaults.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Mapping
@@ -104,6 +105,8 @@ class SettingsLoader(ISettingsLoader):
                 "session_affinity_ttl_seconds": DEFAULT_SESSION_AFFINITY_TTL_SECONDS,
                 "session_affinity_max_entries": DEFAULT_SESSION_AFFINITY_MAX_ENTRIES,
                 "allow_legacy_fallback": DEFAULT_ALLOW_LEGACY_FALLBACK,
+                "quota_remaining_alerts_enabled": True,
+                "quota_remaining_alert_thresholds_percent": [25.0, 10.0],
             },
             "compatibility_layer": {
                 "enabled": False,
@@ -528,6 +531,70 @@ class SettingsLoader(ISettingsLoader):
         elif allow_legacy_fallback is None:
             allow_legacy_fallback = settings["managed_oauth"]["allow_legacy_fallback"]
 
+        quota_remaining_alerts_enabled = managed_cfg.get(
+            "quota_remaining_alerts_enabled"
+        )
+        env_quota_alerts = os.getenv("OPENAI_CODEX_QUOTA_REMAINING_ALERTS_ENABLED")
+        if env_quota_alerts is not None:
+            quota_remaining_alerts_enabled = env_quota_alerts.strip().lower() in truthy
+        elif quota_remaining_alerts_enabled is None:
+            quota_remaining_alerts_enabled = settings["managed_oauth"][
+                "quota_remaining_alerts_enabled"
+            ]
+
+        quota_thresholds_raw: Any = managed_cfg.get(
+            "quota_remaining_alert_thresholds_percent"
+        )
+        env_thresholds_parsed = load_json_env("OPENAI_CODEX_QUOTA_REMAINING_THRESHOLDS")
+        if isinstance(env_thresholds_parsed, list):
+            quota_thresholds_raw = env_thresholds_parsed
+        else:
+            env_thresholds_plain = os.getenv("OPENAI_CODEX_QUOTA_REMAINING_THRESHOLDS")
+            if isinstance(env_thresholds_plain, str) and env_thresholds_plain.strip():
+                quota_thresholds_raw = env_thresholds_plain.strip()
+
+        default_thresholds: list[float] = list(
+            settings["managed_oauth"]["quota_remaining_alert_thresholds_percent"]
+        )
+        quota_thresholds: list[float] = list(default_thresholds)
+        if isinstance(quota_thresholds_raw, list):
+            parsed_list: list[float] = []
+            for x in quota_thresholds_raw:
+                if isinstance(x, int | float):
+                    try:
+                        parsed_list.append(float(x))
+                    except (TypeError, ValueError):
+                        continue
+            if parsed_list:
+                quota_thresholds = parsed_list
+        elif isinstance(quota_thresholds_raw, str):
+            stripped = quota_thresholds_raw.strip()
+            if stripped.startswith("["):
+                try:
+                    loaded = json.loads(stripped)
+                except json.JSONDecodeError:
+                    loaded = None
+                if isinstance(loaded, list):
+                    parsed_bracket: list[float] = []
+                    for x in loaded:
+                        if isinstance(x, int | float):
+                            try:
+                                parsed_bracket.append(float(x))
+                            except (TypeError, ValueError):
+                                continue
+                    if parsed_bracket:
+                        quota_thresholds = parsed_bracket
+            elif stripped:
+                parts = [p.strip() for p in stripped.split(",") if p.strip()]
+                parsed_csv: list[float] = []
+                for p in parts:
+                    try:
+                        parsed_csv.append(float(p))
+                    except ValueError:
+                        continue
+                if parsed_csv:
+                    quota_thresholds = parsed_csv
+
         settings["managed_oauth"] = {
             "enabled": bool(managed_enabled),
             "storage_path": storage_path,
@@ -537,6 +604,8 @@ class SettingsLoader(ISettingsLoader):
             "session_affinity_ttl_seconds": affinity_ttl,
             "session_affinity_max_entries": affinity_max,
             "allow_legacy_fallback": bool(allow_legacy_fallback),
+            "quota_remaining_alerts_enabled": bool(quota_remaining_alerts_enabled),
+            "quota_remaining_alert_thresholds_percent": quota_thresholds,
         }
 
         # Compatibility layer settings

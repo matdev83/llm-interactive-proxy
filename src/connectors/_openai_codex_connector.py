@@ -1682,13 +1682,37 @@ class OpenAICodexConnector(OpenAIConnector):
         record_raw = getattr(
             self._credential_manager, "record_codex_quota_headers", None
         )
-        if not callable(record_raw):
-            return
-        record = cast(Callable[..., Awaitable[None]], record_raw)
+        eval_raw = getattr(
+            self._credential_manager,
+            "evaluate_codex_remaining_quota_notifications",
+            None,
+        )
+        has_codex_quota = any(str(k).lower().startswith("x-codex-") for k in headers)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
+
+        if has_codex_quota and callable(eval_raw):
+            evaluate = cast(Callable[..., Awaitable[None]], eval_raw)
+
+            async def _remaining_alerts() -> None:
+                try:
+                    await evaluate(headers, managed_oauth_account_id=None)
+                except Exception as exc:
+                    logger.warning(
+                        "OpenAI Codex evaluate_codex_remaining_quota_notifications failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
+
+            alert_task = loop.create_task(_remaining_alerts())
+            self._codex_quota_persist_tasks.add(alert_task)
+            alert_task.add_done_callback(self._codex_quota_persist_tasks.discard)
+
+        if not callable(record_raw):
+            return
+        record = cast(Callable[..., Awaitable[None]], record_raw)
 
         async def _persist() -> None:
             try:

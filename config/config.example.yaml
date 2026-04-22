@@ -483,6 +483,12 @@ backends:
           # Max sleep iterations when every account is rate-limited (each slice up to
           # max_rate_limit_wait_seconds).
           max_rate_limit_idle_polls: 48
+          # Desktop alerts when remaining Codex quota (100 - x-codex-*-used-percent) is low.
+          quota_remaining_alerts_enabled: true
+          # Notify when remaining quota drops strictly below each percent (defaults: 25 then 10).
+          quota_remaining_alert_thresholds_percent: [25, 10]
+          # Optional env overrides: OPENAI_CODEX_QUOTA_REMAINING_ALERTS_ENABLED,
+          # OPENAI_CODEX_QUOTA_REMAINING_THRESHOLDS (JSON array e.g. [25,10] or comma-separated).
     # For Responses API clients (Profile B), use:
     #   default_capabilities:
     #     protocol: openai-responses
@@ -522,6 +528,8 @@ backends:
           max_rate_limit_wait_seconds: 300
           rate_limit_local_cooldown_cap_seconds: 1800
           max_rate_limit_idle_polls: 48
+          quota_remaining_alerts_enabled: true
+          quota_remaining_alert_thresholds_percent: [25, 10]
 
 # Model-specific defaults
 model_defaults:

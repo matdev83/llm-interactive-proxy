@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 from src.connectors.openai_codex.codex_quota_notifications import (
     build_codex_quota_notification_message,
+    collect_codex_remaining_pairs,
     maybe_notify_codex_quota_reached,
+    maybe_notify_codex_quota_remaining_low,
 )
 
 
@@ -115,3 +117,133 @@ async def test_maybe_notify_derives_quota_type_from_resets_at_unix() -> None:
     message = mock_notify.call_args.kwargs["message"]
     assert "weekly limit" in message
     assert "gggggggg-gggg-gggg-gggg-gggggggggggg" in message
+
+
+def test_collect_codex_remaining_pairs_primary_and_secondary() -> None:
+    headers = {
+        "X-Codex-Primary-Used-Percent": "72",
+        "x-codex-secondary-used-percent": "25.0",
+    }
+    pairs = collect_codex_remaining_pairs(headers)
+    assert pairs == [("primary", 28.0), ("secondary", 75.0)]
+
+
+@pytest.mark.asyncio
+async def test_maybe_notify_codex_quota_remaining_low_latches_until_recovery() -> None:
+    mock_notify = AsyncMock(return_value="nid-r1")
+    svc = Mock()
+    svc.is_enabled = True
+    svc.send_notification = mock_notify
+    latch: set[tuple[str, str, float]] = set()
+    headers_primary = {"x-codex-primary-used-percent": "80"}
+
+    await maybe_notify_codex_quota_remaining_low(
+        svc,
+        latch,
+        managed_account_id="acct-1",
+        email="u@example.com",
+        chatgpt_account_id=None,
+        threshold_percents=[25.0, 10.0],
+        remaining_by_limit=collect_codex_remaining_pairs(headers_primary),
+    )
+    assert mock_notify.await_count == 1
+
+    await maybe_notify_codex_quota_remaining_low(
+        svc,
+        latch,
+        managed_account_id="acct-1",
+        email="u@example.com",
+        chatgpt_account_id=None,
+        threshold_percents=[25.0, 10.0],
+        remaining_by_limit=collect_codex_remaining_pairs(headers_primary),
+    )
+    assert mock_notify.await_count == 1
+
+    headers_recover = {"x-codex-primary-used-percent": "70"}
+    await maybe_notify_codex_quota_remaining_low(
+        svc,
+        latch,
+        managed_account_id="acct-1",
+        email="u@example.com",
+        chatgpt_account_id=None,
+        threshold_percents=[25.0, 10.0],
+        remaining_by_limit=collect_codex_remaining_pairs(headers_recover),
+    )
+    assert mock_notify.await_count == 1
+
+    headers_low_again = {"x-codex-primary-used-percent": "80"}
+    await maybe_notify_codex_quota_remaining_low(
+        svc,
+        latch,
+        managed_account_id="acct-1",
+        email="u@example.com",
+        chatgpt_account_id=None,
+        threshold_percents=[25.0, 10.0],
+        remaining_by_limit=collect_codex_remaining_pairs(headers_low_again),
+    )
+    assert mock_notify.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_maybe_notify_codex_quota_remaining_low_primary_secondary_independent() -> (
+    None
+):
+    mock_notify = AsyncMock(return_value="nid-r2")
+    svc = Mock()
+    svc.is_enabled = True
+    svc.send_notification = mock_notify
+    latch: set[tuple[str, str, float]] = set()
+    headers = {
+        "x-codex-primary-used-percent": "90",
+        "x-codex-secondary-used-percent": "92",
+    }
+    await maybe_notify_codex_quota_remaining_low(
+        svc,
+        latch,
+        managed_account_id="acct-2",
+        email=None,
+        chatgpt_account_id="cg-uuid",
+        threshold_percents=[25.0],
+        remaining_by_limit=collect_codex_remaining_pairs(headers),
+    )
+    assert mock_notify.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_maybe_notify_codex_quota_remaining_low_disabled_service() -> None:
+    mock_notify = AsyncMock(return_value="nid-r3")
+    svc = Mock()
+    svc.is_enabled = False
+    svc.send_notification = mock_notify
+    latch: set[tuple[str, str, float]] = set()
+    await maybe_notify_codex_quota_remaining_low(
+        svc,
+        latch,
+        managed_account_id="acct-3",
+        email="x@example.com",
+        chatgpt_account_id=None,
+        threshold_percents=[25.0],
+        remaining_by_limit=[("primary", 5.0)],
+    )
+    assert mock_notify.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_maybe_notify_codex_quota_remaining_low_fires_two_thresholds() -> None:
+    mock_notify = AsyncMock(return_value="nid-r4")
+    svc = Mock()
+    svc.is_enabled = True
+    svc.send_notification = mock_notify
+    latch: set[tuple[str, str, float]] = set()
+    # 8% remaining -> below 25 and below 10
+    headers = {"x-codex-primary-used-percent": "92"}
+    await maybe_notify_codex_quota_remaining_low(
+        svc,
+        latch,
+        managed_account_id="acct-4",
+        email="e@example.com",
+        chatgpt_account_id=None,
+        threshold_percents=[25.0, 10.0],
+        remaining_by_limit=collect_codex_remaining_pairs(headers),
+    )
+    assert mock_notify.await_count == 2
