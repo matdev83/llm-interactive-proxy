@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,6 +11,7 @@ import pytest
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
+    ConnectorResponsesRequest,
 )
 from src.connectors.openai import (
     _LLM_PROXY_STREAM_HEADERS_KEY,
@@ -20,6 +22,9 @@ from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses_native_wiring import (
+    RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
+)
 from src.core.services.translation_service import TranslationService
 
 
@@ -653,6 +658,41 @@ class TestOpenAICanonicalAPI:
             "data: [DONE]\n\n",
         ]
         assert openai_connector._capture_http_client.send.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_chat_completions_delegates_to_responses_for_native_projected_payload(
+        self, openai_connector, canonical_request
+    ) -> None:
+        native_payload: dict[str, Any] = {
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "hi"}],
+                }
+            ],
+            "model": "gpt-4",
+        }
+        domain = canonical_request.request.model_copy(
+            update={
+                "extra_body": {
+                    RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY: native_payload,
+                }
+            }
+        )
+        req = replace(canonical_request, request=domain)
+        with patch.object(
+            openai_connector, "responses", new_callable=AsyncMock
+        ) as mock_responses:
+            mock_responses.return_value = ResponseEnvelope(
+                content={"id": "resp-delegated", "object": "response"},
+                status_code=200,
+            )
+            out = await openai_connector.chat_completions(req)
+        mock_responses.assert_awaited_once_with(
+            ConnectorResponsesRequest.from_chat_completions(req)
+        )
+        assert out is mock_responses.return_value
 
 
 class TestOpenAIPayloadCleaning:

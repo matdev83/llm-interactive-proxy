@@ -1,0 +1,10 @@
+{
+  "type": "error",
+  "request_id": "ws-unsupported-event",
+  "error": {
+    "type": "invalid_request_error",
+    "code": "unsupported_event_type",
+    "message": "Unsupported event type: unsupported.event"
+  },
+  "status": 400
+}

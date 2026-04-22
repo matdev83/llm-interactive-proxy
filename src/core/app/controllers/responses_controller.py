@@ -2,12 +2,13 @@
 
 import asyncio
 import contextlib
+import dataclasses
 import json
 import logging
 import re
 import sre_parse
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from datetime import datetime, timezone
 from sre_constants import MAXREPEAT
 from typing import Any, cast
@@ -23,9 +24,14 @@ from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
     ParsingError,
+    ResponsesPreviousResponseNotFoundError,
+    ResponsesProtocolError,
+    ResponsesProviderLimitationError,
+    ResponsesValidationError,
+    RoutingError,
     TranslationError,
 )
-from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.client_termination import (
     ClientEndOfSessionSignal,
     ClientTerminationReason,
@@ -36,15 +42,36 @@ from src.core.domain.responses_api import (
     ResponsesRequest,
     enforce_json_schema_limits,
 )
+from src.core.domain.responses_domain import (
+    ResponsesDomainRequest,
+    ResponsesOutputItem,
+)
+from src.core.domain.responses_event_normalizer import (
+    ResponsesEventNormalizer,
+    ResponsesStreamSource,
+)
+from src.core.domain.responses_native_wiring import (
+    RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
+)
+from src.core.domain.responses_request_normalizer import ResponsesRequestNormalizer
+from src.core.domain.responses_resolved_session import (
+    effective_instructions_for_chained_turn,
+)
+from src.core.domain.responses_wire_renderer import ResponsesWireRenderer
 from src.core.domain.translators.responses.wire_stream_emitter import (
     ResponsesWireStreamEmitter,
 )
+from src.core.interfaces.backend_config_provider_interface import (
+    IBackendConfigProvider,
+)
+from src.core.interfaces.backend_model_resolver_interface import IBackendModelResolver
 from src.core.interfaces.client_end_of_session_service_interface import (
     IClientEndOfSessionService,
 )
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
-from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.responses_projector import IResponsesBackendProjector
+from src.core.interfaces.responses_session_store_interface import IResponsesSessionStore
 from src.core.interfaces.session_metrics_initializer_interface import (
     ISessionMetricsInitializer,
 )
@@ -52,7 +79,10 @@ from src.core.interfaces.translation_service_interface import (
     ITranslationService,
 )
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.services.anthropic_responses_projector import AnthropicResponsesProjector
+from src.core.services.gemini_responses_projector import GeminiResponsesProjector
 from src.core.services.json_repair_service import enforce_schema_size_limits
+from src.core.services.openai_responses_projector import OpenAIResponsesProjector
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -65,6 +95,15 @@ from src.core.transport.session_key_resolver import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _http_detail_with_request_id(
+    detail: dict[str, Any], *, request_id: str
+) -> dict[str, Any]:
+    out = dict(detail)
+    if request_id and "request_id" not in out:
+        out["request_id"] = request_id
+    return out
 
 
 def _never_emit_stream_chunks() -> bool:
@@ -80,6 +119,136 @@ async def _empty_responses_chunk_iterator() -> AsyncIterator[Any]:
         yield b""  # pragma: no cover
 
 
+def _coerce_tool_output_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    try:
+        return json.dumps(content, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return str(content)
+
+
+def _chat_messages_to_responses_input(messages: list[Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for msg in messages:
+        if isinstance(msg, dict):
+            role = str(msg.get("role") or "user")
+            content = msg.get("content")
+            tool_calls = msg.get("tool_calls")
+            tool_call_id = msg.get("tool_call_id")
+        else:
+            role = str(getattr(msg, "role", None) or "user")
+            content = getattr(msg, "content", None)
+            tool_calls = getattr(msg, "tool_calls", None)
+            tool_call_id = getattr(msg, "tool_call_id", None)
+
+        if tool_call_id is not None or role == "tool":
+            tid = str(tool_call_id).strip() if tool_call_id is not None else ""
+            if tid:
+                out.append(
+                    {
+                        "type": "function_call_output",
+                        "call_id": tid,
+                        "output": _coerce_tool_output_text(content),
+                    }
+                )
+                continue
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Chat-style messages conversion: tool message without usable "
+                    "tool_call_id; skipping tool output item"
+                )
+            continue
+
+        if isinstance(tool_calls, list) and tool_calls:
+            text_parts: list[dict[str, Any]] = []
+            if isinstance(content, str) and content:
+                text_parts = [{"type": "input_text", "text": content}]
+            elif isinstance(content, list):
+                text_parts = [
+                    (
+                        dict(p)
+                        if isinstance(p, dict)
+                        else {"type": "input_text", "text": str(p)}
+                    )
+                    for p in content
+                ]
+            elif content is None:
+                pass
+            else:
+                text_parts = [{"type": "input_text", "text": str(content)}]
+            if text_parts:
+                out.append({"type": "message", "role": role, "content": text_parts})
+
+            for idx, tc in enumerate(tool_calls):
+                if not isinstance(tc, dict):
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Chat-style messages conversion: skipping invalid tool_calls[%s] entry",
+                            idx,
+                        )
+                    continue
+                call_id = tc.get("id")
+                call_id_s = str(call_id) if call_id is not None else f"call_{idx}"
+                fn_raw = tc.get("function")
+                fn_d: dict[str, Any] = fn_raw if isinstance(fn_raw, dict) else {}
+                name_val = fn_d.get("name")
+                name_s = str(name_val) if isinstance(name_val, str) else ""
+                args_val = fn_d.get("arguments")
+                if isinstance(args_val, str):
+                    args_s = args_val
+                elif args_val is None:
+                    args_s = ""
+                else:
+                    try:
+                        args_s = json.dumps(args_val, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Chat-style messages conversion: tool_calls[%s] arguments "
+                                "could not be serialized to JSON; coercing with str()",
+                                idx,
+                            )
+                        args_s = str(args_val)
+                out.append(
+                    {
+                        "type": "function_call",
+                        "call_id": call_id_s,
+                        "name": name_s,
+                        "arguments": args_s,
+                    }
+                )
+            continue
+
+        if isinstance(content, str):
+            parts: list[dict[str, Any]] = [{"type": "input_text", "text": content}]
+        elif isinstance(content, list):
+            parts = [
+                (
+                    dict(p)
+                    if isinstance(p, dict)
+                    else {"type": "input_text", "text": str(p)}
+                )
+                for p in content
+            ]
+        elif content is None:
+            parts = [{"type": "input_text", "text": ""}]
+        else:
+            parts = [{"type": "input_text", "text": str(content)}]
+        out.append({"type": "message", "role": role, "content": parts})
+    return out
+
+
+def _responses_request_dump_for_normalize(req: ResponsesRequest) -> dict[str, Any]:
+    raw = req.model_dump(mode="json", exclude_none=False)
+    messages = raw.pop("messages", None)
+    if messages is not None and raw.get("input") is None:
+        raw["input"] = _chat_messages_to_responses_input(messages)
+    return raw
+
+
 class ResponsesController:
     """Controller for Responses API endpoints."""
 
@@ -92,6 +261,13 @@ class ResponsesController:
         wire_capture: IWireCapture | None = None,
         client_eos_service: IClientEndOfSessionService | None = None,
         metrics_initializer: ISessionMetricsInitializer | None = None,
+        *,
+        responses_session_store: IResponsesSessionStore | None = None,
+        backend_model_resolver: IBackendModelResolver | None = None,
+        openai_responses_projector: OpenAIResponsesProjector | None = None,
+        anthropic_responses_projector: AnthropicResponsesProjector | None = None,
+        gemini_responses_projector: GeminiResponsesProjector | None = None,
+        backend_config_provider: IBackendConfigProvider | None = None,
     ) -> None:
         """Initialize the controller.
 
@@ -112,6 +288,665 @@ class ResponsesController:
         self._wire_capture = wire_capture
         self._client_eos_service = client_eos_service
         self._metrics_initializer = metrics_initializer
+        if responses_session_store is None:
+            raise InitializationError(
+                "Responses session store must be provided by DI container"
+            )
+        if backend_model_resolver is None:
+            raise InitializationError(
+                "Backend model resolver must be provided by DI container"
+            )
+        if (
+            openai_responses_projector is None
+            or anthropic_responses_projector is None
+            or gemini_responses_projector is None
+        ):
+            raise InitializationError(
+                "Responses backend projectors must be provided by DI container"
+            )
+        self._responses_session_store = responses_session_store
+        self._backend_model_resolver = backend_model_resolver
+        self._openai_responses_projector = openai_responses_projector
+        self._anthropic_responses_projector = anthropic_responses_projector
+        self._gemini_responses_projector = gemini_responses_projector
+        self._backend_config_provider = backend_config_provider
+        self._responses_request_normalizer = ResponsesRequestNormalizer()
+
+    async def _store_completed_responses_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        instructions: str | None,
+    ) -> None:
+        rid = payload.get("id")
+        if not isinstance(rid, str) or not rid:
+            return
+        items = self._responses_output_items_from_payload(payload, response_id=rid)
+        await self._responses_session_store.store(rid, items, instructions=instructions)
+
+    def _responses_output_items_from_payload(
+        self, payload: dict[str, Any], *, response_id: str
+    ) -> list[ResponsesOutputItem]:
+        out_raw = payload.get("output")
+        if isinstance(out_raw, list):
+            return self._validate_responses_output_items(
+                out_raw, response_id=response_id
+            )
+
+        choices_raw = payload.get("choices")
+        if not isinstance(choices_raw, list):
+            return []
+
+        items: list[dict[str, Any]] = []
+        for idx, choice in enumerate(choices_raw):
+            if not isinstance(choice, dict):
+                continue
+            message = choice.get("message")
+            if not isinstance(message, dict):
+                continue
+
+            content_parts: list[dict[str, Any]] = []
+            content = message.get("content")
+            if isinstance(content, str) and content:
+                content_parts.append({"type": "output_text", "text": content})
+
+            refusal = message.get("refusal")
+            if isinstance(refusal, str) and refusal:
+                content_parts.append({"type": "refusal", "refusal": refusal})
+
+            items.append(
+                {
+                    "id": str(message.get("id") or f"{response_id}:choice:{idx}"),
+                    "type": "message",
+                    "role": str(message.get("role") or "assistant"),
+                    "status": "completed",
+                    "content": content_parts or None,
+                }
+            )
+
+            tool_calls = message.get("tool_calls")
+            if not isinstance(tool_calls, list):
+                continue
+            for tc_idx, tool_call in enumerate(tool_calls):
+                if not isinstance(tool_call, dict):
+                    continue
+                function = tool_call.get("function")
+                if not isinstance(function, dict):
+                    continue
+                arguments = function.get("arguments")
+                if not isinstance(arguments, str):
+                    try:
+                        arguments = json.dumps(
+                            arguments if arguments is not None else {}
+                        )
+                    except (TypeError, ValueError):
+                        arguments = str(arguments or "")
+                items.append(
+                    {
+                        "id": str(
+                            tool_call.get("id")
+                            or f"{response_id}:choice:{idx}:tool:{tc_idx}"
+                        ),
+                        "type": "function_call",
+                        "status": "completed",
+                        "call_id": str(tool_call.get("id") or ""),
+                        "name": str(function.get("name") or ""),
+                        "arguments": arguments,
+                    }
+                )
+
+        return self._validate_responses_output_items(items, response_id=response_id)
+
+    def _validate_responses_output_items(
+        self, items_raw: list[Any], *, response_id: str
+    ) -> list[ResponsesOutputItem]:
+        items: list[ResponsesOutputItem] = []
+        for idx, el in enumerate(items_raw):
+            if not isinstance(el, dict):
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Responses session store: skipping non-object output[%s] "
+                        "for response_id=%s",
+                        idx,
+                        response_id,
+                    )
+                continue
+            try:
+                items.append(ResponsesOutputItem.model_validate(el))
+            except ValidationError as ve:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Responses session store: skipping invalid output[%s] "
+                        "for response_id=%s: %s",
+                        idx,
+                        response_id,
+                        ve,
+                    )
+                continue
+        return items
+
+    async def _prepare_responses_execution(
+        self,
+        *,
+        responses_request: ResponsesRequest,
+    ) -> tuple[
+        ResponsesDomainRequest, CanonicalChatRequest, ResponsesStreamSource, str | None
+    ]:
+        normalized_raw = _responses_request_dump_for_normalize(responses_request)
+        domain = self._responses_request_normalizer.normalize(normalized_raw)
+        prior_items: list[ResponsesOutputItem] | None = None
+        prior_instructions: str | None = None
+        if domain.previous_response_id:
+            resolved = await self._responses_session_store.resolve(
+                domain.previous_response_id
+            )
+            if resolved is None:
+                raise ResponsesPreviousResponseNotFoundError(
+                    domain.previous_response_id
+                )
+            prior_items = list(resolved.output_items)
+            prior_instructions = resolved.instructions
+        instructions = effective_instructions_for_chained_turn(
+            domain.instructions,
+            prior_instructions,
+        )
+        domain = domain.model_copy(update={"instructions": instructions})
+        route_model = str(domain.model).strip()
+        route_probe = CanonicalChatRequest(
+            model=route_model,
+            messages=[ChatMessage(role="user", content=".")],
+            stream=bool(domain.stream),
+        )
+        try:
+            target = await self._backend_model_resolver.resolve_target(
+                route_probe, None
+            )
+        except RoutingError as exc:
+            details = exc.details or {}
+            if (
+                details.get("code") == "unknown_model"
+                and ":" not in route_model
+                and self._backend_config_provider is not None
+            ):
+                default_backend = (
+                    self._backend_config_provider.get_default_backend() or ""
+                ).strip()
+                if default_backend:
+                    prefixed = f"{default_backend}:{route_model}"
+                    route_probe = CanonicalChatRequest(
+                        model=prefixed,
+                        messages=[ChatMessage(role="user", content=".")],
+                        stream=bool(domain.stream),
+                    )
+                    target = await self._backend_model_resolver.resolve_target(
+                        route_probe, None
+                    )
+                else:
+                    raise
+            else:
+                raise
+        backend = (target.backend or "").strip()
+        backend_key = backend.casefold()
+        projector: IResponsesBackendProjector
+        if backend_key in ("openai", "openai-responses") or backend_key.startswith(
+            "openai-codex"
+        ):
+            projector = self._openai_responses_projector
+            stream_source = ResponsesStreamSource.OPENAI_RESPONSES
+        elif backend_key == "anthropic":
+            projector = self._anthropic_responses_projector
+            stream_source = ResponsesStreamSource.ANTHROPIC
+        elif backend_key.startswith("gemini") or backend_key == "google":
+            projector = self._gemini_responses_projector
+            stream_source = ResponsesStreamSource.GEMINI
+        elif backend_key == "mock":
+            # Test harness / in-process mock backends reuse the OpenAI-native wire path.
+            projector = self._openai_responses_projector
+            stream_source = ResponsesStreamSource.OPENAI_RESPONSES
+        else:
+            raise ResponsesProviderLimitationError(
+                "responses_api.routing",
+                backend or "unknown",
+            )
+        wire_payload, _flags = projector.project(domain, prior_items)
+        explicit_model = f"{target.backend}:{target.model}"
+        canonical = CanonicalChatRequest(
+            model=explicit_model,
+            messages=[ChatMessage(role="user", content=".")],
+            stream=bool(domain.stream),
+            extra_body={RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY: wire_payload},
+        )
+        return domain, canonical, stream_source, instructions
+
+    def _ensure_responses_schema_content(
+        self,
+        content: object,
+        *,
+        request_id: str,
+        envelope: object,
+        responses_model: str,
+    ) -> object:
+
+        try:
+            from src.core.domain.chat import ChatResponse
+            from src.core.domain.responses import ResponseEnvelope
+            from src.core.interfaces.response_processor_interface import (
+                ProcessedResponse,
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Converting response to Responses API format - request_id={request_id}, content_type={type(content).__name__}"
+                )
+
+            # CRITICAL: If content is a string, try to parse it as JSON and check if it's already a Responses API response
+            if isinstance(content, str) and content.strip():
+                try:
+                    parsed_content = json.loads(content)
+                    if (
+                        isinstance(parsed_content, dict)
+                        and "response" in parsed_content
+                    ):
+                        # Content is a JSON string containing a Responses API response
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Restored Responses API format from JSON string content - request_id={request_id}"
+                            )
+                        return parsed_content
+                except (json.JSONDecodeError, ValueError):
+                    # Not a JSON string, proceed with other checks
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Content is not a JSON string (cannot parse as JSON)",
+                            exc_info=True,
+                        )
+
+            # Check if response has metadata with original Responses API response
+            response_metadata = None
+            if isinstance(envelope, ResponseEnvelope | ProcessedResponse):
+                response_metadata = getattr(envelope, "metadata", None)
+                if (
+                    isinstance(response_metadata, dict)
+                    and "original_responses_api_response" in response_metadata
+                ):
+                    original_response: dict[str, Any] = response_metadata["original_responses_api_response"]  # type: ignore[assignment]
+                    if (
+                        isinstance(original_response, dict)
+                        and "response" in original_response
+                    ):
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Restored Responses API format from ResponseProcessor metadata - request_id={request_id}"
+                            )
+                        return original_response
+
+            # If content is already in Responses API format (has 'response' key), return as-is
+            if isinstance(content, dict) and "response" in content:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Response already in Responses API format - request_id={request_id}"
+                    )
+                return content
+
+            if (
+                isinstance(content, dict)
+                and content.get("object") == "response"
+                and isinstance(content.get("output"), list)
+            ):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Response already native object=response with output - request_id=%s",
+                        request_id,
+                    )
+                return content
+
+            # Check if content has metadata with original Responses API response
+            if isinstance(content, dict) and "metadata" in content:
+                metadata: dict[str, Any] = content.get("metadata", {})  # type: ignore[assignment]
+                if (
+                    isinstance(metadata, dict)
+                    and "original_responses_api_response" in metadata
+                ):
+                    original_response_from_content: dict[str, Any] = metadata["original_responses_api_response"]  # type: ignore[assignment]
+                    if (
+                        isinstance(original_response_from_content, dict)
+                        and "response" in original_response_from_content
+                    ):
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Restored Responses API format from metadata - request_id={request_id}"
+                            )
+                        return original_response_from_content
+
+            # Check if content is a Chat Completions response that was converted from Responses API
+            # (content might be a JSON string containing Responses API response)
+            if (
+                isinstance(content, dict)
+                and "choices" in content
+                and "response" not in content
+            ):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Checking Chat Completions format for embedded Responses API response - request_id={request_id}, content_keys={list(content.keys())}"
+                    )
+                # Check if message content contains a JSON string with Responses API format
+                choices = content.get("choices", [])
+                if (
+                    choices
+                    and isinstance(choices, list)
+                    and len(choices) > 0
+                    and isinstance(choices[0], dict)
+                ):
+                    message = choices[0].get("message", {})
+                    if isinstance(message, dict):
+                        # First, check if the message has a 'parsed' field with Responses API format
+                        message_parsed = message.get("parsed")
+                        if (
+                            isinstance(message_parsed, dict)
+                            and "response" in message_parsed
+                        ):
+                            # Extract the Responses API response from the parsed field
+                            responses_response = dict(message_parsed)  # Make a copy
+                            if "usage" not in responses_response and "usage" in content:
+                                responses_response["usage"] = content["usage"]
+                            # Preserve other top-level fields from outer response if missing
+                            if "id" not in responses_response and "id" in content:
+                                responses_response["id"] = content["id"]
+                            if (
+                                "created" not in responses_response
+                                and "created" in content
+                            ):
+                                responses_response["created"] = content["created"]
+                            if "model" not in responses_response and "model" in content:
+                                responses_response["model"] = content["model"]
+                            if "object" not in responses_response:
+                                responses_response["object"] = "response"
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    f"Successfully extracted Responses API format from message.parsed - request_id={request_id}"
+                                )
+                            return responses_response
+
+                        # If no parsed field, try to parse the content field as JSON
+                        message_content = message.get("content", "")
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Found message content - request_id={request_id}, content_type={type(message_content).__name__}, content_preview={str(message_content)[:200] if isinstance(message_content, str) else 'N/A'}"
+                            )
+                        if isinstance(message_content, str) and message_content.strip():
+                            try:
+                                # Try to parse the message content as JSON
+                                parsed_content = json.loads(message_content)
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        f"Parsed message content - request_id={request_id}, parsed_keys={list(parsed_content.keys()) if isinstance(parsed_content, dict) else 'N/A'}"
+                                    )
+                                if (
+                                    isinstance(parsed_content, dict)
+                                    and "response" in parsed_content
+                                ):
+                                    # Extract the Responses API response from the JSON string
+                                    # Preserve usage from the outer response if available
+                                    responses_response = dict(
+                                        parsed_content
+                                    )  # Make a copy
+                                    if (
+                                        "usage" not in responses_response
+                                        and "usage" in content
+                                    ):
+                                        responses_response["usage"] = content["usage"]
+                                    # Preserve other top-level fields from outer response if missing
+                                    if (
+                                        "id" not in responses_response
+                                        and "id" in content
+                                    ):
+                                        responses_response["id"] = content["id"]
+                                    if (
+                                        "created" not in responses_response
+                                        and "created" in content
+                                    ):
+                                        responses_response["created"] = content[
+                                            "created"
+                                        ]
+                                    if (
+                                        "model" not in responses_response
+                                        and "model" in content
+                                    ):
+                                        responses_response["model"] = content["model"]
+                                    if "object" not in responses_response:
+                                        responses_response["object"] = "response"
+                                    if logger.isEnabledFor(logging.INFO):
+                                        logger.info(
+                                            f"Successfully extracted Responses API format from message content - request_id={request_id}"
+                                        )
+                                    return responses_response
+                                else:
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            f"Parsed content does not have 'response' key - request_id={request_id}, has_response={isinstance(parsed_content, dict) and 'response' in parsed_content}"
+                                        )
+                            except (
+                                json.JSONDecodeError,
+                                ValueError,
+                                TypeError,
+                            ) as e:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        f"Failed to parse message content as JSON - request_id={request_id}, error={e}, content_preview={message_content[:200]}"
+                                    )
+                        else:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    f"Message content is not a non-empty string - request_id={request_id}, type={type(message_content).__name__}, is_empty={not (isinstance(message_content, str) and message_content.strip())}"
+                                )
+
+            # If it's already a ChatResponse, use TranslationService to convert
+            if isinstance(content, ChatResponse):
+                converted_response = self._translation_service.from_domain_response(
+                    content, target_format="responses"
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Response converted via TranslationService - request_id={request_id}"
+                    )
+                return converted_response
+
+            # If it's a dict that looks like a ChatResponse, convert it first
+            if isinstance(content, dict) and "choices" in content:
+                try:
+                    chat_response = ChatResponse(**content)
+                    converted_response = self._translation_service.from_domain_response(
+                        chat_response, target_format="responses"
+                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Response converted from dict via TranslationService - request_id={request_id}"
+                        )
+                    return converted_response
+                except ValidationError:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to convert dict to ChatResponse (validation error) - request_id={request_id}",
+                            exc_info=True,
+                        )
+                    # If conversion fails, fall back to manual conversion
+                except (
+                    TranslationError,
+                    ParsingError,
+                    TypeError,
+                    AttributeError,
+                    KeyError,
+                ) as e:
+                    # Catch domain exceptions and common data processing errors
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to convert dict to ChatResponse (domain/data error: {type(e).__name__}) - request_id={request_id}",
+                            exc_info=True,
+                        )
+                    # If conversion fails, fall back to manual conversion
+                except (ValueError, UnicodeError, OverflowError, RuntimeError):
+                    # Catch additional specific exceptions for defensive guard:
+                    # - ValueError: Value errors in data conversion
+                    # - UnicodeError: String encoding/decoding errors
+                    # - OverflowError: Numeric overflow
+                    # - RuntimeError: General runtime errors
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            f"Unexpected error converting dict to ChatResponse - request_id={request_id}",
+                            exc_info=True,
+                        )
+                    # If conversion fails, fall back to manual conversion
+
+            # Fallback: manual conversion for other formats
+            import time as _time
+            import uuid as _uuid
+
+            # If already in expected schema, return as-is
+            # Handle Anthropic-style message dict -> Responses API
+            if (
+                isinstance(content, dict)
+                and content.get("type") == "message"
+                and isinstance(content.get("content"), list)
+            ):
+                # Extract text blocks
+                text_parts: list[str] = []
+                for block in content.get("content", []):
+                    if not isinstance(block, dict):
+                        continue
+                    btype = block.get("type")
+                    if btype == "text":
+                        part_text = block.get("text") or ""
+                        if part_text:
+                            text_parts.append(str(part_text))
+
+                text = "\n\n".join(text_parts).strip()
+                stop_reason = content.get("stop_reason") or "stop"
+                if stop_reason == "end_turn":
+                    finish_reason = "stop"
+                elif stop_reason == "max_tokens":
+                    finish_reason = "length"
+                else:
+                    finish_reason = str(stop_reason)
+
+                # Try to parse the content as JSON for structured output
+                parsed = None
+                try:
+                    if text.strip():
+                        parsed = json.loads(text)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Successfully parsed structured output - request_id={request_id}"
+                            )
+                except (json.JSONDecodeError, ValueError) as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
+                        )
+                    # If parsing fails, leave parsed as None
+
+                usage = content.get("usage") or {}
+                responses_usage = {
+                    "prompt_tokens": usage.get("input_tokens", 0),
+                    "completion_tokens": usage.get("output_tokens", 0),
+                    "total_tokens": (usage.get("input_tokens", 0) or 0)
+                    + (usage.get("output_tokens", 0) or 0),
+                }
+
+                return {
+                    "id": content.get("id", f"resp-{_uuid.uuid4().hex[:16]}"),
+                    "object": "response",
+                    "created": int(_time.time()),
+                    "model": content.get("model", responses_model),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": text,
+                                "parsed": parsed,
+                            },
+                            "finish_reason": finish_reason,
+                        }
+                    ],
+                    "usage": responses_usage,
+                }
+
+            # Normalize simple string into Responses API format
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, bytes):
+                text = content.decode("utf-8", errors="ignore")
+            else:
+                # Best-effort stringify for non-dict/list types
+                try:
+                    text = json.dumps(content)
+                except TypeError:
+                    # Content is not JSON serializable (e.g., contains custom objects)
+                    logger.debug(
+                        f"Failed to JSON serialize content, using str - request_id={request_id}",
+                        exc_info=True,
+                    )
+                    text = str(content)
+
+            # Try to parse the content as JSON for structured output
+            parsed = None
+            try:
+                if text.strip():
+                    parsed = json.loads(text)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Successfully parsed fallback structured output - request_id={request_id}"
+                        )
+            except (json.JSONDecodeError, ValueError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Fallback content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
+                    )
+                # If parsing fails, leave parsed as None
+
+            return {
+                "id": f"resp-{_uuid.uuid4().hex[:16]}",
+                "object": "response",
+                "created": int(_time.time()),
+                "model": responses_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": text,
+                            "parsed": parsed,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+            }
+        except (
+            TypeError,
+            ValueError,
+            KeyError,
+            AttributeError,
+            UnicodeError,
+            OverflowError,
+        ):
+            # Catch specific exceptions from response conversion:
+            # - TypeError: Type mismatches in dict values or attribute access
+            # - ValueError: Value errors in string formatting or conversions
+            # - KeyError: Dictionary key access errors
+            # - AttributeError: Attribute access (e.g., domain_request.model)
+            # - UnicodeError: String encoding/decoding errors
+            # - OverflowError: Numeric overflow (e.g., timestamp conversion)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Error in response conversion, returning original content - request_id={request_id}",
+                    exc_info=True,
+                )
+            return content
 
     async def handle_responses_request(
         self,
@@ -127,8 +962,10 @@ class ResponsesController:
         Returns:
             An HTTP response
         """
-        responses_request = self._parse_responses_request(request_data)
         request_id = self._resolve_request_id(request)
+        responses_request = self._parse_responses_request(
+            request_data, request_id=request_id
+        )
         has_schema, schema_name = self._validate_schema_if_present(
             request_id=request_id,
             responses_request=responses_request,
@@ -144,10 +981,6 @@ class ResponsesController:
             )
 
         try:
-            # Convert ResponsesRequest to internal ChatRequest format using TranslationService
-            translation_service = self._translation_service
-
-            # Log schema validation attempt if schema is present
             self._log_schema_validation_attempt(
                 request_id=request_id,
                 responses_request=responses_request,
@@ -156,40 +989,26 @@ class ResponsesController:
             )
 
             try:
-                domain_request = translation_service.to_domain_request(
-                    responses_request, source_format="responses"
+                responses_domain, domain_request, stream_source, store_instructions = (
+                    await self._prepare_responses_execution(
+                        responses_request=responses_request,
+                    )
                 )
+            except ResponsesValidationError:
+                raise
             except ValidationError as exc:
-                # Log validation errors for debugging
                 error_details = exc.errors()
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        f"Validation error in translation - request_id={request_id}, errors={error_details}",
+                        f"Validation error in Responses normalization - request_id={request_id}, errors={error_details}",
                         exc_info=True,
                     )
-                raise self._map_validation_error(exc) from exc
-            except ValueError as exc:
-                # Handle ValueError from responses_to_domain_request (e.g., empty messages)
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Value error in translation - request_id={request_id}, error={exc}",
-                        exc_info=True,
-                    )
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "error": {
-                            "message": str(exc),
-                            "type": "invalid_request_error",
-                            "code": "invalid_request",
-                        }
-                    },
-                ) from exc
+                raise self._map_validation_error(exc, request_id=request_id) from exc
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Request translation successful - request_id={request_id}, "
-                    f"domain_model={domain_request.model}, processor_type={type(self._processor).__name__}"
+                    f"Request normalization successful - request_id={request_id}, "
+                    f"domain_model={responses_domain.model}, processor_type={type(self._processor).__name__}"
                 )
 
             ctx = self._build_request_context(
@@ -199,6 +1018,11 @@ class ResponsesController:
                 request_id=request_id,
                 schema_name=schema_name,
             )
+            ctx.request_id = request_id
+            ctx.extensions["responses_semantic_pipeline"] = True
+            ctx.extensions["responses_stream_source"] = stream_source.value
+            ctx.extensions["responses_store_instructions"] = store_instructions
+            request.state.responses_semantic_pipeline = True
             # Requirement 5.5: Proactive session metrics initialization
             # Initialize session metrics early in lifecycle before backend work begins
             # This ensures metrics exist for EoS emission even if client disconnects immediately
@@ -223,12 +1047,6 @@ class ResponsesController:
                                 "error_code": "SESSION_METRICS_INIT_FAILED",
                             },
                         )
-            # Process request using the request processor
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Processing request through pipeline - request_id={request_id}"
-                )
-            # Process the request using the request processor
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     f"Processing request through pipeline - request_id={request_id}"
@@ -278,447 +1096,33 @@ class ResponsesController:
                     headers=streaming_headers,
                 )
 
-            # Convert domain response to Responses API format using TranslationService
-            def _ensure_responses_schema(content: object) -> object:
-                try:
-                    from src.core.domain.chat import ChatResponse
-                    from src.core.domain.responses import ResponseEnvelope
-                    from src.core.interfaces.response_processor_interface import (
-                        ProcessedResponse,
-                    )
-
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"Converting response to Responses API format - request_id={request_id}, content_type={type(content).__name__}"
-                        )
-
-                    # CRITICAL: If content is a string, try to parse it as JSON and check if it's already a Responses API response
-                    if isinstance(content, str) and content.strip():
-                        try:
-                            parsed_content = json.loads(content)
-                            if (
-                                isinstance(parsed_content, dict)
-                                and "response" in parsed_content
-                            ):
-                                # Content is a JSON string containing a Responses API response
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        f"Restored Responses API format from JSON string content - request_id={request_id}"
-                                    )
-                                return parsed_content
-                        except (json.JSONDecodeError, ValueError):
-                            # Not a JSON string, proceed with other checks
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    "Content is not a JSON string (cannot parse as JSON)",
-                                    exc_info=True,
-                                )
-
-                    # Check if response has metadata with original Responses API response
-                    response_metadata = None
-                    if isinstance(response, ResponseEnvelope | ProcessedResponse):
-                        response_metadata = getattr(response, "metadata", None)
-                        if (
-                            isinstance(response_metadata, dict)
-                            and "original_responses_api_response" in response_metadata
-                        ):
-                            original_response: dict[str, Any] = response_metadata["original_responses_api_response"]  # type: ignore[assignment]
-                            if (
-                                isinstance(original_response, dict)
-                                and "response" in original_response
-                            ):
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        f"Restored Responses API format from ResponseProcessor metadata - request_id={request_id}"
-                                    )
-                                return original_response
-
-                    # If content is already in Responses API format (has 'response' key), return as-is
-                    if isinstance(content, dict) and "response" in content:
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                f"Response already in Responses API format - request_id={request_id}"
-                            )
-                        return content
-
-                    # Check if content has metadata with original Responses API response
-                    if isinstance(content, dict) and "metadata" in content:
-                        metadata: dict[str, Any] = content.get("metadata", {})  # type: ignore[assignment]
-                        if (
-                            isinstance(metadata, dict)
-                            and "original_responses_api_response" in metadata
-                        ):
-                            original_response_from_content: dict[str, Any] = metadata["original_responses_api_response"]  # type: ignore[assignment]
-                            if (
-                                isinstance(original_response_from_content, dict)
-                                and "response" in original_response_from_content
-                            ):
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        f"Restored Responses API format from metadata - request_id={request_id}"
-                                    )
-                                return original_response_from_content
-
-                    # Check if content is a Chat Completions response that was converted from Responses API
-                    # (content might be a JSON string containing Responses API response)
-                    if (
-                        isinstance(content, dict)
-                        and "choices" in content
-                        and "response" not in content
-                    ):
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                f"Checking Chat Completions format for embedded Responses API response - request_id={request_id}, content_keys={list(content.keys())}"
-                            )
-                        # Check if message content contains a JSON string with Responses API format
-                        choices = content.get("choices", [])
-                        if (
-                            choices
-                            and isinstance(choices, list)
-                            and len(choices) > 0
-                            and isinstance(choices[0], dict)
-                        ):
-                            message = choices[0].get("message", {})
-                            if isinstance(message, dict):
-                                # First, check if the message has a 'parsed' field with Responses API format
-                                message_parsed = message.get("parsed")
-                                if (
-                                    isinstance(message_parsed, dict)
-                                    and "response" in message_parsed
-                                ):
-                                    # Extract the Responses API response from the parsed field
-                                    responses_response = dict(
-                                        message_parsed
-                                    )  # Make a copy
-                                    if (
-                                        "usage" not in responses_response
-                                        and "usage" in content
-                                    ):
-                                        responses_response["usage"] = content["usage"]
-                                    # Preserve other top-level fields from outer response if missing
-                                    if (
-                                        "id" not in responses_response
-                                        and "id" in content
-                                    ):
-                                        responses_response["id"] = content["id"]
-                                    if (
-                                        "created" not in responses_response
-                                        and "created" in content
-                                    ):
-                                        responses_response["created"] = content[
-                                            "created"
-                                        ]
-                                    if (
-                                        "model" not in responses_response
-                                        and "model" in content
-                                    ):
-                                        responses_response["model"] = content["model"]
-                                    if "object" not in responses_response:
-                                        responses_response["object"] = "response"
-                                    if logger.isEnabledFor(logging.INFO):
-                                        logger.info(
-                                            f"Successfully extracted Responses API format from message.parsed - request_id={request_id}"
-                                        )
-                                    return responses_response
-
-                                # If no parsed field, try to parse the content field as JSON
-                                message_content = message.get("content", "")
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        f"Found message content - request_id={request_id}, content_type={type(message_content).__name__}, content_preview={str(message_content)[:200] if isinstance(message_content, str) else 'N/A'}"
-                                    )
-                                if (
-                                    isinstance(message_content, str)
-                                    and message_content.strip()
-                                ):
-                                    try:
-                                        # Try to parse the message content as JSON
-                                        parsed_content = json.loads(message_content)
-                                        if logger.isEnabledFor(logging.DEBUG):
-                                            logger.debug(
-                                                f"Parsed message content - request_id={request_id}, parsed_keys={list(parsed_content.keys()) if isinstance(parsed_content, dict) else 'N/A'}"
-                                            )
-                                        if (
-                                            isinstance(parsed_content, dict)
-                                            and "response" in parsed_content
-                                        ):
-                                            # Extract the Responses API response from the JSON string
-                                            # Preserve usage from the outer response if available
-                                            responses_response = dict(
-                                                parsed_content
-                                            )  # Make a copy
-                                            if (
-                                                "usage" not in responses_response
-                                                and "usage" in content
-                                            ):
-                                                responses_response["usage"] = content[
-                                                    "usage"
-                                                ]
-                                            # Preserve other top-level fields from outer response if missing
-                                            if (
-                                                "id" not in responses_response
-                                                and "id" in content
-                                            ):
-                                                responses_response["id"] = content["id"]
-                                            if (
-                                                "created" not in responses_response
-                                                and "created" in content
-                                            ):
-                                                responses_response["created"] = content[
-                                                    "created"
-                                                ]
-                                            if (
-                                                "model" not in responses_response
-                                                and "model" in content
-                                            ):
-                                                responses_response["model"] = content[
-                                                    "model"
-                                                ]
-                                            if "object" not in responses_response:
-                                                responses_response["object"] = (
-                                                    "response"
-                                                )
-                                            if logger.isEnabledFor(logging.INFO):
-                                                logger.info(
-                                                    f"Successfully extracted Responses API format from message content - request_id={request_id}"
-                                                )
-                                            return responses_response
-                                        else:
-                                            if logger.isEnabledFor(logging.DEBUG):
-                                                logger.debug(
-                                                    f"Parsed content does not have 'response' key - request_id={request_id}, has_response={isinstance(parsed_content, dict) and 'response' in parsed_content}"
-                                                )
-                                    except (
-                                        json.JSONDecodeError,
-                                        ValueError,
-                                        TypeError,
-                                    ) as e:
-                                        if logger.isEnabledFor(logging.DEBUG):
-                                            logger.debug(
-                                                f"Failed to parse message content as JSON - request_id={request_id}, error={e}, content_preview={message_content[:200]}"
-                                            )
-                                else:
-                                    if logger.isEnabledFor(logging.DEBUG):
-                                        logger.debug(
-                                            f"Message content is not a non-empty string - request_id={request_id}, type={type(message_content).__name__}, is_empty={not (isinstance(message_content, str) and message_content.strip())}"
-                                        )
-
-                    # If it's already a ChatResponse, use TranslationService to convert
-                    if isinstance(content, ChatResponse):
-                        converted_response = translation_service.from_domain_response(
-                            content, target_format="responses"
-                        )
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                f"Response converted via TranslationService - request_id={request_id}"
-                            )
-                        return converted_response
-
-                    # If it's a dict that looks like a ChatResponse, convert it first
-                    if isinstance(content, dict) and "choices" in content:
-                        try:
-                            chat_response = ChatResponse(**content)
-                            converted_response = (
-                                translation_service.from_domain_response(
-                                    chat_response, target_format="responses"
-                                )
-                            )
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    f"Response converted from dict via TranslationService - request_id={request_id}"
-                                )
-                            return converted_response
-                        except ValidationError:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    f"Failed to convert dict to ChatResponse (validation error) - request_id={request_id}",
-                                    exc_info=True,
-                                )
-                            # If conversion fails, fall back to manual conversion
-                        except (
-                            TranslationError,
-                            ParsingError,
-                            TypeError,
-                            AttributeError,
-                            KeyError,
-                        ) as e:
-                            # Catch domain exceptions and common data processing errors
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    f"Failed to convert dict to ChatResponse (domain/data error: {type(e).__name__}) - request_id={request_id}",
-                                    exc_info=True,
-                                )
-                            # If conversion fails, fall back to manual conversion
-                        except (ValueError, UnicodeError, OverflowError, RuntimeError):
-                            # Catch additional specific exceptions for defensive guard:
-                            # - ValueError: Value errors in data conversion
-                            # - UnicodeError: String encoding/decoding errors
-                            # - OverflowError: Numeric overflow
-                            # - RuntimeError: General runtime errors
-                            if logger.isEnabledFor(logging.ERROR):
-                                logger.error(
-                                    f"Unexpected error converting dict to ChatResponse - request_id={request_id}",
-                                    exc_info=True,
-                                )
-                            # If conversion fails, fall back to manual conversion
-
-                    # Fallback: manual conversion for other formats
-                    import time as _time
-                    import uuid as _uuid
-
-                    # If already in expected schema, return as-is
-                    # Handle Anthropic-style message dict -> Responses API
-                    if (
-                        isinstance(content, dict)
-                        and content.get("type") == "message"
-                        and isinstance(content.get("content"), list)
-                    ):
-                        # Extract text blocks
-                        text_parts: list[str] = []
-                        for block in content.get("content", []):
-                            if not isinstance(block, dict):
-                                continue
-                            btype = block.get("type")
-                            if btype == "text":
-                                part_text = block.get("text") or ""
-                                if part_text:
-                                    text_parts.append(str(part_text))
-
-                        text = "\n\n".join(text_parts).strip()
-                        stop_reason = content.get("stop_reason") or "stop"
-                        if stop_reason == "end_turn":
-                            finish_reason = "stop"
-                        elif stop_reason == "max_tokens":
-                            finish_reason = "length"
-                        else:
-                            finish_reason = str(stop_reason)
-
-                        # Try to parse the content as JSON for structured output
-                        parsed = None
-                        try:
-                            if text.strip():
-                                parsed = json.loads(text)
-                                if logger.isEnabledFor(logging.DEBUG):
-                                    logger.debug(
-                                        f"Successfully parsed structured output - request_id={request_id}"
-                                    )
-                        except (json.JSONDecodeError, ValueError) as e:
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    f"Content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
-                                )
-                            # If parsing fails, leave parsed as None
-
-                        usage = content.get("usage") or {}
-                        responses_usage = {
-                            "prompt_tokens": usage.get("input_tokens", 0),
-                            "completion_tokens": usage.get("output_tokens", 0),
-                            "total_tokens": (usage.get("input_tokens", 0) or 0)
-                            + (usage.get("output_tokens", 0) or 0),
-                        }
-
-                        return {
-                            "id": content.get("id", f"resp-{_uuid.uuid4().hex[:16]}"),
-                            "object": "response",
-                            "created": int(_time.time()),
-                            "model": content.get("model", domain_request.model),
-                            "choices": [
-                                {
-                                    "index": 0,
-                                    "message": {
-                                        "role": "assistant",
-                                        "content": text,
-                                        "parsed": parsed,
-                                    },
-                                    "finish_reason": finish_reason,
-                                }
-                            ],
-                            "usage": responses_usage,
-                        }
-
-                    # Normalize simple string into Responses API format
-                    if isinstance(content, str):
-                        text = content
-                    elif isinstance(content, bytes):
-                        text = content.decode("utf-8", errors="ignore")
-                    else:
-                        # Best-effort stringify for non-dict/list types
-                        try:
-                            text = json.dumps(content)
-                        except TypeError:
-                            # Content is not JSON serializable (e.g., contains custom objects)
-                            logger.debug(
-                                f"Failed to JSON serialize content, using str - request_id={request_id}",
-                                exc_info=True,
-                            )
-                            text = str(content)
-
-                    # Try to parse the content as JSON for structured output
-                    parsed = None
-                    try:
-                        if text.strip():
-                            parsed = json.loads(text)
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    f"Successfully parsed fallback structured output - request_id={request_id}"
-                                )
-                    except (json.JSONDecodeError, ValueError) as e:
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                f"Fallback content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
-                            )
-                        # If parsing fails, leave parsed as None
-
-                    return {
-                        "id": f"resp-{_uuid.uuid4().hex[:16]}",
-                        "object": "response",
-                        "created": int(_time.time()),
-                        "model": domain_request.model,
-                        "choices": [
-                            {
-                                "index": 0,
-                                "message": {
-                                    "role": "assistant",
-                                    "content": text,
-                                    "parsed": parsed,
-                                },
-                                "finish_reason": "stop",
-                            }
-                        ],
-                        "usage": {
-                            "prompt_tokens": 0,
-                            "completion_tokens": 0,
-                            "total_tokens": 0,
-                        },
-                    }
-                except (
-                    TypeError,
-                    ValueError,
-                    KeyError,
-                    AttributeError,
-                    UnicodeError,
-                    OverflowError,
-                ):
-                    # Catch specific exceptions from response conversion:
-                    # - TypeError: Type mismatches in dict values or attribute access
-                    # - ValueError: Value errors in string formatting or conversions
-                    # - KeyError: Dictionary key access errors
-                    # - AttributeError: Attribute access (e.g., domain_request.model)
-                    # - UnicodeError: String encoding/decoding errors
-                    # - OverflowError: Numeric overflow (e.g., timestamp conversion)
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            f"Error in response conversion, returning original content - request_id={request_id}",
-                            exc_info=True,
-                        )
-                    return content
+            converted_content = self._ensure_responses_schema_content(
+                response.content,
+                request_id=request_id,
+                envelope=response,
+                responses_model=responses_domain.model,
+            )
 
             final_response = domain_response_to_fastapi(
-                response,
-                content_converter=_ensure_responses_schema,
+                dataclasses.replace(response, content=cast(Any, converted_content)),
                 wire_capture=self._wire_capture,
                 context=ctx,
             )
+
+            if isinstance(converted_content, dict):
+                payload_to_store = converted_content
+                if isinstance(response.content, dict):
+                    original_response_id = response.content.get("id")
+                    if isinstance(original_response_id, str) and original_response_id:
+                        payload_to_store = response.content
+                await self._store_completed_responses_payload(
+                    payload_to_store,
+                    instructions=(
+                        store_instructions
+                        if isinstance(store_instructions, str)
+                        else None
+                    ),
+                )
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
@@ -751,13 +1155,16 @@ class ResponsesController:
                 )
             raise HTTPException(
                 status_code=500,
-                detail={
-                    "error": {
-                        "message": "An internal server error occurred while processing your request.",
-                        "type": "internal_server_error",
-                        "code": "internal_error",
-                    }
-                },
+                detail=_http_detail_with_request_id(
+                    {
+                        "error": {
+                            "message": "An internal server error occurred while processing your request.",
+                            "type": "internal_server_error",
+                            "code": "internal_error",
+                        }
+                    },
+                    request_id=request_id,
+                ),
             ) from e
 
     @staticmethod
@@ -767,6 +1174,8 @@ class ResponsesController:
     @staticmethod
     def _parse_responses_request(
         request_data: ResponsesRequest | dict[str, Any],
+        *,
+        request_id: str | None = None,
     ) -> ResponsesRequest:
         try:
             responses_request = (
@@ -776,7 +1185,9 @@ class ResponsesController:
             )
             return responses_request
         except ValidationError as exc:
-            raise ResponsesController._map_validation_error(exc) from exc
+            raise ResponsesController._map_validation_error(
+                exc, request_id=request_id
+            ) from exc
 
     def _validate_schema_if_present(
         self, *, request_id: str, responses_request: ResponsesRequest
@@ -806,13 +1217,16 @@ class ResponsesController:
                 )
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "error": {
-                        "message": f"Invalid JSON schema: {exc!s}",
-                        "type": "invalid_schema",
-                        "code": "invalid_schema",
-                    }
-                },
+                detail=_http_detail_with_request_id(
+                    {
+                        "error": {
+                            "message": f"Invalid JSON schema: {exc!s}",
+                            "type": "invalid_schema",
+                            "code": "invalid_schema",
+                        }
+                    },
+                    request_id=request_id,
+                ),
             )
 
         return True, schema_name
@@ -895,13 +1309,16 @@ class ResponsesController:
         if not isinstance(schema_dict, dict) or "type" not in schema_dict:
             raise HTTPException(
                 status_code=400,
-                detail={
-                    "error": {
-                        "message": "Invalid JSON schema: missing 'type' field",
-                        "type": "invalid_request_error",
-                        "code": "invalid_schema",
-                    }
-                },
+                detail=_http_detail_with_request_id(
+                    {
+                        "error": {
+                            "message": "Invalid JSON schema: missing 'type' field",
+                            "type": "invalid_request_error",
+                            "code": "invalid_schema",
+                        }
+                    },
+                    request_id=request_id,
+                ),
             )
 
         ctx.processing_context.values.update(
@@ -922,7 +1339,9 @@ class ResponsesController:
             )
 
     @staticmethod
-    def _map_validation_error(exc: ValidationError) -> HTTPException:
+    def _map_validation_error(
+        exc: ValidationError, *, request_id: str | None = None
+    ) -> HTTPException:
         """Convert validation errors into HTTP exceptions with appropriate status codes."""
 
         errors = exc.errors()
@@ -932,28 +1351,34 @@ class ResponsesController:
                 message = error.get("msg", "Invalid JSON schema")
                 if message.lower().startswith("value error, "):
                     message = message[12:]
+                detail = {
+                    "error": {
+                        "message": f"Invalid JSON schema: {message}",
+                        "type": "invalid_request_error",
+                        "code": "invalid_schema",
+                    }
+                }
+                if request_id:
+                    detail = _http_detail_with_request_id(detail, request_id=request_id)
                 return HTTPException(
                     status_code=400,
-                    detail={
-                        "error": {
-                            "message": f"Invalid JSON schema: {message}",
-                            "type": "invalid_request_error",
-                            "code": "invalid_schema",
-                        }
-                    },
+                    detail=detail,
                 )
 
         # For other validation errors, use OpenAI-style error format
         # Simplify error handling to avoid mypy issues with ValidationError loc field
+        detail422 = {
+            "error": {
+                "message": "Invalid request format. Please check your request parameters and try again.",
+                "type": "invalid_request_error",
+                "code": "invalid_request",
+            }
+        }
+        if request_id:
+            detail422 = _http_detail_with_request_id(detail422, request_id=request_id)
         return HTTPException(
             status_code=422,
-            detail={
-                "error": {
-                    "message": "Invalid request format. Please check your request parameters and try again.",
-                    "type": "invalid_request_error",
-                    "code": "invalid_request",
-                }
-            },
+            detail=detail422,
         )
 
     def _stream_response_envelope(
@@ -1108,7 +1533,76 @@ class ResponsesController:
                 else _empty_responses_chunk_iterator()
             )
 
+            extra_body_for_semantic = getattr(domain_request, "extra_body", None) or {}
+            request_state = getattr(request, "state", None)
+            state_semantic = bool(
+                getattr(request_state, "responses_semantic_pipeline", False)
+            )
+            use_semantic = (
+                bool(
+                    context is not None
+                    and isinstance(getattr(context, "extensions", None), dict)
+                    and context.extensions.get("responses_semantic_pipeline")
+                )
+                or (
+                    isinstance(extra_body_for_semantic, dict)
+                    and RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY
+                    in extra_body_for_semantic
+                )
+                or state_semantic
+            )
+
             try:
+                if use_semantic:
+                    assert context is not None
+                    ctx_extensions = context.extensions
+                    src_raw = ctx_extensions.get("responses_stream_source")
+                    if src_raw is None or (
+                        isinstance(src_raw, str) and not src_raw.strip()
+                    ):
+                        raise ResponsesProtocolError(
+                            "Missing or empty responses_stream_source for semantic "
+                            "streaming",
+                            code="missing_stream_source",
+                            param="responses_stream_source",
+                            status_code=500,
+                            error_type="internal_error",
+                        )
+                    try:
+                        stream_source = ResponsesStreamSource(str(src_raw))
+                    except ValueError as exc:
+                        raise ResponsesProtocolError(
+                            f"Invalid responses_stream_source: {src_raw!r}",
+                            code="invalid_stream_source",
+                            param="responses_stream_source",
+                            status_code=500,
+                            error_type="internal_error",
+                        ) from exc
+                    normalizer = ResponsesEventNormalizer(
+                        source=stream_source,
+                        response_id=response_id,
+                    )
+                    renderer = ResponsesWireRenderer(
+                        self._responses_session_store,
+                        transport="sse",
+                    )
+                    store_instructions = ctx_extensions.get(
+                        "responses_store_instructions"
+                    )
+                    if not isinstance(store_instructions, str):
+                        store_instructions = None
+                    event_stream = normalizer.normalize(chunk_iterator)
+                    async for frame in renderer.render(
+                        event_stream,
+                        response_id,
+                        instructions=store_instructions,
+                    ):
+                        if isinstance(frame, str):
+                            yield frame
+                        else:
+                            yield json.dumps(frame)
+                    return
+
                 async for chunk in chunk_iterator:
                     if await is_disconnected():
                         stream_terminated = True
@@ -1236,6 +1730,10 @@ class ResponsesController:
                         )
                 await trigger_cancel("stream_cancelled")
                 raise
+            except ResponsesProtocolError:
+                # Semantic / contract failures are not generic stream I/O errors; do not
+                # run cancellation bookkeeping that assumes a full RequestContext.
+                raise
             except Exception as e:
                 if not stream_terminated:
                     await trigger_cancel("stream_error")
@@ -1275,7 +1773,8 @@ class ResponsesController:
                     close_method = getattr(response.content, "aclose", None)
                     if callable(close_method):
                         with contextlib.suppress(Exception):
-                            await close_method()  # type: ignore[misc]
+                            close_result = close_method()
+                            await cast(Awaitable[Any], close_result)
 
         return _generator()
 
@@ -1500,7 +1999,7 @@ class ResponsesController:
 
             if operator in {sre_parse.MAX_REPEAT, sre_parse.MIN_REPEAT}:
                 # unpack with type ignore due to mypy not understanding sre_parse tuple structure
-                min_repeat, max_repeat, nested = cast(tuple, argument)  # type: ignore[misc]
+                _, max_repeat, nested = cast(tuple, argument)  # type: ignore[misc]
                 is_unbounded = max_repeat == MAXREPEAT
 
                 if inside_unbounded and is_unbounded:
@@ -1567,8 +2066,6 @@ class ResponsesController:
                 request_id,
             )
 
-        # Connection-local cache for previous_response_id optimization
-        response_cache: dict[str, Any] = {}
         connection_start_time = time.time()
         connection_timeout = 3600  # 60 minutes per OpenAI spec
 
@@ -1579,6 +2076,7 @@ class ResponsesController:
                 if elapsed >= connection_timeout:
                     error_event = {
                         "type": "error",
+                        "request_id": request_id,
                         "error": {
                             "type": "invalid_request_error",
                             "code": "websocket_connection_limit_reached",
@@ -1606,6 +2104,7 @@ class ResponsesController:
                 except json.JSONDecodeError as e:
                     error_event = {
                         "type": "error",
+                        "request_id": request_id,
                         "error": {
                             "type": "invalid_request_error",
                             "code": "invalid_json",
@@ -1624,12 +2123,12 @@ class ResponsesController:
                         websocket=websocket,
                         event_data=event_data,
                         request_id=request_id,
-                        response_cache=response_cache,
                     )
                 else:
                     # Unsupported event type
                     error_event = {
                         "type": "error",
+                        "request_id": request_id,
                         "error": {
                             "type": "invalid_request_error",
                             "code": "unsupported_event_type",
@@ -1651,6 +2150,7 @@ class ResponsesController:
             try:
                 error_event = {
                     "type": "error",
+                    "request_id": request_id,
                     "error": {
                         "type": "internal_server_error",
                         "code": "internal_error",
@@ -1677,7 +2177,6 @@ class ResponsesController:
         websocket: WebSocket,
         event_data: dict[str, Any],
         request_id: str,
-        response_cache: dict[str, Any],
     ) -> None:
         """Handle response.create event from WebSocket client.
 
@@ -1685,7 +2184,6 @@ class ResponsesController:
             websocket: WebSocket connection
             event_data: Event data from client
             request_id: Request ID for correlation
-            response_cache: Connection-local response cache
         """
         # Capture inbound WebSocket event if wire capture is enabled
         if self._wire_capture and self._wire_capture.enabled():
@@ -1714,182 +2212,166 @@ class ResponsesController:
                     )
 
         try:
-            # Check for previous_response_id
-            previous_response_id = event_data.get("previous_response_id")
-            if previous_response_id and previous_response_id not in response_cache:
-                # Cache miss - send error
-                error_event = {
-                    "type": "error",
-                    "status": 400,
-                    "error": {
-                        "code": "previous_response_not_found",
-                        "message": f"Previous response with id '{previous_response_id}' not found.",
-                        "param": "previous_response_id",
-                    },
-                }
-                await websocket.send_json(error_event)
-                return
+            responses_request = self._parse_responses_request(
+                event_data, request_id=request_id
+            )
+            has_schema, schema_name = self._validate_schema_if_present(
+                request_id=request_id,
+                responses_request=responses_request,
+            )
+            self._log_schema_validation_attempt(
+                request_id=request_id,
+                responses_request=responses_request,
+                has_schema=has_schema,
+                schema_name=schema_name,
+            )
 
-            # Convert event to ResponsesRequest
-            responses_request = self._parse_responses_request(event_data)
-
-            # Build request context (simulating HTTP request)
             from src.core.domain.request_context import RequestContext
 
-            # Create minimal context for WebSocket (state/app_state are empty dicts for WS)
             ctx = RequestContext(
                 request_id=request_id,
                 headers={},
                 cookies={},
                 client_host=None,
                 original_request=None,
-                state={},  # Empty state for WebSocket
-                app_state={},  # Empty app_state for WebSocket
+                state={},
+                app_state={},
             )
             ctx.extensions["protocol"] = "openai-responses-ws"
 
-            # Translate to domain request
-            translation_service = self._translation_service
-            domain_request = translation_service.to_domain_request(
-                responses_request, source_format="responses"
+            (
+                responses_domain,
+                domain_request,
+                stream_source,
+                store_instructions,
+            ) = await self._prepare_responses_execution(
+                responses_request=responses_request,
             )
+            ctx.extensions["responses_semantic_pipeline"] = True
+            ctx.extensions["responses_stream_source"] = stream_source.value
+            ctx.extensions["responses_store_instructions"] = store_instructions
 
-            # Attach schema context if present
             response_format = responses_request.response_format
             if response_format and response_format.json_schema:
                 self._attach_schema_context(
                     ctx=ctx,
                     responses_request=responses_request,
                     request_id=request_id,
-                    schema_name=getattr(response_format.json_schema, "name", "unnamed"),
+                    schema_name=schema_name
+                    or getattr(response_format.json_schema, "name", "unnamed"),
                 )
 
-            # Process the request
             response = await self._processor.process_request(ctx, domain_request)
             if asyncio.iscoroutine(response):
                 response = await response
 
-            # Handle streaming response
             if isinstance(response, StreamingResponseEnvelope):
                 if response.content is None:
                     raise ValueError("StreamingResponseEnvelope has no content")
-                sent_response_done = False
-                last_dict_chunk: dict[str, Any] | None = None
-                async for chunk in response.content:
-                    # Convert chunk to WebSocket event format
-                    if isinstance(chunk, ProcessedResponse):
-                        chunk_content = chunk.content
-                        chunk_metadata = chunk.metadata or {}
-
-                        if isinstance(chunk_content, dict):
-                            last_dict_chunk = chunk_content
-
-                        # Terminal chunk: tests and legacy mocks used ``done``; the real
-                        # streaming pipeline uses ``is_done`` (see streaming_response_handler).
-                        is_terminal = bool(chunk_metadata.get("done")) or (
-                            chunk_metadata.get("is_done") is True
-                        )
-                        if is_terminal:
-                            # Cache the response
-                            if isinstance(chunk_content, dict):
-                                response_id = chunk_content.get("id")
-                                if response_id and isinstance(response_id, str):
-                                    response_cache[response_id] = chunk_content
-
-                            # Send done event
-                            done_event = {
-                                "type": "response.done",
-                                "response": chunk_content,
-                            }
-                            await websocket.send_json(done_event)
-                            sent_response_done = True
-                            break
-                        else:
-                            # Send delta event
-                            if isinstance(chunk_content, dict):
-                                event_type = chunk_content.get("type", "response.delta")
-                                await websocket.send_json(
-                                    {"type": event_type, **chunk_content}
-                                )
-                            else:
-                                # Send as content delta
-                                delta_event = {
-                                    "type": "response.content_part.delta",
-                                    "delta": {"content": str(chunk_content)},
-                                }
-                                await websocket.send_json(delta_event)
-
-                # Best-effort close: only treat as a terminal response object, not a
-                # mid-stream ``response.delta`` envelope.
-                if (
-                    not sent_response_done
-                    and isinstance(last_dict_chunk, dict)
-                    and (
-                        last_dict_chunk.get("output") is not None
-                        or last_dict_chunk.get("object") == "response"
-                        or last_dict_chunk.get("status") is not None
-                    )
+                rid_ws = f"resp_ws_{int(time.time())}_{id(response)}"
+                renderer = ResponsesWireRenderer(
+                    self._responses_session_store,
+                    transport="websocket",
+                    realtime_websocket_terminal=True,
+                )
+                normalizer = ResponsesEventNormalizer(
+                    source=stream_source,
+                    response_id=rid_ws,
+                )
+                events = normalizer.normalize(response.content)
+                async for frame in renderer.render(
+                    events,
+                    rid_ws,
+                    instructions=(
+                        store_instructions
+                        if isinstance(store_instructions, str)
+                        else None
+                    ),
                 ):
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "WebSocket streaming ended without terminal chunk metadata "
-                            "(done/is_done); emitting response.done from last dict chunk. "
-                            "response_id=%s",
-                            last_dict_chunk.get("id"),
-                        )
-                    rid = last_dict_chunk.get("id")
-                    if isinstance(rid, str) and rid:
-                        response_cache[rid] = last_dict_chunk
-                    await websocket.send_json(
-                        {"type": "response.done", "response": last_dict_chunk}
-                    )
+                    if isinstance(frame, dict):
+                        await websocket.send_json(frame)
+                    else:
+                        await websocket.send_text(str(frame))
+
             else:
-                # Non-streaming response - send as single done event
-                content = response.content
+                converted_content = self._ensure_responses_schema_content(
+                    response.content,
+                    request_id=request_id,
+                    envelope=response,
+                    responses_model=responses_domain.model,
+                )
+                content = converted_content
+                payload_to_store: dict[str, Any] | None = None
                 if isinstance(content, dict):
-                    response_id = content.get("id")
-                    if response_id:
-                        response_cache[response_id] = content
+                    payload_to_store = content
+                else:
+                    from pydantic import BaseModel
 
-                    done_event = {
-                        "type": "response.done",
-                        "response": content,
-                    }
-                    await websocket.send_json(done_event)
+                    if isinstance(content, BaseModel):
+                        with contextlib.suppress(Exception):
+                            payload_to_store = content.model_dump()
 
-                    # Capture outbound WebSocket event if wire capture is enabled
-                    if self._wire_capture and self._wire_capture.enabled():
-                        try:
-                            outbound_bytes = json.dumps(
-                                content, separators=(",", ":"), ensure_ascii=False
-                            ).encode("utf-8")
-                            await self._wire_capture.capture_outbound_response(
-                                context=ctx,
-                                session_id=None,
-                                backend=None,
-                                model=event_data.get("model"),
-                                key_name=None,
-                                response_content=outbound_bytes,
-                                capture_metadata={
-                                    "transport": "websocket",
-                                    "protocol_event": "frame",
-                                    "websocket_message_type": "text",
-                                    "event_type": "response.done",
-                                    "request_id": request_id,
-                                },
+                if payload_to_store is None:
+                    raise ResponsesProtocolError(
+                        "WebSocket response.done requires a JSON object response body",
+                        code="invalid_response_shape",
+                        param=None,
+                        status_code=502,
+                        error_type="api_error",
+                    )
+
+                done_event = {
+                    "type": "response.done",
+                    "request_id": request_id,
+                    "response": payload_to_store,
+                }
+                await self._store_completed_responses_payload(
+                    payload_to_store,
+                    instructions=(
+                        store_instructions
+                        if isinstance(store_instructions, str)
+                        else None
+                    ),
+                )
+                await websocket.send_json(done_event)
+
+                if self._wire_capture and self._wire_capture.enabled():
+                    try:
+                        outbound_bytes = json.dumps(
+                            payload_to_store,
+                            separators=(",", ":"),
+                            ensure_ascii=False,
+                        ).encode("utf-8")
+                        _cap_model = payload_to_store.get("model")
+                        if not isinstance(_cap_model, str) or not _cap_model.strip():
+                            _cap_model = getattr(responses_request, "model", None)
+                        await self._wire_capture.capture_outbound_response(
+                            context=ctx,
+                            session_id=None,
+                            backend=None,
+                            model=_cap_model,
+                            key_name=None,
+                            response_content=outbound_bytes,
+                            capture_metadata={
+                                "transport": "websocket",
+                                "protocol_event": "frame",
+                                "websocket_message_type": "text",
+                                "event_type": "response.done",
+                                "request_id": request_id,
+                            },
+                        )
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to capture WebSocket outbound event: %s",
+                                e,
+                                exc_info=True,
                             )
-                        except Exception as e:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    "Failed to capture WebSocket outbound event: %s",
-                                    e,
-                                    exc_info=True,
-                                )
 
         except ValidationError as exc:
-            # Validation error
             error_event = {
                 "type": "error",
+                "request_id": request_id,
                 "status": 422,
                 "error": {
                     "code": "invalid_request",
@@ -1898,10 +2380,54 @@ class ResponsesController:
                 },
             }
             await websocket.send_json(error_event)
-        except LLMProxyError as e:
-            # Domain exception
+        except HTTPException as exc:
+            detail: dict[str, Any] = exc.detail if isinstance(exc.detail, dict) else {}
+            raw_error_body = detail.get("error")
+            error_body: dict[str, Any] = (
+                raw_error_body if isinstance(raw_error_body, dict) else {}
+            )
+            error_code = error_body.get("code")
+            error_message = error_body.get("message")
+            error_type = error_body.get("type")
+            param = error_body.get("param")
+            ws_error_body: dict[str, Any] = {
+                "code": str(error_code or "invalid_request"),
+                "message": str(error_message or "Invalid request format"),
+            }
+            if isinstance(error_type, str) and error_type:
+                ws_error_body["type"] = error_type
+            if isinstance(param, str) and param:
+                ws_error_body["param"] = param
             error_event = {
                 "type": "error",
+                "request_id": request_id,
+                "status": int(exc.status_code),
+                "error": ws_error_body,
+            }
+            await websocket.send_json(error_event)
+        except ResponsesProtocolError as e:
+            status_ws = int(getattr(e, "status_code", 400) or 400)
+            err_type = str(getattr(e, "error_type", "invalid_request_error"))
+            err_code = str(getattr(e, "code", "invalid_request_error"))
+            error_event = {
+                "type": "error",
+                "request_id": request_id,
+                "status": status_ws,
+                "error": {
+                    "type": err_type,
+                    "code": err_code,
+                    "message": str(getattr(e, "message", str(e))),
+                },
+            }
+            param = getattr(e, "param", None)
+            err_body = error_event["error"]
+            if param is not None and isinstance(err_body, dict):
+                err_body["param"] = param
+            await websocket.send_json(error_event)
+        except LLMProxyError as e:
+            error_event = {
+                "type": "error",
+                "request_id": request_id,
                 "status": 500,
                 "error": {
                     "code": "proxy_error",
@@ -1910,7 +2436,6 @@ class ResponsesController:
             }
             await websocket.send_json(error_event)
         except Exception as e:
-            # Unexpected error
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     "Error processing WebSocket response.create - request_id=%s: %s",
@@ -1920,6 +2445,7 @@ class ResponsesController:
                 )
             error_event = {
                 "type": "error",
+                "request_id": request_id,
                 "status": 500,
                 "error": {
                     "code": "internal_error",
@@ -1927,6 +2453,152 @@ class ResponsesController:
                 },
             }
             await websocket.send_json(error_event)
+
+
+def _build_responses_controller_dependencies(
+    service_provider: IServiceProvider,
+) -> dict[str, Any]:
+    from src.core.interfaces.wire_capture_interface import IWireCapture
+    from src.core.services.request_processor_service import RequestProcessor
+    from src.core.services.translation_service import TranslationService
+
+    request_processor = service_provider.get_service(
+        cast(type, IRequestProcessor)
+    )  # type: ignore[type-abstract]
+    if request_processor is None:
+        request_processor = service_provider.get_service(RequestProcessor)
+    if request_processor is None:
+        raise InitializationError(
+            "RequestProcessor is not registered in the service provider",
+        )
+
+    translation_service = service_provider.get_service(
+        cast(type, ITranslationService)
+    )  # type: ignore[type-abstract]
+    if translation_service is None:
+        translation_service = service_provider.get_service(TranslationService)
+    if translation_service is None:
+        raise InitializationError(
+            "TranslationService is not registered in the service provider",
+        )
+
+    wire_capture = None
+    try:
+        wire_capture = service_provider.get_service(cast(type, IWireCapture))
+    except (KeyError, AttributeError) as e:
+        logger.debug("Wire capture service not available in DI: %s", e, exc_info=True)
+    except Exception as e:
+        logger.warning(
+            "Unexpected error getting wire capture service from DI: %s",
+            e,
+            exc_info=True,
+        )
+
+    client_eos_service = None
+    try:
+        from src.core.interfaces.client_end_of_session_service_interface import (
+            IClientEndOfSessionService,
+        )
+
+        client_eos_service = service_provider.get_service(
+            cast(type, IClientEndOfSessionService)
+        )
+    except (KeyError, AttributeError) as e:
+        logger.debug(
+            "Client end-of-session service not available in DI: %s",
+            e,
+            exc_info=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "Unexpected error getting client end-of-session service from DI: %s",
+            e,
+            exc_info=True,
+        )
+
+    from src.core.interfaces.responses_session_store_interface import (
+        IResponsesSessionStore,
+    )
+    from src.core.services.in_memory_responses_session_store import (
+        InMemoryResponsesSessionStore,
+    )
+
+    responses_session_store = service_provider.get_service(
+        cast(type, IResponsesSessionStore)
+    )
+    if responses_session_store is None:
+        responses_session_store = service_provider.get_service(
+            InMemoryResponsesSessionStore
+        )
+    if responses_session_store is None:
+        raise InitializationError(
+            "IResponsesSessionStore is not registered in the service provider",
+        )
+
+    backend_model_resolver: IBackendModelResolver = (
+        service_provider.get_required_service(cast(type, IBackendModelResolver))
+    )
+    openai_responses_projector = service_provider.get_required_service(
+        OpenAIResponsesProjector
+    )
+    anthropic_responses_projector = service_provider.get_required_service(
+        AnthropicResponsesProjector
+    )
+    gemini_responses_projector = service_provider.get_required_service(
+        GeminiResponsesProjector
+    )
+
+    backend_config_provider: IBackendConfigProvider | None = None
+    try:
+        backend_config_provider = service_provider.get_service(
+            cast(type, IBackendConfigProvider)
+        )
+    except (KeyError, AttributeError) as e:
+        logger.debug(
+            "Backend config provider not available in DI: %s", e, exc_info=True
+        )
+    except Exception as e:
+        logger.warning(
+            "Unexpected error getting backend config provider from DI: %s",
+            e,
+            exc_info=True,
+        )
+
+    metrics_initializer = None
+    try:
+        from src.core.interfaces.session_metrics_initializer_interface import (
+            ISessionMetricsInitializer,
+        )
+
+        metrics_initializer = service_provider.get_service(
+            cast(type, ISessionMetricsInitializer)
+        )
+    except (KeyError, AttributeError) as e:
+        logger.debug(
+            "Session metrics initializer not available in DI: %s",
+            e,
+            exc_info=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "Unexpected error getting session metrics initializer from DI: %s",
+            e,
+            exc_info=True,
+        )
+
+    return {
+        "request_processor": request_processor,
+        "translation_service": translation_service,
+        "wire_capture": wire_capture,
+        "client_eos_service": client_eos_service,
+        "metrics_initializer": metrics_initializer,
+        "responses_session_store": responses_session_store,
+        "backend_model_resolver": backend_model_resolver,
+        "openai_responses_projector": openai_responses_projector,
+        "anthropic_responses_projector": anthropic_responses_projector,
+        "gemini_responses_projector": gemini_responses_projector,
+        "backend_config_provider": backend_config_provider,
+    }
 
 
 def get_responses_controller(service_provider: IServiceProvider) -> ResponsesController:
@@ -1939,78 +2611,13 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
         A configured responses controller
 
     Raises:
-        Exception: If the request processor could not be found or created
+        InitializationError: If required dependencies are missing or construction fails
     """
     try:
-        from src.core.interfaces.wire_capture_interface import IWireCapture
-        from src.core.services.request_processor_service import RequestProcessor
-        from src.core.services.translation_service import TranslationService
-
-        # Resolve request processor strictly through the DI container.
-        request_processor = service_provider.get_service(
-            cast(type, IRequestProcessor)
-        )  # type: ignore[type-abstract]
-        if request_processor is None:
-            request_processor = service_provider.get_service(RequestProcessor)
-
-        if request_processor is None:
-            raise InitializationError(
-                "RequestProcessor is not registered in the service provider",
-            )
-
-        # Resolve optional translation service from DI (may be None).
-        translation_service = service_provider.get_service(
-            cast(type, ITranslationService)
-        )  # type: ignore[type-abstract]
-        if translation_service is None:
-            translation_service = service_provider.get_service(TranslationService)
-        if translation_service is None:
-            raise InitializationError(
-                "TranslationService is not registered in the service provider",
-            )
-
-        wire_capture = None
-        try:
-            wire_capture = service_provider.get_service(cast(type, IWireCapture))
-        except (KeyError, AttributeError) as e:
-            logger.debug(
-                "Wire capture service not available in DI: %s", e, exc_info=True
-            )
-        except Exception as e:
-            logger.warning(
-                "Unexpected error getting wire capture service from DI: %s",
-                e,
-                exc_info=True,
-            )
-
-        # Optional: client end-of-session service for termination reporting
-        client_eos_service = None
-        try:
-            from src.core.interfaces.client_end_of_session_service_interface import (
-                IClientEndOfSessionService,
-            )
-
-            client_eos_service = service_provider.get_service(
-                cast(type, IClientEndOfSessionService)
-            )
-        except (KeyError, AttributeError) as e:
-            logger.debug(
-                "Client end-of-session service not available in DI: %s",
-                e,
-                exc_info=True,
-            )
-        except Exception as e:
-            logger.warning(
-                "Unexpected error getting client end-of-session service from DI: %s",
-                e,
-                exc_info=True,
-            )
-
         return ResponsesController(
-            request_processor,
-            translation_service=translation_service,
-            wire_capture=wire_capture,
-            client_eos_service=client_eos_service,
+            **_build_responses_controller_dependencies(service_provider)
         )
+    except InitializationError:
+        raise
     except Exception as e:
         raise InitializationError(f"Failed to create ResponsesController: {e}") from e

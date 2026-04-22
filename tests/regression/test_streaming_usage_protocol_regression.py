@@ -29,6 +29,9 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.transport.fastapi.response_adapters import to_fastapi_streaming_response
+from tests.utils.responses_controller_test_deps import (
+    build_responses_controller_backend_kwargs,
+)
 
 
 class _NeverDisconnectRequest:
@@ -153,6 +156,7 @@ async def test_responses_api_usage_stays_nested_under_response_completed_event()
     controller = ResponsesController(
         request_processor=MagicMock(),
         translation_service=MagicMock(),
+        **build_responses_controller_backend_kwargs(),
     )
     envelope = StreamingResponseEnvelope(content=_responses_stream())
     request = _NeverDisconnectRequest()

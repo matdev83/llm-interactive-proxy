@@ -1,13 +1,16 @@
 """Unit tests for the ResponsesController front-end logic."""
 
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import Request
 from src.core.app.controllers.responses_controller import ResponsesController
+from src.core.common.exceptions import ResponsesProviderLimitationError
+from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import (
+    CanonicalChatRequest,
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
     ChatMessage,
@@ -21,6 +24,14 @@ from src.core.domain.responses_api import (
     ResponseFormat,
     ResponsesRequest,
 )
+from src.core.domain.responses_native_wiring import (
+    RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
+)
+from src.core.domain.usage_summary import UsageSummary
+
+from tests.utils.responses_controller_test_deps import (
+    build_responses_controller_backend_kwargs,
+)
 
 
 class StubTranslationService:
@@ -29,11 +40,25 @@ class StubTranslationService:
     def __init__(self) -> None:
         self.request_used = False
         self.response_used = False
-        self._domain_request = SimpleNamespace(model="gpt-test", stream=False)
+        self._domain_request = CanonicalChatRequest(
+            model="gpt-test",
+            messages=[ChatMessage(role="user", content="stub")],
+            stream=False,
+        )
 
-    def to_domain_request(self, request: object, source_format: str) -> object:
+    def to_domain_request(
+        self, request: object, source_format: str
+    ) -> CanonicalChatRequest:
         self.request_used = True
         return self._domain_request
+
+    def from_domain_request(
+        self, request: CanonicalChatRequest, target_format: str
+    ) -> dict[str, object]:
+        return {"model": request.model, "target_format": target_format}
+
+    def to_domain_response(self, response: object, source_format: str) -> object:
+        return response
 
     def from_domain_response(
         self, response: ChatResponse, target_format: str = "openai"
@@ -66,6 +91,30 @@ class StubTranslationService:
                 }
             ],
         }
+
+
+def _make_request() -> Request:
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/responses",
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+        "app": SimpleNamespace(state=SimpleNamespace()),
+    }
+
+    async def receive() -> dict[str, object]:  # pragma: no cover - invoked by Request
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(scope, receive=receive)
+    request.state.request_id = "test-request"
+    return request
+
+
+def _responses_request(**kwargs: object) -> ResponsesRequest:
+    payload: dict[str, object] = {"model": "gpt-test"}
+    payload.update(kwargs)
+    return ResponsesRequest.model_validate(payload)
 
 
 class TestResponsesControllerSchemaValidation:
@@ -233,7 +282,7 @@ class TestResponsesControllerSchemaValidation:
 
 @pytest.mark.asyncio
 async def test_handle_responses_request_uses_injected_translation_service() -> None:
-    """The controller should honor the DI-provided translation service."""
+    """The controller should use the DI translation service for response conversion."""
 
     translation_service = StubTranslationService()
     processor = AsyncMock()
@@ -248,43 +297,193 @@ async def test_handle_responses_request_uses_injected_translation_service() -> N
         created=0,
         model="gpt-test",
         choices=[choice],
-        usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        usage=UsageSummary(prompt_tokens=1, completion_tokens=1, total_tokens=2),
     )
-    processor.process_request.return_value = ResponseEnvelope(content=chat_response)
+    processor.process_request.return_value = ResponseEnvelope(
+        content=cast(Any, chat_response)
+    )
 
-    controller = ResponsesController(processor, translation_service=translation_service)
+    controller = ResponsesController(
+        processor,
+        translation_service=translation_service,
+        **build_responses_controller_backend_kwargs(),
+    )
 
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "path": "/v1/responses",
-        "headers": [],
-        "client": ("127.0.0.1", 12345),
-        "app": SimpleNamespace(state=SimpleNamespace()),
-    }
-
-    async def receive() -> dict[str, object]:  # pragma: no cover - invoked by Request
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    request = Request(scope, receive=receive)
-    request.state.request_id = "test-request"
+    request = _make_request()
 
     schema = JsonSchema(
         name="TestSchema",
+        description=None,
         schema={
             "type": "object",
             "properties": {"foo": {"type": "string"}},
             "required": ["foo"],
         },
+        strict=True,
     )
-    responses_request = ResponsesRequest(
-        model="gpt-test",
+    responses_request = _responses_request(
         messages=[ChatMessage(role="user", content="hello")],
-        response_format=ResponseFormat(json_schema=schema),
+        response_format=ResponseFormat(type="json_schema", json_schema=schema),
     )
 
     response = await controller.handle_responses_request(request, responses_request)
 
-    assert translation_service.request_used is True
+    assert translation_service.request_used is False
     assert translation_service.response_used is True
     assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_handle_responses_request_stores_legacy_choices_payload_for_chaining() -> (
+    None
+):
+    """Legacy `choices` payloads must still populate the session store for later turns."""
+
+    translation_service = StubTranslationService()
+    processor = AsyncMock()
+    processor.process_request.return_value = ResponseEnvelope(
+        content={
+            "id": "resp-legacy",
+            "object": "response",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "legacy assistant reply",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+    )
+
+    kwargs = build_responses_controller_backend_kwargs()
+    controller = ResponsesController(
+        processor,
+        translation_service=translation_service,
+        **kwargs,
+    )
+
+    await controller.handle_responses_request(
+        _make_request(),
+        _responses_request(input="hello"),
+    )
+
+    resolved = await kwargs["responses_session_store"].resolve("resp-legacy")
+    assert resolved is not None
+    assert len(resolved.output_items) == 1
+    assert resolved.output_items[0].type == "message"
+    assert resolved.output_items[0].role == "assistant"
+    assert resolved.output_items[0].content is not None
+    assert resolved.output_items[0].content[0].type == "output_text"
+    assert resolved.output_items[0].content[0].text == "legacy assistant reply"
+
+
+@pytest.mark.asyncio
+async def test_previous_response_id_chain_reuses_stored_legacy_choices_output() -> None:
+    """Chained turns must project prior assistant text even when the first turn used `choices`."""
+
+    translation_service = StubTranslationService()
+    processor = AsyncMock()
+    processor.process_request.side_effect = [
+        ResponseEnvelope(
+            content={
+                "id": "resp-legacy",
+                "object": "response",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "legacy assistant reply",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+        ),
+        ResponseEnvelope(
+            content={
+                "id": "resp-followup",
+                "object": "response",
+                "output": [],
+            }
+        ),
+    ]
+
+    kwargs = build_responses_controller_backend_kwargs()
+    kwargs["backend_model_resolver"].resolve_target = AsyncMock(
+        return_value=BackendTarget(
+            backend="anthropic", model="claude-3-5-sonnet", uri_params={}
+        )
+    )
+    controller = ResponsesController(
+        processor,
+        translation_service=translation_service,
+        **kwargs,
+    )
+
+    await controller.handle_responses_request(
+        _make_request(),
+        _responses_request(model="anthropic:claude-3-5-sonnet", input="hello"),
+    )
+    await controller.handle_responses_request(
+        _make_request(),
+        _responses_request(
+            model="anthropic:claude-3-5-sonnet",
+            input="what next?",
+            previous_response_id="resp-legacy",
+        ),
+    )
+
+    second_call = processor.process_request.await_args_list[1]
+    projected_payload = second_call.args[1].extra_body[
+        RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY
+    ]
+    assert projected_payload["messages"] == [
+        {
+            "role": "assistant",
+            "content": [{"type": "text", "text": "legacy assistant reply"}],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "what next?"}],
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_prepare_responses_execution_rejects_unsupported_backend() -> None:
+    """Backends outside the supported Responses matrix must not get silent OpenAI wire."""
+
+    kwargs = build_responses_controller_backend_kwargs()
+
+    async def _resolve_openrouter(request: object, context: object | None = None):
+        from src.core.domain.backend_target import BackendTarget
+
+        return BackendTarget(backend="openrouter", model="gpt-4", uri_params={})
+
+    kwargs["backend_model_resolver"].resolve_target = AsyncMock(
+        side_effect=_resolve_openrouter
+    )
+
+    translation_service = StubTranslationService()
+    processor = AsyncMock()
+    controller = ResponsesController(
+        processor,
+        translation_service=translation_service,
+        **kwargs,
+    )
+
+    responses_request = _responses_request(
+        model="openrouter:gpt-4",
+        messages=[ChatMessage(role="user", content="hello")],
+    )
+
+    with pytest.raises(ResponsesProviderLimitationError) as exc_info:
+        await controller._prepare_responses_execution(
+            responses_request=responses_request,
+        )
+    assert exc_info.value.code == "provider_limitation"
+    assert exc_info.value.provider == "openrouter"

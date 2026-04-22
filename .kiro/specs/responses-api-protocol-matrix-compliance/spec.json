@@ -1,0 +1,23 @@
+{
+  "approvals": {
+    "tasks": {
+      "generated": true,
+      "approved": false
+    },
+    "design": {
+      "generated": true,
+      "approved": false
+    },
+    "requirements": {
+      "generated": true,
+      "approved": false
+    }
+  },
+  "language": "en",
+  "feature_name": "responses-api-protocol-matrix-compliance",
+  "phase": "tasks-generated",
+  "ready_for_implementation": false,
+  "supersedes": [
+    "responses-api-frontend-compliance"
+  ]
+}

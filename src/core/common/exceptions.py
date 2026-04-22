@@ -492,3 +492,83 @@ class NonForwardableTagLimitExceededError(LLMProxyError):
         if max_limit:
             det["max_limit"] = max_limit
         super().__init__(message, det, status_code=400, **kwargs)
+
+
+class ResponsesProtocolError(LLMProxyError):
+    """Base for Responses API protocol errors (OpenAI-compatible codes and params)."""
+
+    def __init__(
+        self,
+        message: str,
+        code: str,
+        param: str | None = None,
+        status_code: int = 400,
+        *,
+        error_type: str = "invalid_request_error",
+        details: dict | None = None,
+        **kwargs,
+    ) -> None:
+        det = details.copy() if details else {}
+        det.setdefault("code", code)
+        if param is not None:
+            det.setdefault("param", param)
+        super().__init__(message, det, status_code=status_code, **kwargs)
+        self.code = code
+        self.param = param
+        self.error_type = error_type
+
+
+class ResponsesValidationError(ResponsesProtocolError):
+    """Client request validation failure for the Responses API frontend."""
+
+    def __init__(
+        self,
+        message: str,
+        code: str = "invalid_request_error",
+        param: str | None = None,
+        status_code: int = 400,
+        *,
+        error_type: str = "invalid_request_error",
+        details: dict | None = None,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            message,
+            code,
+            param=param,
+            status_code=status_code,
+            error_type=error_type,
+            details=details,
+            **kwargs,
+        )
+
+
+class ResponsesPreviousResponseNotFoundError(ResponsesProtocolError):
+    """Raised when previous_response_id cannot be resolved in the session store."""
+
+    def __init__(self, response_id: str) -> None:
+        message = f"Previous response not found: {response_id}"
+        super().__init__(
+            message,
+            code="previous_response_not_found",
+            param="previous_response_id",
+            status_code=400,
+            details={"previous_response_id": response_id},
+        )
+        self.previous_response_id = response_id
+
+
+class ResponsesProviderLimitationError(ResponsesProtocolError):
+    """Requested feature cannot be preserved for the selected backend."""
+
+    def __init__(self, feature: str, provider: str) -> None:
+        message = f"Feature {feature!r} cannot be preserved for provider {provider!r}"
+        super().__init__(
+            message,
+            code="provider_limitation",
+            param=feature,
+            status_code=400,
+            details={"feature": feature, "provider": provider},
+        )
+        self.feature = feature
+        self.provider = provider

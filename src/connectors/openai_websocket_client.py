@@ -269,13 +269,11 @@ class OpenAIWebSocketClient:
                 extra = {str(k): str(v) for k, v in candidate.items() if v is not None}
         await self._ensure_connection(extra_headers=extra)
 
-        # Build response.create event
-        event = {
-            "type": "response.create",
-            **payload,
-        }
+        event = dict(payload)
+        event.pop("stream", None)
+        event.pop("background", None)
+        event["type"] = "response.create"
 
-        # Add previous_response_id if provided and in cache
         if previous_response_id:
             event["previous_response_id"] = previous_response_id
             if previous_response_id in self._response_cache:
@@ -285,10 +283,6 @@ class OpenAIWebSocketClient:
                 logger.warning(
                     "previous_response_id not in local cache; forwarding upstream continuation id anyway"
                 )
-
-        # Remove transport-specific fields
-        event.pop("stream", None)
-        event.pop("background", None)
 
         try:
             # Send the event

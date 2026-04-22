@@ -41,6 +41,9 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
+from src.core.domain.responses_native_wiring import (
+    RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
+)
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
@@ -351,6 +354,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         headers: dict[str, str],
         effective_model: str,
         context: ConnectorRequestContext | None = None,
+        *,
+        yield_native_gemini_chunks: bool = False,
     ) -> StreamingResponseHandle:
         request_headers = ensure_loop_guard_header(headers)
         request_id = request_headers.get("x-goog-request-id") or uuid.uuid4().hex
@@ -523,25 +528,29 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     if parsed_chunk is None:
                         continue
 
+                    if yield_native_gemini_chunks:
+                        yield ProcessedResponse(content=parsed_chunk)
+                    else:
+                        yield ProcessedResponse(
+                            content=self.translation_service.to_domain_stream_chunk(
+                                parsed_chunk, source_format="gemini"
+                            )
+                        )
+
+                if not yield_native_gemini_chunks:
+                    done_chunk: dict[str, Any] = {  # type: ignore[reportUnknownVariableType]
+                        "candidates": [
+                            {
+                                "content": {"parts": []},
+                                "finishReason": "STOP",
+                            }
+                        ]
+                    }
                     yield ProcessedResponse(
                         content=self.translation_service.to_domain_stream_chunk(
-                            parsed_chunk, source_format="gemini"
+                            done_chunk, source_format="gemini"
                         )
                     )
-
-                done_chunk: dict[str, Any] = {  # type: ignore[reportUnknownVariableType]
-                    "candidates": [
-                        {
-                            "content": {"parts": []},
-                            "finishReason": "STOP",
-                        }
-                    ]
-                }
-                yield ProcessedResponse(
-                    content=self.translation_service.to_domain_stream_chunk(
-                        done_chunk, source_format="gemini"
-                    )
-                )
             except httpx.RequestError as stream_error:
                 logger.error(
                     "Request error while streaming from Gemini: %s",
@@ -672,16 +681,18 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         if identity:
             api_config.headers.update(identity.get_resolved_headers(None))
 
-        # Translate CanonicalChatRequest to Gemini request using the translation service
-        payload = self.translation_service.from_domain_request(
-            domain_request, target_format="gemini"
+        extra_body_early = domain_request.extra_body or {}
+        native_gemini_payload = extra_body_early.get(
+            RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY
         )
-
-        # Apply generation config including temperature clamping
-        self._apply_generation_config(payload, domain_request)
-
-        # Apply contents and extra_body
-        payload["contents"] = self._prepare_gemini_contents(processed_messages)
+        if isinstance(native_gemini_payload, dict):
+            payload = dict(native_gemini_payload)
+        else:
+            payload = self.translation_service.from_domain_request(
+                domain_request, target_format="gemini"
+            )
+            self._apply_generation_config(payload, domain_request)
+            payload["contents"] = self._prepare_gemini_contents(processed_messages)
         if domain_request.extra_body:
             # Merge extra_body with payload, but be careful with generationConfig.
             # We support both legacy placement under 'generation_config' and
@@ -689,6 +700,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             # Normalize: prefer explicit generation_config on ChatRequest, then
             # merge any 'generationConfig' present in extra_body on top.
             extra_body_copy = dict(domain_request.extra_body)
+            extra_body_copy.pop(RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY, None)
 
             # If caller placed generation_config on ChatRequest it was already
             # merged by _apply_generation_config into payload['generationConfig'].
@@ -745,10 +757,21 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         # Streaming vs non-streaming
 
         if domain_request.stream:
-            # Use the new streaming pipeline orchestrator
-            # This integrates: Backend → Normalizer → Processors → Assembler
-            # To pass protocol-constrained parameters to stream_completion,
-            # we create a copy of the request and embed them in extra_body.
+            if isinstance(native_gemini_payload, dict):
+                stream_handle = await self._handle_gemini_streaming_response(
+                    api_config.base_url,
+                    payload,
+                    api_config.headers,
+                    effective_model,
+                    context=context,
+                    yield_native_gemini_chunks=True,
+                )
+                return StreamingResponseEnvelope(
+                    content=stream_handle.iterator,
+                    media_type="text/event-stream",
+                    headers=stream_handle.headers or {},
+                    cancel_callback=stream_handle.cancel_callback,
+                )
             extra_data: dict[str, Any] = {
                 "gemini_api_base_url": gemini_api_base_url,
                 "api_key": api_key,
@@ -770,11 +793,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 update={"extra_body": new_extra_body}
             )
 
-            # Get raw stream from backend via StreamProducer protocol
             raw_stream = self.stream_completion(streaming_request)
 
-            # Integrate with streaming pipeline
-            # Calculate prompt tokens for usage tracking
             prompt_tokens = 0
             try:
                 from src.core.utils.token_count import (
@@ -785,15 +805,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 prompt_text = extract_prompt_text(processed_messages)
                 prompt_tokens = count_tokens(prompt_text, model=effective_model)
             except (ValueError, TypeError, KeyError, AttributeError):
-                # Catch specific exceptions from token counting operations:
-                # - ValueError: tiktoken encoding errors, string format issues
-                # - TypeError: type mismatches in data structures
-                # - KeyError: dictionary key access in message extraction
-                # - AttributeError: attribute access in message extraction
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning("Failed to calculate prompt tokens", exc_info=True)
 
-            # Integrate with streaming pipeline
             from src.core.ports.streaming_integration import (
                 integrate_streaming_pipeline,
             )

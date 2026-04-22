@@ -10,6 +10,7 @@ import pytest
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
+    ConnectorResponsesRequest,
 )
 from src.connectors.openai import OpenAIConnector, _extract_connector_chat_request
 from src.core.common.exceptions import (
@@ -394,7 +395,9 @@ async def test_responses_method_uses_request_context(
 
     openai_connector._send_request_with_retry = AsyncMock(side_effect=mock_send)  # type: ignore[method-assign]
 
-    result = await openai_connector.responses(req)
+    result = await openai_connector.responses(
+        ConnectorResponsesRequest.from_chat_completions(req)
+    )
     assert isinstance(result, ResponseEnvelope)
     # The context must be passed to the HTTP layer for correlation
     assert captured_context is not None

@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 from pydantic.types import JsonValue
-from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorResponsesRequest,
+)
 from src.connectors.openai_responses import OpenAIResponsesConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
@@ -46,6 +49,25 @@ def _build_connector_request(
         cancellation_coordinator=None,
         context=None,
         options=options or {},
+    )
+
+
+def _build_responses_connector_request(
+    connector: OpenAIResponsesConnector,
+    request_data: CanonicalChatRequest | dict[str, object],
+    *,
+    processed_messages: list[ChatMessage] | None = None,
+    effective_model: str = "gpt-4",
+    options: dict[str, JsonValue] | None = None,
+) -> ConnectorResponsesRequest:
+    return ConnectorResponsesRequest.from_chat_completions(
+        _build_connector_request(
+            connector,
+            request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            options=options,
+        )
     )
 
 
@@ -155,7 +177,7 @@ class TestOpenAIResponsesBackendIntegration:
 
         # Execute the request
         result = await connector.responses(
-            _build_connector_request(connector, request_data)
+            _build_responses_connector_request(connector, request_data)
         )
 
         # Verify the result
@@ -266,7 +288,7 @@ class TestOpenAIResponsesBackendIntegration:
 
         # Execute the request
         result = await connector.responses(
-            _build_connector_request(connector, backend_request)
+            _build_responses_connector_request(connector, backend_request)
         )
 
         # Verify the result
@@ -323,7 +345,7 @@ class TestOpenAIResponsesBackendIntegration:
 
         # Execute streaming request
         result = await connector.responses(
-            _build_connector_request(connector, request_data)
+            _build_responses_connector_request(connector, request_data)
         )
 
         # Verify streaming response
@@ -371,7 +393,9 @@ class TestOpenAIResponsesBackendIntegration:
         from src.core.common.exceptions import BackendError
 
         with pytest.raises(BackendError) as exc_info:
-            await connector.responses(_build_connector_request(connector, request_data))
+            await connector.responses(
+                _build_responses_connector_request(connector, request_data)
+            )
 
         assert exc_info.value.status_code == 400
 
@@ -385,7 +409,9 @@ class TestOpenAIResponsesBackendIntegration:
         _configure_non_streaming_http_mocks(mock_client, mock_response_401)
 
         with pytest.raises(BackendError) as exc_info:
-            await connector.responses(_build_connector_request(connector, request_data))
+            await connector.responses(
+                _build_responses_connector_request(connector, request_data)
+            )
 
         assert exc_info.value.status_code == 401
 
@@ -441,7 +467,7 @@ class TestOpenAIResponsesBackendIntegration:
 
         # Execute request
         result = await connector.responses(
-            _build_connector_request(
+            _build_responses_connector_request(
                 connector,
                 request_data,
                 processed_messages=processed_messages,

@@ -55,6 +55,9 @@ class ProcessorStage(InitializationStage):
         # Register artifact service (request processor dependency)
         self._register_artifact_service(services)
 
+        self._register_responses_session_store(services)
+        self._register_responses_projectors(services)
+
         # Register command handler (request processor internal phase)
         self._register_command_handler(services)
 
@@ -131,6 +134,61 @@ class ProcessorStage(InitializationStage):
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Registered artifact service")
+
+    def _register_responses_session_store(self, services: ServiceCollection) -> None:
+        from src.core.interfaces.responses_session_store_interface import (
+            IResponsesSessionStore,
+        )
+        from src.core.services.in_memory_responses_session_store import (
+            InMemoryResponsesSessionStore,
+        )
+
+        def responses_session_store_factory(
+            _provider: IServiceProvider,
+        ) -> InMemoryResponsesSessionStore:
+            return InMemoryResponsesSessionStore()
+
+        services.add_singleton(
+            InMemoryResponsesSessionStore,
+            implementation_factory=responses_session_store_factory,
+        )
+
+        services.add_singleton_factory(
+            cast(type, IResponsesSessionStore),
+            implementation_factory=lambda provider: provider.get_required_service(
+                InMemoryResponsesSessionStore
+            ),
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered Responses session store")
+
+    def _register_responses_projectors(self, services: ServiceCollection) -> None:
+        from src.core.services.anthropic_responses_projector import (
+            AnthropicResponsesProjector,
+        )
+        from src.core.services.gemini_responses_projector import (
+            GeminiResponsesProjector,
+        )
+        from src.core.services.openai_responses_projector import (
+            OpenAIResponsesProjector,
+        )
+
+        services.add_singleton(
+            OpenAIResponsesProjector,
+            implementation_factory=lambda _p: OpenAIResponsesProjector(),
+        )
+        services.add_singleton(
+            AnthropicResponsesProjector,
+            implementation_factory=lambda _p: AnthropicResponsesProjector(),
+        )
+        services.add_singleton(
+            GeminiResponsesProjector,
+            implementation_factory=lambda _p: GeminiResponsesProjector(),
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered Responses backend projectors")
 
     def _register_command_handler(self, services: ServiceCollection) -> None:
         """Register command handler (request processor internal phase)."""
@@ -229,7 +287,6 @@ class ProcessorStage(InitializationStage):
                 app_state=app_state,
                 model_catalog=model_catalog,
             )
-
 
         # Register concrete implementation
         services.add_singleton(

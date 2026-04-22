@@ -1,0 +1,94 @@
+{
+  "upstream_events": [
+    {
+      "type": "response.created",
+      "response": {
+        "id": "resp-contract-ws",
+        "object": "response",
+        "model": "mock-model"
+      }
+    },
+    {
+      "type": "response.in_progress",
+      "response": {
+        "id": "resp-contract-ws",
+        "status": "in_progress"
+      }
+    },
+    {
+      "type": "response.output_text.delta",
+      "output_index": 0,
+      "content_index": 0,
+      "item_id": "msg_ws_1",
+      "delta": "Hello websocket"
+    },
+    {
+      "type": "response.completed",
+      "response": {
+        "id": "resp-contract-ws",
+        "output": [
+          {
+            "id": "msg_ws_1",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Hello websocket"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "frontend_events": [
+    {
+      "type": "response.created",
+      "sequence_number": 0,
+      "response": {
+        "id": "resp-contract-ws",
+        "object": "response",
+        "model": "mock-model"
+      }
+    },
+    {
+      "type": "response.in_progress",
+      "sequence_number": 1,
+      "response": {
+        "id": "resp-contract-ws",
+        "status": "in_progress"
+      }
+    },
+    {
+      "type": "response.output_text.delta",
+      "sequence_number": 2,
+      "output_index": 0,
+      "content_index": 0,
+      "item_id": "msg_ws_1",
+      "delta": "Hello websocket"
+    },
+    {
+      "type": "response.done",
+      "sequence_number": 3,
+      "response": {
+        "id": "resp-contract-ws",
+        "output": [
+          {
+            "id": "msg_ws_1",
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Hello websocket"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

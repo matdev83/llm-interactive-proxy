@@ -27,6 +27,9 @@ from src.core.interfaces.client_end_of_session_service_interface import (
 from src.core.interfaces.session_metrics_initializer_interface import (
     ISessionMetricsInitializer,
 )
+from tests.utils.responses_controller_test_deps import (
+    build_responses_controller_backend_kwargs,
+)
 
 
 class MockClientEndOfSessionService(IClientEndOfSessionService):
@@ -94,11 +97,13 @@ class TestHTTPStreamingDisconnect:
             request_processor=mock_processor,
             translation_service=mock_translation,
             client_eos_service=mock_client_eos_service,
+            **build_responses_controller_backend_kwargs(),
         )
 
         # Create mock request with request_id
         mock_request = MagicMock(spec=Request)
         mock_request.is_disconnected = AsyncMock(return_value=False)
+        mock_request.state = MagicMock(spec=[])
 
         # Create RequestContext with request_id
         context = RequestContext(
@@ -171,11 +176,13 @@ class TestHTTPStreamingDisconnect:
             request_processor=mock_processor,
             translation_service=mock_translation,
             client_eos_service=mock_client_eos_service,
+            **build_responses_controller_backend_kwargs(),
         )
 
         # Create mock request
         mock_request = MagicMock(spec=Request)
         mock_request.is_disconnected = AsyncMock(return_value=False)
+        mock_request.state = MagicMock(spec=[])
 
         # Create RequestContext with request_id
         context = RequestContext(
@@ -370,6 +377,7 @@ class TestMissingSessionContext:
             request_processor=mock_processor,
             translation_service=mock_translation,
             client_eos_service=mock_client_eos_service,
+            **build_responses_controller_backend_kwargs(),
         )
 
         # Create RequestContext WITHOUT request_id

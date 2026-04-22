@@ -1,0 +1,11 @@
+{
+  "detail": {
+    "error": {
+      "message": "Feature 'include' cannot be preserved for provider 'anthropic'",
+      "type": "invalid_request_error",
+      "code": "provider_limitation",
+      "param": "include"
+    },
+    "request_id": "req-provider-limit"
+  }
+}

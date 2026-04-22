@@ -23,6 +23,8 @@ from src.core.common.exceptions import (
     LLMProxyError,
     LoopDetectionError,
     RateLimitExceededError,
+    ResponsesProtocolError,
+    ResponsesValidationError,
     RoutingError,
     ServiceUnavailableError,
 )
@@ -240,6 +242,28 @@ def map_domain_exception_to_http_exception(
             status_code = status.HTTP_502_BAD_GATEWAY
     elif isinstance(exc, LoopDetectionError):
         status_code = status.HTTP_400_BAD_REQUEST
+    elif isinstance(exc, ResponsesProtocolError):
+        rp_status = getattr(exc, "status_code", status.HTTP_400_BAD_REQUEST)
+        if not isinstance(rp_status, int):
+            rp_status = status.HTTP_400_BAD_REQUEST
+        error_type = getattr(exc, "error_type", "invalid_request_error")
+        responses_protocol_detail: dict[str, Any] = {
+            "error": {
+                "message": str(getattr(exc, "message", str(exc))),
+                "type": error_type,
+                "code": getattr(exc, "code", "invalid_request_error"),
+                "param": getattr(exc, "param", None),
+            }
+        }
+        if request is not None:
+            rid = getattr(request.state, "request_id", None)
+            if isinstance(rid, str) and rid:
+                responses_protocol_detail["request_id"] = rid
+        return HTTPException(
+            status_code=rp_status,
+            detail=responses_protocol_detail,
+            headers=headers,
+        )
     elif isinstance(exc, RoutingError):
         details_obj = getattr(exc, "details", None) or {}
         if isinstance(details_obj, dict):
@@ -309,6 +333,8 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.exception_handler(InvalidRequestError)(domain_exception_handler)
     app.exception_handler(LoopDetectionError)(domain_exception_handler)
     app.exception_handler(RateLimitExceededError)(domain_exception_handler)
+    app.exception_handler(ResponsesProtocolError)(domain_exception_handler)
+    app.exception_handler(ResponsesValidationError)(domain_exception_handler)
     app.exception_handler(RoutingError)(domain_exception_handler)
     app.exception_handler(ServiceUnavailableError)(domain_exception_handler)
 

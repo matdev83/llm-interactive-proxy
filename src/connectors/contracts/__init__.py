@@ -78,6 +78,33 @@ class ConnectorChatCompletionsRequest(InternalDTO):
     options: dict[str, JsonValue] = field(default_factory=dict)
 
 
+@dataclass
+class ConnectorResponsesRequest(InternalDTO):
+    request: CanonicalChatRequest
+    processed_messages: Sequence[ChatMessage]
+    effective_model: str
+    identity: IAppIdentityConfig | None
+    cancellation_token: SessionKey | None
+    cancellation_coordinator: ISessionCancellationCoordinator | None
+    context: ConnectorRequestContext | None
+    options: dict[str, JsonValue] = field(default_factory=dict)
+
+    @staticmethod
+    def from_chat_completions(
+        req: ConnectorChatCompletionsRequest,
+    ) -> ConnectorResponsesRequest:
+        return ConnectorResponsesRequest(
+            request=req.request,
+            processed_messages=req.processed_messages,
+            effective_model=req.effective_model,
+            identity=req.identity,
+            cancellation_token=req.cancellation_token,
+            cancellation_coordinator=req.cancellation_coordinator,
+            context=req.context,
+            options=dict(req.options),
+        )
+
+
 class ICanonicalChatCompletionsBackend(Protocol):
     """Canonical connector protocol for typed connector invocation.
 
@@ -120,5 +147,6 @@ class ICanonicalChatCompletionsBackend(Protocol):
 __all__ = [
     "ConnectorRequestContext",
     "ConnectorChatCompletionsRequest",
+    "ConnectorResponsesRequest",
     "ICanonicalChatCompletionsBackend",
 ]

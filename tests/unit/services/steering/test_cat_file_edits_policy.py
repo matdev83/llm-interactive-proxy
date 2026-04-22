@@ -1,7 +1,6 @@
 """Tests for CatFileEditsSteeringPolicy."""
 
 import pytest
-
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 from src.services.steering.policies.cat_file_edits_policy import (
     DEFAULT_STEERING_MESSAGE,

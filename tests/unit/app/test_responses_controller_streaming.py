@@ -4,13 +4,19 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
+from fastapi import Request
 from src.core.app.controllers.responses_controller import ResponsesController
+from src.core.common.exceptions import ResponsesProtocolError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from tests.utils.responses_controller_test_deps import (
+    build_responses_controller_backend_kwargs,
+)
 
 
 class _FakeRequest:
@@ -97,6 +103,7 @@ async def test_streaming_disconnect_triggers_backend_cancel() -> None:
     controller = ResponsesController(
         request_processor=MagicMock(),
         translation_service=MagicMock(),
+        **build_responses_controller_backend_kwargs(),
     )
 
     cancel_called = asyncio.Event()
@@ -117,7 +124,7 @@ async def test_streaming_disconnect_triggers_backend_cancel() -> None:
     )
 
     stream = controller._stream_response_envelope(
-        request=request,
+        request=cast(Request, request),
         domain_request=domain_request,
         response=envelope,
         request_id="req-test",
@@ -142,6 +149,7 @@ async def test_streaming_tool_calls_emit_wire_events_only() -> None:
     controller = ResponsesController(
         request_processor=MagicMock(),
         translation_service=MagicMock(),
+        **build_responses_controller_backend_kwargs(),
     )
 
     envelope = StreamingResponseEnvelope(content=_make_tool_stream())
@@ -153,7 +161,7 @@ async def test_streaming_tool_calls_emit_wire_events_only() -> None:
     )
 
     stream = controller._stream_response_envelope(
-        request=request,
+        request=cast(Request, request),
         domain_request=domain_request,
         response=envelope,
         request_id="req-tool",
@@ -173,3 +181,72 @@ async def test_streaming_tool_calls_emit_wire_events_only() -> None:
     assert "response.function_call_arguments.done" in types
     assert "response.output_item.done" in types
     assert types[-1] == "response.completed"
+
+
+async def _empty_processed_stream() -> AsyncIterator[ProcessedResponse]:
+    """Async generator that yields nothing (valid empty stream iterator)."""
+    if False:
+        yield ProcessedResponse(content={}, metadata={})
+
+
+@pytest.mark.asyncio
+async def test_semantic_sse_missing_responses_stream_source_raises() -> None:
+    controller = ResponsesController(
+        request_processor=MagicMock(),
+        translation_service=MagicMock(),
+        **build_responses_controller_backend_kwargs(),
+    )
+    ctx = SimpleNamespace(
+        extensions={
+            "responses_semantic_pipeline": True,
+        },
+    )
+    request = _FakeRequest(disconnect_sequence=[False])
+    domain_request = SimpleNamespace(model="gpt-4o", stream=True, extra_body={})
+    envelope = StreamingResponseEnvelope(content=_empty_processed_stream())
+
+    stream = controller._stream_response_envelope(
+        request=cast(Request, request),
+        domain_request=domain_request,
+        response=envelope,
+        request_id="req-missing-stream-source",
+        context=ctx,
+    )
+
+    with pytest.raises(ResponsesProtocolError) as exc_info:
+        await stream.__anext__()
+
+    assert exc_info.value.code == "missing_stream_source"
+    assert exc_info.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_semantic_sse_invalid_responses_stream_source_raises() -> None:
+    controller = ResponsesController(
+        request_processor=MagicMock(),
+        translation_service=MagicMock(),
+        **build_responses_controller_backend_kwargs(),
+    )
+    ctx = SimpleNamespace(
+        extensions={
+            "responses_semantic_pipeline": True,
+            "responses_stream_source": "not_a_valid_enum_member",
+        },
+    )
+    request = _FakeRequest(disconnect_sequence=[False])
+    domain_request = SimpleNamespace(model="gpt-4o", stream=True, extra_body={})
+    envelope = StreamingResponseEnvelope(content=_empty_processed_stream())
+
+    stream = controller._stream_response_envelope(
+        request=cast(Request, request),
+        domain_request=domain_request,
+        response=envelope,
+        request_id="req-invalid-stream-source",
+        context=ctx,
+    )
+
+    with pytest.raises(ResponsesProtocolError) as exc_info:
+        await stream.__anext__()
+
+    assert exc_info.value.code == "invalid_stream_source"
+    assert exc_info.value.status_code == 500

@@ -650,12 +650,8 @@ async def test_send_response_create_skips_multiple_codex_telemetry_variants(
             yield json.dumps(
                 {"type": "codex.rate_limits", "rate_limits": {"allowed": True}}
             )
-            yield json.dumps(
-                {"type": "codex.usage", "usage": {"tokens": 42}}
-            )
-            yield json.dumps(
-                {"type": "codex.ping", "timestamp": 1234567890}
-            )
+            yield json.dumps({"type": "codex.usage", "usage": {"tokens": 42}})
+            yield json.dumps({"type": "codex.ping", "timestamp": 1234567890})
             yield json.dumps(completed)
 
         mock_ws.__aiter__ = lambda self: mock_aiter(self)
@@ -680,3 +676,85 @@ async def test_event_to_processed_response_skip_session(ws_client):
     result = ws_client._event_to_processed_response(event_data)
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_send_response_create_upstream_flat_envelope_responses_websocket_mode(
+    ws_client,
+):
+    """Contract: wss://api.openai.com/v1/responses (OpenAI WebSocket mode guide).
+
+    Client frames are a single JSON object with ``type: response.create`` and the
+    same top-level fields as ``POST /v1/responses``, excluding transport-only keys
+    ``stream`` and ``background`` (no Realtime-style ``response: {...}`` wrapper).
+    """
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+
+        completed = {
+            "type": "response.completed",
+            "response": {"id": "resp_contract", "output": []},
+        }
+
+        async def mock_aiter(self):
+            yield json.dumps(completed)
+
+        mock_ws.__aiter__ = lambda self: mock_aiter(self)
+        mock_connect.return_value = mock_ws
+
+        await ws_client.connect()
+
+        payload = {
+            "model": "gpt-4o-mini",
+            "input": [{"type": "message", "role": "user", "content": "hi"}],
+            "stream": True,
+            "background": True,
+            "max_output_tokens": 16,
+        }
+        async for _ in ws_client.send_response_create(payload):
+            pass
+
+        sent = json.loads(mock_ws.send.call_args[0][0])
+        assert sent == {
+            "model": "gpt-4o-mini",
+            "input": [{"type": "message", "role": "user", "content": "hi"}],
+            "max_output_tokens": 16,
+            "type": "response.create",
+        }
+        assert "response" not in sent
+        assert "stream" not in sent
+        assert "background" not in sent
+
+
+@pytest.mark.asyncio
+async def test_send_response_create_upstream_type_not_clobbered_by_payload_type(
+    ws_client,
+):
+    with patch("websockets.connect", new_callable=AsyncMock) as mock_connect:
+        mock_ws = AsyncMock()
+        mock_ws.closed = False
+
+        completed = {
+            "type": "response.completed",
+            "response": {"id": "resp_type", "output": []},
+        }
+
+        async def mock_aiter(self):
+            yield json.dumps(completed)
+
+        mock_ws.__aiter__ = lambda self: mock_aiter(self)
+        mock_connect.return_value = mock_ws
+
+        await ws_client.connect()
+
+        payload = {
+            "type": "should_not_win",
+            "model": "gpt-4o-mini",
+            "input": "x",
+        }
+        async for _ in ws_client.send_response_create(payload):
+            pass
+
+        sent = json.loads(mock_ws.send.call_args[0][0])
+        assert sent["type"] == "response.create"

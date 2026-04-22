@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorResponsesRequest,
+)
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import InvalidRequestError
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -39,7 +42,9 @@ class OpenAIResponsesConnector(OpenAIConnector):
             request.cancellation_coordinator.ensure_not_cancelled(
                 request.cancellation_token
             )
-        return await self.responses(request)
+        return await self.responses(
+            ConnectorResponsesRequest.from_chat_completions(request)
+        )
 
 
 # Register the OpenAI Responses API backend

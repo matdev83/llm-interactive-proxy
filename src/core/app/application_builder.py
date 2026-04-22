@@ -611,7 +611,7 @@ class ApplicationBuilder:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("Exception handlers not available", exc_info=True)
 
-    def _add_lifecycle_handlers(
+    def _add_lifecycle_handlers(  # noqa: C901
         self, app: FastAPI, service_provider: IServiceProvider
     ) -> None:
         """Add startup and shutdown handlers."""
@@ -687,6 +687,26 @@ class ApplicationBuilder:
                         )
                 if usage_window_warmup_service is not None:
                     await usage_window_warmup_service.start()
+
+                try:
+                    from src.core.services.in_memory_responses_session_store import (
+                        InMemoryResponsesSessionStore,
+                    )
+
+                    responses_session_store = service_provider.get_service(
+                        InMemoryResponsesSessionStore
+                    )
+                    if responses_session_store is not None:
+                        responses_session_store.ensure_periodic_purge_running(
+                            interval_seconds=60.0
+                        )
+                except Exception as exc:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to start Responses session store purge loop: %s",
+                            exc,
+                            exc_info=True,
+                        )
             except Exception as exc:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -701,6 +721,24 @@ class ApplicationBuilder:
             # Shutdown
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Shutting down application")
+
+            try:
+                from src.core.services.in_memory_responses_session_store import (
+                    InMemoryResponsesSessionStore,
+                )
+
+                responses_session_store = service_provider.get_service(
+                    InMemoryResponsesSessionStore
+                )
+                if responses_session_store is not None:
+                    await responses_session_store.stop_periodic_purge()
+            except Exception as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to stop Responses session store purge loop: %s",
+                        exc,
+                        exc_info=True,
+                    )
 
             # Stop capability refresh loop before backend shutdown.
             try:

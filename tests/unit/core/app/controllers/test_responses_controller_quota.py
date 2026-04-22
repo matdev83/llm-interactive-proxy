@@ -7,6 +7,10 @@ from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.translation_service_interface import ITranslationService
 
+from tests.utils.responses_controller_test_deps import (
+    build_responses_controller_backend_kwargs,
+)
+
 
 @pytest.mark.asyncio
 async def test_handle_responses_request_propagates_streaming_headers():
@@ -30,7 +34,11 @@ async def test_handle_responses_request_propagates_streaming_headers():
     )
     request_processor.process_request = AsyncMock(return_value=streaming_envelope)
     
-    controller = ResponsesController(request_processor, translation_service=translation_service)
+    controller = ResponsesController(
+        request_processor,
+        translation_service=translation_service,
+        **build_responses_controller_backend_kwargs(),
+    )
     
     # Mock FastAPI request
     request = MagicMock(spec=Request)

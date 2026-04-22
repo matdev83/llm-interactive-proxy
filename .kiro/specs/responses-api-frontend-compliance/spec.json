@@ -1,0 +1,22 @@
+{
+  "approvals": {
+    "tasks": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "requirements": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "language": "en",
+  "created_at": "2026-04-18T16:16:02.6829152Z",
+  "feature_name": "responses-api-frontend-compliance",
+  "phase": "awaiting-operator-live-verification",
+  "ready_for_implementation": false,
+  "updated_at": "2026-04-19T12:00:00Z"
+}

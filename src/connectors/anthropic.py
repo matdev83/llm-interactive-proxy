@@ -8,7 +8,7 @@ import asyncio
 import contextlib
 import json
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Iterator
 from typing import Any
 
 import httpx
@@ -38,6 +38,9 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
+)
+from src.core.domain.responses_native_wiring import (
+    RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
 )
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -132,6 +135,19 @@ def _tool_result_content_as_string(content: Any) -> str:
     if isinstance(content, list | dict):
         return json.dumps(content, ensure_ascii=False)
     return str(content)
+
+
+def _anthropic_stream_error_status(error_type: str) -> int:
+    normalized = error_type.strip().lower()
+    mapping = {
+        "invalid_request_error": 400,
+        "authentication_error": 401,
+        "permission_error": 403,
+        "not_found_error": 404,
+        "rate_limit_error": 429,
+        "overloaded_error": 529,
+    }
+    return mapping.get(normalized, 500)
 
 
 def _openai_tool_call_to_anthropic_tool_use(tc: Any) -> dict[str, Any]:
@@ -432,14 +448,22 @@ class AnthropicBackend(LLMBackend):
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
         # request_headers = ... (existing code)
 
-        # request_data is a domain ChatRequest; connectors can rely on adapter helpers
-        anthropic_payload = self._prepare_anthropic_payload(
-            request_data=domain_request,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            project=project,
-            context=context,
+        extra_body_for_native = domain_request.extra_body or {}
+        native_anthropic_payload = extra_body_for_native.get(
+            RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY
         )
+        if isinstance(native_anthropic_payload, dict):
+            anthropic_payload = dict(native_anthropic_payload)
+            anthropic_payload["model"] = effective_model.replace("anthropic:", "")
+            anthropic_payload["stream"] = bool(domain_request.stream)
+        else:
+            anthropic_payload = self._prepare_anthropic_payload(
+                request_data=domain_request,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                project=project,
+                context=context,
+            )
 
         request_headers = {
             self.auth_header_name: effective_api_key,
@@ -494,13 +518,24 @@ class AnthropicBackend(LLMBackend):
             )
 
         if domain_request.stream:
-            # Use the new streaming pipeline orchestrator
-            # This integrates: Backend → Normalizer → Processors → Assembler
+            if isinstance(native_anthropic_payload, dict):
+                stream_handle = await self._handle_streaming_response(
+                    url,
+                    anthropic_payload,
+                    request_headers,
+                    effective_model,
+                    context,
+                    yield_native_json_events=True,
+                )
+                return StreamingResponseEnvelope(
+                    content=stream_handle.iterator,
+                    media_type="text/event-stream",
+                    headers=stream_handle.headers or {},
+                    cancel_callback=stream_handle.cancel_callback,
+                )
             try:
-                # Get raw stream from backend via StreamProducer protocol
                 raw_stream = self.stream_completion(domain_request)
 
-                # Calculate prompt tokens for usage tracking
                 prompt_tokens = 0
                 try:
                     from src.core.utils.token_count import (
@@ -517,9 +552,6 @@ class AnthropicBackend(LLMBackend):
                     KeyError,
                     ValueError,
                 ) as e:
-                    # Catch expected exceptions from token counting utilities
-                    # ImportError: tiktoken not available
-                    # AttributeError/TypeError/KeyError/ValueError: data structure issues
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             "Failed to calculate prompt tokens: %s",
@@ -528,7 +560,6 @@ class AnthropicBackend(LLMBackend):
                             extra=log_extra if log_extra else None,
                         )
                 except Exception as e:
-                    # Fallback for truly unexpected errors
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             "Failed to calculate prompt tokens (unexpected error): %s",
@@ -537,7 +568,6 @@ class AnthropicBackend(LLMBackend):
                             extra=log_extra if log_extra else None,
                         )
 
-                # Integrate with streaming pipeline
                 from src.core.ports.streaming_integration import (
                     integrate_streaming_pipeline,
                 )
@@ -861,16 +891,51 @@ class AnthropicBackend(LLMBackend):
             metadata={"allow_usage_recalculation": True},
         )
 
+    def _iter_native_sse_json_events(self, chunk: str) -> Iterator[ProcessedResponse]:
+        for line in chunk.splitlines():
+            line_s = line.strip()
+            if not line_s.startswith("data:"):
+                continue
+            data_part = line_s[5:].strip()
+            if not data_part or data_part == "[DONE]":
+                continue
+            try:
+                obj = json.loads(data_part)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                if obj.get("type") == "error":
+                    error_info = obj.get("error", {})
+                    error_msg = (
+                        error_info.get("message", "Unknown error")
+                        if isinstance(error_info, dict)
+                        else "Unknown error"
+                    )
+                    error_type = (
+                        error_info.get("type", "unknown")
+                        if isinstance(error_info, dict)
+                        else "unknown"
+                    )
+                    raise BackendError(
+                        message=f"Anthropic API error: {error_msg}",
+                        code=f"anthropic_error_{error_type}",
+                        status_code=_anthropic_stream_error_status(error_type),
+                        details={"error_data": obj},
+                    )
+                yield ProcessedResponse(content=obj)
+
     # -----------------------------------------------------------
     # Streaming handling
     # -----------------------------------------------------------
-    async def _handle_streaming_response(
+    async def _handle_streaming_response(  # noqa: C901
         self,
         url: str,
         payload: dict[str, Any],
         headers: dict[str, str],
         model: str,
         context: ConnectorRequestContext | None = None,
+        *,
+        yield_native_json_events: bool = False,
     ) -> StreamingResponseHandle:
         """Handle a streaming response from Anthropic and provide cancellation support."""
 
@@ -894,8 +959,6 @@ class AnthropicBackend(LLMBackend):
             ) from e
 
         if response.status_code >= 400:
-            from src.core.common.exceptions import BackendError
-
             try:
                 # Read only first 10MB of error body to prevent DoS (consistent with other middleware)
                 # Use list + join to avoid O(n^2) bytes concatenation
@@ -1054,7 +1117,6 @@ class AnthropicBackend(LLMBackend):
                 async for chunk in response.aiter_text():
                     _capture_message_id(chunk)
 
-                    # Log raw chunk for debugging
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             "Raw Anthropic chunk: %s",
@@ -1062,17 +1124,17 @@ class AnthropicBackend(LLMBackend):
                             extra=log_extra if log_extra else None,
                         )
 
-                    # Check for error events from backend
+                    if yield_native_json_events:
+                        for pr in self._iter_native_sse_json_events(chunk):
+                            yield pr
+                        continue
+
                     if (
                         "event: error" in chunk
                         or '"type": "error"' in chunk
                         or '"type":"error"' in chunk
                     ):
-                        # Extract error message
-                        import json
-
                         try:
-                            # Parse the data line
                             for line in chunk.split("\n"):
                                 if line.startswith("data:"):
                                     error_data = json.loads(line[5:].strip())
@@ -1082,14 +1144,13 @@ class AnthropicBackend(LLMBackend):
                                             "message", "Unknown error"
                                         )
                                         error_type = error_info.get("type", "unknown")
-                                        from src.core.common.exceptions import (
-                                            BackendError,
-                                        )
 
                                         raise BackendError(
                                             message=f"Anthropic API error: {error_msg}",
                                             code=f"anthropic_error_{error_type}",
-                                            status_code=400,
+                                            status_code=_anthropic_stream_error_status(
+                                                error_type
+                                            ),
                                             details={"error_data": error_data},
                                         )
                         except (json.JSONDecodeError, KeyError) as e:
@@ -1101,9 +1162,6 @@ class AnthropicBackend(LLMBackend):
                                     extra=log_extra if log_extra else None,
                                 )
 
-                    # Translate Anthropic SSE chunk to domain format
-                    # The translation function handles both SSE format (with event:/data: lines)
-                    # and plain JSON chunks
                     domain_chunk = self.translation_service.to_domain_stream_chunk(
                         chunk, "anthropic"
                     )
@@ -1115,11 +1173,11 @@ class AnthropicBackend(LLMBackend):
                         )
                     yield ProcessedResponse(content=domain_chunk)
 
-                # Translate final [DONE] marker to domain format
-                done_chunk = self.translation_service.to_domain_stream_chunk(
-                    "data: [DONE]\n\n", "anthropic"
-                )
-                yield ProcessedResponse(content=done_chunk)
+                if not yield_native_json_events:
+                    done_chunk = self.translation_service.to_domain_stream_chunk(
+                        "data: [DONE]\n\n", "anthropic"
+                    )
+                    yield ProcessedResponse(content=done_chunk)
             except httpx.HTTPError as exc:
                 raise ServiceUnavailableError(
                     message=f"Streaming connection interrupted ({exc})"
@@ -1191,8 +1249,6 @@ class AnthropicBackend(LLMBackend):
             ) from e
 
         if response.status_code >= 400:
-            from src.core.common.exceptions import BackendError
-
             try:
                 detail = response.json()
             except json.JSONDecodeError:

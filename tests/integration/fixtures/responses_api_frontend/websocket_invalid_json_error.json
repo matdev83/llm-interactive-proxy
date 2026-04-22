@@ -1,0 +1,10 @@
+{
+  "type": "error",
+  "request_id": "ws-invalid-json",
+  "error": {
+    "type": "invalid_request_error",
+    "code": "invalid_json",
+    "message": "Invalid JSON: Expecting value: line 1 column 1 (char 0)"
+  },
+  "status": 400
+}

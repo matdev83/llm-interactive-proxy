@@ -135,7 +135,7 @@ The file is loaded once at startup and appended to the first user message of eve
 The proxy exposes standard API surfaces so existing clients can often work with little or no code changes.
 
 - **OpenAI Chat Completions** - `/v1/chat/completions`
-- **OpenAI Responses** - `/v1/responses`
+- **OpenAI Responses** - `/v1/responses` (supported routed backends for this surface: **OpenAI** / `openai-responses`, **OpenAI Codex** backends whose `backend_type` starts with `openai-codex`, **Anthropic**, **Google Gemini** / `google`, and the in-process **mock** backend used in tests; other backends receive an explicit `provider_limitation` error until a dedicated path exists). Multi-turn `previous_response_id` linkage uses an in-memory store per process—see the operator playbook under `.kiro/specs/responses-api-frontend-compliance/OPERATOR_LIVE_VERIFICATION_10.4.md` for multi-worker limitations.
 - **OpenAI Models** - `/v1/models`
 - **Anthropic Messages** - `/anthropic/v1/messages`
 - **Dedicated Anthropic server** - `http://host:<anthropic_port>/v1/messages` (only when `anthropic_port` / `--anthropic-port` / `ANTHROPIC_PORT` is set; often `8001`)

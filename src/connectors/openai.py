@@ -24,6 +24,7 @@ import httpx
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
+    ConnectorResponsesRequest,
 )
 from src.connectors.contracts.wire_capture_context import (
     WIRE_CAPTURE_IS_RETRY_KEY,
@@ -48,6 +49,10 @@ from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
+)
+from src.core.domain.responses_native_wiring import (
+    RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
+    NativeResponsesContext,
 )
 from src.core.domain.translation_utils.processed_response_usage import (
     usage_summary_from_processed_response,
@@ -984,6 +989,15 @@ class OpenAIConnector(LLMBackend):
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if cancellation_coordinator is not None and cancellation_token is not None:
             cancellation_coordinator.ensure_not_cancelled(cancellation_token)
+
+        extra_body_for_responses = getattr(domain_request, "extra_body", None) or {}
+        native_for_responses = extra_body_for_responses.get(
+            RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY
+        )
+        if isinstance(native_for_responses, dict):
+            return await self.responses(
+                ConnectorResponsesRequest.from_chat_completions(request)
+            )
 
         # Prepare context for logging correlation
         log_extra = self._get_log_extra(context)
@@ -2027,7 +2041,7 @@ class OpenAIConnector(LLMBackend):
 
     async def responses(
         self,
-        request: ConnectorChatCompletionsRequest,
+        request: ConnectorResponsesRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle OpenAI Responses API calls.
 
@@ -2051,22 +2065,31 @@ class OpenAIConnector(LLMBackend):
         # Perform health check if enabled
         await self._ensure_healthy()
 
-        # Convert to domain request first
-        domain_request = self.translation_service.to_domain_request(
-            request_data, "responses"
+        extra_body = getattr(request_data, "extra_body", None) or {}
+        native_payload_raw = extra_body.get(RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY)
+        native_payload: dict[str, Any] | None = (
+            dict(native_payload_raw) if isinstance(native_payload_raw, dict) else None
         )
+        domain_request: CanonicalChatRequest | NativeResponsesContext
+        if native_payload is not None:
+            payload = native_payload
+            if effective_model:
+                payload["model"] = effective_model
+            domain_request = NativeResponsesContext(
+                stream=bool(getattr(request_data, "stream", False)),
+                session_id=payload.get("session_id")
+                or getattr(request_data, "session_id", None),
+            )
+        else:
+            dr = self.translation_service.to_domain_request(request_data, "responses")
+            domain_request = dr
 
-        # Prepare the payload for Responses API
-        payload = self.translation_service.from_domain_to_responses_request(
-            domain_request
-        )
+            payload = self.translation_service.from_domain_to_responses_request(dr)
 
-        # Override model if effective_model is provided
-        if effective_model:
-            payload["model"] = effective_model
+            if effective_model:
+                payload["model"] = effective_model
 
-        # Update messages with processed_messages if available
-        if processed_messages:
+        if processed_messages and native_payload is None:
             with contextlib.suppress(KeyError, TypeError, AttributeError):
                 # Normalize messages; on failure, leave whatever the converter produced (fallback)
                 normalized_messages: list[dict[str, Any]] = []

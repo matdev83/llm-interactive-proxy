@@ -190,55 +190,16 @@ class ControllerStage(InitializationStage):
 
     def _register_responses_controller(self, services: ServiceCollection) -> None:
         """Register responses controller with request processor dependency."""
-        from src.core.app.controllers.responses_controller import ResponsesController
-        from src.core.interfaces.request_processor_interface import IRequestProcessor
+        from src.core.app.controllers.responses_controller import (
+            ResponsesController,
+            get_responses_controller,
+        )
 
         def responses_controller_factory(
             provider: IServiceProvider,
         ) -> ResponsesController:
             """Factory function for creating ResponsesController."""
-            from typing import cast
-
-            from src.core.interfaces.client_end_of_session_service_interface import (
-                IClientEndOfSessionService,
-            )
-            from src.core.interfaces.session_metrics_initializer_interface import (
-                ISessionMetricsInitializer,
-            )
-            from src.core.interfaces.translation_service_interface import (
-                ITranslationService,
-            )
-            from src.core.services.translation_service import TranslationService
-
-            request_processor: IRequestProcessor = provider.get_required_service(
-                cast(type, IRequestProcessor)
-            )
-            translation_service = provider.get_service(cast(type, ITranslationService))
-            if translation_service is None:
-                translation_service = provider.get_service(TranslationService)
-            if translation_service is None:
-                from src.core.common.exceptions import InitializationError
-
-                raise InitializationError(
-                    "TranslationService is not registered in the service provider"
-                )
-
-            # Optional: client end-of-session service for termination reporting
-            client_eos_service = provider.get_service(
-                cast(type, IClientEndOfSessionService)
-            )
-
-            # Optional: session metrics initializer for proactive metrics creation
-            metrics_initializer: ISessionMetricsInitializer | None = (
-                provider.get_service(cast(type, ISessionMetricsInitializer))
-            )
-
-            return ResponsesController(
-                request_processor,
-                translation_service=translation_service,
-                client_eos_service=client_eos_service,
-                metrics_initializer=metrics_initializer,
-            )
+            return get_responses_controller(provider)
 
         # Register as singleton
         services.add_singleton(

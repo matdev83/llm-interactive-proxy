@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.core.common.exceptions import InvalidRequestError
 from src.core.domain.chat import ChatRequest
+from src.core.domain.model_catalog_match import ModelCatalogMatchTier
 from src.core.domain.model_utils import ModelDefaults, parse_model_backend
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -175,16 +176,21 @@ class BackendPreparer(IBackendPreparer):
                 model_name: str = parsed.model_name
 
                 model_catalog = self._model_catalog
-                model_in_catalog = False
-                if model_catalog is not None:
-                    model_in_catalog = model_catalog.has_model(model_name, backend_key)
-                    if not model_in_catalog:
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "Skipping limit/modality enforcement: model not found in registry (%s)",
-                                requested_model,
-                            )
-                        return backend_request
+                catalog_match = (
+                    model_catalog.resolve(model_name, backend_key)
+                    if model_catalog is not None
+                    else None
+                )
+                model_in_catalog = catalog_match is not None and (
+                    catalog_match.tier != ModelCatalogMatchTier.NONE
+                )
+                if model_catalog is not None and not model_in_catalog:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Skipping limit/modality enforcement: model not found in registry (%s)",
+                            requested_model,
+                        )
+                    return backend_request
 
                 # Candidate keys to look up defaults
                 candidate_keys: list[str] = []
@@ -208,18 +214,26 @@ class BackendPreparer(IBackendPreparer):
 
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        "Model limits lookup: requested_model=%s backend=%s model=%s candidates=%s found=%s",
+                        "Model limits lookup: requested_model=%s backend=%s model=%s "
+                        "candidates=%s defaults_hit=%s registry_hit=%s match_tier=%s",
                         requested_model,
                         backend_key,
                         model_name,
                         candidate_keys,
                         bool(model_defaults),
+                        model_in_catalog,
+                        (
+                            catalog_match.tier.value
+                            if catalog_match is not None
+                            else "n/a"
+                        ),
                     )
 
                 # Enforce input modality support when catalog data is available
-                if model_catalog is not None and model_in_catalog:
-                    input_modalities = model_catalog.get_input_modalities(
-                        model_name, backend_key
+                if model_catalog is not None and model_in_catalog and catalog_match:
+                    im = catalog_match.input_modalities
+                    input_modalities: set[str] | None = (
+                        set(im) if im is not None else None
                     )
                     if isinstance(input_modalities, set) and input_modalities:
                         required_modalities = _extract_required_input_modalities(
@@ -276,14 +290,16 @@ class BackendPreparer(IBackendPreparer):
                 )
 
                 # Try to get limits from model catalog if not found in model_defaults
-                if limits is None and model_catalog is not None and model_in_catalog:
-                    catalog_limits = model_catalog.get_limits(model_name, backend_key)
-                    if catalog_limits:
-                        limits = catalog_limits
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "Found limits for %s in model catalog", model_name
-                            )
+                if (
+                    limits is None
+                    and model_catalog is not None
+                    and model_in_catalog
+                    and catalog_match
+                    and catalog_match.limits is not None
+                ):
+                    limits = catalog_match.limits
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Found limits for %s in model catalog", model_name)
 
                 # Apply CLI override if set
 

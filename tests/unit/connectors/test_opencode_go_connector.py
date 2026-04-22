@@ -26,6 +26,7 @@ CURATED_OPENAI_MODELS = [
     "glm-5",
     "glm-5.1",
     "kimi-k2.5",
+    "kimi-k2.6",
     "mimo-v2-pro",
     "mimo-v2-omni",
 ]
