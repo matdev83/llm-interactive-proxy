@@ -489,7 +489,7 @@ class ResponsesController:
         backend_key = backend.casefold()
         projector: IResponsesBackendProjector
         if backend_key in ("openai", "openai-responses") or backend_key.startswith(
-            "openai-codex"
+            ("openai-codex", "opencode")
         ):
             projector = self._openai_responses_projector
             stream_source = ResponsesStreamSource.OPENAI_RESPONSES

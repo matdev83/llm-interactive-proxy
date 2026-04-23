@@ -318,7 +318,7 @@ class OpenCodeClientFamilyAdapter(IClientFamilyAdapter):
             if normalized in {"bash", "shell"}:
                 supported.update({"bash", "shell", "local_shell_call"})
             if normalized == "apply_patch":
-                supported.add("apply_patch")
+                supported.discard("apply_patch")
         return supported
 
     @staticmethod

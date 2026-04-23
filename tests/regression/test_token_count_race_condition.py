@@ -156,4 +156,8 @@ class TestTokenCountRaceCondition:
         # Now count tokens with various inputs
         assert tc.count_tokens("") == 0
         assert tc.count_tokens("Hello") > 0
-        assert tc.count_tokens("Hello world") > tc.count_tokens("Hello")
+        # BPE can merge "Hello" and "Hello world" to the same token count; use length
+        # monotonicity with repeated tokens instead of substring assumptions.
+        short = "xyzzy"
+        long = "xyzzy " * 40
+        assert tc.count_tokens(long) > tc.count_tokens(short)

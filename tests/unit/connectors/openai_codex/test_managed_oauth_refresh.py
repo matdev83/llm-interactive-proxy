@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -20,7 +19,8 @@ def _expired_account() -> ManagedOAuthAccount:
         account_id="acc1",
         access_token="old_access",
         refresh_token="refresh_tok",
-        expiry_date=int(time.time() * 1000) - 3_600_000,
+        # Fixed past epoch-ms: avoids wall clock in tests; still satisfies positive expiry.
+        expiry_date=1,
     )
 
 

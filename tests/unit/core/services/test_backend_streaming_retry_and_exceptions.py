@@ -212,9 +212,9 @@ class TestStreamExceptionRecoverySemantics:
         """Exceptions before meaningful output should retry the original request."""
 
         async def failing_stream() -> AsyncIterator[ProcessedResponse]:
-            raise BackendError(
-                message="stream failed before output", backend_name="openai"
-            )
+            # Use a non-HTTP-classified error: BackendError defaults to status_code=502,
+            # which pre-output recovery surfaces immediately (no empty-stream retry).
+            raise RuntimeError("stream failed before output")
             yield ProcessedResponse(content="", metadata={})  # pragma: no cover
 
         retry_chunks = [ProcessedResponse(content="Retry response", metadata={})]

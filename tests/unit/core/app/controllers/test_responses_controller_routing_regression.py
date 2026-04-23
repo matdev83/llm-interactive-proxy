@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
 
@@ -43,6 +44,9 @@ class _StubTranslationService:
     def to_domain_response(self, response: object, source_format: str) -> object:
         return response
 
+    def from_domain_response(self, response: object, target_format: str) -> object:
+        return response
+
 
 def _make_request() -> Request:
     scope = {
@@ -51,6 +55,7 @@ def _make_request() -> Request:
         "path": "/v1/responses",
         "headers": [],
         "client": ("127.0.0.1", 12345),
+        "app": SimpleNamespace(state=SimpleNamespace()),
     }
 
     async def receive() -> dict[str, object]:
@@ -68,7 +73,9 @@ def _responses_request(**kwargs: object) -> ResponsesRequest:
 
 
 @pytest.mark.asyncio
-async def test_prepare_responses_execution_accepts_legacy_openai_style_backend_targets() -> None:
+async def test_prepare_responses_execution_accepts_legacy_openai_style_backend_targets() -> (
+    None
+):
     """Responses routing should treat OpenAI-compatible backends like `opencode-go` as supported.
 
     Regression evidence: the 2026-04-20 10:34:13 log/capture shows `/v1/responses`
@@ -102,7 +109,9 @@ async def test_prepare_responses_execution_accepts_legacy_openai_style_backend_t
 
 
 @pytest.mark.asyncio
-async def test_handle_responses_request_succeeds_for_alias_that_can_fall_through_to_legacy_openai_backend() -> None:
+async def test_handle_responses_request_succeeds_for_alias_that_can_fall_through_to_legacy_openai_backend() -> (
+    None
+):
     """Composite aliases used from `/v1/responses` should remain usable when a later leaf is compatible.
 
     This is the user-visible regression from the 2026-04-20 10:34:13 failure: the
@@ -142,7 +151,9 @@ async def test_handle_responses_request_succeeds_for_alias_that_can_fall_through
 
     assert response.status_code == 200
     processor.process_request.assert_awaited_once()
-    domain_request = cast(CanonicalChatRequest, processor.process_request.await_args.args[1])
+    domain_request = cast(
+        CanonicalChatRequest, processor.process_request.await_args.args[1]
+    )
     assert domain_request.model == "opencode-go:minimax-m2.7"
     assert domain_request.extra_body is not None
     assert RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY in domain_request.extra_body

@@ -198,4 +198,17 @@ def test_detect_incompatible_tool_calls_honors_shell_aliases() -> None:
 
     incompatible = adapter.detect_incompatible_tool_calls(tool_calls, context)
 
-    assert incompatible == ["browser_action"]
+    assert incompatible == ["apply_patch", "browser_action"]
+
+
+def test_detect_incompatible_tool_calls_rejects_apply_patch_for_opencode() -> None:
+    adapter = OpenCodeClientFamilyAdapter()
+    context = _build_context(tools=[_tool("bash"), _tool("apply_patch")])
+    tool_calls: list[dict[str, object]] = [
+        {"function": {"name": "bash"}},
+        {"function": {"name": "apply_patch"}},
+    ]
+
+    incompatible = adapter.detect_incompatible_tool_calls(tool_calls, context)
+
+    assert incompatible == ["apply_patch"]

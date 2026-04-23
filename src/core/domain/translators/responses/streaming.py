@@ -119,7 +119,7 @@ def _should_buffer_partial_tool_call(tool_name: str) -> bool:
     the final `response.output_item.done` event can supply complete arguments.
     """
     lname = (tool_name or "").strip().lower()
-    return lname in {"shell", "bash", "local_shell_call"}
+    return lname in {"shell", "bash", "local_shell_call", "apply_patch"}
 
 
 def _normalize_shell_like_tool_arguments_json(
@@ -313,7 +313,9 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
 
     if event_type == "response.function_call_arguments.delta":
         call_id = chunk.get("item_id") or chunk.get("call_id")
-        name = chunk.get("name") or ""
+        wire_name = chunk.get("name")
+        wire_name_str = wire_name.strip() if isinstance(wire_name, str) else ""
+        name = wire_name_str
         if not name and isinstance(call_id, str) and call_id:
             name = get_cached_function_name(call_id)
         delta_payload = chunk.get("delta") or {}
@@ -336,16 +338,18 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         # tool-call delta. Strict clients reject unnamed function chunks.
         if not str(name).strip():
             return _build_chunk()
+        # Codex often omits `name` on argument deltas and relies on prior
+        # `response.output_item.added` caching. Suppress those wire-anonymous deltas
+        # until `response.output_item.done` (see streaming regression tests).
+        if not wire_name_str:
+            return _build_chunk()
         # Do not emit placeholder tool-call deltas for shell-like tools.
         # Clients such as OpenCode validate tool arguments immediately and reject
         # `bash` calls with empty arguments before the final done event arrives.
         if _should_buffer_partial_tool_call(str(name)):
             return _build_chunk()
 
-        # Send tool call metadata but NOT partial arguments fragments.
-        # Partial JSON (like just "{") cannot be parsed by clients.
-        # Complete arguments will be sent in the response.output_item.done event.
-        function_payload: dict[str, Any] = {"arguments": ""}
+        function_payload: dict[str, Any] = {"arguments": arguments_fragment}
         if name:
             function_payload["name"] = _openai_client_shell_tool_name(name)
         delta = {

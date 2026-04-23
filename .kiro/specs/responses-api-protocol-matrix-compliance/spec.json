@@ -15,7 +15,7 @@
   },
   "language": "en",
   "feature_name": "responses-api-protocol-matrix-compliance",
-  "phase": "tasks-generated",
+  "phase": "awaiting-spec-approvals",
   "ready_for_implementation": false,
   "supersedes": [
     "responses-api-frontend-compliance"
