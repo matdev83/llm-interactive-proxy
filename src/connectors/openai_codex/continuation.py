@@ -55,6 +55,20 @@ class _ContinuationEntry:
     expires_at: float
 
 
+def _build_codex_turn_snapshot(
+    normalized: str, payload_dict: dict[str, Any]
+) -> CodexContinuationSnapshot:
+    """CPU-heavy snapshot build for ``record_turn`` (may run in a worker thread)."""
+    return CodexContinuationSnapshot(
+        response_id=normalized,
+        input_fingerprints=fingerprint_input_items(payload_dict.get("input")),
+        instructions_fingerprint=fingerprint_component(
+            payload_dict.get("instructions")
+        ),
+        tools_fingerprint=fingerprint_component(payload_dict.get("tools")),
+    )
+
+
 class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
     """Ephemeral TTL/LRU-ish continuation store keyed by Codex request identity."""
 
@@ -152,14 +166,12 @@ class InMemoryCodexContinuationCoordinator(ICodexContinuationCoordinator):
         key = self._build_key(context)
         now = time.monotonic()
 
-        # M1: Uses shared fingerprinting utilities
-        snapshot = CodexContinuationSnapshot(
-            response_id=normalized,
-            input_fingerprints=fingerprint_input_items(payload_dict.get("input")),
-            instructions_fingerprint=fingerprint_component(
-                payload_dict.get("instructions")
-            ),
-            tools_fingerprint=fingerprint_component(payload_dict.get("tools")),
+        # M1: Uses shared fingerprinting utilities. Heavy ``json.dumps`` per input item
+        # can block the event loop for large http_full_replay sessions; run off-thread.
+        snapshot = await asyncio.to_thread(
+            _build_codex_turn_snapshot,
+            normalized,
+            payload_dict,
         )
         async with self._lock:
             self._purge_expired(now)

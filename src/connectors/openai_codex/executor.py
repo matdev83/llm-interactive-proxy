@@ -323,6 +323,11 @@ class ResponseExecutor(IResponseExecutor):
     - Credential refresh integration for streaming retries
     """
 
+    # INFO logging calls ``json.dumps`` on the full Codex ``input`` list; skip that
+    # work for very large histories to avoid multi-second event-loop stalls before
+    # each ``http_full_replay`` upstream request.
+    _LOG_JSON_MEASURE_MAX_INPUT_ITEMS: int = 120
+
     def __init__(
         self,
         base_connector: OpenAIConnector,
@@ -1588,9 +1593,9 @@ class ResponseExecutor(IResponseExecutor):
                 "input_item_count": (
                     len(input_items) if isinstance(input_items, list) else 0
                 ),
-                "input_bytes": self._measure_json_bytes(input_items),
+                "input_bytes": self._measure_json_bytes_for_log(input_items),
                 "tools_count": len(tools) if isinstance(tools, list) else 0,
-                "tools_bytes": self._measure_json_bytes(tools),
+                "tools_bytes": self._measure_json_bytes_for_log(tools),
                 "instructions_bytes": (
                     len(instructions.encode("utf-8"))
                     if isinstance(instructions, str)
@@ -1598,6 +1603,15 @@ class ResponseExecutor(IResponseExecutor):
                 ),
             },
         )
+
+    def _measure_json_bytes_for_log(self, value: Any) -> int | None:
+        """Like ``_measure_json_bytes`` but skips huge lists used only for diagnostics."""
+        if (
+            isinstance(value, list)
+            and len(value) > self._LOG_JSON_MEASURE_MAX_INPUT_ITEMS
+        ):
+            return None
+        return self._measure_json_bytes(value)
 
     @staticmethod
     def _measure_json_bytes(value: Any) -> int:
