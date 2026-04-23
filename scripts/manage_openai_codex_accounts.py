@@ -31,6 +31,11 @@ Account Management:
 
         ./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py reset all
         ./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py reset user@example.com
+
+    Clear false-positive needs_reauth / auth-failure counters (tokens unchanged):
+
+        ./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py clear-reauth all
+        ./.venv/Scripts/python.exe scripts/manage_openai_codex_accounts.py clear-reauth <account_id>
 """
 
 from __future__ import annotations
@@ -266,6 +271,98 @@ async def cmd_reset(
     )
 
 
+def _account_cleared_reauth_flags(account: ManagedOAuthAccount) -> ManagedOAuthAccount:
+    """Return a copy with ``needs_reauth`` false and auth-failure counter reset."""
+    if not account.needs_reauth and account.consecutive_auth_failures == 0:
+        return account
+    return account.model_copy(
+        update={
+            "needs_reauth": False,
+            "consecutive_auth_failures": 0,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
+
+async def cmd_clear_reauth(
+    storage: ManagedOAuthStorageService,
+    args: argparse.Namespace,
+) -> None:
+    """Clear ``needs_reauth`` and ``consecutive_auth_failures`` (OAuth tokens unchanged)."""
+    target_raw = args.target.strip()
+    if not target_raw:
+        print(
+            "Invalid usage: clear-reauth requires a target. "
+            'Use "all", an account_id, or an email, e.g. clear-reauth all'
+        )
+        sys.exit(1)
+
+    if target_raw.casefold() == "all":
+        accounts = await storage.load_all_accounts()
+        if not accounts:
+            print("No managed OpenAI Codex accounts found; nothing to update.")
+            return
+        updated_n = 0
+        for account in accounts:
+            cleared = _account_cleared_reauth_flags(account)
+            if cleared is account:
+                continue
+            await storage.save_account(cleared)
+            updated_n += 1
+            print(
+                f"Cleared reauth flags for {cleared.account_id} "
+                f"({cleared.email or '-'})."
+            )
+        if updated_n == 0:
+            print(f"No accounts had needs_reauth or auth-failure counters set ({len(accounts)} checked).")
+        else:
+            print(f"Done. Updated {updated_n} account(s).")
+        return
+
+    by_id = await storage.get_account(target_raw)
+    if by_id is not None:
+        cleared = _account_cleared_reauth_flags(by_id)
+        if cleared is by_id:
+            print(
+                f"Account '{by_id.account_id}' ({by_id.email or '-'}) "
+                "already has needs_reauth false and zero auth-failure counter."
+            )
+            return
+        await storage.save_account(cleared)
+        print(f"Cleared reauth flags for {cleared.account_id} ({cleared.email or '-'}).")
+        return
+
+    needle = target_raw.casefold()
+    accounts = await storage.load_all_accounts()
+    matches = [
+        account for account in accounts if (account.email or "").casefold() == needle
+    ]
+    if not matches:
+        print(
+            f"No managed account found with id {target_raw!r} or email matching "
+            f"that string."
+        )
+        sys.exit(1)
+    if len(matches) > 1:
+        ids = ", ".join(sorted(account.account_id for account in matches))
+        print(
+            "Multiple accounts share that email; cannot pick one. "
+            f"Matching account_id values: {ids}"
+        )
+        sys.exit(1)
+
+    account = matches[0]
+    cleared = _account_cleared_reauth_flags(account)
+    if cleared is account:
+        print(
+            f"Account {account.account_id} ({account.email or '-'}) "
+            "already has needs_reauth false and zero auth-failure counter."
+        )
+        return
+    await storage.save_account(cleared)
+    print(f"Cleared reauth flags for {cleared.account_id} ({cleared.email or '-'}).")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage OpenAI Codex OAuth accounts")
     parser.add_argument(
@@ -348,6 +445,17 @@ def main() -> None:
         help='Use the literal word "all" for every account, or the account email',
     )
 
+    clear_reauth_parser = subparsers.add_parser(
+        "clear-reauth",
+        help=(
+            "Clear needs_reauth and consecutive_auth_failures on disk (tokens unchanged)"
+        ),
+    )
+    clear_reauth_parser.add_argument(
+        "target",
+        help='Use "all", a storage account_id, or the account email',
+    )
+
     args = parser.parse_args()
     storage = ManagedOAuthStorageService(args.storage_path)
 
@@ -363,6 +471,8 @@ def main() -> None:
         asyncio.run(cmd_remove(storage, args))
     elif args.command == "reset":
         asyncio.run(cmd_reset(storage, args))
+    elif args.command == "clear-reauth":
+        asyncio.run(cmd_clear_reauth(storage, args))
 
 
 if __name__ == "__main__":
