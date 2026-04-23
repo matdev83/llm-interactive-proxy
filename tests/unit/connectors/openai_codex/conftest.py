@@ -26,6 +26,7 @@ def mock_base_connector():
     connector._handle_streaming_response = AsyncMock()
     connector._handle_rate_limit_rotation = AsyncMock(return_value=False)
     connector._handle_auth_failure_rotation = AsyncMock(return_value=False)
+    connector._handle_forbidden_rotation = AsyncMock(return_value=False)
     # Mock methods that might be called during header building
     connector._codex_user_agent = MagicMock(return_value="test-user-agent")
     connector._codex_account_id = MagicMock(return_value=None)
@@ -38,6 +39,7 @@ def mock_credential_manager():
     manager = MagicMock(spec=ICredentialManager)
     manager.refresh_access_token = AsyncMock(return_value=True)
     manager.get_access_token = MagicMock(return_value="test_token")
+    manager.handle_forbidden_rotation = AsyncMock(return_value=False)
     return manager
 
 

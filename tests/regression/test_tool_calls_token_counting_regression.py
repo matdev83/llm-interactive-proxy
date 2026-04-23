@@ -42,8 +42,14 @@ def test_regression_tool_calls_accounted_in_token_count():
         "very_unique_token_sequence" in extracted_text
     ), "Tool arguments missing from extracted prompt text"
 
-    # 2. Verify token count reflects the large payload
-    token_count = count_tokens(extracted_text)
+    assert len(extracted_text) > 500, (
+        "extracted prompt should include the large tool payload "
+        f"(got len={len(extracted_text)})"
+    )
+
+    # 2. Verify token count reflects the large payload (explicit model avoids
+    # accidental under-count if global tokenizer state is odd under xdist).
+    token_count = count_tokens(extracted_text, model="gpt-4o")
 
     # "very_unique_token_sequence " * 100 is at least several hundred tokens.
     # If tool_calls are ignored, only "system: You are a helpful assistant." remains (~10 tokens).

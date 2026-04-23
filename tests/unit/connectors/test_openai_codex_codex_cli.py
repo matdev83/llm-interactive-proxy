@@ -112,7 +112,9 @@ def test_is_codex_model_detection(connector: OpenAICodexConnector) -> None:
     """Test that _is_codex_model only recognizes supported Codex models.
 
     Supported models are explicitly listed in SUPPORTED_CODEX_MODELS:
+    - gpt-5.5
     - gpt-5.4
+    - gpt-5.4-mini
     - gpt-5.3-codex
     - gpt-5.2-codex
     - gpt-5.2
@@ -127,6 +129,8 @@ def test_is_codex_model_detection(connector: OpenAICodexConnector) -> None:
     - gpt-oss-20b
     """
     # Valid models (with and without vendor prefix)
+    assert "gpt-5.5" in OpenAICodexConnector.XHIGH_SUPPORTED_MODELS
+    assert connector._is_codex_model("gpt-5.5") is True
     assert connector._is_codex_model("gpt-5.4") is True
     assert connector._is_codex_model("gpt-5.3-codex") is True
     assert connector._is_codex_model("gpt-5.2-codex") is True

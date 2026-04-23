@@ -572,18 +572,47 @@ class ManagedOAuthAccountSelector:
             codex_usage_limit_fields=codex_usage_limit_fields,
         )
 
+    async def rotate_away_without_auth_penalty(
+        self,
+        *,
+        session_id: str | None = None,
+    ) -> ManagedOAuthAccount | None:
+        """Select another managed account without auth-failure counters.
+
+        Used for HTTP 403 (often non-OAuth) and recoverable refresh failures where
+        the pool should try another identity without marking the current one as
+        ``needs_reauth``-eligible via ``consecutive_auth_failures``.
+        """
+        if session_id:
+            self._clear_affinity(session_id)
+        return await self.get_next_account(
+            session_id=session_id,
+            ignore_session_affinity=True,
+            wait_for_rate_limit_recovery=False,
+        )
+
     async def rotate_on_auth_failure(
         self,
         *,
         session_id: str | None = None,
     ) -> ManagedOAuthAccount | None:
         if self._current_account is not None:
-            failed = self._current_account.mark_auth_failure()
-            if failed.consecutive_auth_failures >= 2:
-                failed = failed.mark_needs_reauth()
-            self._current_account = failed
-            self._replace_account(failed)
-            await self._storage.save_account(failed)
+            cur_id = self._current_account.account_id
+            base = await self._storage.get_account(cur_id)
+            if base is None:
+                base = self._current_account
+            if base.needs_reauth:
+                # Disk (e.g. invalid_grant handler) may already quarantine this
+                # account; do not overwrite with stale in-memory counters/tokens.
+                self._current_account = base
+                self._replace_account(base)
+            else:
+                failed = base.mark_auth_failure()
+                if failed.consecutive_auth_failures >= 2:
+                    failed = failed.mark_needs_reauth()
+                self._current_account = failed
+                self._replace_account(failed)
+                await self._storage.save_account(failed)
         return await self.get_next_account(
             session_id=session_id,
             ignore_session_affinity=True,

@@ -229,7 +229,10 @@ async def test_maybe_notify_codex_quota_remaining_low_disabled_service() -> None
 
 
 @pytest.mark.asyncio
-async def test_maybe_notify_codex_quota_remaining_low_fires_two_thresholds() -> None:
+async def test_maybe_notify_codex_quota_remaining_low_collapses_multi_threshold() -> (
+    None
+):
+    """Below several thresholds at once should emit one bubble, latch all violated."""
     mock_notify = AsyncMock(return_value="nid-r4")
     svc = Mock()
     svc.is_enabled = True
@@ -237,6 +240,7 @@ async def test_maybe_notify_codex_quota_remaining_low_fires_two_thresholds() -> 
     latch: set[tuple[str, str, float]] = set()
     # 8% remaining -> below 25 and below 10
     headers = {"x-codex-primary-used-percent": "92"}
+    pairs = collect_codex_remaining_pairs(headers)
     await maybe_notify_codex_quota_remaining_low(
         svc,
         latch,
@@ -244,6 +248,19 @@ async def test_maybe_notify_codex_quota_remaining_low_fires_two_thresholds() -> 
         email="e@example.com",
         chatgpt_account_id=None,
         threshold_percents=[25.0, 10.0],
-        remaining_by_limit=collect_codex_remaining_pairs(headers),
+        remaining_by_limit=pairs,
     )
-    assert mock_notify.await_count == 2
+    assert mock_notify.await_count == 1
+    call_kw = mock_notify.call_args.kwargs
+    assert "10" in call_kw["message"] or "10.0" in call_kw["message"]
+
+    await maybe_notify_codex_quota_remaining_low(
+        svc,
+        latch,
+        managed_account_id="acct-4",
+        email="e@example.com",
+        chatgpt_account_id=None,
+        threshold_percents=[25.0, 10.0],
+        remaining_by_limit=pairs,
+    )
+    assert mock_notify.await_count == 1

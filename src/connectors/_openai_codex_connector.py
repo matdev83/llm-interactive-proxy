@@ -115,6 +115,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     # Supported Codex models - sourced from official Codex CLI models.json
     SUPPORTED_CODEX_MODELS: tuple[str, ...] = (
+        "gpt-5.5",
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.3-codex",
@@ -140,6 +141,7 @@ class OpenAICodexConnector(OpenAIConnector):
     DEFAULT_REASONING_EFFORT: str = "medium"
     # All current models support xhigh reasoning effort
     XHIGH_SUPPORTED_MODELS: tuple[str, ...] = (
+        "gpt-5.5",
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.3-codex",
@@ -1797,6 +1799,39 @@ class OpenAICodexConnector(OpenAIConnector):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to rotate managed OAuth account after auth failure: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return False
+
+        if rotated:
+            token = self._credential_manager.get_access_token()
+            if token:
+                self.api_key = token
+            return True
+        return False
+
+    async def _handle_forbidden_rotation(
+        self,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        """Rotate managed OAuth accounts after HTTP 403 without auth-failure penalties."""
+        rotate_method = getattr(
+            self._credential_manager,
+            "handle_forbidden_rotation",
+            None,
+        )
+        if not callable(rotate_method):
+            return False
+
+        try:
+            result = rotate_method(session_id=session_id)
+            rotated = await result if inspect.isawaitable(result) else bool(result)
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to rotate managed OAuth account after HTTP 403: %s",
                     exc,
                     exc_info=True,
                 )

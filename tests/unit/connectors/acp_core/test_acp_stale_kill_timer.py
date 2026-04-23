@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -113,6 +114,7 @@ async def test_stale_kill_task_calls_kill_runtime_after_delay(
 async def test_stale_kill_task_logs_exception_when_kill_runtime_raises(
     connector: DummyAcpConnector,
     runtime: ACPProcessRuntime,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
@@ -130,12 +132,14 @@ async def test_stale_kill_task_logs_exception_when_kill_runtime_raises(
             new_callable=AsyncMock,
             side_effect=RuntimeError("boom"),
         ),
-        patch("src.connectors.acp_core.base_connector.logger") as mock_logger,
+        caplog.at_level(logging.ERROR, logger="src.connectors.acp_core.base_connector"),
     ):
         await connector._schedule_stale_kill_after_turn(runtime)
         assert runtime.stale_kill_task is not None
         await asyncio.wait_for(runtime.stale_kill_task, timeout=2.0)
-    mock_logger.exception.assert_called_once()
+    assert any(
+        "Stale ACP agent kill task failed" in r.getMessage() for r in caplog.records
+    ), caplog.text
 
 
 @pytest.mark.asyncio

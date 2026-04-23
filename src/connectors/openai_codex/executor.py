@@ -609,7 +609,7 @@ class ResponseExecutor(IResponseExecutor):
                     except (HTTPException, LLMProxyError) as exc:
                         status_code, detail = _codex_initiate_streaming_error_view(exc)
                         if status_code == 403 and attempts_used < max_retries:
-                            rotated = await self._handle_auth_failure_rotation(
+                            rotated = await self._handle_forbidden_rotation(
                                 session_id=context.session_id
                             )
                             if rotated:
@@ -2009,6 +2009,34 @@ class ResponseExecutor(IResponseExecutor):
             return bool(rotated)
 
         fallback_rotate = getattr(self._credential_manager, "handle_auth_failure", None)
+        if not callable(fallback_rotate):
+            return False
+
+        result = fallback_rotate(session_id=session_id)
+        rotated = await result if inspect.isawaitable(result) else bool(result)
+        if rotated:
+            new_token = self._credential_manager.get_access_token()
+            if new_token and hasattr(self._base_connector, "api_key"):
+                self._base_connector.api_key = new_token
+            return True
+        return False
+
+    async def _handle_forbidden_rotation(self, *, session_id: str | None) -> bool:
+        rotate_method = getattr(
+            self._base_connector,
+            "_handle_forbidden_rotation",
+            None,
+        )
+        if callable(rotate_method):
+            result = rotate_method(session_id=session_id)
+            rotated = await result if inspect.isawaitable(result) else bool(result)
+            return bool(rotated)
+
+        fallback_rotate = getattr(
+            self._credential_manager,
+            "handle_forbidden_rotation",
+            None,
+        )
         if not callable(fallback_rotate):
             return False
 

@@ -309,7 +309,7 @@ class TestResponseExecutor:
         mock_base_connector._handle_streaming_response = AsyncMock(
             side_effect=handle_streaming_side_effect
         )
-        mock_base_connector._handle_auth_failure_rotation = AsyncMock(return_value=True)
+        mock_base_connector._handle_forbidden_rotation = AsyncMock(return_value=True)
 
         executor = ResponseExecutor(
             mock_base_connector,

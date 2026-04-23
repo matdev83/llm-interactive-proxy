@@ -463,6 +463,19 @@ class CredentialManager(ICredentialManager):
             return False
         return await self._managed_storage.has_configured_accounts()
 
+    async def _codex_legacy_auth_file_fallback_allowed(self) -> bool:
+        """Return True if loading Codex desktop ``auth.json`` is allowed as fallback.
+
+        When managed OAuth is enabled and at least one account file exists under the
+        managed storage path, legacy ``auth.json`` must not be used, even if no
+        managed account is currently selectable (e.g. all quotas exhausted).
+        """
+        if not self._managed_enabled():
+            return True
+        if await self._managed_has_accounts():
+            return False
+        return bool(self._managed_config.allow_legacy_fallback)
+
     def _managed_account_to_credentials(
         self,
         account: ManagedOAuthAccount,
@@ -529,6 +542,18 @@ class CredentialManager(ICredentialManager):
         """
         if await self._load_managed_auth(force_reload=force_reload):
             return True
+
+        if not await self._codex_legacy_auth_file_fallback_allowed():
+            if self._managed_enabled() and await self._managed_has_accounts():
+                logger.warning(
+                    "OpenAI Codex: managed OAuth account files exist but no managed "
+                    "account is currently selectable; not using legacy auth.json "
+                    "from the Codex app."
+                )
+            self._active_source = "none"
+            self._managed_current_account = None
+            self._auth_credentials = None
+            return False
 
         explicit_legacy_override = (
             self._auth_path is not None or self._oauth_dir_override is not None
@@ -872,12 +897,55 @@ class CredentialManager(ICredentialManager):
                 "Attempting to refresh OpenAI Codex access token after authentication failure."
             )
             if await self._load_managed_auth(force_reload=True):
-                if await self._refresh_managed_access_token():
+                success, err = await self._refresh_managed_access_token()
+                if success:
                     return True
-                return await self._rotate_managed_on_auth_failure()
+                if err is None:
+                    return False
+                if err.from_transient_network:
+                    return False
+                if err.needs_reauth:
+                    await self._managed_selector.reload_accounts()
+                    nxt = await self._managed_selector.get_next_account(
+                        wait_for_rate_limit_recovery=False,
+                        ignore_session_affinity=True,
+                    )
+                    if nxt is None:
+                        return False
+                    self._managed_selector.update_account(nxt)
+                    self._managed_current_account = nxt
+                    self._auth_credentials = self._managed_account_to_credentials(nxt)
+                    self._active_source = "managed"
+                    return bool(nxt.access_token)
+                rotated = await self._managed_selector.rotate_away_without_auth_penalty(
+                    session_id=None,
+                )
+                if rotated is None:
+                    return False
+                self._managed_current_account = rotated
+                self._auth_credentials = self._managed_account_to_credentials(rotated)
+                self._active_source = "managed"
+                return bool(rotated.access_token)
+            if not await self._codex_legacy_auth_file_fallback_allowed():
+                if self._managed_enabled() and await self._managed_has_accounts():
+                    logger.warning(
+                        "OpenAI Codex: managed OAuth account files exist but no "
+                        "managed account is currently selectable; not refreshing "
+                        "from legacy auth.json."
+                    )
+                return False
             return await self._refresh_legacy_access_token()
 
-    async def _refresh_managed_access_token(self) -> bool:
+    async def _refresh_managed_access_token(
+        self,
+    ) -> tuple[bool, ManagedOAuthRefreshError | None]:
+        """Force-refresh the managed OAuth access token for the current (or next) account.
+
+        Returns:
+            ``(True, None)`` on success.
+            ``(False, None)`` when no managed account is available to refresh.
+            ``(False, exc)`` when refresh fails.
+        """
         account = self._managed_selector.get_current_account()
         if account is None:
             # Refresh path should also avoid blocking on rate-limit recovery sleeps.
@@ -885,7 +953,7 @@ class CredentialManager(ICredentialManager):
                 wait_for_rate_limit_recovery=False,
             )
         if account is None:
-            return False
+            return False, None
 
         try:
             updated = await self._managed_refresh.force_refresh(account)
@@ -903,22 +971,13 @@ class CredentialManager(ICredentialManager):
                     exc,
                     exc_info=True,
                 )
-            return False
+            return False, exc
 
         self._managed_selector.update_account(updated)
         self._managed_current_account = updated
         self._auth_credentials = self._managed_account_to_credentials(updated)
         self._active_source = "managed"
-        return True
-
-    async def _rotate_managed_on_auth_failure(self) -> bool:
-        rotated = await self._managed_selector.rotate_on_auth_failure()
-        if rotated is None:
-            return False
-        self._managed_current_account = rotated
-        self._auth_credentials = self._managed_account_to_credentials(rotated)
-        self._active_source = "managed"
-        return True
+        return True, None
 
     async def _refresh_legacy_access_token(self) -> bool:
         await self._load_legacy_auth(force_reload=True)
@@ -1378,9 +1437,36 @@ class CredentialManager(ICredentialManager):
         """Rotate away from currently failing managed account on auth denial."""
         async with self._token_refresh_lock:
             if not await self._load_managed_auth(force_reload=True):
+                if not await self._codex_legacy_auth_file_fallback_allowed():
+                    if self._managed_enabled() and await self._managed_has_accounts():
+                        logger.warning(
+                            "OpenAI Codex: managed OAuth account files exist but no "
+                            "managed account is currently selectable; not handling "
+                            "auth failure via legacy auth.json."
+                        )
+                    return False
                 return await self._refresh_legacy_access_token()
             rotated = await self._managed_selector.rotate_on_auth_failure(
                 session_id=session_id
+            )
+            if rotated is None:
+                return False
+            self._managed_current_account = rotated
+            self._auth_credentials = self._managed_account_to_credentials(rotated)
+            self._active_source = "managed"
+            return True
+
+    async def handle_forbidden_rotation(
+        self,
+        *,
+        session_id: str | None = None,
+    ) -> bool:
+        """Try another managed account after HTTP 403 without auth-failure penalties."""
+        async with self._token_refresh_lock:
+            if not await self._load_managed_auth(force_reload=True):
+                return False
+            rotated = await self._managed_selector.rotate_away_without_auth_penalty(
+                session_id=session_id,
             )
             if rotated is None:
                 return False

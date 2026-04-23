@@ -349,9 +349,10 @@ class TestCredentialManager:
             ),
             patch("src.connectors.openai_codex.credentials.logger") as log,
         ):
-            result = await manager._refresh_managed_access_token()
+            ok, err = await manager._refresh_managed_access_token()
 
-        assert result is False
+        assert ok is False
+        assert err is exc
         log.warning.assert_called_once()
         assert "exc_info" not in log.warning.call_args.kwargs
 
@@ -382,11 +383,242 @@ class TestCredentialManager:
             ),
             patch("src.connectors.openai_codex.credentials.logger") as log,
         ):
-            result = await manager._refresh_managed_access_token()
+            ok, err = await manager._refresh_managed_access_token()
 
-        assert result is False
+        assert ok is False
+        assert err is exc
         log.warning.assert_called_once()
         assert log.warning.call_args.kwargs.get("exc_info") is True
+
+    @pytest.mark.asyncio
+    async def test_refresh_access_token_transient_managed_skips_penalizing_rotation(
+        self, manager, temp_auth_file
+    ):
+        """Transient managed refresh failures must not rotate or bump auth-failure counters."""
+        exc = ManagedOAuthRefreshError(
+            "failed after retries",
+            account_id="managed_primary",
+            from_transient_network=True,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            account = ManagedOAuthAccount(
+                account_id="managed_primary",
+                access_token="managed_access_token",
+                refresh_token="managed_refresh_token",
+                expiry_date=9_999_999_999_999,
+            )
+            await storage.save_account(account)
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="first-available",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+            original_default_paths = manager._default_auth_paths
+            manager._default_auth_paths = lambda: [temp_auth_file]
+            try:
+                await manager.initialize(auth_path=None)
+            finally:
+                manager._default_auth_paths = original_default_paths
+
+            with (
+                patch.object(
+                    manager._managed_refresh,
+                    "force_refresh",
+                    AsyncMock(side_effect=exc),
+                ),
+                patch.object(
+                    manager._managed_selector,
+                    "rotate_on_auth_failure",
+                    AsyncMock(),
+                ) as mock_rotate_penalizing,
+                patch.object(
+                    manager._managed_selector,
+                    "rotate_away_without_auth_penalty",
+                    AsyncMock(),
+                ) as mock_rotate_soft,
+            ):
+                result = await manager.refresh_access_token()
+
+            assert result is False
+            mock_rotate_penalizing.assert_not_awaited()
+            mock_rotate_soft.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_refresh_access_token_needs_reauth_advances_without_penalizing_rotation(
+        self, manager, temp_auth_file
+    ):
+        """invalid_grant-style refresh errors must not invoke penalizing rotation."""
+        exc = ManagedOAuthRefreshError(
+            "Refresh token invalid or revoked; re-authorization required",
+            account_id="acct_a",
+            needs_reauth=True,
+        )
+        next_account = ManagedOAuthAccount(
+            account_id="acct_b",
+            access_token="tb",
+            refresh_token="rb",
+            expiry_date=9_999_999_999_999,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="ta",
+                    refresh_token="ra",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_b",
+                    access_token="tb",
+                    refresh_token="rb",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="first-available",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+            original_default_paths = manager._default_auth_paths
+            manager._default_auth_paths = lambda: [temp_auth_file]
+            try:
+                await manager.initialize(auth_path=None)
+            finally:
+                manager._default_auth_paths = original_default_paths
+
+            with (
+                patch.object(
+                    manager._managed_refresh,
+                    "force_refresh",
+                    AsyncMock(side_effect=exc),
+                ),
+                patch.object(
+                    manager._managed_selector,
+                    "reload_accounts",
+                    AsyncMock(),
+                ),
+                patch.object(
+                    manager._managed_selector,
+                    "get_next_account",
+                    AsyncMock(return_value=next_account),
+                ),
+                patch.object(
+                    manager._managed_selector,
+                    "rotate_on_auth_failure",
+                    AsyncMock(),
+                ) as mock_rotate_penalizing,
+                patch.object(
+                    manager._managed_selector,
+                    "rotate_away_without_auth_penalty",
+                    AsyncMock(),
+                ) as mock_rotate_soft,
+            ):
+                result = await manager.refresh_access_token()
+
+            assert result is True
+            assert manager.get_access_token() == "tb"
+            mock_rotate_penalizing.assert_not_awaited()
+            mock_rotate_soft.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_refresh_access_token_other_managed_failure_uses_soft_rotation(
+        self, manager, temp_auth_file
+    ):
+        """Non-transient, non-invalid_grant refresh errors rotate without auth penalties."""
+        exc = ManagedOAuthRefreshError(
+            "Token refresh rejected with HTTP 400 (server_error)",
+            account_id="acct_a",
+        )
+        fallback = ManagedOAuthAccount(
+            account_id="acct_b",
+            access_token="tb",
+            refresh_token="rb",
+            expiry_date=9_999_999_999_999,
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_a",
+                    access_token="ta",
+                    refresh_token="ra",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_b",
+                    access_token="tb",
+                    refresh_token="rb",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="first-available",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+            original_default_paths = manager._default_auth_paths
+            manager._default_auth_paths = lambda: [temp_auth_file]
+            try:
+                await manager.initialize(auth_path=None)
+            finally:
+                manager._default_auth_paths = original_default_paths
+
+            with (
+                patch.object(
+                    manager._managed_refresh,
+                    "force_refresh",
+                    AsyncMock(side_effect=exc),
+                ),
+                patch.object(
+                    manager._managed_selector,
+                    "rotate_on_auth_failure",
+                    AsyncMock(),
+                ) as mock_rotate_penalizing,
+                patch.object(
+                    manager._managed_selector,
+                    "rotate_away_without_auth_penalty",
+                    AsyncMock(return_value=fallback),
+                ) as mock_rotate_soft,
+            ):
+                result = await manager.refresh_access_token()
+
+            assert result is True
+            assert manager.get_access_token() == "tb"
+            mock_rotate_penalizing.assert_not_awaited()
+            mock_rotate_soft.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_refresh_access_token_no_refresh_token(
@@ -609,6 +841,63 @@ class TestCredentialManager:
             assert await manager._load_auth(force_reload=True) is True
             assert manager._active_source == "managed"
             assert manager.get_access_token() == "managed_token"
+
+    @pytest.mark.asyncio
+    async def test_load_auth_skips_legacy_when_managed_store_populated_but_managed_unavailable(
+        self, manager
+    ):
+        """If managed account files exist, do not read legacy auth.json when managed load fails."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed"
+            storage = ManagedOAuthStorageService(storage_path)
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="managed_one",
+                    access_token="managed_token",
+                    refresh_token="managed_refresh",
+                    expiry_date=9_999_999_999_999,
+                )
+            )
+            legacy = Path(temp_dir) / "auth.json"
+            with open(legacy, "w", encoding="utf-8") as f:
+                json.dump({"tokens": {"access_token": "legacy_only_token"}}, f)
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="first-available",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=True,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+            manager._default_auth_paths = lambda: [legacy]
+
+            with (
+                patch.object(
+                    manager,
+                    "_load_managed_auth",
+                    new_callable=AsyncMock,
+                    return_value=False,
+                ) as mock_managed,
+                patch.object(
+                    manager,
+                    "_load_legacy_auth",
+                    new_callable=AsyncMock,
+                    return_value=True,
+                ) as mock_legacy,
+            ):
+                result = await manager._load_auth(force_reload=True)
+
+            assert result is False
+            assert manager._active_source == "none"
+            assert manager.get_access_token() is None
+            mock_managed.assert_awaited()
+            mock_legacy.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_effective_max_rate_limit_retries_expands_with_account_count(

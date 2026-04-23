@@ -271,6 +271,11 @@ async def maybe_notify_codex_quota_remaining_low(
     ``latch_keys`` uses tuples ``(managed_account_id, limit_kind, threshold)``.
     A key is cleared when remaining rises back to ``>=`` that threshold so alerts
     can re-fire after recovery.
+
+    When several thresholds are violated in one evaluation (e.g. remaining 8%
+    with alerts at 25% and 10%), at most one desktop notification is sent for
+    that limit kind, using the tightest newly crossed threshold; all violated
+    thresholds are latched so they do not each emit a separate bubble.
     """
     if notification_service is None or not notification_service.is_enabled:
         return
@@ -293,31 +298,43 @@ async def maybe_notify_codex_quota_remaining_low(
         if not math.isfinite(float(remaining)):
             continue
         rem = float(remaining)
+
         for thr in thresholds:
             key = (managed_account_id, kind, thr)
             if rem >= thr:
                 latch_keys.discard(key)
-                continue
-            if key in latch_keys:
-                continue
-            message = build_codex_low_remaining_notification_message(
-                email=email,
-                managed_account_id=managed_account_id,
-                chatgpt_account_id=chatgpt_account_id,
-                limit_kind=kind,
-                threshold_percent=thr,
-                remaining_percent=rem,
+
+        violated = [thr for thr in thresholds if rem < thr]
+        if not violated:
+            continue
+
+        newly_violated = [
+            thr for thr in violated if (managed_account_id, kind, thr) not in latch_keys
+        ]
+        if not newly_violated:
+            continue
+
+        worst_new = min(newly_violated)
+        message = build_codex_low_remaining_notification_message(
+            email=email,
+            managed_account_id=managed_account_id,
+            chatgpt_account_id=chatgpt_account_id,
+            limit_kind=kind,
+            threshold_percent=worst_new,
+            remaining_percent=rem,
+        )
+        try:
+            await notification_service.send_notification(
+                title=_CODEX_QUOTA_LOW_REMAINING_TITLE,
+                message=message,
             )
-            try:
-                await notification_service.send_notification(
-                    title=_CODEX_QUOTA_LOW_REMAINING_TITLE,
-                    message=message,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Codex low remaining quota notification failed: %s",
-                    exc,
-                    exc_info=True,
-                )
-                continue
-            latch_keys.add(key)
+        except Exception as exc:
+            logger.warning(
+                "Codex low remaining quota notification failed: %s",
+                exc,
+                exc_info=True,
+            )
+            continue
+
+        for thr in violated:
+            latch_keys.add((managed_account_id, kind, thr))
