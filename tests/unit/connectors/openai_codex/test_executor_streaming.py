@@ -1111,6 +1111,84 @@ class TestResponseExecutor:
         assert matching[-1].retry_reason == "incompatible_tools"
         assert matching[-1].response_id == "resp_retry_123"
 
+    async def test_execute_streaming_retries_incompatible_tool_call_after_text_output(
+        self, executor, sample_context, streaming_payload
+    ) -> None:
+        """Incompatible tool retries should still fire even after brief text output."""
+        compatibility_layer = MagicMock(spec=ICompatibilityLayer)
+        compatibility_layer.detect_incompatible_tool_calls.return_value = [
+            "apply_patch"
+        ]
+        compatibility_layer.append_incompatible_tool_steering.side_effect = (
+            lambda payload_dict, incompatible_tools, context: {
+                **payload_dict,
+                "instructions": "retry steering",
+            }
+        )
+        executor._compatibility_layer = compatibility_layer
+
+        first_handle = MagicMock()
+        first_handle.headers = {}
+        first_handle.cancel_callback = AsyncMock()
+
+        async def first_iterator():
+            yield ProcessedResponse(
+                content={"choices": [{"delta": {"content": "Working on it."}}]},
+                metadata={},
+            )
+            yield ProcessedResponse(
+                content={
+                    "type": "response.output_item.added",
+                    "item": {"type": "function_call", "name": "apply_patch"},
+                }
+            )
+
+        first_handle.iterator = first_iterator()
+
+        second_handle = MagicMock()
+        second_handle.headers = {}
+        second_handle.cancel_callback = AsyncMock()
+
+        async def second_iterator():
+            yield ProcessedResponse(
+                content={"choices": [{"delta": {"content": "Using native edit."}}]},
+                metadata={},
+            )
+
+        second_handle.iterator = second_iterator()
+
+        captured_payloads: list[dict[str, object]] = []
+
+        async def streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            captured_payloads.append(dict(payload_dict))
+            if len(captured_payloads) == 1:
+                return first_handle
+            return second_handle
+
+        executor._base_connector._handle_streaming_response = AsyncMock(
+            side_effect=streaming_side_effect
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+        chunks = [
+            chunk
+            async for chunk in cast(AsyncIterator[ProcessedResponse], result.content)
+        ]
+
+        assert len(chunks) == 2
+        assert chunks[0].content == {
+            "choices": [{"delta": {"content": "Working on it."}}]
+        }
+        assert chunks[1].content == {
+            "choices": [{"delta": {"content": "Using native edit."}}]
+        }
+        assert len(captured_payloads) == 2
+        assert captured_payloads[1]["instructions"] == "retry steering"
+        first_handle.cancel_callback.assert_awaited()
+        compatibility_layer.append_incompatible_tool_steering.assert_called_once()
+
     async def test_conversation_id_preserved_across_streaming_retries(
         self,
         executor,

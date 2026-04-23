@@ -823,7 +823,7 @@ class ResponseExecutor(IResponseExecutor):
                                         context,
                                     )
                                 )
-                                if incompatible_tools and not visible_output_emitted:
+                                if incompatible_tools:
                                     if (
                                         incompatible_tool_retries
                                         < self._max_incompatible_tool_retries
