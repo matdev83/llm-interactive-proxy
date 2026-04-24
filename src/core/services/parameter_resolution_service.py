@@ -136,8 +136,8 @@ class ParameterResolutionService:
     authoritative ordered merge:
     1. ``connector_forced_params``
     2. ``session_params``
-    3. ``request_params`` (explicit request fields)
-    4. ``uri_params``
+    3. ``uri_params`` (model string / routing selector)
+    4. ``request_params`` (explicit A-leg body fields)
     5. ``header_params`` (e.g. ``extra_body`` in the applicator)
     6. ``config_params``
 
@@ -240,8 +240,8 @@ class ParameterResolutionService:
         Precedence order (highest to lowest):
         1. connector_forced_params
         2. session_params
-        3. request_params
-        4. uri_params
+        3. uri_params
+        4. request_params
         5. header_params
         6. config_params
 
@@ -262,8 +262,8 @@ class ParameterResolutionService:
         sources = [
             ("config", config_params.get(param_name)),
             ("header", header_params.get(param_name)),
-            ("uri", uri_params.get(param_name)),
             ("request", request_params.get(param_name)),
+            ("uri", uri_params.get(param_name)),
             ("session", session_params.get(param_name)),
             ("connector_forced", connector_forced_params.get(param_name)),
         ]

@@ -247,7 +247,7 @@ class TestParameterResolution:
         assert resolved.temperature.source == "session"
 
     def test_full_precedence_chain(self) -> None:
-        """Test complete precedence chain: session > uri > header > config."""
+        """Test complete precedence chain: session > uri > request > header > config."""
         service = ParameterResolutionService()
         resolved = service.resolve_parameters(
             config_params={"temperature": 0.1},

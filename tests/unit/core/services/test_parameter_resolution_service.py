@@ -212,8 +212,8 @@ class TestParameterResolutionService:
         assert result.temperature.value == 0.2
         assert result.temperature.source == "session"
 
-    def test_precedence_request_overrides_uri_header_and_config(self, service):
-        """Explicit request fields should override URI/header/config parameters."""
+    def test_precedence_uri_overrides_request_header_and_config(self, service):
+        """URI parameters should override A-leg request/header/config parameters."""
         result = service.resolve_parameters(
             config_params={"temperature": 0.8},
             header_params={"temperature": 0.6},
@@ -222,8 +222,8 @@ class TestParameterResolutionService:
         )
 
         assert result.temperature is not None
-        assert result.temperature.value == 0.3
-        assert result.temperature.source == "request"
+        assert result.temperature.value == 0.4
+        assert result.temperature.source == "uri"
 
     def test_precedence_connector_forced_overrides_everything(self, service):
         """Connector-forced parameters should have the highest precedence."""

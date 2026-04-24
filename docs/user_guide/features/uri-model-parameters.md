@@ -18,7 +18,7 @@ This feature is particularly useful when you need to:
 - **Inline Parameter Specification**: Append parameters to model strings using URI syntax (e.g., `backend:model?temperature=0.5`)
 - **Multiple Parameters**: Support for multiple parameters in a single model string (e.g., `?temperature=0.5&reasoning_effort=high`)
 - **Hybrid Backend Support**: Apply different parameters to reasoning and execution models independently
-- **Clear Precedence**: URI parameters override config and headers but respect interactive session commands
+- **Clear Precedence**: URI parameters on the model selector override A-leg JSON body fields, `extra_body`, and config; session commands and connector-forced settings can still override URI
 - **Graceful Error Handling**: Invalid parameters are logged but don't break requests
 
 ## Configuration
@@ -28,7 +28,7 @@ This feature is particularly useful when you need to:
 The following parameters can be specified via URI syntax:
 
 - **temperature**: Controls randomness in model outputs (0.0-2.0)
-- **reasoning_effort**: Controls computational effort for reasoning models (low/medium/high)
+- **reasoning_effort**: Controls computational effort for reasoning models (`low` / `medium` / `high`; OpenAI Codex backends also support `xhigh` where the upstream API allows it)
 - **top_p**: Controls diversity via nucleus sampling (e.g., 0.9)
 - **top_k**: Controls diversity by filtering to the K most likely next tokens (e.g., 40)
 
@@ -36,16 +36,18 @@ The following parameters can be specified via URI syntax:
 
 Parameters are resolved from multiple sources with the following precedence (highest to lowest):
 
-1. **Interactive Session Commands** (highest priority) - `!/temperature(0.5)`
-2. **URI Parameters** - `model?temperature=0.5`
-3. **Request Headers** - `X-Temperature: 0.5`
-4. **Configuration File** (lowest priority) - `config.yaml`
+1. **Connector-forced settings** (backend `extra` / connector policy) — hard overrides from configuration
+2. **Interactive session** — session reasoning mode and commands such as `!/temperature(0.5)` (and edit-precision promotions where applicable)
+3. **URI parameters** — query string on the routed model id, e.g. `openai-codex:gpt-5.4-mini?reasoning_effort=xhigh`
+4. **A-leg request body** — top-level OpenAI-style fields on the inbound request (for example `temperature`, `reasoning_effort`) when they were actually supplied by the client (schema defaults are not treated as overrides)
+5. **`extra_body` sampling fields** — same parameter names carried in `extra_body` (lower than top-level body for resolution)
+6. **Backend / app configuration** — defaults from `config.yaml` and backend blocks
 
 When the same parameter is specified in multiple sources, the higher priority source wins. This allows you to:
 
 - Set defaults in config files
-- Override per-request with URI parameters
-- Override dynamically with session commands
+- Let the client send common API fields, but **prefer the model string** when you encode tuning in `backend:model?...`
+- Override dynamically with session commands (or connector-forced policy when operators require it)
 
 ### Debug Logging
 
@@ -278,7 +280,7 @@ curl ... -d '{"model": "openai:gpt-4?temperature=0.8", ...}'
 
 **Solutions**:
 
-1. Check parameter precedence - session commands override URI parameters
+1. Check parameter precedence — session and connector-forced settings override URI; URI overrides duplicate fields on the A-leg request body or in `extra_body`
 2. Verify parameter name spelling (case-sensitive)
 3. Enable debug logging to see parameter resolution
 4. Check that the backend supports the parameter
@@ -290,7 +292,7 @@ curl ... -d '{"model": "openai:gpt-4?temperature=0.8", ...}'
 **Solutions**:
 
 1. Check parameter ranges (e.g., temperature: 0.0-2.0)
-2. Verify parameter format (e.g., reasoning_effort: low/medium/high)
+2. Verify parameter format (e.g., `reasoning_effort`: `low` / `medium` / `high`, and `xhigh` on supported Codex routes)
 3. Review logs for specific validation errors
 4. Consult backend documentation for supported values
 

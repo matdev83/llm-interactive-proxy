@@ -104,7 +104,7 @@ class TestURIParameterApplicatorPrecedence:
 
         assert result.temperature == pytest.approx(0.1)
 
-    def test_explicit_request_field_overrides_uri_defaults(self) -> None:
+    def test_uri_overrides_explicit_request_field(self) -> None:
         backend_type = "test-backend"
         config = _make_config(backend_type, extra={"temperature": 0.9})
 
@@ -122,7 +122,7 @@ class TestURIParameterApplicatorPrecedence:
             session=None,
         )
 
-        assert result.temperature == pytest.approx(0.7)
+        assert result.temperature == pytest.approx(0.5)
 
     def test_connector_forced_overrides_uri_and_request(self) -> None:
         backend_type = "test-backend"
@@ -203,7 +203,7 @@ class TestEquivalenceWithBackendService:
             session,
         )
 
-        # Session > request > URI > header > config (connector_forced not used)
+        # Session > URI > request > header > config (connector_forced not used)
         assert applicator_result.temperature == 0.2
 
 

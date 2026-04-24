@@ -30,11 +30,11 @@ class IURIParameterApplicator(ABC):
         Sources and precedence (highest to lowest):
         1. Connector-forced settings (from backend config)
         2. Session overrides (from commands)
-        3. Explicit request body fields (only fields present in
+        3. URI parameters (from the model alias / query string)
+        4. Explicit A-leg request body fields (only fields present in
            ``model_fields_set`` on Pydantic requests, so schema defaults do not
            steal precedence from URI or lower sources)
-        4. URI parameters (from the model alias / query string)
-        5. Request ``extra_body`` (header-like, lower than URI)
+        5. Request ``extra_body`` (header-like)
         6. Backend / app config
 
         Type coercion rules:

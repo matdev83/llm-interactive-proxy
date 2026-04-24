@@ -46,9 +46,9 @@ class URIParameterApplicator(IURIParameterApplicator):
         Sources and precedence (highest to lowest):
         1. Connector-forced settings
         2. Session overrides (from commands)
-        3. Explicit request fields
-        4. URI parameters
-        5. Request extra_body/header-like values
+        3. URI parameters (model string / selector)
+        4. Explicit A-leg request body fields
+        5. Request extra_body (header-like)
         6. Backend/app config
 
         Type coercion rules:
@@ -249,7 +249,7 @@ class URIParameterApplicator(IURIParameterApplicator):
     def _extract_request_params(
         self, request: ChatRequest, backend_type: str
     ) -> dict[str, Any]:
-        """Extract explicit request fields with higher precedence than URI params.
+        """Extract explicit A-leg body fields (lower precedence than URI params).
 
         For Pydantic v2 models, only attributes listed in ``model_fields_set``
         count as user-provided. Schema defaults (e.g. ``reasoning_effort="medium"``)
