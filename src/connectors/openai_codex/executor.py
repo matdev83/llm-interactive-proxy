@@ -17,6 +17,7 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import HTTPException
@@ -96,6 +97,29 @@ def _map_codex_instruction_error(status_code: int, detail: Any) -> Any:
         ),
         "original_error": detail,
     }
+
+
+# region agent log
+def _agent_dbg_codex_log_path() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").is_file():
+            return parent / "debug-119480.log"
+    return Path.cwd() / "debug-119480.log"
+
+
+def _agent_dbg_codex_executor(payload: dict[str, Any]) -> None:
+    try:
+        line = json.dumps(
+            {"sessionId": "119480", "timestamp": int(time.time() * 1000), **payload},
+            default=str,
+        )
+        with _agent_dbg_codex_log_path().open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
+
+
+# endregion
 
 
 def _codex_initiate_streaming_error_view(
@@ -747,9 +771,23 @@ class ResponseExecutor(IResponseExecutor):
                     observed_response_id: str | None = None
                     observed_response_id_persisted = False
                     terminal_response_id: str | None = None
+                    http_midstream_fingerprints_deferred = False
+                    last_stream_chunk_mono: float | None = None
                     try:
                         with OverrideRenderer(renderer_key):
+                            stream_dbg_idx = 0
                             async for processed_chunk in stream_handle.iterator:
+                                stream_dbg_idx += 1
+                                _iter_enter = time.monotonic()
+                                _gap_ms = (
+                                    int((_iter_enter - last_stream_chunk_mono) * 1000)
+                                    if last_stream_chunk_mono is not None
+                                    else -1
+                                )
+                                _norm_ms = 0
+                                _det_ms = 0
+                                _cmp_ms = 0
+                                _vis_ms = 0
                                 candidate_observed_response_id = (
                                     self._extract_response_id(processed_chunk)
                                 )
@@ -761,11 +799,18 @@ class ResponseExecutor(IResponseExecutor):
                                         candidate_observed_response_id
                                     )
                                     if not use_websocket_transport:
+                                        # HTTP Codex strips ``previous_response_id``; full input
+                                        # fingerprints are only needed for websocket delta slicing.
+                                        # Skip ``record_turn`` here so huge ``http_full_replay`` payloads
+                                        # do not block the session mid-stream (fingerprints are flushed
+                                        # at stream completion or on the next persist call).
                                         await self._persist_observed_continuation(
                                             continuation_context,
                                             response_id=observed_response_id,
                                             payload_dict=replay_payload_dict,
+                                            include_fingerprint_snapshot=False,
                                         )
+                                        http_midstream_fingerprints_deferred = True
                                         observed_response_id_persisted = True
                                     elif self._codex_ws_lineage is not None:
                                         await self._persist_observed_ws_lineage(
@@ -817,17 +862,21 @@ class ResponseExecutor(IResponseExecutor):
                                                         payload_dict=replay_payload_dict,
                                                         items_added=ws_output_items,
                                                     )
+                                _t_norm = time.monotonic()
                                 processed_chunk = (
                                     self._normalize_processed_stream_chunk(
                                         processed_chunk
                                     )
                                 )
+                                _norm_ms = int((time.monotonic() - _t_norm) * 1000)
+                                _t_det = time.monotonic()
                                 incompatible_tools = (
                                     self._detect_incompatible_tool_calls(
                                         processed_chunk.content,
                                         context,
                                     )
                                 )
+                                _det_ms = int((time.monotonic() - _t_det) * 1000)
                                 if incompatible_tools:
                                     if (
                                         incompatible_tool_retries
@@ -873,6 +922,7 @@ class ResponseExecutor(IResponseExecutor):
                                             },
                                         )
                                         yield processed_chunk
+                                        last_stream_chunk_mono = time.monotonic()
                                         continue
                                     restart_stream = True
                                     logger.info(
@@ -915,6 +965,7 @@ class ResponseExecutor(IResponseExecutor):
 
                                 # Apply compatibility layer translation if available
                                 if self._compatibility_layer and compatibility_state:
+                                    _t_cmp = time.monotonic()
                                     try:
                                         pre_translation_metadata = dict(
                                             processed_chunk.metadata or {}
@@ -946,7 +997,13 @@ class ResponseExecutor(IResponseExecutor):
                                                 usage=processed_chunk.usage,
                                                 metadata=merged_metadata,
                                             )
+                                        _cmp_ms = int(
+                                            (time.monotonic() - _t_cmp) * 1000
+                                        )
                                     except Exception as e:
+                                        _cmp_ms = int(
+                                            (time.monotonic() - _t_cmp) * 1000
+                                        )
                                         if logger.isEnabledFor(TRACE_LEVEL):
                                             logger.log(
                                                 TRACE_LEVEL,
@@ -960,12 +1017,43 @@ class ResponseExecutor(IResponseExecutor):
                                                 },
                                             )
                                         # Continue with original chunk on translation failure
+                                else:
+                                    _cmp_ms = 0
 
+                                _t_vis = time.monotonic()
                                 if self._chunk_has_client_visible_output(
                                     processed_chunk
                                 ):
                                     visible_output_emitted = True
+                                _vis_ms = int((time.monotonic() - _t_vis) * 1000)
+                                if (
+                                    stream_dbg_idx <= 120
+                                    or _gap_ms >= 500
+                                    or _norm_ms + _det_ms + _cmp_ms + _vis_ms >= 30
+                                ):
+                                    _meta_ev = processed_chunk.metadata or {}
+                                    _agent_dbg_codex_executor(
+                                        {
+                                            "hypothesisId": "H2",
+                                            "location": "executor.streaming_loop",
+                                            "message": "codex_stream_chunk_timing",
+                                            "data": {
+                                                "session_id": context.session_id,
+                                                "idx": stream_dbg_idx,
+                                                "gap_ms_since_prev_yield": _gap_ms,
+                                                "event_type": _meta_ev.get(
+                                                    "event_type"
+                                                ),
+                                                "norm_ms": _norm_ms,
+                                                "det_ms": _det_ms,
+                                                "cmp_ms": _cmp_ms,
+                                                "vis_ms": _vis_ms,
+                                                "mode": current_request_mode,
+                                            },
+                                        }
+                                    )
                                 yield processed_chunk
+                                last_stream_chunk_mono = time.monotonic()
                     except Exception as exc:
                         if self._is_previous_response_not_found_error(exc):
                             await self._continuation_coordinator.invalidate(
@@ -1074,6 +1162,16 @@ class ResponseExecutor(IResponseExecutor):
                                     continuation_context,
                                     response_id=terminal_response_id,
                                     payload_dict=replay_payload_dict,
+                                    include_fingerprint_snapshot=True,
+                                )
+                            elif (
+                                not use_websocket_transport
+                                and http_midstream_fingerprints_deferred
+                            ):
+                                await self._record_continuation_turn(
+                                    continuation_context,
+                                    terminal_response_id,
+                                    replay_payload_dict,
                                 )
                         elif observed_response_id:
                             if not observed_response_id_persisted:
@@ -1081,6 +1179,16 @@ class ResponseExecutor(IResponseExecutor):
                                     continuation_context,
                                     response_id=observed_response_id,
                                     payload_dict=replay_payload_dict,
+                                    include_fingerprint_snapshot=True,
+                                )
+                            elif (
+                                not use_websocket_transport
+                                and http_midstream_fingerprints_deferred
+                            ):
+                                await self._record_continuation_turn(
+                                    continuation_context,
+                                    observed_response_id,
+                                    replay_payload_dict,
                                 )
                             logger.info(
                                 "Codex stream ended before terminal completion; observed response id remains available for continuation (response_id=%s, mode=%s, reason=%s).",
@@ -1426,16 +1534,47 @@ class ResponseExecutor(IResponseExecutor):
         *,
         response_id: str,
         payload_dict: dict[str, Any],
+        include_fingerprint_snapshot: bool = True,
     ) -> None:
+        # region agent log
+        _t_p0 = time.monotonic()
+        # endregion
         await self._continuation_coordinator.record_response_id(
             context,
             response_id,
         )
-        await self._record_continuation_turn(
-            context,
-            response_id,
-            payload_dict,
+        # region agent log
+        _rid_ms = int((time.monotonic() - _t_p0) * 1000)
+        _t_p1 = time.monotonic()
+        # endregion
+        _turn_ms = 0
+        if include_fingerprint_snapshot:
+            await self._record_continuation_turn(
+                context,
+                response_id,
+                payload_dict,
+            )
+            # region agent log
+            _turn_ms = int((time.monotonic() - _t_p1) * 1000)
+            # endregion
+        # region agent log
+        _raw_inp = payload_dict.get("input")
+        _inp_n = len(_raw_inp) if isinstance(_raw_inp, list) else -1
+        _agent_dbg_codex_executor(
+            {
+                "hypothesisId": "H1",
+                "location": "executor._persist_observed_continuation",
+                "message": "persist_continuation_timing",
+                "data": {
+                    "session_id": context.session_id,
+                    "record_response_id_ms": _rid_ms,
+                    "record_turn_ms": _turn_ms,
+                    "input_item_count": _inp_n,
+                    "include_fingerprint_snapshot": include_fingerprint_snapshot,
+                },
+            }
         )
+        # endregion
 
     async def _persist_observed_ws_lineage(
         self,

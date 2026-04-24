@@ -7,8 +7,12 @@ histories:
    loop (``json.dumps`` per item), freezing the process under large replays.
 
 2. ``ResponseExecutor._log_request_attempt`` computed ``input_bytes`` / ``tools_bytes``
-   via a full ``json.dumps`` of the entire payload for INFO logs before each upstream
-   request, which could take multiple seconds for hundreds of messages.
+    via a full ``json.dumps`` of the entire payload for INFO logs before each upstream
+    request, which could take multiple seconds for hundreds of messages.
+
+3. HTTP mid-stream ``_persist_observed_continuation`` used to call ``record_turn`` on the
+    full ``http_full_replay`` payload even though HTTP Codex does not use input
+    fingerprints for continuation; that work is deferred to stream completion.
 
 Upstream Codex can still pause between SSE events; these tests only guard the proxy.
 """
@@ -89,6 +93,40 @@ async def test_record_turn_fingerprints_large_input_via_worker_thread(
     assert snapshot is not None
     assert snapshot.response_id == "resp-regression"
     assert len(snapshot.input_fingerprints) == 250
+
+
+@pytest.mark.asyncio
+async def test_persist_observed_continuation_skips_record_turn_when_disabled(
+    mock_base_connector: Any,
+    mock_credential_manager: Any,
+) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+
+    coord = MagicMock()
+    coord.record_response_id = AsyncMock()
+    coord.record_turn = AsyncMock()
+    executor = ResponseExecutor(
+        mock_base_connector,
+        mock_credential_manager,
+        continuation_coordinator=coord,
+    )
+    ctx = _codex_context("session-persist-skip")
+    await executor._persist_observed_continuation(
+        ctx,
+        response_id="rid-1",
+        payload_dict={"input": [{"x": 1}]},
+        include_fingerprint_snapshot=False,
+    )
+    coord.record_response_id.assert_awaited_once()
+    coord.record_turn.assert_not_called()
+
+    await executor._persist_observed_continuation(
+        ctx,
+        response_id="rid-2",
+        payload_dict={"input": [{"x": 2}]},
+        include_fingerprint_snapshot=True,
+    )
+    assert coord.record_turn.await_count == 1
 
 
 def test_measure_json_bytes_for_log_skips_long_lists(
