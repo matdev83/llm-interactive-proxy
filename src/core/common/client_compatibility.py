@@ -77,13 +77,17 @@ def resolve_client_reasoning_policy(
     headers: Any,
     client_config: ClientCompatibilityConfig | None,
     user_agent: str | None = None,
+    request_indicates_reasoning_output: bool = False,
 ) -> ClientReasoningPolicy:
     """Resolve reasoning policy based on headers and optional UA rules.
 
     Precedence:
     1) Explicit request headers
     2) UA rules from config (if provided)
-    3) Defaults: passthrough, but reasoning does not count as meaningful
+    3) When the inbound chat request enables reasoning/thinking
+       (``request_indicates_reasoning_output``): passthrough with reasoning counted as
+       meaningful for empty-stream gating
+    4) Defaults: passthrough, but reasoning does not count as meaningful
        (so reasoning-only streams can still trigger empty-stream retry).
     """
 
@@ -120,6 +124,12 @@ def resolve_client_reasoning_policy(
             except re.error:
                 # Rule regex is validated by pydantic, but keep best-effort.
                 continue
+
+    if request_indicates_reasoning_output:
+        return ClientReasoningPolicy(
+            reasoning_mode="passthrough",
+            reasoning_counts_as_meaningful=True,
+        )
 
     return ClientReasoningPolicy(
         reasoning_mode="passthrough",

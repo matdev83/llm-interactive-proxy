@@ -36,6 +36,10 @@ from src.core.common.exceptions import (
     SessionCancelledError,
     TranslationError,
 )
+from src.core.common.openai_stream_reasoning import openai_dict_has_reasoning_output
+from src.core.common.reasoning_request_signals import (
+    chat_request_indicates_reasoning_output,
+)
 from src.core.common.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
@@ -370,37 +374,6 @@ class BackendStreamingResponseHandler:
 
         return False
 
-    @staticmethod
-    def _openai_dict_has_reasoning_output(payload: dict[str, Any]) -> bool:
-        """Return True when an OpenAI-shaped payload carries reasoning text.
-
-        This is intentionally separate from _openai_dict_has_user_visible_output.
-        Reasoning is *not* treated as user-visible by default, but some strict
-        clients require it to be mirrored into content (see _suppress_reasoning_fields)
-        which makes reasoning effectively user-visible.
-        """
-        choices = payload.get("choices")
-        if not isinstance(choices, list) or not choices:
-            return False
-
-        for choice in choices:
-            if not isinstance(choice, dict):
-                continue
-            delta = choice.get("delta") or choice.get("message")
-            if not isinstance(delta, dict):
-                continue
-
-            reasoning_val = (
-                delta.get("reasoning_content")
-                or delta.get("reasoning")
-                or delta.get("thinking")
-                or delta.get("thought")
-            )
-            if isinstance(reasoning_val, str) and reasoning_val.strip():
-                return True
-
-        return False
-
     def _metadata_has_meaningful_output(self, metadata: dict[str, Any]) -> bool:
         if metadata.get("error"):
             return True
@@ -501,7 +474,12 @@ class BackendStreamingResponseHandler:
 
         return False
 
-    def _chunk_has_meaningful_output(self, chunk: ProcessedResponse) -> bool:
+    def _chunk_has_meaningful_output(
+        self,
+        chunk: ProcessedResponse,
+        *,
+        count_reasoning_for_empty_stream: bool = True,
+    ) -> bool:
         """Check whether a streamed chunk carries user-visible output."""
         metadata = getattr(chunk, "metadata", {}) or {}
         content = getattr(chunk, "content", None)
@@ -509,13 +487,11 @@ class BackendStreamingResponseHandler:
         # Reasoning-only streams are meaningful only when the client can render them.
         if metadata.get("_client_supports_reasoning_fields"):
             if isinstance(content, dict):
-                if self._openai_dict_has_reasoning_output(content):
+                if openai_dict_has_reasoning_output(content):
                     return True
             elif isinstance(content, str):
                 parsed = self._try_parse_openai_sse_payloads(content)
-                if parsed and any(
-                    self._openai_dict_has_reasoning_output(p) for p in parsed
-                ):
+                if parsed and any(openai_dict_has_reasoning_output(p) for p in parsed):
                     return True
             elif isinstance(content, bytes | bytearray):
                 try:
@@ -523,9 +499,7 @@ class BackendStreamingResponseHandler:
                 except UnicodeDecodeError:
                     decoded = content.decode("utf-8", errors="ignore")
                 parsed = self._try_parse_openai_sse_payloads(decoded)
-                if parsed and any(
-                    self._openai_dict_has_reasoning_output(p) for p in parsed
-                ):
+                if parsed and any(openai_dict_has_reasoning_output(p) for p in parsed):
                     return True
 
         if self._metadata_has_meaningful_output(metadata):
@@ -533,6 +507,23 @@ class BackendStreamingResponseHandler:
 
         if self._content_has_meaningful_output(content):
             return True
+
+        if count_reasoning_for_empty_stream:
+            if isinstance(content, dict) and openai_dict_has_reasoning_output(content):
+                return True
+            if isinstance(content, str | bytes | bytearray):
+                if isinstance(content, bytes | bytearray):
+                    try:
+                        decoded_reason = content.decode("utf-8")
+                    except UnicodeDecodeError:
+                        decoded_reason = content.decode("utf-8", errors="ignore")
+                else:
+                    decoded_reason = content
+                parsed_reason = self._try_parse_openai_sse_payloads(decoded_reason)
+                if parsed_reason and any(
+                    openai_dict_has_reasoning_output(p) for p in parsed_reason
+                ):
+                    return True
 
         # Avoid treating OpenAI-shaped dict chunks as meaningful via JSON serialization.
         if isinstance(content, dict) and "choices" in content:

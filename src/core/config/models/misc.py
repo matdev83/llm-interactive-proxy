@@ -16,6 +16,12 @@ class EmptyResponseConfig(DomainModel):
     max_retries: int = 1
     """Maximum number of retries for empty responses."""
 
+    count_reasoning_for_empty_stream: bool = True
+    """When True, non-empty reasoning/thinking deltas count as meaningful output for
+    empty-stream detection (avoids false retries when models stream reasoning before text).
+    Set False to restore legacy behavior where only user-visible content and tool calls count.
+    """
+
 
 class CodebuffConfig(DomainModel):
     """Codebuff WebSocket server configuration."""
