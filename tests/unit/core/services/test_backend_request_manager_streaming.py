@@ -1275,18 +1275,18 @@ def test_should_surface_pre_output_error_includes_bad_gateway() -> None:
         backend_name="openai",
         status_code=502,
     )
-    assert BackendStreamingResponseHandler._should_surface_pre_output_error(
-        be502
-    ) is True
+    assert (
+        BackendStreamingResponseHandler._should_surface_pre_output_error(be502) is True
+    )
 
     be500 = BackendError(
         message="internal",
         backend_name="openai",
         status_code=500,
     )
-    assert BackendStreamingResponseHandler._should_surface_pre_output_error(
-        be500
-    ) is True
+    assert (
+        BackendStreamingResponseHandler._should_surface_pre_output_error(be500) is True
+    )
 
 
 def test_should_surface_pre_output_error_considers_details_status_code() -> None:
@@ -1297,9 +1297,7 @@ def test_should_surface_pre_output_error_considers_details_status_code() -> None
         status_code=200,
         details={"status_code": 502},
     )
-    assert BackendStreamingResponseHandler._should_surface_pre_output_error(
-        be
-    ) is True
+    assert BackendStreamingResponseHandler._should_surface_pre_output_error(be) is True
 
 
 def test_chunk_has_meaningful_output_reasoning_only_dict_with_fallback() -> None:

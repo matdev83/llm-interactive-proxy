@@ -275,9 +275,11 @@ class EmptyResponseFeature(IResponseFeature):
                 raw_content
             ):
                 activity["has_content"] = True
-            meta = processed_response.metadata if isinstance(
-                processed_response.metadata, dict
-            ) else None
+            meta = (
+                processed_response.metadata
+                if isinstance(processed_response.metadata, dict)
+                else None
+            )
             if meta and meta.get("reasoning_is_output"):
                 acc = meta.get("accumulated_reasoning")
                 if isinstance(acc, str) and acc.strip():

@@ -66,6 +66,7 @@ from src.core.interfaces.response_processor_interface import (
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
+from src.core.interfaces.state_provider_interface import StateAccessViolationError
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
 from src.core.services.post_backend_response_coordinator import (
     response_envelope_as_single_chunk_stream,
@@ -757,7 +758,10 @@ class BackendStreamingResponseHandler:
                 cfg = None
 
             for attr in ("config", "app_config"):
-                candidate = getattr(app_state, attr, None)
+                try:
+                    candidate = getattr(app_state, attr, None)
+                except StateAccessViolationError:
+                    continue
                 if candidate is not None and hasattr(candidate, "session"):
                     cfg = cast(IConfig, candidate)
                     break
@@ -773,7 +777,9 @@ class BackendStreamingResponseHandler:
                 cfg = None
         return cfg
 
-    def _resolve_count_reasoning_for_empty_stream(self, context: RequestContext) -> bool:
+    def _resolve_count_reasoning_for_empty_stream(
+        self, context: RequestContext
+    ) -> bool:
         cfg = self._try_resolve_icfg_from_context(context)
         if cfg is None:
             return True
@@ -1693,8 +1699,8 @@ class BackendStreamingResponseHandler:
                     metadata=processed_metadata,
                 )
 
-        count_reasoning_for_empty_stream = self._resolve_count_reasoning_for_empty_stream(
-            context
+        count_reasoning_for_empty_stream = (
+            self._resolve_count_reasoning_for_empty_stream(context)
         )
 
         # Gate empty stream

@@ -60,7 +60,9 @@ class TestClientCompatibility:
         assert policy.reasoning_mode == "coerce_to_content"
         assert policy.reasoning_counts_as_meaningful is True
 
-    def test_request_reasoning_signal_implies_meaningful_when_no_header_or_ua(self) -> None:
+    def test_request_reasoning_signal_implies_meaningful_when_no_header_or_ua(
+        self,
+    ) -> None:
         policy = resolve_client_reasoning_policy(
             headers={},
             client_config=ClientCompatibilityConfig(),
