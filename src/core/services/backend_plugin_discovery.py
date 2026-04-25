@@ -32,6 +32,10 @@ logger = logging.getLogger(__name__)
 ENTRY_POINT_GROUP = BACKEND_PLUGIN_ENTRY_POINT_GROUP
 _DEFAULT_CORE_VERSION = "0.1.0"
 
+# Entry point names removed from optional oauth-connectors but still present in
+# older installed distributions; skip without loading or logging a failure.
+_RETIRED_BACKEND_PLUGIN_ENTRY_POINTS: frozenset[str] = frozenset({"anthropic-oauth"})
+
 
 def discover_plugin_backends(entry_point_group: str = ENTRY_POINT_GROUP) -> list[str]:
     """Discover and register optional plugin backends.
@@ -58,6 +62,14 @@ def discover_plugin_backends(entry_point_group: str = ENTRY_POINT_GROUP) -> list
     plugin_load_error_first_ep: dict[tuple[str, str], str] = {}
     seen_backend_names: set[str] = set()
     for entry_point in entry_points:
+        if entry_point.name in _RETIRED_BACKEND_PLUGIN_ENTRY_POINTS:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping retired backend plugin entry point %r.",
+                    entry_point.name,
+                )
+            continue
+
         provider = _load_provider(entry_point, plugin_load_error_first_ep)
         if provider is None:
             continue

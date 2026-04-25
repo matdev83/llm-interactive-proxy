@@ -60,6 +60,28 @@ class TestBackendPluginDiscovery:
 
         assert discovered == []
 
+    def test_retired_entry_point_is_silently_skipped(self, caplog: Any) -> None:
+        """Stale setuptools metadata must not trigger load or WARNING."""
+        retired = _entry_point(
+            name="anthropic-oauth",
+            load_error=RuntimeError("load must not be called for retired entry points"),
+        )
+        with (
+            patch(
+                "src.core.services.backend_plugin_discovery._resolve_core_version",
+                return_value="0.1.0",
+            ),
+            patch(
+                "src.core.services.backend_plugin_discovery._load_entry_points",
+                return_value=[retired],
+            ),
+            caplog.at_level("WARNING"),
+        ):
+            discovered = discover_plugin_backends()
+
+        assert discovered == []
+        assert "Failed to load backend plugin entry point" not in caplog.text
+
     def test_entry_point_load_failure_is_fail_open(self, caplog: Any) -> None:
         broken = _entry_point(
             name="broken-oauth", load_error=ImportError("Cannot import plugin module")
