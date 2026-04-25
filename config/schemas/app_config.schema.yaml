@@ -65,6 +65,12 @@ properties:
         type: integer
         minimum: 0
         description: "Maximum number of retries for empty responses"
+      count_reasoning_for_empty_stream:
+        type: boolean
+        description: >-
+          When true, non-empty reasoning/thinking deltas count as meaningful for
+          empty-stream detection (avoids false retries when models stream reasoning
+          before assistant text). Set false for legacy behavior.
   edit_precision:
     type: object
     additionalProperties: false

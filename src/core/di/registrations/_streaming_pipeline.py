@@ -97,6 +97,11 @@ def _register_middleware_application_manager(services: ServiceCollection) -> Non
                 EmptyResponseFeature(
                     enabled=True,
                     max_retries=getattr(cfg.empty_response, "max_retries", 1),
+                    count_reasoning_for_empty_stream=getattr(
+                        cfg.empty_response,
+                        "count_reasoning_for_empty_stream",
+                        True,
+                    ),
                 )
             )
 

@@ -63,6 +63,15 @@ sandboxing:
   # Regex patterns for tools to exempt from sandboxing (optional)
   excluded_tools: []
 
+# Empty response / empty stream recovery
+empty_response:
+  enabled: true
+  max_retries: 1
+  # When true, reasoning-only streaming deltas count as meaningful output for empty-stream
+  # detection (avoids false retries when models stream reasoning before assistant text).
+  # Disable via env: EMPTY_RESPONSE_COUNT_REASONING_FOR_EMPTY_STREAM=false
+  count_reasoning_for_empty_stream: true
+
 # Session management
 session:
   cleanup_enabled: true

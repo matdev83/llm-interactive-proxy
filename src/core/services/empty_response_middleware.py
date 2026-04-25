@@ -16,6 +16,7 @@ from typing import Any
 from cachetools import TTLCache
 
 from src.core.common.exceptions import BackendError
+from src.core.common.openai_stream_reasoning import openai_dict_has_reasoning_output
 from src.core.interfaces.response_processor_interface import (
     IResponseFeature,
     IResponseMiddleware,
@@ -47,6 +48,8 @@ class EmptyResponseFeature(IResponseFeature):
         enabled: bool = True,
         max_retries: int = 1,
         priority: int = 0,
+        *,
+        count_reasoning_for_empty_stream: bool = True,
     ) -> None:
         """Initialize the empty response feature.
 
@@ -54,10 +57,13 @@ class EmptyResponseFeature(IResponseFeature):
             enabled: Whether the feature is enabled
             max_retries: Maximum number of retry attempts
             priority: Execution priority
+            count_reasoning_for_empty_stream: When True, reasoning deltas in OpenAI-shaped
+                chunks count as non-empty for streaming activity tracking.
         """
         super().__init__(priority)
         self._enabled = enabled
         self._max_retries = max_retries
+        self._count_reasoning_for_empty_stream = count_reasoning_for_empty_stream
         self._retry_counts: MutableMapping[str, int] = TTLCache(maxsize=10000, ttl=3600)
         self._recovery_prompt: str | None = None
         # Streaming state: track activity per stream
@@ -262,6 +268,20 @@ class EmptyResponseFeature(IResponseFeature):
         # Check for tool calls
         if self._has_tool_calls(processed_response, context):
             activity["has_tool_calls"] = True
+
+        if self._count_reasoning_for_empty_stream:
+            raw_content = processed_response.content
+            if isinstance(raw_content, dict) and openai_dict_has_reasoning_output(
+                raw_content
+            ):
+                activity["has_content"] = True
+            meta = processed_response.metadata if isinstance(
+                processed_response.metadata, dict
+            ) else None
+            if meta and meta.get("reasoning_is_output"):
+                acc = meta.get("accumulated_reasoning")
+                if isinstance(acc, str) and acc.strip():
+                    activity["has_content"] = True
 
     def _is_stream_end(self, context: dict[str, Any]) -> bool:
         """Check if this is the end of a stream."""

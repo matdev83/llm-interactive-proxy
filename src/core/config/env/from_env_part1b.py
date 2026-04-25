@@ -557,6 +557,13 @@ def apply_config_part1b(
             path="empty_response.max_retries",
             resolution=resolution,
         ),
+        "count_reasoning_for_empty_stream": _env_to_bool(
+            "EMPTY_RESPONSE_COUNT_REASONING_FOR_EMPTY_STREAM",
+            True,
+            env,
+            path="empty_response.count_reasoning_for_empty_stream",
+            resolution=resolution,
+        ),
     }
 
     config["edit_precision"] = {

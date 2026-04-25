@@ -1300,3 +1300,39 @@ def test_should_surface_pre_output_error_considers_details_status_code() -> None
     assert BackendStreamingResponseHandler._should_surface_pre_output_error(
         be
     ) is True
+
+
+def test_chunk_has_meaningful_output_reasoning_only_dict_with_fallback() -> None:
+    """Reasoning-only OpenAI-shaped dict chunks count when fallback flag is on."""
+    handler = BackendStreamingResponseHandler(
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        AsyncMock(),
+    )
+    payload: dict[str, Any] = {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "role": "assistant",
+                    "reasoning_content": "internal",
+                    "content": "",
+                },
+            }
+        ]
+    }
+    chunk = ProcessedResponse(content=payload, metadata={})
+    assert (
+        handler._chunk_has_meaningful_output(
+            chunk, count_reasoning_for_empty_stream=True
+        )
+        is True
+    )
+    assert (
+        handler._chunk_has_meaningful_output(
+            chunk, count_reasoning_for_empty_stream=False
+        )
+        is False
+    )

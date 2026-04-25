@@ -738,45 +738,60 @@ class BackendStreamingResponseHandler:
             skip_verification=skip_verification,
         )
 
+    def _try_resolve_icfg_from_context(self, context: RequestContext) -> Any:
+        """Return IConfig from request context or global provider, or None."""
+        from src.core.interfaces.configuration_interface import IConfig
+
+        cfg: Any = None
+        app_state = getattr(context, "app_state", None)
+        if app_state is not None:
+            try:
+                service_provider = getattr(app_state, "service_provider", None)
+                if service_provider is not None and hasattr(
+                    service_provider, "get_service"
+                ):
+                    cfg_any = service_provider.get_service(cast(type[Any], IConfig))
+                    if cfg_any is not None and hasattr(cfg_any, "session"):
+                        cfg = cast(IConfig, cfg_any)
+            except Exception:
+                cfg = None
+
+            for attr in ("config", "app_config"):
+                candidate = getattr(app_state, attr, None)
+                if candidate is not None and hasattr(candidate, "session"):
+                    cfg = cast(IConfig, candidate)
+                    break
+
+        if cfg is None:
+            try:
+                from src.core.di.services import get_service_provider
+
+                provider = get_service_provider()
+                cfg_any = provider.get_service(cast(type[Any], IConfig))
+                cfg = cast(IConfig | None, cfg_any)
+            except Exception:
+                cfg = None
+        return cfg
+
+    def _resolve_count_reasoning_for_empty_stream(self, context: RequestContext) -> bool:
+        cfg = self._try_resolve_icfg_from_context(context)
+        if cfg is None:
+            return True
+        er = getattr(cfg, "empty_response", None)
+        if er is None:
+            return True
+        return bool(getattr(er, "count_reasoning_for_empty_stream", True))
+
     def _resolve_client_reasoning_policy(
-        self, context: RequestContext
+        self, context: RequestContext, request: ChatRequest
     ) -> tuple[bool, str]:
         """Resolve client reasoning policy once per stream (not per chunk)."""
         try:
             from src.core.common.client_compatibility import (
                 resolve_client_reasoning_policy,
             )
-            from src.core.interfaces.configuration_interface import IConfig
 
-            cfg: IConfig | None = None
-            app_state = getattr(context, "app_state", None)
-            if app_state is not None:
-                try:
-                    service_provider = getattr(app_state, "service_provider", None)
-                    if service_provider is not None and hasattr(
-                        service_provider, "get_service"
-                    ):
-                        cfg_any = service_provider.get_service(cast(type[Any], IConfig))
-                        if cfg_any is not None and hasattr(cfg_any, "session"):
-                            cfg = cast(IConfig, cfg_any)
-                except Exception:
-                    cfg = None
-
-                for attr in ("config", "app_config"):
-                    candidate = getattr(app_state, attr, None)
-                    if candidate is not None and hasattr(candidate, "session"):
-                        cfg = cast(IConfig, candidate)
-                        break
-
-            if cfg is None:
-                try:
-                    from src.core.di.services import get_service_provider
-
-                    provider = get_service_provider()
-                    cfg_any = provider.get_service(cast(type[Any], IConfig))
-                    cfg = cast(IConfig | None, cfg_any)
-                except Exception:
-                    cfg = None
+            cfg = self._try_resolve_icfg_from_context(context)
 
             headers = getattr(context, "headers", None)
             ua_val = None
@@ -789,10 +804,17 @@ class BackendStreamingResponseHandler:
                 if cfg is not None
                 else None
             )
+            count_reasoning = self._resolve_count_reasoning_for_empty_stream(context)
+            request_reasoning_signal = (
+                chat_request_indicates_reasoning_output(request)
+                if count_reasoning
+                else False
+            )
             policy = resolve_client_reasoning_policy(
                 headers=headers,
                 client_config=client_cfg,
                 user_agent=ua,
+                request_indicates_reasoning_output=request_reasoning_signal,
             )
             return bool(policy.reasoning_counts_as_meaningful), str(
                 policy.reasoning_mode
@@ -1607,7 +1629,7 @@ class BackendStreamingResponseHandler:
             (
                 client_reasoning_counts_as_meaningful,
                 client_reasoning_mode,
-            ) = self._resolve_client_reasoning_policy(context)
+            ) = self._resolve_client_reasoning_policy(context, request)
 
             async for chunk in monitored_stream():
                 # monitored_stream() returns AsyncIterator[ProcessedResponse], so chunk is always ProcessedResponse
@@ -1670,6 +1692,10 @@ class BackendStreamingResponseHandler:
                     usage=chunk.usage,
                     metadata=processed_metadata,
                 )
+
+        count_reasoning_for_empty_stream = self._resolve_count_reasoning_for_empty_stream(
+            context
+        )
 
         # Gate empty stream
         async def gate_empty_stream() -> AsyncIterator[ProcessedResponse]:
@@ -1789,7 +1815,10 @@ class BackendStreamingResponseHandler:
                         yield chunk
                         continue
 
-                    meaningful = self._chunk_has_meaningful_output(chunk)
+                    meaningful = self._chunk_has_meaningful_output(
+                        chunk,
+                        count_reasoning_for_empty_stream=count_reasoning_for_empty_stream,
+                    )
 
                     if meaningful:
                         if not seen_meaningful:

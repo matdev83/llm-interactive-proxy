@@ -59,3 +59,25 @@ class TestClientCompatibility:
         )
         assert policy.reasoning_mode == "coerce_to_content"
         assert policy.reasoning_counts_as_meaningful is True
+
+    def test_request_reasoning_signal_implies_meaningful_when_no_header_or_ua(self) -> None:
+        policy = resolve_client_reasoning_policy(
+            headers={},
+            client_config=ClientCompatibilityConfig(),
+            user_agent=None,
+            request_indicates_reasoning_output=True,
+        )
+        assert policy.reasoning_mode == "passthrough"
+        assert policy.reasoning_counts_as_meaningful is True
+
+    def test_header_still_wins_over_request_reasoning_signal(self) -> None:
+        policy = resolve_client_reasoning_policy(
+            headers={
+                "x-llmproxy-reasoning-mode": "passthrough",
+                "x-llmproxy-reasoning-meaningful": "false",
+            },
+            client_config=ClientCompatibilityConfig(),
+            user_agent=None,
+            request_indicates_reasoning_output=True,
+        )
+        assert policy.reasoning_counts_as_meaningful is False
