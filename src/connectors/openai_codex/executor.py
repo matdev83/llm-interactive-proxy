@@ -17,7 +17,6 @@ import json
 import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import HTTPException
@@ -39,6 +38,14 @@ from src.connectors.openai_codex.contracts import (
     CodexRequestContext,
     CompatibilityState,
     ProviderStreamChunk,
+)
+from src.connectors.openai_codex.gpt55_account_compatibility import (
+    DEFAULT_GPT55_DOWNGRADE,
+    Gpt55FreePlanDowngradeConfig,
+    is_upstream_gpt55_chatgpt_rejection,
+    maybe_reactive_gpt55_downgrade,
+    plan_hint_is_free,
+    should_downgrade_source_model,
 )
 from src.connectors.openai_codex.interfaces import (
     ICodexContinuationCoordinator,
@@ -97,29 +104,6 @@ def _map_codex_instruction_error(status_code: int, detail: Any) -> Any:
         ),
         "original_error": detail,
     }
-
-
-# region agent log
-def _agent_dbg_codex_log_path() -> Path:
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "pyproject.toml").is_file():
-            return parent / "debug-119480.log"
-    return Path.cwd() / "debug-119480.log"
-
-
-def _agent_dbg_codex_executor(payload: dict[str, Any]) -> None:
-    try:
-        line = json.dumps(
-            {"sessionId": "119480", "timestamp": int(time.time() * 1000), **payload},
-            default=str,
-        )
-        with _agent_dbg_codex_log_path().open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
-    except OSError:
-        pass
-
-
-# endregion
 
 
 def _codex_initiate_streaming_error_view(
@@ -369,6 +353,7 @@ class ResponseExecutor(IResponseExecutor):
         continuation_backend_label: str | None = None,
         codex_ws_lineage: Any | None = None,
         preserve_tools_on_managed_ws_continuation: bool = False,
+        gpt55_free_plan_downgrade: Gpt55FreePlanDowngradeConfig | None = None,
     ) -> None:
         """Initialize the response executor.
 
@@ -401,6 +386,11 @@ class ResponseExecutor(IResponseExecutor):
         self._preserve_tools_on_managed_ws_continuation = (
             preserve_tools_on_managed_ws_continuation
         )
+        self._gpt55_free_plan_downgrade: Gpt55FreePlanDowngradeConfig = (
+            gpt55_free_plan_downgrade
+            if gpt55_free_plan_downgrade is not None
+            else DEFAULT_GPT55_DOWNGRADE
+        )
         self._max_incompatible_tool_retries = 2
         self._continuation_coordinator = (
             continuation_coordinator
@@ -427,6 +417,54 @@ class ResponseExecutor(IResponseExecutor):
                 wait_exp_base=1.0,
             )
         )
+
+    def _maybe_apply_proactive_gpt55_free_plan_downgrade(
+        self,
+        payload: dict[str, Any],
+        context: CodexRequestContext,
+    ) -> None:
+        """Replace gpt-5.5 with target model when plan telemetry says free tier."""
+        cfg = self._gpt55_free_plan_downgrade
+        raw_model = payload.get("model")
+        if not isinstance(raw_model, str) or not should_downgrade_source_model(
+            current_model=raw_model, config=cfg
+        ):
+            return
+        hint_getter = getattr(
+            self._credential_manager, "get_codex_plan_type_hint", None
+        )
+        if not callable(hint_getter):
+            return
+        try:
+            plan_hint = hint_getter()
+        except Exception as e:
+            if logger.isEnabledFor(TRACE_LEVEL):
+                logger.log(
+                    TRACE_LEVEL,
+                    "get_codex_plan_type_hint failed: %s",
+                    e,
+                    exc_info=True,
+                    extra={
+                        "backend": self._connector_transport_backend,
+                        "session_id": context.session_id,
+                    },
+                )
+            return
+        if not plan_hint_is_free(plan_hint, cfg.free_plan_types):
+            return
+        payload["model"] = cfg.target_model
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Codex proactive model downgrade: %s -> %s (plan_hint=%r, reason=%s)",
+                raw_model,
+                cfg.target_model,
+                plan_hint,
+                "codex_gpt55_unsupported_proactive_free_plan",
+                extra={
+                    "backend": self._connector_transport_backend,
+                    "session_id": context.session_id,
+                },
+            )
 
     async def execute(
         self, payload: CodexPayload, context: CodexRequestContext
@@ -572,6 +610,11 @@ class ResponseExecutor(IResponseExecutor):
             current_headers = dict(headers)
             current_payload_dict = dict(initial_payload_dict)
             current_request_mode = initial_request_mode
+            self._maybe_apply_proactive_gpt55_free_plan_downgrade(
+                current_payload_dict, context
+            )
+            gpt55_reactive_recovery_used = False
+            handshake_dispatch_index = -1
 
             # Get compatibility state from context metadata if available
             # State should always be provided by the facade via CodexRequestContext.metadata
@@ -585,6 +628,7 @@ class ResponseExecutor(IResponseExecutor):
             stream_handle = None
             try:
                 while True:
+                    handshake_dispatch_index += 1
                     ws_output_items: list[Any] = []
                     self._refresh_headers_auth(
                         current_headers,
@@ -611,7 +655,7 @@ class ResponseExecutor(IResponseExecutor):
                     )
                     self._stamp_wire_capture_context(
                         request_context,
-                        handshake_attempt_index=attempts_used,
+                        handshake_attempt_index=handshake_dispatch_index,
                     )
                     self._stamp_codex_websocket_handshake_headers(
                         request_context, current_headers
@@ -741,6 +785,37 @@ class ResponseExecutor(IResponseExecutor):
                                     rate_limit_rotation_attempted and not rotated
                                 ),
                             )
+                        if status_code == 400:
+                            cfg_55 = self._gpt55_free_plan_downgrade
+                            cur_mod = current_payload_dict.get("model")
+                            if isinstance(
+                                cur_mod, str
+                            ) and is_upstream_gpt55_chatgpt_rejection(detail):
+                                nxt = maybe_reactive_gpt55_downgrade(
+                                    current_model=cur_mod,
+                                    config=cfg_55,
+                                    recovery_already_used=gpt55_reactive_recovery_used,
+                                )
+                                if nxt is not None:
+                                    gpt55_reactive_recovery_used = True
+                                    if logger.isEnabledFor(logging.INFO):
+                                        logger.info(
+                                            "Codex reactive model downgrade: %s -> %s "
+                                            "(reason=codex_gpt55_unsupported_downgrade)",
+                                            cur_mod,
+                                            nxt,
+                                            extra={
+                                                "backend": self._connector_transport_backend,
+                                                "session_id": context.session_id,
+                                            },
+                                        )
+                                    # New dict so prior initiate_streaming_request call_args keep
+                                    # the model sent on the failed attempt (same object was passed).
+                                    current_payload_dict = {
+                                        **current_payload_dict,
+                                        "model": nxt,
+                                    }
+                                    continue
                         if isinstance(exc, LLMProxyError):
                             raise map_domain_exception_to_http_exception(exc) from exc
                         raise HTTPException(status_code=status_code, detail=detail)
@@ -1026,32 +1101,6 @@ class ResponseExecutor(IResponseExecutor):
                                 ):
                                     visible_output_emitted = True
                                 _vis_ms = int((time.monotonic() - _t_vis) * 1000)
-                                if (
-                                    stream_dbg_idx <= 120
-                                    or _gap_ms >= 500
-                                    or _norm_ms + _det_ms + _cmp_ms + _vis_ms >= 30
-                                ):
-                                    _meta_ev = processed_chunk.metadata or {}
-                                    _agent_dbg_codex_executor(
-                                        {
-                                            "hypothesisId": "H2",
-                                            "location": "executor.streaming_loop",
-                                            "message": "codex_stream_chunk_timing",
-                                            "data": {
-                                                "session_id": context.session_id,
-                                                "idx": stream_dbg_idx,
-                                                "gap_ms_since_prev_yield": _gap_ms,
-                                                "event_type": _meta_ev.get(
-                                                    "event_type"
-                                                ),
-                                                "norm_ms": _norm_ms,
-                                                "det_ms": _det_ms,
-                                                "cmp_ms": _cmp_ms,
-                                                "vis_ms": _vis_ms,
-                                                "mode": current_request_mode,
-                                            },
-                                        }
-                                    )
                                 yield processed_chunk
                                 last_stream_chunk_mono = time.monotonic()
                     except Exception as exc:
@@ -1536,45 +1585,16 @@ class ResponseExecutor(IResponseExecutor):
         payload_dict: dict[str, Any],
         include_fingerprint_snapshot: bool = True,
     ) -> None:
-        # region agent log
-        _t_p0 = time.monotonic()
-        # endregion
         await self._continuation_coordinator.record_response_id(
             context,
             response_id,
         )
-        # region agent log
-        _rid_ms = int((time.monotonic() - _t_p0) * 1000)
-        _t_p1 = time.monotonic()
-        # endregion
-        _turn_ms = 0
         if include_fingerprint_snapshot:
             await self._record_continuation_turn(
                 context,
                 response_id,
                 payload_dict,
             )
-            # region agent log
-            _turn_ms = int((time.monotonic() - _t_p1) * 1000)
-            # endregion
-        # region agent log
-        _raw_inp = payload_dict.get("input")
-        _inp_n = len(_raw_inp) if isinstance(_raw_inp, list) else -1
-        _agent_dbg_codex_executor(
-            {
-                "hypothesisId": "H1",
-                "location": "executor._persist_observed_continuation",
-                "message": "persist_continuation_timing",
-                "data": {
-                    "session_id": context.session_id,
-                    "record_response_id_ms": _rid_ms,
-                    "record_turn_ms": _turn_ms,
-                    "input_item_count": _inp_n,
-                    "include_fingerprint_snapshot": include_fingerprint_snapshot,
-                },
-            }
-        )
-        # endregion
 
     async def _persist_observed_ws_lineage(
         self,

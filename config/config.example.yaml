@@ -462,6 +462,15 @@ backends:
         # WebSocket transport (opportunistic support for ChatGPT backend API)
         websocket:
           enabled: false  # Set to true to enable WebSocket transport for Codex
+
+        # When ChatGPT-account Codex rejects gpt-5.5 (e.g. free plan), downgrade to target.
+        gpt55_unsupported_free_plan_downgrade:
+          enabled: true
+          proactive_enabled: true   # use x-codex-plan-type / usage_limit plan_type when known
+          reactive_enabled: true   # retry once after HTTP 400 with known detail
+          source_model: gpt-5.5
+          target_model: gpt-5.4
+          free_plan_types: [free]
         
         default_capabilities:
           protocol: openai-chat
@@ -517,6 +526,14 @@ backends:
         websocket:
           enabled: true
           beta_mode: v2
+        # Same keys as ``openai_codex.extra.codex`` (shared SettingsLoader).
+        gpt55_unsupported_free_plan_downgrade:
+          enabled: true
+          proactive_enabled: true
+          reactive_enabled: true
+          source_model: gpt-5.5
+          target_model: gpt-5.4
+          free_plan_types: [free]
         default_capabilities:
           protocol: openai-chat
           codex_passthrough: false

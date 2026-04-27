@@ -185,18 +185,24 @@ class ManagedOAuthAccountSelector:
         _, eligible = self._available_accounts(now_ms)
         return [account.account_id for account in eligible]
 
-    async def list_available_managed_account_ids(self) -> list[str]:
-        """Return managed account IDs that pass allowlist and are not ``needs_reauth``.
+    async def list_warmup_fanout_account_ids(self) -> list[str]:
+        """Return managed account IDs for usage-window warm-up fan-out.
 
-        Includes accounts currently under **local** rate-limit cooldown. Used for
-        usage-window warm-up fan-out where upstream may still accept traffic.
+        If at least one account is not under local rate-limit cooldown, returns
+        only those *eligible* identities so the proxy does not issue redundant
+        warm-up traffic against cooldown accounts while healthy accounts exist.
+
+        If every available account is on local cooldown, returns the full
+        *available* set (allowlist, not ``needs_reauth``) so warm-up can still
+        reach upstream with ``ignore_local_rate_limits=True``.
         """
         await self._ensure_accounts_loaded()
         now_ms = int(time.time() * 1000)
-        available, _ = self._available_accounts(now_ms)
+        available, eligible = self._available_accounts(now_ms)
+        source = eligible if eligible else available
         return [
             account.account_id
-            for account in available
+            for account in source
             if isinstance(account.account_id, str) and account.account_id
         ]
 

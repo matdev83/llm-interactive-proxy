@@ -165,8 +165,9 @@ class ICredentialManager(ABC):
     async def list_managed_oauth_account_ids(self) -> list[str]:
         """Return managed OAuth account IDs for fan-out usage-window warm-up calls.
 
-        Implementations should include accounts under **local** rate-limit cooldown
-        when those accounts are otherwise usable (``needs_reauth`` false, allowlist).
+        When at least one account is not on local rate-limit cooldown, return only
+        those. When the whole pool is on cooldown, implementations may return every
+        otherwise-usable id so warm-up can still probe with local limits ignored.
         """
         ...
 

@@ -1305,7 +1305,7 @@ class TestCredentialManager:
             assert account_ids == ["acct_a"]
 
     @pytest.mark.asyncio
-    async def test_list_managed_oauth_account_ids_includes_local_rate_limited(
+    async def test_list_managed_oauth_account_ids_skips_rate_limited_when_others_ok(
         self, manager
     ):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1346,7 +1346,52 @@ class TestCredentialManager:
             )
 
             account_ids = await manager.list_managed_oauth_account_ids()
-            assert set(account_ids) == {"acct_ok", "acct_rl"}
+            assert account_ids == ["acct_ok"]
+
+    @pytest.mark.asyncio
+    async def test_list_managed_oauth_account_ids_all_rate_limited_lists_all_available(
+        self, manager
+    ):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_path = Path(temp_dir) / "managed_oauth"
+            storage = ManagedOAuthStorageService(storage_path)
+            exp = 9_999_999_999_999
+            rl_until = 9_999_999_999_000
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_rl1",
+                    access_token="t1",
+                    refresh_token="r1",
+                    expiry_date=exp,
+                    rate_limited_until=rl_until,
+                )
+            )
+            await storage.save_account(
+                ManagedOAuthAccount(
+                    account_id="acct_rl2",
+                    access_token="t2",
+                    refresh_token="r2",
+                    expiry_date=exp,
+                    rate_limited_until=rl_until,
+                )
+            )
+
+            manager.configure_managed_oauth(
+                ManagedOAuthConfig(
+                    enabled=True,
+                    storage_path=str(storage_path),
+                    accounts="all",
+                    selection_strategy="round-robin",
+                    refresh_buffer_seconds=300,
+                    session_affinity_ttl_seconds=3600,
+                    session_affinity_max_entries=100,
+                    allow_legacy_fallback=False,
+                    max_rate_limit_wait_seconds=0.01,
+                )
+            )
+
+            account_ids = await manager.list_managed_oauth_account_ids()
+            assert set(account_ids) == {"acct_rl1", "acct_rl2"}
 
     @pytest.mark.asyncio
     async def test_ensure_usage_window_warmup_activates_rate_limited_account(

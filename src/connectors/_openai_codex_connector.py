@@ -70,6 +70,9 @@ from src.connectors.openai_codex.credentials import (
     OpenAICredentialsFileHandler,
 )
 from src.connectors.openai_codex.executor import ResponseExecutor
+from src.connectors.openai_codex.gpt55_account_compatibility import (
+    gpt55_config_from_mapping,
+)
 from src.connectors.openai_codex.managed_oauth_constants import DEFAULT_STORAGE_PATH
 from src.connectors.openai_codex.managed_oauth_models import ManagedOAuthConfig
 from src.connectors.openai_codex.payload import PayloadBuilder
@@ -342,6 +345,9 @@ class OpenAICodexConnector(OpenAIConnector):
         ws_beta = str(websocket_cfg.get("beta_mode") or "v1").strip().lower()
         if ws_beta not in ("v1", "v2"):
             ws_beta = "v1"
+        gpt55_cfg = gpt55_config_from_mapping(
+            self._connector_settings.get("gpt55_unsupported_free_plan_downgrade")
+        )
         return ResponseExecutor(
             base_connector=self,
             credential_manager=self._credential_manager,
@@ -353,6 +359,7 @@ class OpenAICodexConnector(OpenAIConnector):
             websocket_beta_mode=ws_beta,
             connector_transport_backend=self.backend_type,
             continuation_backend_label=self.backend_type,
+            gpt55_free_plan_downgrade=gpt55_cfg,
         )
 
     def _validate_dependencies(self, dependencies: CodexConnectorDependencies) -> None:
@@ -675,8 +682,9 @@ class OpenAICodexConnector(OpenAIConnector):
     async def list_managed_oauth_account_ids(self) -> list[str]:
         """Return managed OAuth account IDs for usage-window warm-up fan-out.
 
-        Includes accounts under local rate-limit cooldown. Prefer the credential
-        manager implementation when present.
+        Skips locally rate-limited accounts while any non-cooldown account exists;
+        when all are on cooldown, all usable ids are still listed for probes.
+        Prefer the credential manager implementation when present.
         """
         cm_list = getattr(
             self._credential_manager, "list_managed_oauth_account_ids", None
@@ -725,9 +733,10 @@ class OpenAICodexConnector(OpenAIConnector):
                         len(available),
                         len(eligible),
                     )
+                use = eligible if eligible else available
                 return [
                     account.account_id
-                    for account in available
+                    for account in use
                     if isinstance(account.account_id, str) and account.account_id
                 ]
         except Exception as exc:

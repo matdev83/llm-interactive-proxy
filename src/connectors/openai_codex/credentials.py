@@ -36,6 +36,9 @@ from src.connectors.openai_codex.codex_rate_limit_logging import (
     parse_codex_usage_limit_upstream,
     usage_limit_payload_from_upstream_detail,
 )
+from src.connectors.openai_codex.gpt55_account_compatibility import (
+    codex_plan_type_hint_from_account_payloads,
+)
 from src.connectors.openai_codex.interfaces import ICredentialManager
 from src.connectors.openai_codex.managed_oauth_constants import (
     DEFAULT_ALLOW_LEGACY_FALLBACK,
@@ -457,6 +460,22 @@ class CredentialManager(ICredentialManager):
 
     def _managed_enabled(self) -> bool:
         return bool(self._managed_config.enabled)
+
+    def get_codex_plan_type_hint(self) -> str | None:
+        """Return plan label from managed-account telemetry when available.
+
+        Uses ``x-codex-plan-type`` (from successful responses) or ``plan_type`` from
+        a prior ``usage_limit_reached`` snapshot. Legacy auth has no hint.
+        """
+        if not self._managed_enabled():
+            return None
+        cur = self._managed_selector.get_current_account()
+        if cur is None:
+            return None
+        return codex_plan_type_hint_from_account_payloads(
+            cur.last_codex_quota_headers,
+            cur.last_codex_usage_limit,
+        )
 
     async def _managed_has_accounts(self) -> bool:
         if not self._managed_enabled():
@@ -1606,25 +1625,29 @@ class CredentialManager(ICredentialManager):
     async def list_managed_oauth_account_ids(self) -> list[str]:
         """Return managed OAuth account IDs for usage-window warm-up fan-out.
 
-        Includes accounts under local rate-limit cooldown (warm-up still probes
-        upstream). Excludes ``needs_reauth`` and allowlist-filtered accounts.
+        When any account is not on local rate-limit cooldown, only those
+        accounts are returned. When all accounts in the pool are on cooldown,
+        every available (non-``needs_reauth``) id is still returned so warm-up
+        can override local limits for upstream probes. Excludes allowlist
+        filter rejects.
         """
         if not self._managed_enabled():
             return []
 
         await self._managed_selector.reload_accounts()
         list_fn = getattr(
-            self._managed_selector, "list_available_managed_account_ids", None
+            self._managed_selector, "list_warmup_fanout_account_ids", None
         )
         if callable(list_fn):
             result = list_fn()
             ids = await result if inspect.isawaitable(result) else result
             return list(ids) if isinstance(ids, list) else []
         now_ms = int(time.time() * 1000)
-        available, _ = self._managed_selector._available_accounts(now_ms)  # type: ignore[reportPrivateUsage]
+        available, eligible = self._managed_selector._available_accounts(now_ms)  # type: ignore[reportPrivateUsage]
+        source = eligible if eligible else available
         return [
             account.account_id
-            for account in available
+            for account in source
             if isinstance(account.account_id, str) and account.account_id
         ]
 

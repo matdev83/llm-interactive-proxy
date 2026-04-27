@@ -686,6 +686,19 @@ class SettingsLoader(ISettingsLoader):
             },
         }
 
+        gpt55_base: dict[str, Any] = {
+            "enabled": True,
+            "proactive_enabled": True,
+            "reactive_enabled": True,
+            "source_model": "gpt-5.5",
+            "target_model": "gpt-5.4",
+            "free_plan_types": ["free"],
+        }
+        gpt55_yaml = (
+            to_mapping(codex_cfg.get("gpt55_unsupported_free_plan_downgrade")) or {}
+        )
+        settings["gpt55_unsupported_free_plan_downgrade"] = {**gpt55_base, **gpt55_yaml}
+
         if logger.isEnabledFor(TRACE_LEVEL):
             logger.log(
                 TRACE_LEVEL,

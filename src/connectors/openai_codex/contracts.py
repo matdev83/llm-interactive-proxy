@@ -142,6 +142,16 @@ class CodexConnectorSettings(BaseModel):
     renderer: dict[str, Any]
     websocket: dict[str, Any] = {"enabled": False, "beta_mode": "v1"}
     managed_oauth: dict[str, Any] = Field(default_factory=dict)
+    gpt55_unsupported_free_plan_downgrade: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "proactive_enabled": True,
+            "reactive_enabled": True,
+            "source_model": "gpt-5.5",
+            "target_model": "gpt-5.4",
+            "free_plan_types": ["free"],
+        }
+    )
 
 
 class CodexInitOptions(BaseModel):
