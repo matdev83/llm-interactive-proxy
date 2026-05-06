@@ -1340,8 +1340,8 @@ class OpenAIConnector(LLMBackend):
             )
 
     def _clean_openai_payload(self, payload: Any) -> dict[str, Any]:
-        """Strip None values and internal-only keys from an OpenAI payload."""
-        disallowed_keys = {
+        """Strip None values and internal-only top-level keys from an OpenAI payload."""
+        disallowed_top_level_keys = {
             "extra_body",
             "backend_type",
             "agent",
@@ -1364,16 +1364,23 @@ class OpenAIConnector(LLMBackend):
             if isinstance(value, dict):
                 cleaned_dict: dict[str, Any] = {}
                 for key, val in value.items():
-                    if key in disallowed_keys:
-                        continue
                     cleaned_val = _strip_none(val)
                     if cleaned_val is not None:
                         cleaned_dict[key] = cleaned_val
                 return cleaned_dict
             return value
 
-        cleaned = _strip_none(payload)
-        return cleaned if isinstance(cleaned, dict) else {}
+        if not isinstance(payload, dict):
+            return {}
+
+        cleaned_payload: dict[str, Any] = {}
+        for key, val in payload.items():
+            if key in disallowed_top_level_keys:
+                continue
+            cleaned_val = _strip_none(val)
+            if cleaned_val is not None:
+                cleaned_payload[key] = cleaned_val
+        return cleaned_payload
 
     async def _handle_non_streaming_response(
         self,

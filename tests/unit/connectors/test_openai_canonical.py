@@ -724,4 +724,48 @@ class TestOpenAIPayloadCleaning:
         )
 
         assert "request_context_tokens" not in cleaned
-        assert cleaned.get("metadata") == {"source": "test"}
+        assert cleaned.get("metadata") == {
+            "request_context_tokens": 4096,
+            "source": "test",
+        }
+
+    def test_clean_openai_payload_preserves_tool_schema_agent_property(
+        self, openai_connector
+    ):
+        cleaned = openai_connector._clean_openai_payload(
+            {
+                "model": "kimi-k2.6",
+                "agent": "pi",
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "subagent",
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "tasks": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "required": ["agent", "task"],
+                                            "properties": {
+                                                "agent": {"type": "string"},
+                                                "task": {"type": "string"},
+                                            },
+                                        },
+                                    }
+                                },
+                            },
+                        },
+                    }
+                ],
+            }
+        )
+
+        assert "agent" not in cleaned
+        task_item_schema = cleaned["tools"][0]["function"]["parameters"]["properties"][
+            "tasks"
+        ]["items"]
+        assert task_item_schema["required"] == ["agent", "task"]
+        assert "agent" in task_item_schema["properties"]
