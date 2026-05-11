@@ -391,6 +391,79 @@ class TestCredentialManager:
         assert log.warning.call_args.kwargs.get("exc_info") is True
 
     @pytest.mark.asyncio
+    async def test_refresh_managed_auth_401_logs_account_email_without_exc_info(
+        self, manager
+    ):
+        """Managed 401 refresh rejection should include account email without traceback spam."""
+        account = ManagedOAuthAccount(
+            account_id="acct401",
+            email="acct401@example.com",
+            access_token="a",
+            refresh_token="r",
+            expiry_date=1,
+        )
+        exc = ManagedOAuthRefreshError(
+            "Token refresh rejected with HTTP 401 (token_expired)",
+            account_id="acct401",
+            account_email="acct401@example.com",
+            needs_reauth=True,
+            http_status=401,
+        )
+        with (
+            patch.object(
+                manager._managed_selector,
+                "get_current_account",
+                return_value=account,
+            ),
+            patch.object(
+                manager._managed_refresh,
+                "force_refresh",
+                AsyncMock(side_effect=exc),
+            ),
+            patch("src.connectors.openai_codex.credentials.logger") as log,
+        ):
+            ok, err = await manager._refresh_managed_access_token()
+
+        assert ok is False
+        assert err is exc
+        log.warning.assert_called_once()
+        assert log.warning.call_args.args[1] == "acct401 (acct401@example.com)"
+        assert log.warning.call_args.args[2] == 401
+        assert "exc_info" not in log.warning.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_refresh_managed_unexpected_exception_returns_wrapped_error(
+        self, manager
+    ):
+        """Unexpected refresh exceptions should be contained and wrapped."""
+        account = ManagedOAuthAccount(
+            account_id="acct-unexpected",
+            email="acct-unexpected@example.com",
+            access_token="a",
+            refresh_token="r",
+            expiry_date=1,
+        )
+        with (
+            patch.object(
+                manager._managed_selector,
+                "get_current_account",
+                return_value=account,
+            ),
+            patch.object(
+                manager._managed_refresh,
+                "force_refresh",
+                AsyncMock(side_effect=RuntimeError("boom")),
+            ),
+        ):
+            ok, err = await manager._refresh_managed_access_token()
+
+        assert ok is False
+        assert isinstance(err, ManagedOAuthRefreshError)
+        assert err.account_id == "acct-unexpected"
+        assert err.account_email == "acct-unexpected@example.com"
+        assert "Unexpected managed OAuth refresh failure: boom" in str(err)
+
+    @pytest.mark.asyncio
     async def test_refresh_access_token_transient_managed_skips_penalizing_rotation(
         self, manager, temp_auth_file
     ):

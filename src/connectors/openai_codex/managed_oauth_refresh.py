@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Mapping
+from typing import Any
 
 import httpx
 
@@ -42,13 +44,67 @@ class ManagedOAuthRefreshError(RuntimeError):
         message: str,
         *,
         account_id: str,
+        account_email: str | None = None,
         needs_reauth: bool = False,
         from_transient_network: bool = False,
+        http_status: int | None = None,
     ) -> None:
         super().__init__(message)
         self.account_id = account_id
+        self.account_email = account_email
         self.needs_reauth = needs_reauth
         self.from_transient_network = from_transient_network
+        self.http_status = http_status
+
+
+def _format_account_label(account: ManagedOAuthAccount) -> str:
+    """Human-readable account label for refresh logs."""
+    if isinstance(account.email, str) and account.email.strip():
+        return f"{account.account_id} ({account.email.strip()})"
+    return account.account_id
+
+
+def _oauth_error_from_payload(
+    payload: Mapping[str, Any]
+) -> tuple[str | None, str | None]:
+    """Extract best-effort OAuth error code/message from token endpoint JSON."""
+    code: str | None = None
+    message: str | None = None
+
+    error_field = payload.get("error")
+    if isinstance(error_field, Mapping):
+        raw_code = error_field.get("code")
+        if not isinstance(raw_code, str):
+            raw_code = error_field.get("error")
+        raw_msg = error_field.get("message")
+        if isinstance(raw_code, str) and raw_code.strip():
+            code = raw_code.strip()
+        if isinstance(raw_msg, str) and raw_msg.strip():
+            message = raw_msg.strip()
+    elif isinstance(error_field, str) and error_field.strip():
+        code = error_field.strip()
+
+    if message is None:
+        raw_desc = payload.get("error_description")
+        if isinstance(raw_desc, str) and raw_desc.strip():
+            message = raw_desc.strip()
+
+    return code, message
+
+
+def _format_status_failure_message(
+    status_code: int,
+    *,
+    error_code: str | None,
+    error_message: str | None,
+) -> str:
+    """Build a compact refresh-failure message from HTTP status + optional OAuth fields."""
+    message = f"Token refresh rejected with HTTP {status_code}"
+    if error_code:
+        message += f" ({error_code})"
+    if error_message:
+        message += f": {error_message}"
+    return message
 
 
 class ManagedOAuthRefreshService:
@@ -112,7 +168,7 @@ class ManagedOAuthRefreshService:
                         exc.__class__.__name__,
                         attempt + 1,
                         self._max_retries,
-                        account.account_id,
+                        _format_account_label(account),
                         delay,
                     )
                 elif logger.isEnabledFor(logging.DEBUG):
@@ -120,7 +176,7 @@ class ManagedOAuthRefreshService:
                         "Managed OAuth refresh attempt %d/%d failed for %s; retrying in %.1fs",
                         attempt + 1,
                         self._max_retries,
-                        account.account_id,
+                        _format_account_label(account),
                         delay,
                         exc_info=True,
                     )
@@ -130,6 +186,7 @@ class ManagedOAuthRefreshService:
         raise ManagedOAuthRefreshError(
             f"Managed OAuth refresh failed after {self._max_retries} attempts: {last_error}",
             account_id=account.account_id,
+            account_email=account.email,
             from_transient_network=_is_transient_network_error(last_error),
         )
 
@@ -167,33 +224,44 @@ class ManagedOAuthRefreshService:
             timeout=_MANAGED_OAUTH_TOKEN_TIMEOUT_S,
         )
 
-        if response.status_code == 400:
-            invalid_grant = False
-            with_error = ""
+        if response.status_code >= 400:
+            error_code: str | None = None
+            error_message: str | None = None
             try:
                 body = response.json()
-                error_code = body.get("error")
-                invalid_grant = error_code == "invalid_grant"
-                if isinstance(error_code, str):
-                    with_error = error_code
+                if isinstance(body, Mapping):
+                    error_code, error_message = _oauth_error_from_payload(body)
             except Exception:
-                invalid_grant = False
+                # Keep the HTTP status context even when body is not JSON.
+                pass
 
-            if invalid_grant:
+            if response.status_code == 400 and error_code == "invalid_grant":
                 marked = account.mark_needs_reauth()
                 await self._storage.save_account(marked)
                 raise ManagedOAuthRefreshError(
                     "Refresh token invalid or revoked; re-authorization required",
                     account_id=account.account_id,
+                    account_email=account.email,
                     needs_reauth=True,
+                    http_status=400,
                 )
-            suffix = f" ({with_error})" if with_error else ""
-            raise ManagedOAuthRefreshError(
-                f"Token refresh rejected with HTTP 400{suffix}",
-                account_id=account.account_id,
-            )
 
-        response.raise_for_status()
+            needs_reauth = response.status_code in (401, 403)
+            if needs_reauth:
+                marked = account.mark_needs_reauth()
+                await self._storage.save_account(marked)
+
+            raise ManagedOAuthRefreshError(
+                _format_status_failure_message(
+                    response.status_code,
+                    error_code=error_code,
+                    error_message=error_message,
+                ),
+                account_id=account.account_id,
+                account_email=account.email,
+                needs_reauth=needs_reauth,
+                http_status=response.status_code,
+            )
 
         try:
             data = response.json()
@@ -201,6 +269,7 @@ class ManagedOAuthRefreshService:
             raise ManagedOAuthRefreshError(
                 f"Unable to parse refresh response JSON: {exc}",
                 account_id=account.account_id,
+                account_email=account.email,
             ) from exc
 
         access_token = data.get("access_token")
@@ -208,6 +277,7 @@ class ManagedOAuthRefreshService:
             raise ManagedOAuthRefreshError(
                 "Refresh response missing access_token",
                 account_id=account.account_id,
+                account_email=account.email,
             )
 
         refresh_token_raw = data.get("refresh_token")

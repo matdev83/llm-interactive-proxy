@@ -256,6 +256,54 @@ def _normalize_threshold_latch_key(threshold_percent: float) -> float:
     return round(float(threshold_percent), 6)
 
 
+_CODEX_TOKEN_INVALIDATED_TITLE = "OpenAI Codex: Token invalidated"
+
+
+async def maybe_notify_codex_token_invalidated(
+    notification_service: INotificationService | None,
+    dedupe_keys: set[str],
+    *,
+    managed_account_id: str,
+    email: str | None,
+) -> None:
+    """Send at most one desktop notification per account when its token is invalidated.
+
+    Args:
+        notification_service: Desktop notification service.
+        dedupe_keys: Mutable set of already-notified account keys.
+        managed_account_id: The account whose token was rejected.
+        email: Optional email for human-readable labeling.
+    """
+    if notification_service is None or not notification_service.is_enabled:
+        return
+
+    account = _format_account_label(
+        email,
+        managed_account_id=managed_account_id,
+        chatgpt_account_id=None,
+    )
+    key = f"{managed_account_id}:{email or ''}"
+    if key in dedupe_keys:
+        return
+
+    message = (
+        f"Codex access token was invalidated for account: {account}. "
+        "Re-authentication required."
+    )
+    try:
+        await notification_service.send_notification(
+            title=_CODEX_TOKEN_INVALIDATED_TITLE,
+            message=message,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Codex token invalidated notification failed: %s", exc, exc_info=True
+        )
+        return
+
+    dedupe_keys.add(key)
+
+
 async def maybe_notify_codex_quota_remaining_low(
     notification_service: INotificationService | None,
     latch_keys: set[tuple[str, str, float]],

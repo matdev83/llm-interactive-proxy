@@ -970,6 +970,39 @@ class TestResponseExecutor:
         assert exc_info.value.status_code == 401
         assert "openai_codex_stream_auth_failed" in str(exc_info.value.detail)
 
+    @pytest.mark.asyncio
+    async def test_execute_streaming_handshake_refresh_exception_is_handled(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ) -> None:
+        """Unexpected refresh exceptions should not escape from auth-retry handling."""
+        executor_with_retries = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+            max_retries=1,
+            retry_backoff_seconds=(0.1,),
+        )
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=HTTPException(status_code=401, detail="Unauthorized")
+        )
+        mock_credential_manager.refresh_access_token = AsyncMock(
+            side_effect=RuntimeError("refresh boom")
+        )
+
+        result = await executor_with_retries.execute(streaming_payload, sample_context)
+        assert result.content is not None
+
+        with pytest.raises(HTTPException) as exc_info:
+            async for _ in result.content:
+                pass
+
+        assert exc_info.value.status_code == 401
+        assert "openai_codex_stream_auth_failed" in str(exc_info.value.detail)
+
     async def test_execute_streaming_retries_incompatible_tool_call_before_output(
         self, executor, sample_context, streaming_payload
     ):

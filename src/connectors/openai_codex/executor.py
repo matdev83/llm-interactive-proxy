@@ -615,6 +615,8 @@ class ResponseExecutor(IResponseExecutor):
             )
             gpt55_reactive_recovery_used = False
             handshake_dispatch_index = -1
+            handshake_managed_oauth_account_id: str | None = None
+            handshake_managed_oauth_account_email: str | None = None
 
             # Get compatibility state from context metadata if available
             # State should always be provided by the facade via CodexRequestContext.metadata
@@ -644,6 +646,17 @@ class ResponseExecutor(IResponseExecutor):
                     handshake_managed_oauth_account_id = (
                         str(_raw_snapshot)
                         if isinstance(_raw_snapshot, str) and _raw_snapshot.strip()
+                        else None
+                    )
+                    email_fn = getattr(
+                        self._credential_manager,
+                        "snapshot_managed_oauth_account_email",
+                        None,
+                    )
+                    _raw_email = email_fn() if callable(email_fn) else None
+                    handshake_managed_oauth_account_email = (
+                        str(_raw_email)
+                        if isinstance(_raw_email, str) and _raw_email.strip()
                         else None
                     )
                     self._log_request_attempt(
@@ -690,6 +703,38 @@ class ResponseExecutor(IResponseExecutor):
                                 continue
 
                         if status_code == 401 or status_code == 403:
+                            _acct_label = (
+                                f"{handshake_managed_oauth_account_id}"
+                                f" ({handshake_managed_oauth_account_email})"
+                                if handshake_managed_oauth_account_id
+                                and handshake_managed_oauth_account_email
+                                else (
+                                    handshake_managed_oauth_account_id
+                                    or "unknown account"
+                                )
+                            )
+
+                            _upstream_err = detail if isinstance(detail, dict) else {}
+                            _upstream_code = None
+                            if isinstance(_upstream_err.get("error"), dict):
+                                _upstream_code = _upstream_err["error"].get("code")
+                            elif isinstance(_upstream_err.get("code"), str):
+                                _upstream_code = _upstream_err["code"]
+
+                            if _upstream_code == "token_invalidated":
+                                notify_fn = getattr(
+                                    self._credential_manager,
+                                    "maybe_notify_token_invalidated",
+                                    None,
+                                )
+                                if callable(notify_fn) and inspect.iscoroutinefunction(
+                                    notify_fn
+                                ):
+                                    await notify_fn(
+                                        account_id=handshake_managed_oauth_account_id,
+                                        email=handshake_managed_oauth_account_email,
+                                    )
+
                             if attempts_used >= max_retries:
                                 # Notify connector of authentication failure for degradation
                                 degrade_method = getattr(
@@ -698,7 +743,7 @@ class ResponseExecutor(IResponseExecutor):
                                 if degrade_method is not None:
                                     degrade_method(
                                         [
-                                            f"Codex streaming request failed authentication during handshake after {attempts_used} attempts"
+                                            f"Codex streaming request failed authentication during handshake after {attempts_used} attempts (account: {_acct_label})"
                                         ]
                                     )
                                 raise HTTPException(
@@ -710,6 +755,8 @@ class ResponseExecutor(IResponseExecutor):
                                             "backend": self._connector_transport_backend,
                                             "attempts": attempts_used,
                                             "max_retries": max_retries,
+                                            "account_id": handshake_managed_oauth_account_id,
+                                            "account_email": handshake_managed_oauth_account_email,
                                         },
                                     },
                                 )
@@ -717,22 +764,37 @@ class ResponseExecutor(IResponseExecutor):
                             refresh_method = getattr(
                                 self._base_connector, "_refresh_access_token", None
                             )
-                            if (
-                                refresh_method
-                                and callable(refresh_method)
-                                and inspect.iscoroutinefunction(refresh_method)
-                            ):
-                                refreshed = await refresh_method()
-                            else:
-                                refreshed = (
-                                    await self._credential_manager.refresh_access_token()
-                                )
-                                # Update connector's api_key so get_headers() returns the new token
-                                new_token = self._credential_manager.get_access_token()
-                                if new_token and hasattr(
-                                    self._base_connector, "api_key"
+                            try:
+                                if (
+                                    refresh_method
+                                    and callable(refresh_method)
+                                    and inspect.iscoroutinefunction(refresh_method)
                                 ):
-                                    self._base_connector.api_key = new_token
+                                    refreshed = await refresh_method()
+                                else:
+                                    refreshed = (
+                                        await self._credential_manager.refresh_access_token()
+                                    )
+                                    # Update connector's api_key so get_headers() returns the new token
+                                    new_token = (
+                                        self._credential_manager.get_access_token()
+                                    )
+                                    if new_token and hasattr(
+                                        self._base_connector, "api_key"
+                                    ):
+                                        self._base_connector.api_key = new_token
+                            except Exception as refresh_exc:
+                                logger.warning(
+                                    "Codex streaming auth refresh raised for %s: %s",
+                                    _acct_label,
+                                    refresh_exc,
+                                )
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Codex streaming auth refresh exception details",
+                                        exc_info=True,
+                                    )
+                                refreshed = False
                             if not refreshed:
                                 raise HTTPException(
                                     status_code=401,
@@ -743,6 +805,8 @@ class ResponseExecutor(IResponseExecutor):
                                             "backend": self._connector_transport_backend,
                                             "attempts": attempts_used,
                                             "max_retries": max_retries,
+                                            "account_id": handshake_managed_oauth_account_id,
+                                            "account_email": handshake_managed_oauth_account_email,
                                         },
                                     },
                                 )
@@ -1322,6 +1386,15 @@ class ResponseExecutor(IResponseExecutor):
 
                         # Check retry limit before attempting refresh
                         # If we've already used all retries, raise exception
+                        _midstream_acct_label = (
+                            f"{handshake_managed_oauth_account_id}"
+                            f" ({handshake_managed_oauth_account_email})"
+                            if handshake_managed_oauth_account_id
+                            and handshake_managed_oauth_account_email
+                            else (
+                                handshake_managed_oauth_account_id or "unknown account"
+                            )
+                        )
                         if attempts_used >= max_retries:
                             # Notify connector of authentication failure for degradation
                             degrade_method = getattr(
@@ -1330,7 +1403,7 @@ class ResponseExecutor(IResponseExecutor):
                             if degrade_method is not None:
                                 degrade_method(
                                     [
-                                        f"Codex streaming request failed authentication after {attempts_used} attempts"
+                                        f"Codex streaming request failed authentication after {attempts_used} attempts (account: {_midstream_acct_label})"
                                     ]
                                 )
                             raise HTTPException(
@@ -1342,6 +1415,8 @@ class ResponseExecutor(IResponseExecutor):
                                         "backend": self._connector_transport_backend,
                                         "attempts": attempts_used,
                                         "max_retries": max_retries,
+                                        "account_id": handshake_managed_oauth_account_id,
+                                        "account_email": handshake_managed_oauth_account_email,
                                     },
                                 },
                             )
@@ -1350,20 +1425,35 @@ class ResponseExecutor(IResponseExecutor):
                         refresh_method = getattr(
                             self._base_connector, "_refresh_access_token", None
                         )
-                        if (
-                            refresh_method
-                            and callable(refresh_method)
-                            and inspect.iscoroutinefunction(refresh_method)
-                        ):
-                            refreshed = await refresh_method()
-                        else:
-                            refreshed = (
-                                await self._credential_manager.refresh_access_token()
+                        try:
+                            if (
+                                refresh_method
+                                and callable(refresh_method)
+                                and inspect.iscoroutinefunction(refresh_method)
+                            ):
+                                refreshed = await refresh_method()
+                            else:
+                                refreshed = (
+                                    await self._credential_manager.refresh_access_token()
+                                )
+                                # Update connector's api_key so get_headers() returns the new token
+                                new_token = self._credential_manager.get_access_token()
+                                if new_token and hasattr(
+                                    self._base_connector, "api_key"
+                                ):
+                                    self._base_connector.api_key = new_token
+                        except Exception as refresh_exc:
+                            logger.warning(
+                                "Codex streaming auth refresh raised for %s: %s",
+                                _midstream_acct_label,
+                                refresh_exc,
                             )
-                            # Update connector's api_key so get_headers() returns the new token
-                            new_token = self._credential_manager.get_access_token()
-                            if new_token and hasattr(self._base_connector, "api_key"):
-                                self._base_connector.api_key = new_token
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Codex streaming auth refresh exception details",
+                                    exc_info=True,
+                                )
+                            refreshed = False
                         if not refreshed:
                             # Notify connector of authentication failure for degradation
                             degrade_method = getattr(
@@ -1372,7 +1462,7 @@ class ResponseExecutor(IResponseExecutor):
                             if degrade_method is not None:
                                 degrade_method(
                                     [
-                                        f"Codex streaming token refresh failed after {attempts_used} attempts"
+                                        f"Codex streaming token refresh failed after {attempts_used} attempts (account: {_midstream_acct_label})"
                                     ]
                                 )
                             raise HTTPException(
@@ -1384,6 +1474,8 @@ class ResponseExecutor(IResponseExecutor):
                                         "backend": self._connector_transport_backend,
                                         "attempts": attempts_used,
                                         "max_retries": max_retries,
+                                        "account_id": handshake_managed_oauth_account_id,
+                                        "account_email": handshake_managed_oauth_account_email,
                                     },
                                 },
                             )

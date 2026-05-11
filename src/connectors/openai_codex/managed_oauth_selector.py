@@ -20,6 +20,12 @@ from src.connectors.openai_codex.managed_oauth_storage import ManagedOAuthStorag
 logger = logging.getLogger(__name__)
 
 
+def _managed_account_label(account: ManagedOAuthAccount) -> str:
+    if isinstance(account.email, str) and account.email.strip():
+        return f"{account.account_id} ({account.email.strip()})"
+    return account.account_id
+
+
 class ManagedOAuthAccountSelector:
     """Selects accounts and rotates on auth/quota failures."""
 
@@ -377,7 +383,7 @@ class ManagedOAuthAccountSelector:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Managed OAuth refresh failed for %s: %s",
-                        selected.account_id,
+                        _managed_account_label(selected),
                         exc,
                     )
 
@@ -440,7 +446,7 @@ class ManagedOAuthAccountSelector:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Managed OAuth refresh failed for %s: %s",
-                    selected.account_id,
+                    _managed_account_label(selected),
                     exc,
                 )
 

@@ -100,3 +100,46 @@ async def test_force_refresh_non_transient_failure_sets_transient_flag_false(
         await svc.force_refresh(account)
 
     assert ctx.value.from_transient_network is False
+
+
+@pytest.mark.asyncio
+async def test_force_refresh_http_401_marks_account_for_reauth_and_keeps_email(
+    tmp_path,
+) -> None:
+    """401 token endpoint rejections should be surfaced as needs_reauth with account context."""
+    storage = ManagedOAuthStorageService(tmp_path)
+    account = ManagedOAuthAccount(
+        account_id="acc401",
+        email="acc401@example.com",
+        access_token="old_access",
+        refresh_token="refresh_tok",
+        expiry_date=1,
+    )
+    await storage.save_account(account)
+
+    mock_response = Mock()
+    mock_response.status_code = 401
+    mock_response.json.return_value = {
+        "error": {
+            "code": "token_expired",
+            "message": "Provided authentication token is expired.",
+        }
+    }
+
+    client = Mock(spec=httpx.AsyncClient)
+    client.post = AsyncMock(return_value=mock_response)
+
+    svc = ManagedOAuthRefreshService(storage, http_client=client, max_retries=3)
+    with pytest.raises(ManagedOAuthRefreshError) as ctx:
+        await svc.force_refresh(account)
+
+    err = ctx.value
+    assert err.needs_reauth is True
+    assert err.http_status == 401
+    assert err.account_email == "acc401@example.com"
+    assert "token_expired" in str(err)
+    assert client.post.await_count == 1
+
+    persisted = await storage.get_account("acc401")
+    assert persisted is not None
+    assert persisted.needs_reauth is True

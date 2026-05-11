@@ -391,6 +391,7 @@ class CredentialManager(ICredentialManager):
         self._notification_service = notification_service
         self._codex_quota_notification_dedupe: set[tuple[str, str, str]] = set()
         self._codex_remaining_quota_latch: set[tuple[str, str, float]] = set()
+        self._codex_token_invalidated_dedupe: set[str] = set()
         self._auth_path: Path | None = None
         self._auth_credentials: dict[str, Any] | None = None
         self._last_modified: float = 0.0
@@ -912,9 +913,23 @@ class CredentialManager(ICredentialManager):
             True if refresh succeeded, False otherwise
         """
         async with self._token_refresh_lock:
-            logger.info(
-                "Attempting to refresh OpenAI Codex access token after authentication failure."
-            )
+            account_id: str | None = None
+            email: str | None = None
+            if self._managed_current_account is not None:
+                account_id = self._managed_current_account.account_id
+                email = self._managed_current_account.email
+            if account_id:
+                logger.info(
+                    "Attempting to refresh OpenAI Codex access token after "
+                    "authentication failure for account %s (%s).",
+                    account_id,
+                    email or "no email",
+                )
+            else:
+                logger.info(
+                    "Attempting to refresh OpenAI Codex access token after "
+                    "authentication failure."
+                )
             if await self._load_managed_auth(force_reload=True):
                 success, err = await self._refresh_managed_access_token()
                 if success:
@@ -974,23 +989,67 @@ class CredentialManager(ICredentialManager):
         if account is None:
             return False, None
 
+        account_email = (
+            account.email.strip()
+            if isinstance(account.email, str) and account.email.strip()
+            else None
+        )
+        account_label = (
+            f"{account.account_id} ({account_email})"
+            if account_email
+            else account.account_id
+        )
+
         try:
             updated = await self._managed_refresh.force_refresh(account)
         except ManagedOAuthRefreshError as exc:
+            failed_account_id = exc.account_id or account.account_id
+            failed_email = (
+                exc.account_email.strip()
+                if isinstance(exc.account_email, str) and exc.account_email.strip()
+                else account_email
+            )
+            failed_label = (
+                f"{failed_account_id} ({failed_email})"
+                if failed_email
+                else failed_account_id
+            )
             if exc.from_transient_network:
                 logger.warning(
                     "Managed OAuth token refresh failed for account %s after retries: %s",
-                    exc.account_id,
+                    failed_label,
+                    exc,
+                )
+            elif exc.needs_reauth or exc.http_status in (400, 401, 403):
+                logger.warning(
+                    "Managed OAuth token refresh was rejected for account %s (status=%s): %s",
+                    failed_label,
+                    exc.http_status if exc.http_status is not None else "unknown",
                     exc,
                 )
             else:
                 logger.warning(
                     "Managed OAuth token refresh failed for account %s: %s",
-                    exc.account_id,
+                    failed_label,
                     exc,
                     exc_info=True,
                 )
             return False, exc
+        except Exception as exc:
+            logger.warning(
+                "Managed OAuth token refresh failed unexpectedly for account %s: %s",
+                account_label,
+                exc,
+                exc_info=True,
+            )
+            return (
+                False,
+                ManagedOAuthRefreshError(
+                    f"Unexpected managed OAuth refresh failure: {exc}",
+                    account_id=account.account_id,
+                    account_email=account_email,
+                ),
+            )
 
         self._managed_selector.update_account(updated)
         self._managed_current_account = updated
@@ -1448,6 +1507,29 @@ class CredentialManager(ICredentialManager):
             pool_exhaustion_confirmed=pool_exhaustion_confirmed,
         )
 
+    async def maybe_notify_token_invalidated(
+        self,
+        *,
+        account_id: str | None,
+        email: str | None,
+    ) -> None:
+        """Trigger a single desktop notification when an account's token is invalidated.
+
+        Args:
+            account_id: The managed account id whose token was rejected.
+            email: Optional email for human-readable labeling.
+        """
+        from src.connectors.openai_codex.codex_quota_notifications import (
+            maybe_notify_codex_token_invalidated,
+        )
+
+        await maybe_notify_codex_token_invalidated(
+            self._notification_service,
+            self._codex_token_invalidated_dedupe,
+            managed_account_id=account_id or "unknown",
+            email=email,
+        )
+
     async def handle_auth_failure(
         self,
         *,
@@ -1570,6 +1652,26 @@ class CredentialManager(ICredentialManager):
             nested = managed.get("account_id")
             if isinstance(nested, str) and nested.strip():
                 return nested.strip()
+        return None
+
+    def snapshot_managed_oauth_account_email(self) -> str | None:
+        """Return the managed OAuth email for the in-memory credential snapshot.
+
+        Used alongside :meth:`snapshot_managed_oauth_storage_account_id` to
+        produce human-readable diagnostics when upstream rejects the token.
+        """
+        if self._active_source != "managed":
+            return None
+        if self._managed_current_account is not None:
+            return self._managed_current_account.email
+        creds = self._auth_credentials
+        if not isinstance(creds, dict):
+            return None
+        user = creds.get("user")
+        if isinstance(user, dict):
+            raw_email = user.get("email")
+            if isinstance(raw_email, str) and raw_email.strip():
+                return raw_email.strip()
         return None
 
     def get_account_id(self) -> str | None:
