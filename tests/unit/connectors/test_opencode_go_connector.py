@@ -16,7 +16,6 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
-from src.core.common.exceptions import RoutingError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
@@ -27,8 +26,14 @@ CURATED_OPENAI_MODELS = [
     "glm-5.1",
     "kimi-k2.5",
     "kimi-k2.6",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
     "mimo-v2-pro",
     "mimo-v2-omni",
+    "qwen3.6-plus",
+    "qwen3.5-plus",
 ]
 CURATED_ANTHROPIC_MODELS = [
     "minimax-m2.5",
@@ -376,22 +381,26 @@ def test_provider_name_reports_openai_for_outer_connector() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unknown_model_is_rejected_deterministically() -> None:
+async def test_unknown_model_is_routed_to_openai_by_default() -> None:
     recorder = RequestRecorder()
     transport = httpx.MockTransport(recorder)
 
     async with httpx.AsyncClient(transport=transport) as client:
         backend = await _make_backend(client)
 
-        with pytest.raises(RoutingError) as exc_info:
-            await backend.chat_completions(_make_request("opencode-go:does-not-exist"))
+        await backend.chat_completions(_make_request("opencode-go:does-not-exist"))
 
-    exc = exc_info.value
-    assert exc.details.get("code") == "unknown_model"
-    supported_models = exc.details.get("supported_models")
-    assert isinstance(supported_models, list)
-    assert "opencode-go/glm-5" in supported_models
-    assert "opencode-go/minimax-m2.7" in supported_models
+    assert any(
+        request.method == "POST" and request.url.path.endswith("/chat/completions")
+        for request in recorder.requests
+    )
+    assert not any(
+        request.method == "POST" and request.url.path.endswith("/messages")
+        for request in recorder.requests
+    )
+
+    payload = _posted_json(recorder.requests, "/chat/completions")
+    assert payload["model"] == "does-not-exist"
 
 
 @pytest.mark.asyncio

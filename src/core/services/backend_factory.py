@@ -322,6 +322,10 @@ class BackendFactory(IBackendFactory):
                     backend_config.supported_input_types
                 )
 
+            # Pass explicit models list if available
+            if backend_config.models:
+                init_config["models"] = backend_config.models
+
             for k, v in backend_config.extra.items():
                 init_config[k] = v
 

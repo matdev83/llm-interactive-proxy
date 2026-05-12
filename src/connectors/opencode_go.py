@@ -130,8 +130,14 @@ _OPENCODE_GO_OPENAI_MODELS: tuple[str, ...] = (
     "glm-5.1",
     "kimi-k2.5",
     "kimi-k2.6",
+    "deepseek-v4-pro",
+    "deepseek-v4-flash",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
     "mimo-v2-pro",
     "mimo-v2-omni",
+    "qwen3.6-plus",
+    "qwen3.5-plus",
 )
 _OPENCODE_GO_ANTHROPIC_MODELS: tuple[str, ...] = (
     "minimax-m2.5",
@@ -331,11 +337,9 @@ class OpencodeGoBackend(OpenAIConnector):
         if override:
             return override
 
-        if normalized in _OPENCODE_GO_OPENAI_MODELS:
-            return "openai"
         if normalized in _OPENCODE_GO_ANTHROPIC_MODELS:
             return "anthropic"
-        return None
+        return "openai"
 
     def _normalize_request(
         self, request: ConnectorChatCompletionsRequest, raw_model: str
@@ -413,9 +417,18 @@ class OpencodeGoBackend(OpenAIConnector):
         self._model_protocol_overrides = self._build_protocol_override_map(
             kwargs.get("model_protocol_overrides")
         )
-        self.available_models = self._build_advertised_raw_models(
-            self._model_protocol_overrides
-        )
+
+        configured_models = kwargs.get("models")
+        if isinstance(configured_models, list | tuple) and configured_models:
+            self.available_models = [
+                _normalize_model_name(str(m))
+                for m in configured_models
+                if _normalize_model_name(str(m))
+            ]
+        else:
+            self.available_models = self._build_advertised_raw_models(
+                self._model_protocol_overrides
+            )
 
         self._anthropic_delegate.api_key = self.api_key
         await self._anthropic_delegate.initialize(
@@ -459,8 +472,6 @@ class OpencodeGoBackend(OpenAIConnector):
         protocol = self._resolve_protocol_for_model(
             raw_model, self._model_protocol_overrides
         )
-        if protocol is None:
-            raise self._build_unknown_model_error(raw_model)
 
         normalized_request = self._normalize_request(request, raw_model)
         if protocol == "openai":
