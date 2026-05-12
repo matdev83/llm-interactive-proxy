@@ -322,6 +322,7 @@ logging:
 backends:
   default_backend: "openai"
   # hybrid_backend_repeat_messages: false  # Set to true to repeat reasoning output as an artificial message in the session
+  interleaved_thinking_instructions_file: "config/prompts/interleaved_thinking/thinker_prompt.md"  # File injected only into [thinker] routed requests
 
   openai:
     # API key set via OPENROUTER_API_KEY environment variable

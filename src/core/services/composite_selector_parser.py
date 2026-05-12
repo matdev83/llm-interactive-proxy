@@ -39,6 +39,7 @@ class _LeafParseResult:
 class _PrefixAnnotations:
     weight_annotation: int | None = None
     first_annotation: bool = False
+    thinker_annotation: bool = False
     max_context_tokens: int | None = None
 
 
@@ -117,6 +118,13 @@ class CompositeSelectorParser:
                     code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                     selector=routing_input.selector,
                     message="Only one branch can have a [first] annotation in a weighted group.",
+                )
+            thinker_count = sum(1 for leaf in leaves if leaf.leaf.thinker_annotation)
+            if thinker_count > 1:
+                self._raise_validation_error(
+                    code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                    selector=routing_input.selector,
+                    message="Only one branch can have a [thinker] annotation in a weighted group.",
                 )
             normalized = "^".join(leaf.normalized_leaf_for_plan for leaf in leaves)
             return CompositeRoutePlan(
@@ -220,6 +228,12 @@ class CompositeSelectorParser:
                 selector=routing_input.selector,
                 message="First annotations are only supported for weighted ('^') selectors.",
             )
+        if annotations.thinker_annotation and not is_weighted_group:
+            self._raise_validation_error(
+                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                selector=routing_input.selector,
+                message="Thinker annotations are only supported for weighted ('^') selectors.",
+            )
 
         if is_weighted_group:
             if weight_annotation is None:
@@ -227,6 +241,8 @@ class CompositeSelectorParser:
             prefix_parts = f"[weight={weight_annotation}]"
             if first_annotation:
                 prefix_parts += "[first]"
+            if annotations.thinker_annotation:
+                prefix_parts += "[thinker]"
             if annotations.max_context_tokens is not None:
                 prefix_parts += f"[max_context={annotations.max_context_tokens}]"
             normalized_leaf_for_plan = f"{prefix_parts}{normalized_leaf_selector}"
@@ -277,6 +293,9 @@ class CompositeSelectorParser:
             normalized_selector=normalized_leaf_selector,
             weight_annotation=weight_annotation if is_weighted_group else None,
             first_annotation=first_annotation if is_weighted_group else False,
+            thinker_annotation=(
+                annotations.thinker_annotation if is_weighted_group else False
+            ),
             max_context_tokens=annotations.max_context_tokens,
             uri_params=parsed_leaf.uri_params,
             backend_type=parsed_leaf.backend_type,
@@ -296,6 +315,7 @@ class CompositeSelectorParser:
         remaining = leaf_text
         weight_annotation: int | None = None
         first_annotation = False
+        thinker_annotation = False
         max_context_tokens: int | None = None
 
         while remaining.startswith("["):
@@ -378,6 +398,19 @@ class CompositeSelectorParser:
                     )
                     continue
 
+                if key == "thinker":
+                    if thinker_annotation:
+                        self._raise_validation_error(
+                            code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                            selector=source_selector,
+                            message="Duplicate [thinker] annotations are not supported.",
+                        )
+                    thinker_annotation = self._parse_thinker_annotation(
+                        raw_value=raw_value,
+                        source_selector=source_selector,
+                    )
+                    continue
+
                 self._raise_validation_error(
                     code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                     selector=source_selector,
@@ -397,6 +430,7 @@ class CompositeSelectorParser:
             _PrefixAnnotations(
                 weight_annotation=weight_annotation,
                 first_annotation=first_annotation,
+                thinker_annotation=thinker_annotation,
                 max_context_tokens=max_context_tokens,
             ),
             remaining.strip(),
@@ -458,6 +492,36 @@ class CompositeSelectorParser:
             message=(
                 f"Unsupported [first] annotation '[first={raw_value}]'. "
                 "Accepted forms: [first], [first=1], [first=yes], [first=true]."
+            ),
+        )
+
+    def _parse_thinker_annotation(
+        self,
+        *,
+        raw_value: str | None,
+        source_selector: str,
+    ) -> bool:
+        if raw_value is None:
+            return True
+
+        normalized_value = raw_value.strip().lower()
+        if normalized_value in _ANNOTATION_TRUE_VALUES:
+            return True
+        if normalized_value in _ANNOTATION_FALSE_VALUES:
+            self._raise_validation_error(
+                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                selector=source_selector,
+                message=(
+                    f"Unsupported [thinker] annotation '[thinker={raw_value}]'. "
+                    "Use [thinker] without negation."
+                ),
+            )
+        self._raise_validation_error(
+            code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+            selector=source_selector,
+            message=(
+                f"Unsupported [thinker] annotation '[thinker={raw_value}]'. "
+                "Accepted forms: [thinker], [thinker=1], [thinker=yes], [thinker=true]."
             ),
         )
 

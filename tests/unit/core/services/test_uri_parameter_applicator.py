@@ -299,3 +299,46 @@ class TestURIParameterApplicatorReasoningEffort:
         assert result.reasoning_effort == "high"
         assert result.extra_body is not None
         assert result.extra_body.get("reasoning_effort") == "high"
+
+    def test_uri_max_reasoning_effort_is_preserved_for_provider_specific_routes(
+        self,
+    ) -> None:
+        backend_type = "opencode-zen"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="opencode-zen:deepseek-v4-pro",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(reasoning_effort="max"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.reasoning_effort == "max"
+        assert result.extra_body is not None
+        assert result.extra_body.get("reasoning_effort") == "max"
+
+    def test_header_max_reasoning_effort_is_preserved(self) -> None:
+        backend_type = "opencode-go"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="opencode-go:deepseek-v4-pro",
+            messages=[ChatMessage(role="user", content="hi")],
+            extra_body={"reasoning_effort": "max"},
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(temperature="0.5"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.reasoning_effort == "max"
+        assert result.extra_body is not None
+        assert result.extra_body.get("reasoning_effort") == "max"

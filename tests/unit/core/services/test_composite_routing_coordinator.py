@@ -14,6 +14,10 @@ from src.core.domain.composite_routing import (
 )
 from src.core.domain.request_context import RequestContext
 from src.core.services.composite_routing_coordinator import CompositeRoutingCoordinator
+from src.core.services.composite_routing_state import (
+    COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
+    COMPOSITE_SELECTED_LEAF_SELECTOR_KEY,
+)
 from src.core.services.composite_selector_parser import CompositeSelectorParser
 from src.core.services.weighted_branch_selector import WeightedBranchSelector
 
@@ -129,6 +133,79 @@ async def test_weighted_coordinator_selects_exactly_one_branch() -> None:
         and entry.get("reason_code") == "weighted_random_non_winner"
         for entry in branch_history
     )
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_persists_selected_thinker_metadata() -> None:
+    parser = CompositeSelectorParser()
+    routing_input = CompositeRoutingInput(
+        selector="[thinker]openai:gpt-4^[weight=10]anthropic:claude-3-5-sonnet",
+        surface=RoutingSurface.MAIN,
+    )
+    plan = parser.parse(routing_input)
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4")),
+            "anthropic:claude-3-5-sonnet": _LeafOutcome(
+                target=_target("anthropic", "claude-3-5-sonnet")
+            ),
+        }
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.0
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    context = _context()
+
+    await coordinator.execute(
+        plan=plan,
+        routing_input=routing_input,
+        request=_request(),
+        context=context,
+    )
+
+    assert context.extensions[COMPOSITE_SELECTED_LEAF_SELECTOR_KEY] == "openai:gpt-4"
+    assert context.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY] is True
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_persists_non_thinker_metadata() -> None:
+    parser = CompositeSelectorParser()
+    routing_input = CompositeRoutingInput(
+        selector="[thinker]openai:gpt-4^[weight=10]anthropic:claude-3-5-sonnet",
+        surface=RoutingSurface.MAIN,
+    )
+    plan = parser.parse(routing_input)
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4")),
+            "anthropic:claude-3-5-sonnet": _LeafOutcome(
+                target=_target("anthropic", "claude-3-5-sonnet")
+            ),
+        }
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.99
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    context = _context()
+
+    await coordinator.execute(
+        plan=plan,
+        routing_input=routing_input,
+        request=_request(),
+        context=context,
+    )
+
+    assert (
+        context.extensions[COMPOSITE_SELECTED_LEAF_SELECTOR_KEY]
+        == "anthropic:claude-3-5-sonnet"
+    )
+    assert context.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY] is False
 
 
 @pytest.mark.asyncio

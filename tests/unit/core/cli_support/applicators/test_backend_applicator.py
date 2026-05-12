@@ -44,6 +44,7 @@ class TestBackendApplicator:
             reasoning_injection_probability=None,
             hybrid_reasoning_model_timeout=None,
             hybrid_reasoning_force_initial_turns=None,
+            interleaved_thinking_instructions_file=None,
             openrouter_api_key=None,
             openrouter_api_base_url=None,
             gemini_api_key=None,
@@ -150,6 +151,28 @@ class TestBackendApplicator:
 
         assert "backends" in overrides
         assert overrides["backends"].get("reasoning_injection_probability") == 0.75
+
+    def test_apply_interleaved_thinking_instructions_file(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        empty_args.interleaved_thinking_instructions_file = "config/prompts/thinker.md"
+        with mock.patch.dict(os.environ, {}, clear=True):
+            applicator.apply(empty_args, overrides, resolution)
+
+            assert "backends" in overrides
+            assert (
+                overrides["backends"].get("interleaved_thinking_instructions_file")
+                == "config/prompts/thinker.md"
+            )
+            assert (
+                os.environ.get("INTERLEAVED_THINKING_INSTRUCTIONS_FILE")
+                == "config/prompts/thinker.md"
+            )
+            assert resolution.is_set("backends.interleaved_thinking_instructions_file")
 
     def test_apply_openrouter_api_key(
         self,

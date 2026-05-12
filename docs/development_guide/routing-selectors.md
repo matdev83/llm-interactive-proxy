@@ -108,6 +108,25 @@ This uses gpt-4 for the first session request, then routes 75% / 25% weighted di
 [weight=4][first][max_context=164000]openai:gpt-4
 ```
 
+#### Interleaved Thinker Routing
+
+Add a `[thinker]` annotation to one weighted branch to mark the stronger model as a thinker turn:
+
+```
+[weight=1,thinker]openai:gpt-4^[weight=10]openrouter:deepseek/deepseek-v4-flash
+```
+
+Accepted forms are `[thinker]`, `[thinker=1]`, `[thinker=yes]`, and `[thinker=true]`.
+Only one branch in a weighted selector may be tagged as thinker. When the thinker
+branch is selected, the proxy injects the configured
+`backends.interleaved_thinking_instructions_file` content into that backend request,
+stores the thinker output in session state, and injects the latest memo into later
+non-thinker main requests. By default this uses the shipped prompt at
+`config/prompts/interleaved_thinking/thinker_prompt.md`.
+The proxy does not strip, suppress, or rewrite the request's tool definitions for
+thinker turns; if the selected model emits tool calls, they are passed through using
+the normal backend/client protocol.
+
 ### Selector Rules
 
 1. **No mixing operators** - Composite selectors must not mix `|` and `^` in the same selector string. These are rejected during validation.

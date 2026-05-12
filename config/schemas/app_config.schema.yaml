@@ -374,6 +374,10 @@ properties:
       hybrid_execution_model_timeout: { type: integer, minimum: 1 }
       hybrid_reasoning_latency_threshold: { type: number, minimum: 0.0 }
       hybrid_reasoning_backoff_turns: { type: integer, minimum: 0 }
+      interleaved_thinking_instructions_file:
+        type: ["string", "null"]
+        default: "config/prompts/interleaved_thinking/thinker_prompt.md"
+        description: "Path to custom instructions injected only into [thinker] routed requests."
       openai_codex:
         type: object
         additionalProperties: true

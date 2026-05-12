@@ -1334,3 +1334,17 @@ def test_chunk_has_meaningful_output_reasoning_only_dict_with_fallback() -> None
         )
         is False
     )
+
+
+def test_resolve_count_reasoning_for_empty_stream_defaults_true_without_app_state() -> (
+    None
+):
+    handler = BackendStreamingResponseHandler(
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        AsyncMock(),
+    )
+
+    assert handler._resolve_count_reasoning_for_empty_stream(_make_context()) is True

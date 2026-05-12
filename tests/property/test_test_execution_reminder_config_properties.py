@@ -166,6 +166,7 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
         reasoning_injection_probability=None,
         hybrid_reasoning_model_timeout=None,
         hybrid_reasoning_force_initial_turns=None,
+        interleaved_thinking_instructions_file=None,
         model_aliases=None,
         quality_verifier_model=None,
         quality_verifier_frequency=None,
@@ -298,9 +299,13 @@ def test_property_10_configuration_precedence_message(
 
         # Create environment dict for from_env - only copy needed env vars
         test_env = {
-            "TEST_EXECUTION_REMINDER_MESSAGE": os.environ.get(
-                "TEST_EXECUTION_REMINDER_MESSAGE"
-            )
+            key: value
+            for key, value in {
+                "TEST_EXECUTION_REMINDER_MESSAGE": os.environ.get(
+                    "TEST_EXECUTION_REMINDER_MESSAGE"
+                )
+            }.items()
+            if value is not None
         }
 
         # Create base config that simulates config file + environment loading

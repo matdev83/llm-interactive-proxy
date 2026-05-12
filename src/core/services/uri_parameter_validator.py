@@ -42,10 +42,10 @@ class URIParameterValidator:
         },
         "reasoning_effort": {
             "type": str,
-            "allowed": ["low", "medium", "high", "xhigh"],
+            "allowed": ["low", "medium", "high", "xhigh", "max"],
             "description": (
-                "Controls computational effort for reasoning (includes xhigh for "
-                "providers such as OpenAI Codex that support it)"
+                "Controls computational effort for reasoning (includes provider-specific "
+                "levels such as xhigh and max where the upstream API supports them)"
             ),
         },
         "top_p": {

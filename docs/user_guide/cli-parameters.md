@@ -40,6 +40,7 @@ When no CLI override applies and `notifications.enabled` is omitted in YAML, the
 | `--reasoning-injection-probability FLOAT` (or `--reasoning_injection_probability`) | `REASONING_INJECTION_PROBABILITY` | Probability of using the reasoning model in the hybrid backend (0.0 to 1.0). |
 | `--hybrid-reasoning-model-timeout SECONDS` | `HYBRID_REASONING_MODEL_TIMEOUT` | Timeout for the reasoning model call in hybrid scenarios (default: 60). |
 | `--hybrid-reasoning-force-initial-turns N` | `HYBRID_REASONING_FORCE_INITIAL_TURNS` | Number of turns at start of session to force reasoning model usage (default: 4). |
+| `--interleaved-thinking-instructions-file PATH` | `INTERLEAVED_THINKING_INSTRUCTIONS_FILE` | Path to custom instructions injected only into `[thinker]` routed requests. |
 | `--model-alias PATTERN=REPLACEMENT` | `MODEL_ALIASES` (JSON string) | Add a model name rewrite rule (regex pattern and replacement). Can be used multiple times. |
 
 ---

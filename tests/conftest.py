@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib
 import importlib.util
 import inspect
 import logging
@@ -16,7 +17,7 @@ import weakref
 from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -40,6 +41,43 @@ if _TESTMON_DATAFILE_ENV not in os.environ:
     testmon_dir = repo_root / ".pytest_cache"
     testmon_dir.mkdir(parents=True, exist_ok=True)
     os.environ[_TESTMON_DATAFILE_ENV] = str(testmon_dir / ".testmondata")
+
+
+def _patch_testmon_windows_nul_relpath() -> None:
+    """Prevent pytest-testmon from crashing on Windows ``\\.\nul`` paths.
+
+    pytest/xdist can pass the Windows nul device into collection hooks. Upstream
+    pytest-testmon calls ``os.path.relpath`` on every collection path, and
+    ``relpath('\\\\.\\nul', 'C:\\...')`` raises ``ValueError`` because the
+    device path is on a different mount. Treating that path as non-project
+    content keeps collection moving and leaves real test selection unchanged.
+    """
+
+    if sys.platform != "win32":
+        return
+
+    try:
+        pytest_testmon = cast(Any, importlib.import_module("testmon.pytest_testmon"))
+        testmon_core = cast(Any, importlib.import_module("testmon.testmon_core"))
+    except Exception:
+        return
+
+    original = testmon_core.cached_relpath
+
+    def _safe_cached_relpath(path: str, basepath: str) -> str:
+        try:
+            return str(original(path, basepath))
+        except ValueError:
+            normalized = path.replace("/", "\\").lower()
+            if "nul" in normalized:
+                return "__windows_nul_device__"
+            raise
+
+    testmon_core.cached_relpath = _safe_cached_relpath
+    pytest_testmon.cached_relpath = _safe_cached_relpath
+
+
+_patch_testmon_windows_nul_relpath()
 
 
 def _module_is_available(name: str) -> bool:
@@ -344,7 +382,7 @@ def pytest_runtest_teardown(item, nextitem) -> None:  # type: ignore[no-untyped-
         return
     current = getattr(tm, "monotonic", None)
     if current is not _ORIGINAL_STDLIB_TIME_MONOTONIC:
-        tm.monotonic = _ORIGINAL_STDLIB_TIME_MONOTONIC
+        cast(Any, tm).monotonic = _ORIGINAL_STDLIB_TIME_MONOTONIC
 
 
 def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]

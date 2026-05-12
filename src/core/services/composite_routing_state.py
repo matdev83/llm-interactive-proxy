@@ -16,6 +16,8 @@ __all__ = [
     "COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY",
     "COMPOSITE_ROUTING_STATE_KEY",
     "COMPOSITE_ROUTING_SURFACE_KEY",
+    "COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY",
+    "COMPOSITE_SELECTED_LEAF_SELECTOR_KEY",
     "FAILOVER_MODE",
     "FailoverRuntimeState",
     "WeightedRetryBranch",
@@ -35,6 +37,8 @@ COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY = "_composite_leaf_resolution"
 COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY = "_composite_leaf_selector"
 COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY = "_composite_leaf_parsed_backend"
 COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY = "_composite_leaf_parsed_model"
+COMPOSITE_SELECTED_LEAF_SELECTOR_KEY = "composite_selected_leaf_selector"
+COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY = "composite_selected_leaf_is_thinker"
 FAILOVER_MODE = "failover"
 WEIGHTED_RETRY_MODE = "weighted_retry"
 

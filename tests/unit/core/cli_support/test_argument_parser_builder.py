@@ -113,6 +113,7 @@ class TestBackendSelectionFlags:
             "--reasoning_injection_probability",  # Underscore alias
             "--hybrid-reasoning-model-timeout",
             "--hybrid-reasoning-force-initial-turns",
+            "--interleaved-thinking-instructions-file",
             "--model-alias",
             "--quality-verifier-model",
             "--quality-verifier-frequency",
@@ -471,7 +472,9 @@ class TestSessionTestingFlags:
         assert "--disable-auto-continue-removal" in action.option_strings
         assert action.default is None
 
-    def test_enable_loop_detection_flag_shape(self, parser: argparse.ArgumentParser) -> None:
+    def test_enable_loop_detection_flag_shape(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
         """--enable-loop-detection is a boolean opt-in flag."""
         action = _get_action_by_dest(parser, "enable_loop_detection")
         assert action is not None

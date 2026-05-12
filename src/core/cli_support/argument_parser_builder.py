@@ -258,6 +258,12 @@ class ArgumentParserBuilder:
             metavar="N",
             help="Number of turns at the beginning of a new session when reasoning model probability is overridden to 1 (default: 1)",
         )
+        parser.add_argument(
+            "--interleaved-thinking-instructions-file",
+            dest="interleaved_thinking_instructions_file",
+            metavar="PATH",
+            help="Path to custom instructions injected only into [thinker] routed requests",
+        )
 
         parser.add_argument(
             "--model-alias",

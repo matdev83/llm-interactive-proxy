@@ -530,6 +530,14 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 cast(type, INonForwardableMessageEnforcer)
             )
             b2bua_bleg_allocator = provider.get_service(B2buaBlegAllocator)
+            config = provider.get_required_service(AppConfig)
+
+            from src.core.services.interleaved_thinking.output_recorder import (
+                InterleavedThinkingOutputRecorder,
+            )
+            from src.core.services.interleaved_thinking.transformer import (
+                InterleavedThinkingRequestTransformer,
+            )
 
             return BackendCompletionFlow(
                 availability_checker=availability_checker,
@@ -548,6 +556,10 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 backend_work_guard=backend_work_guard,
                 non_forwardable_enforcer=non_forwardable_enforcer,
                 b2bua_bleg_allocator=b2bua_bleg_allocator,
+                interleaved_thinking_transformer=InterleavedThinkingRequestTransformer(
+                    config.backends
+                ),
+                interleaved_thinking_output_recorder=InterleavedThinkingOutputRecorder(),
             )
 
         register_singleton_if_absent(

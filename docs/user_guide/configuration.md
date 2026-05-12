@@ -134,6 +134,7 @@ backends:
   hybrid_reasoning_model_timeout: 60
   hybrid_reasoning_force_initial_turns: 1
   hybrid_execution_model_timeout: 120
+  interleaved_thinking_instructions_file: "config/prompts/interleaved_thinking/thinker_prompt.md"
   
   # Backend-specific configurations
   openai:

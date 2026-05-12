@@ -80,6 +80,7 @@ class SessionState(ValueObject):
     planning_phase_original_backend: str | None = None
     planning_phase_original_model: str | None = None
     replacement_state: dict[str, Any] | None = None
+    interleaved_thinking_state: dict[str, Any] | None = None
     replacement_disabled: bool = False
     client_os: str | None = None
 
@@ -179,6 +180,13 @@ class SessionState(ValueObject):
     def with_weighted_first_request_consumed(self, consumed: bool) -> SessionState:
         """Create a new session state with updated weighted_first_request_consumed flag."""
         return self.model_copy(update={"weighted_first_request_consumed": consumed})
+
+    def with_interleaved_thinking_state(
+        self,
+        state: dict[str, Any] | None,
+    ) -> SessionState:
+        """Create a new session state with updated interleaved thinking memory."""
+        return self.model_copy(update={"interleaved_thinking_state": state})
 
     def with_history_compaction_allowed(self, allowed: bool) -> SessionState:
         """Create a new session state with updated history_compaction_allowed flag."""

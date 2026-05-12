@@ -221,6 +221,14 @@ class TestURIParameterValidator:
         assert normalized == {"reasoning_effort": "xhigh"}
         assert errors == []
 
+    def test_reasoning_effort_valid_max(self, validator):
+        """Test reasoning_effort validation with provider-specific 'max' value."""
+        params = {"reasoning_effort": "max"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {"reasoning_effort": "max"}
+        assert errors == []
+
     def test_reasoning_effort_invalid_value(self, validator):
         """Test reasoning_effort validation with invalid value."""
         params = {"reasoning_effort": "extreme"}

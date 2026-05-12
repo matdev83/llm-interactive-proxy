@@ -5,6 +5,7 @@ Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.3, 7.2, 8.1
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
@@ -32,6 +33,15 @@ from src.core.services.backend_request_manager.streaming_response_handler import
 )
 
 from tests.unit.core.services.backend_streaming_test_helpers import async_chunk_iterator
+
+
+def _disable_reasoning_count_for_empty_stream(request_context: RequestContext) -> None:
+    request_context.app_state = SimpleNamespace(
+        config=SimpleNamespace(
+            session=SimpleNamespace(),
+            empty_response=SimpleNamespace(count_reasoning_for_empty_stream=False),
+        )
+    )
 
 
 class TestMiddlewareWrapping:
@@ -317,6 +327,7 @@ class TestEmptyStreamRecovery:
         processing_context: ResponseProcessingContext,
     ) -> None:
         """Handler should treat OpenAI-shaped SSE reasoning-only as empty for retry."""
+        _disable_reasoning_count_for_empty_stream(request_context)
         reasoning_sse = (
             b'data: {"id":"resp-sse-1","object":"chat.completion.chunk","choices":'
             b'[{"delta":{"content":"","reasoning_content":"internal"},"finish_reason":null}]}'
@@ -385,6 +396,7 @@ class TestEmptyStreamRecovery:
         processing_context: ResponseProcessingContext,
     ) -> None:
         """Handler should treat delta.reasoning_content-only OpenAI chunks as empty for retry."""
+        _disable_reasoning_count_for_empty_stream(request_context)
         reasoning_chunk = ProcessedResponse(
             content={
                 "id": "resp-rc-1",
@@ -891,6 +903,7 @@ class TestEmptyStreamRecovery:
         processing_context: ResponseProcessingContext,
     ) -> None:
         """Handler should treat thinking-only delta as empty for retry."""
+        _disable_reasoning_count_for_empty_stream(request_context)
         thinking_chunk = ProcessedResponse(
             content={
                 "id": "resp-2",

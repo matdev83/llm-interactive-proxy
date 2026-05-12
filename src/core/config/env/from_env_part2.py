@@ -20,6 +20,9 @@ from src.core.config.env.util import (
 from src.core.config.env.util import (
     parse_csv_list as _parse_csv_list,
 )
+from src.core.config.models.backends import (
+    DEFAULT_INTERLEAVED_THINKING_INSTRUCTIONS_FILE,
+)
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import HeaderConfig, HeaderOverrideMode
@@ -255,6 +258,13 @@ def apply_config_part2(
             120,
             env,
             path="backends.hybrid_execution_model_timeout",
+            resolution=resolution,
+        ),
+        "interleaved_thinking_instructions_file": _get_env_value(
+            env,
+            "INTERLEAVED_THINKING_INSTRUCTIONS_FILE",
+            DEFAULT_INTERLEAVED_THINKING_INSTRUCTIONS_FILE,
+            path="backends.interleaved_thinking_instructions_file",
             resolution=resolution,
         ),
     }

@@ -177,3 +177,24 @@ def test_composite_leaf_selector_first_annotation_defaults_to_false() -> None:
     )
 
     assert leaf.first_annotation is False
+
+
+def test_composite_leaf_selector_with_thinker_annotation() -> None:
+    leaf = CompositeLeafSelector(
+        raw_selector="[thinker]openai:gpt-4",
+        normalized_selector="openai:gpt-4",
+        thinker_annotation=True,
+        uri_params={},
+    )
+
+    assert leaf.thinker_annotation is True
+
+
+def test_composite_leaf_selector_thinker_annotation_defaults_to_false() -> None:
+    leaf = CompositeLeafSelector(
+        raw_selector="openai:gpt-4",
+        normalized_selector="openai:gpt-4",
+        uri_params={},
+    )
+
+    assert leaf.thinker_annotation is False

@@ -387,6 +387,140 @@ def test_parse_weighted_selector_supports_mixed_prefix_order_in_single_block() -
 
 
 @pytest.mark.parametrize(
+    "thinker_annotation",
+    ["[thinker]", "[thinker=1]", "[thinker=yes]", "[thinker=true]"],
+)
+def test_parse_weighted_selector_accepts_thinker_annotation_forms(
+    thinker_annotation: str,
+) -> None:
+    parser = CompositeSelectorParser()
+    selector = f"{thinker_annotation}openai:gpt-4^anthropic:claude-3"
+
+    plan = _parse(parser, selector)
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert leaves[0].thinker_annotation is True
+    assert leaves[1].thinker_annotation is False
+    assert plan.normalized_selector.startswith("[weight=1][thinker]openai:gpt-4")
+
+
+def test_parse_weighted_selector_accepts_thinker_in_combined_annotation_block() -> None:
+    parser = CompositeSelectorParser()
+
+    plan = _parse(
+        parser,
+        "[weight=1,thinker,max_context=128000]openai:gpt-4^"
+        "[weight=10]openrouter:deepseek/deepseek-v4-flash",
+    )
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert leaves[0].weight_annotation == 1
+    assert leaves[0].thinker_annotation is True
+    assert leaves[0].max_context_tokens == 128000
+    assert leaves[1].thinker_annotation is False
+    assert plan.normalized_selector == (
+        "[weight=1][thinker][max_context=128000]openai:gpt-4^"
+        "[weight=10]openrouter:deepseek/deepseek-v4-flash"
+    )
+
+
+def test_parse_weighted_selector_accepts_first_thinker_in_combined_annotation_block() -> (
+    None
+):
+    parser = CompositeSelectorParser()
+
+    plan = _parse(
+        parser,
+        "[first,thinker]openai:gpt-5.5-pro^"
+        "[weight=10]openrouter:deepseek/deepseek-v4-flash",
+    )
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert len(leaves) == 2
+    assert leaves[0].normalized_selector == "openai:gpt-5.5-pro"
+    assert leaves[0].weight_annotation == 1
+    assert leaves[0].first_annotation is True
+    assert leaves[0].thinker_annotation is True
+    assert leaves[1].normalized_selector == ("openrouter:deepseek/deepseek-v4-flash")
+    assert leaves[1].weight_annotation == 10
+    assert leaves[1].first_annotation is False
+    assert leaves[1].thinker_annotation is False
+    assert plan.normalized_selector == (
+        "[weight=1][first][thinker]openai:gpt-5.5-pro^"
+        "[weight=10]openrouter:deepseek/deepseek-v4-flash"
+    )
+
+
+def test_parse_weighted_selector_rejects_multiple_thinker_annotations() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "[thinker]openai:gpt-4^[thinker]anthropic:claude-3")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+    assert "thinker" in exc_info.value.envelope.message.lower()
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        "[thinker]openai:gpt-4",
+        "[thinker]openai:gpt-4|anthropic:claude-3",
+    ],
+)
+def test_parse_rejects_thinker_annotation_outside_weighted_selectors(
+    selector: str,
+) -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, selector)
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+    assert "thinker" in exc_info.value.envelope.message.lower()
+
+
+def test_parse_weighted_selector_rejects_duplicate_thinker_annotation() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "[thinker,thinker]openai:gpt-4^anthropic:claude-3")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+    assert "duplicate" in exc_info.value.envelope.message.lower()
+
+
+@pytest.mark.parametrize(
+    "rejected_form",
+    ["[thinker=false]", "[thinker=0]", "[thinker=no]"],
+)
+def test_parse_weighted_selector_rejects_negative_thinker_forms(
+    rejected_form: str,
+) -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, f"{rejected_form}openai:gpt-4^anthropic:claude-3")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+
+
+@pytest.mark.parametrize(
     "selector",
     [
         "[max_context=0]openai:gpt-4^anthropic:claude-3",

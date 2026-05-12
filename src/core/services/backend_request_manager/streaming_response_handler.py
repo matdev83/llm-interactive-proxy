@@ -766,7 +766,7 @@ class BackendStreamingResponseHandler:
                     cfg = cast(IConfig, candidate)
                     break
 
-        if cfg is None:
+        if cfg is None and app_state is not None:
             try:
                 from src.core.di.services import get_service_provider
 

@@ -43,6 +43,7 @@ from src.core.interfaces.backend_completion_flow_interface import (
     IBackendCompletionFlow,
 )
 from src.core.interfaces.backend_work_guard_interface import IBackendWorkGuard
+from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
 from src.core.interfaces.non_forwardable_interface import (
     INonForwardableMessageEnforcer,
@@ -65,6 +66,13 @@ from src.core.services.composite_routing_state import (
     resolve_composite_routing_surface,
 )
 from src.core.services.connector_invoker import ConnectorInvoker
+from src.core.services.interleaved_thinking.output_recorder import (
+    InterleavedThinkingOutputRecorder,
+)
+from src.core.services.interleaved_thinking.transformer import (
+    INTERLEAVED_THINKING_ACTIVE_KEY,
+    InterleavedThinkingRequestTransformer,
+)
 from src.core.services.resilience.scope import (
     build_resilience_error_context,
     build_resilience_instance_id,
@@ -140,6 +148,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         backend_work_guard: IBackendWorkGuard | None = None,
         non_forwardable_enforcer: INonForwardableMessageEnforcer | None = None,
         b2bua_bleg_allocator: B2buaBlegAllocator | None = None,
+        interleaved_thinking_transformer: (
+            InterleavedThinkingRequestTransformer | None
+        ) = None,
+        interleaved_thinking_output_recorder: (
+            InterleavedThinkingOutputRecorder | None
+        ) = None,
     ) -> None:
         """Initialize the completion flow orchestrator."""
         self._availability_checker = availability_checker
@@ -160,6 +174,10 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._non_forwardable_enforcer = non_forwardable_enforcer
         self._connector_invoker = connector_invoker
         self._b2bua_bleg_allocator = b2bua_bleg_allocator
+        self._interleaved_thinking_transformer = interleaved_thinking_transformer
+        self._interleaved_thinking_output_recorder = (
+            interleaved_thinking_output_recorder
+        )
         # Track cancellation tasks to prevent resource leaks
         self._cancellation_tasks: set[asyncio.Task[None]] = set()
         self._cancellation_tasks_lock = threading.Lock()
@@ -563,6 +581,54 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         surface = resolve_composite_routing_surface(context)
         context.extensions[COMPOSITE_ROUTING_SURFACE_KEY] = surface.value
 
+    def _should_record_interleaved_thinking(
+        self,
+        context: RequestContext | None,
+    ) -> bool:
+        if self._interleaved_thinking_output_recorder is None or context is None:
+            return False
+        return bool(context.extensions.get(INTERLEAVED_THINKING_ACTIVE_KEY))
+
+    def _record_interleaved_thinking_streaming_response(
+        self,
+        *,
+        result: StreamingResponseEnvelope,
+        session: ISession | None,
+        context: RequestContext | None,
+        backend_type: str,
+        effective_model: str,
+    ) -> StreamingResponseEnvelope:
+        if not self._should_record_interleaved_thinking(context):
+            return result
+        assert self._interleaved_thinking_output_recorder is not None
+        return self._interleaved_thinking_output_recorder.wrap_streaming(
+            response=result,
+            session=session,
+            context=context,
+            backend_type=backend_type,
+            effective_model=effective_model,
+        )
+
+    def _record_interleaved_thinking_non_streaming_response(
+        self,
+        *,
+        result: ResponseEnvelope,
+        session: ISession | None,
+        context: RequestContext | None,
+        backend_type: str,
+        effective_model: str,
+    ) -> None:
+        if not self._should_record_interleaved_thinking(context):
+            return
+        assert self._interleaved_thinking_output_recorder is not None
+        self._interleaved_thinking_output_recorder.capture_non_streaming(
+            response=result,
+            session=session,
+            context=context,
+            backend_type=backend_type,
+            effective_model=effective_model,
+        )
+
     def _build_capture_metadata(
         self,
         *,
@@ -822,6 +888,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         canonical_request = self._request_preparer.synchronize_request_with_target(
             canonical_request, target
         )
+        recovery_canonical_request = canonical_request.model_copy(deep=True)
         backend_type = target.backend
         effective_model = target.model
         uri_params = target.uri_params
@@ -950,6 +1017,15 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             domain_request = await self._request_preparer.prepare_backend_request(
                 canonical_request, backend_type, session, uri_params
             )
+
+            if self._interleaved_thinking_transformer is not None:
+                domain_request = self._interleaved_thinking_transformer.transform(
+                    request=domain_request,
+                    target=target,
+                    session=session,
+                    context=attempt_context,
+                )
+                canonical_request = domain_request
 
             # Preserve original canonical_request for verbatim token calculation
             # (before non-forwardable filtering modifies it)
@@ -1141,6 +1217,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         )
                         if streaming_error is not None:
                             raise streaming_error
+                    result = self._record_interleaved_thinking_streaming_response(
+                        result=result,
+                        session=session,
+                        context=attempt_context,
+                        backend_type=backend_type,
+                        effective_model=effective_model,
+                    )
                     return await self._handle_streaming_response(
                         result=result,
                         backend_type=backend_type,
@@ -1153,6 +1236,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                 # Step 11: Handle non-streaming response
                 # Wire-capture: capture inbound response
+                self._record_interleaved_thinking_non_streaming_response(
+                    result=result,
+                    session=session,
+                    context=attempt_context,
+                    backend_type=backend_type,
+                    effective_model=effective_model,
+                )
                 return await self._handle_non_streaming_response(
                     result=result,
                     backend_type=backend_type,
@@ -1290,7 +1380,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         start_time=budget_start_time,
                         is_streaming=stream,
                         content_started=content_started,
-                        request=canonical_request,
+                        request=recovery_canonical_request,
                         context=context,
                         call_completion_callback=self.call_completion,
                     )

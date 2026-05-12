@@ -60,6 +60,27 @@ class TestZaiMCPToolExtraction:
                 else:
                     args[arg_name] = arg_value
 
+            if tool_name == "patch_file":
+                path_match = re.search(
+                    r"<path\s*[^>]*>(.*?)</path>", inner_content, re.DOTALL
+                )
+                if path_match:
+                    args["path"] = path_match.group(1).strip()
+
+                diff_match = re.search(
+                    r"<diff\s*[^>]*>(.*?)</diff>", inner_content, re.DOTALL
+                )
+                if diff_match:
+                    diff_value = diff_match.group(1).strip()
+                    cdata_match = re.search(
+                        r"<content\s*[^>]*><!\[CDATA\[(.*?)\]\]></content>",
+                        diff_value,
+                        re.DOTALL,
+                    )
+                    args["diff"] = (
+                        cdata_match.group(1).strip() if cdata_match else diff_value
+                    )
+
             # Create mock result object
             result = MagicMock()
             result.tool_call = {
@@ -156,9 +177,6 @@ class TestZaiMCPToolExtraction:
         assert args["path"] == "main.py"
         assert args["diff"] == "diff-content"
 
-    @pytest.mark.xfail(
-        reason="Mock fixture doesn't handle deeply nested XML structures like <patch_file><args><file>"
-    )
     def test_extract_direct_patch_file_nested_structure(self, backend):
         """Direct <patch_file> XML should be converted into a tool call."""
         messages = [

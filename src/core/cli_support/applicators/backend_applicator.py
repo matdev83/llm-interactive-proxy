@@ -195,6 +195,20 @@ class BackendApplicator:
                 origin="--hybrid-reasoning-force-initial-turns",
             )
 
+        if getattr(args, "interleaved_thinking_instructions_file", None) is not None:
+            backend_overrides["interleaved_thinking_instructions_file"] = (
+                args.interleaved_thinking_instructions_file
+            )
+            os.environ["INTERLEAVED_THINKING_INSTRUCTIONS_FILE"] = (
+                args.interleaved_thinking_instructions_file
+            )
+            resolution.record(
+                "backends.interleaved_thinking_instructions_file",
+                args.interleaved_thinking_instructions_file,
+                ParameterSource.CLI,
+                origin="--interleaved-thinking-instructions-file",
+            )
+
     def _apply_api_keys(
         self,
         args: CliArgs,

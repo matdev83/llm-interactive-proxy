@@ -27,6 +27,8 @@ from src.core.services.composite_diagnostics_publisher import (
 )
 from src.core.services.composite_routing_state import (
     COMPOSITE_ROUTING_STATE_KEY,
+    COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
+    COMPOSITE_SELECTED_LEAF_SELECTOR_KEY,
     FAILOVER_MODE,
     WEIGHTED_RETRY_MODE,
     FailoverRuntimeState,
@@ -241,11 +243,19 @@ class CompositeRoutingCoordinator:
         context: RequestContext | None,
         leaf_node: CompositeLeafNode,
     ) -> BackendTarget:
-        return await self._leaf_target_resolver.resolve_leaf(
+        resolved = await self._leaf_target_resolver.resolve_leaf(
             request=request,
             context=context,
             leaf=leaf_node.leaf_selector,
         )
+        if context is not None:
+            context.extensions[COMPOSITE_SELECTED_LEAF_SELECTOR_KEY] = (
+                leaf_node.leaf_selector.normalized_selector
+            )
+            context.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY] = (
+                leaf_node.leaf_selector.thinker_annotation
+            )
+        return resolved
 
     async def _execute_failover_chain(
         self,

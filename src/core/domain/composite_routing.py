@@ -109,6 +109,7 @@ class CompositeLeafSelector(DomainModel):
     normalized_selector: str
     weight_annotation: int | None = None
     first_annotation: bool = False
+    thinker_annotation: bool = False
     max_context_tokens: int | None = None
     uri_params: dict[str, JsonValue] = Field(default_factory=dict)
     backend_type: str = ""
@@ -143,6 +144,11 @@ class CompositeLeafSelector(DomainModel):
     @field_validator("first_annotation")
     @classmethod
     def _validate_first_annotation(cls, value: bool) -> bool:
+        return value
+
+    @field_validator("thinker_annotation")
+    @classmethod
+    def _validate_thinker_annotation(cls, value: bool) -> bool:
         return value
 
 

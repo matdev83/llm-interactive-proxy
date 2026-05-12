@@ -9,6 +9,10 @@ from src.core.domain.backend_capability_descriptor import BackendCapabilityDescr
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel
 
+DEFAULT_INTERLEAVED_THINKING_INSTRUCTIONS_FILE = (
+    "config/prompts/interleaved_thinking/thinker_prompt.md"
+)
+
 
 def get_openrouter_headers(cfg: dict[str, str], api_key: str) -> dict[str, str]:
     """Construct headers for OpenRouter requests.
@@ -148,6 +152,10 @@ class BackendSettings(DomainModel):
         default=2,
         ge=0,
         description="Number of subsequent turns to skip reasoning after latency threshold is exceeded. Set 0 to disable adaptive backoff.",
+    )
+    interleaved_thinking_instructions_file: str | None = Field(
+        default=DEFAULT_INTERLEAVED_THINKING_INSTRUCTIONS_FILE,
+        description="Path to a file containing instructions injected only into [thinker] routed requests.",
     )
 
     @model_validator(mode="before")
