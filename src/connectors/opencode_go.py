@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 from typing import Any
@@ -15,6 +16,7 @@ from src.connectors.contracts import (
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
+from src.core.domain.models_listing import ModelsListingResponse
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
@@ -144,6 +146,7 @@ _OPENCODE_GO_ANTHROPIC_MODELS: tuple[str, ...] = (
     "minimax-m2.7",
 )
 _OPENCODE_GO_SUPPORTED_PROTOCOLS = {"openai", "anthropic"}
+_MODELS_CACHE_TTL: int = 60  # seconds
 
 
 def _normalize_opencode_go_api_key(api_key: str) -> str:
@@ -263,6 +266,7 @@ class OpencodeGoBackend(OpenAIConnector):
         self.api_base_url = _OPENCODE_GO_DEFAULT_BASE_URL
         self.available_models = list(self._default_raw_models())
         self._model_protocol_overrides: dict[str, str] = {}
+        self._models_cache: tuple[float, ModelsListingResponse] | None = None
         self._anthropic_delegate = _OpencodeGoAnthropicDelegate(
             client=client,
             config=config,
@@ -450,6 +454,19 @@ class OpencodeGoBackend(OpenAIConnector):
 
     async def get_available_models_async(self) -> list[str]:
         return self.get_available_models()
+
+    async def list_models(
+        self, api_base_url: str | None = None
+    ) -> ModelsListingResponse:
+        now = time.monotonic()
+        if self._models_cache is not None:
+            cached_at, cached_response = self._models_cache
+            if now - cached_at < _MODELS_CACHE_TTL:
+                return cached_response
+
+        response = await super().list_models(api_base_url=api_base_url)
+        self._models_cache = (now, response)
+        return response
 
     def get_provider_name(self) -> str:
         # The outer connector routes OpenAI-compatible requests through the

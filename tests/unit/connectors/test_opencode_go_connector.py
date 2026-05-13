@@ -18,6 +18,7 @@ from src.connectors.contracts import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.models_listing import ModelsListingResponse
 from src.core.services.translation_service import TranslationService
 
 OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
@@ -615,3 +616,31 @@ def test_normalize_model_name_strips_both_prefix_forms() -> None:
     assert strip("opencode-go:opencode-go/mimo-v2-pro") == "mimo-v2-pro"
     assert strip("") == ""
     assert strip("  glm-5.1  ") == "glm-5.1"
+
+
+@pytest.mark.asyncio
+async def test_list_models_returns_models_listing_response() -> None:
+    """list_models fetches from the API and caches subsequent calls."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+
+        result1 = await backend.list_models()
+        result2 = await backend.list_models()
+
+    models_get_count = sum(
+        1
+        for r in recorder.requests
+        if r.method == "GET" and r.url.path.rstrip("/").endswith("/models")
+    )
+    assert models_get_count == 1
+
+    assert isinstance(result1, ModelsListingResponse)
+    assert isinstance(result2, ModelsListingResponse)
+    assert result1 == result2
+
+    expected_ids = CURATED_MODELS
+    assert [m.id for m in result1.data] == expected_ids
+    assert result1.object == "list"
