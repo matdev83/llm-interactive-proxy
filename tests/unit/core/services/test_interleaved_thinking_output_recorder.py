@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any, cast
 from unittest.mock import MagicMock
 
@@ -313,6 +314,49 @@ async def test_recorder_records_diagnostic_when_stream_is_interrupted() -> None:
         await anext(wrapped.content)
 
     session.update_state.assert_not_called()
+    diagnostic = _diagnostic(context)
+    assert diagnostic["action"] == "memo_store_skipped"
+    assert diagnostic["reason"] == "stream_interrupted"
+    assert diagnostic["partial_memo_chars"] == len("partial memo")
+
+
+@pytest.mark.asyncio
+async def test_recorder_does_not_warn_when_stream_is_closed_by_disconnect(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = _session()
+    context = _context()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+
+    async def stream():
+        yield ProcessedResponse(
+            content={"choices": [{"delta": {"reasoning_content": "partial memo"}}]}
+        )
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    wrapped = recorder.wrap_streaming(
+        response=envelope,
+        session=session,
+        context=context,
+        backend_type="openai",
+        effective_model="gpt-4",
+    )
+
+    assert wrapped.content is not None
+    with caplog.at_level(
+        logging.WARNING,
+        logger="src.core.services.interleaved_thinking.output_recorder",
+    ):
+        await anext(wrapped.content)
+        await cast(Any, wrapped.content).aclose()
+
+    session.update_state.assert_not_called()
+    assert not [
+        record
+        for record in caplog.records
+        if "Interleaved thinking memo store skipped: stream interrupted"
+        in record.message
+    ]
     diagnostic = _diagnostic(context)
     assert diagnostic["action"] == "memo_store_skipped"
     assert diagnostic["reason"] == "stream_interrupted"

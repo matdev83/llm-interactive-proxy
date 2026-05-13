@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -91,6 +92,29 @@ class InterleavedThinkingOutputRecorder:
                         parts.append(extracted.text)
                         extraction_source = extraction_source or extracted.source
                     yield item
+            except (GeneratorExit, asyncio.CancelledError):
+                partial_memo_chars = len("".join(parts))
+                self._record_diagnostic(
+                    context,
+                    action="memo_store_skipped",
+                    reason="stream_interrupted",
+                    backend_type=backend_type,
+                    effective_model=effective_model,
+                    partial_memo_chars=partial_memo_chars,
+                    extraction_source=extraction_source,
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Interleaved thinking memo store skipped: stream interrupted "
+                        "request_id=%s session_id=%s backend=%s model=%s "
+                        "partial_memo_chars=%d",
+                        request_id(context),
+                        session_id(context, session),
+                        backend_type,
+                        effective_model,
+                        partial_memo_chars,
+                    )
+                raise
             except BaseException:
                 partial_memo_chars = len("".join(parts))
                 self._record_diagnostic(
