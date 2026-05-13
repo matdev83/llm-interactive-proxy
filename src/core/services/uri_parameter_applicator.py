@@ -401,9 +401,9 @@ class URIParameterApplicator(IURIParameterApplicator):
             return None
 
     @staticmethod
-    def _backend_supports_xhigh_reasoning_effort(backend_type: str) -> bool:
+    def _backend_requires_max_reasoning_effort_alias(backend_type: str) -> bool:
         normalized = str(backend_type).strip().replace("_", "-").lower()
-        return normalized in ("openai-codex", "openai-codex-v2")
+        return normalized == "openrouter"
 
     @classmethod
     def _apply_resolved_parameters(
@@ -418,13 +418,13 @@ class URIParameterApplicator(IURIParameterApplicator):
             reasoning_effort = resolved_params.get("reasoning_effort")
             if (
                 isinstance(reasoning_effort, str)
-                and reasoning_effort == "xhigh"
-                and not cls._backend_supports_xhigh_reasoning_effort(backend_type)
+                and reasoning_effort == "max"
+                and cls._backend_requires_max_reasoning_effort_alias(backend_type)
             ):
-                resolved_params["reasoning_effort"] = "high"
+                resolved_params["reasoning_effort"] = "xhigh"
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Downgraded reasoning_effort from xhigh to high for backend %s",
+                        "Mapped reasoning_effort from max to xhigh for backend %s",
                         backend_type,
                     )
 

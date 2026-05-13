@@ -280,7 +280,7 @@ class TestURIParameterApplicatorReasoningEffort:
         assert result.extra_body is not None
         assert result.extra_body.get("reasoning_effort") == "xhigh"
 
-    def test_uri_xhigh_downgraded_to_high_for_non_codex_backend(self) -> None:
+    def test_uri_xhigh_is_preserved_for_non_codex_backend(self) -> None:
         backend_type = "openai"
         config = _make_config(backend_type, extra={})
 
@@ -296,9 +296,29 @@ class TestURIParameterApplicatorReasoningEffort:
             session=None,
         )
 
-        assert result.reasoning_effort == "high"
+        assert result.reasoning_effort == "xhigh"
         assert result.extra_body is not None
-        assert result.extra_body.get("reasoning_effort") == "high"
+        assert result.extra_body.get("reasoning_effort") == "xhigh"
+
+    def test_uri_max_reasoning_effort_maps_to_xhigh_for_openrouter(self) -> None:
+        backend_type = "openrouter"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="openrouter:xiaomi/mimo-v2.5-pro",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(reasoning_effort="max"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.reasoning_effort == "xhigh"
+        assert result.extra_body is not None
+        assert result.extra_body.get("reasoning_effort") == "xhigh"
 
     def test_uri_max_reasoning_effort_is_preserved_for_provider_specific_routes(
         self,
