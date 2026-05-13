@@ -203,6 +203,49 @@ def test_transformer_injects_stored_memo_into_non_thinker_request() -> None:
     assert diagnostic["message_count_after"] == 3
 
 
+def test_transformer_skips_stored_memo_when_reasoning_content_exists() -> None:
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    session = MagicMock(
+        state=SessionState(
+            interleaved_thinking_state={
+                "memo": "Stored thinker memo",
+                "source_selector": "openai:gpt-4",
+                "injected_count": 0,
+            }
+        )
+    )
+    session.update_state = MagicMock()
+    context = _context(thinker=False)
+    request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[
+            ChatMessage(
+                role="assistant",
+                content="",
+                reasoning_content="client-carried thinker memo",
+            ),
+            ChatMessage(role="user", content="hello"),
+        ],
+    )
+
+    transformed = transformer.transform(
+        request=request,
+        target=BackendTarget(backend="openrouter", model="flash", uri_params={}),
+        session=session,
+        context=context,
+    )
+
+    assert transformed.messages == request.messages
+    session.update_state.assert_not_called()
+    diagnostic = _diagnostic(context)
+    assert diagnostic["action"] == "memo_injection_skipped"
+    assert diagnostic["reason"] == "request_already_has_reasoning_content"
+    assert diagnostic["request_reasoning_messages"] == 1
+    assert diagnostic["request_reasoning_chars"] == len("client-carried thinker memo")
+    assert diagnostic["message_count_before"] == 2
+    assert diagnostic["message_count_after"] == 2
+
+
 def test_transformer_records_skip_reason_when_non_thinker_has_no_memo() -> None:
     transformer = InterleavedThinkingRequestTransformer(BackendSettings())
     context = _context(thinker=False)
@@ -218,6 +261,32 @@ def test_transformer_records_skip_reason_when_non_thinker_has_no_memo() -> None:
     diagnostic = _diagnostic(context)
     assert diagnostic["action"] == "memo_injection_skipped"
     assert diagnostic["reason"] == "no_stored_memo"
+
+
+def test_transformer_records_existing_reasoning_content_when_no_stored_memo() -> None:
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    context = _context(thinker=False)
+    request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[
+            ChatMessage(role="assistant", content="", reasoning_content="memo"),
+            ChatMessage(role="user", content="hello"),
+        ],
+    )
+
+    transformed = transformer.transform(
+        request=request,
+        target=BackendTarget(backend="openrouter", model="flash", uri_params={}),
+        session=MagicMock(state=SessionState()),
+        context=context,
+    )
+
+    assert transformed.messages == request.messages
+    diagnostic = _diagnostic(context)
+    assert diagnostic["action"] == "memo_injection_skipped"
+    assert diagnostic["reason"] == "no_stored_memo"
+    assert diagnostic["request_reasoning_messages"] == 1
+    assert diagnostic["request_reasoning_chars"] == len("memo")
 
 
 def test_transformer_increments_existing_injected_count() -> None:

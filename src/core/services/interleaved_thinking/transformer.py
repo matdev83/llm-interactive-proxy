@@ -103,6 +103,9 @@ class InterleavedThinkingRequestTransformer:
             )
             return request.model_copy(update={"messages": messages})
 
+        reasoning_message_count, reasoning_chars = (
+            self._request_reasoning_content_stats(request)
+        )
         memo = self._get_stored_memo(session)
         if not memo:
             self._record_diagnostic(
@@ -110,16 +113,58 @@ class InterleavedThinkingRequestTransformer:
                 action="memo_injection_skipped",
                 reason="no_stored_memo",
                 target=target,
+                request_reasoning_messages=reasoning_message_count,
+                request_reasoning_chars=reasoning_chars,
+                message_count_before=len(request.messages),
+                message_count_after=len(request.messages),
+            )
+            if reasoning_message_count:
+                logger.info(
+                    "Interleaved thinking memo injection skipped: no stored proxy memo, "
+                    "but request already carries reasoning_content "
+                    "request_id=%s session_id=%s backend=%s model=%s "
+                    "reasoning_messages=%d reasoning_chars=%d",
+                    request_id(context),
+                    session_id(context, session),
+                    target.backend,
+                    target.model,
+                    reasoning_message_count,
+                    reasoning_chars,
+                )
+            else:
+                logger.info(
+                    "Interleaved thinking memo injection skipped: no stored memo "
+                    "request_id=%s session_id=%s backend=%s model=%s",
+                    request_id(context),
+                    session_id(context, session),
+                    target.backend,
+                    target.model,
+                )
+            return request
+
+        if reasoning_message_count:
+            self._record_diagnostic(
+                context,
+                action="memo_injection_skipped",
+                reason="request_already_has_reasoning_content",
+                target=target,
+                memo_chars=len(memo),
+                request_reasoning_messages=reasoning_message_count,
+                request_reasoning_chars=reasoning_chars,
                 message_count_before=len(request.messages),
                 message_count_after=len(request.messages),
             )
             logger.info(
-                "Interleaved thinking memo injection skipped: no stored memo "
-                "request_id=%s session_id=%s backend=%s model=%s",
+                "Interleaved thinking memo injection skipped: request already carries "
+                "reasoning_content request_id=%s session_id=%s backend=%s model=%s "
+                "memo_chars=%d reasoning_messages=%d reasoning_chars=%d",
                 request_id(context),
                 session_id(context, session),
                 target.backend,
                 target.model,
+                len(memo),
+                reasoning_message_count,
+                reasoning_chars,
             )
             return request
 
@@ -181,6 +226,8 @@ class InterleavedThinkingRequestTransformer:
         target: BackendTarget,
         reason: str | None = None,
         memo_chars: int | None = None,
+        request_reasoning_messages: int | None = None,
+        request_reasoning_chars: int | None = None,
         message_count_before: int,
         message_count_after: int,
     ) -> None:
@@ -199,6 +246,10 @@ class InterleavedThinkingRequestTransformer:
             diagnostic["reason"] = reason
         if memo_chars is not None:
             diagnostic["memo_chars"] = memo_chars
+        if request_reasoning_messages is not None:
+            diagnostic["request_reasoning_messages"] = request_reasoning_messages
+        if request_reasoning_chars is not None:
+            diagnostic["request_reasoning_chars"] = request_reasoning_chars
         context.extensions[INTERLEAVED_THINKING_DIAGNOSTIC_KEY] = diagnostic
 
     @staticmethod
@@ -283,6 +334,19 @@ class InterleavedThinkingRequestTransformer:
         session.update_state(
             cast(Any, base_state.with_interleaved_thinking_state(updated_state))
         )
+
+    @staticmethod
+    def _request_reasoning_content_stats(
+        request: CanonicalChatRequest,
+    ) -> tuple[int, int]:
+        count = 0
+        total_chars = 0
+        for message in request.messages:
+            reasoning_content = getattr(message, "reasoning_content", None)
+            if isinstance(reasoning_content, str) and reasoning_content.strip():
+                count += 1
+                total_chars += len(reasoning_content.strip())
+        return count, total_chars
 
     @staticmethod
     def _get_interleaved_state(session: ISession) -> dict[str, Any] | None:
