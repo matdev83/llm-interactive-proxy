@@ -10,6 +10,9 @@ from src.connectors.openai_codex.client_families.droid_adapter import (
 from src.connectors.openai_codex.client_families.kilo_adapter import (
     KiloClientFamilyAdapter,
 )
+from src.connectors.openai_codex.client_families.letta_code_adapter import (
+    LettaCodeClientFamilyAdapter,
+)
 from src.connectors.openai_codex.client_families.opencode_adapter import (
     OpenCodeClientFamilyAdapter,
 )
@@ -24,6 +27,7 @@ __all__ = [
     "FamilyApplyResult",
     "IClientFamilyAdapter",
     "KiloClientFamilyAdapter",
+    "LettaCodeClientFamilyAdapter",
     "OpenCodeClientFamilyAdapter",
     "PiClientFamilyAdapter",
 ]

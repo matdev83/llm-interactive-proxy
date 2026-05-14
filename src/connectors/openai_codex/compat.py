@@ -15,6 +15,7 @@ from src.connectors.openai_codex.client_families import (
     ClientFamilyRegistry,
     DroidClientFamilyAdapter,
     KiloClientFamilyAdapter,
+    LettaCodeClientFamilyAdapter,
     OpenCodeClientFamilyAdapter,
     PiClientFamilyAdapter,
 )
@@ -80,6 +81,7 @@ class CompatibilityLayer(ICompatibilityLayer):
         return ClientFamilyRegistry(
             adapters=[
                 OpenCodeClientFamilyAdapter(),
+                LettaCodeClientFamilyAdapter(),
                 KiloClientFamilyAdapter(
                     session_detector=self._session_detector,
                     kilo_translator=self._kilo_translator,
