@@ -4,7 +4,6 @@ import asyncio
 import copy
 import json
 import logging
-import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,16 +27,9 @@ logger = logging.getLogger(__name__)
 INTERLEAVED_THINKING_RECORDER_DIAGNOSTIC_KEY = (
     "interleaved_thinking_recorder_diagnostic"
 )
-_PROXY_THINKER_MEMO_RE = re.compile(
-    r"<proxy_thinker_memo\b[^>]*>(.*?)</proxy_thinker_memo>",
-    re.IGNORECASE | re.DOTALL,
-)
-_PROXY_THINKER_TAG_RE = re.compile(
-    r"</?proxy_thinker_memo\b[^>]*>",
-    re.IGNORECASE,
-)
 _THINKER_OPEN_TAG_PREFIX = "<proxy_thinker_memo"
 _THINKER_CLOSE_TAG_PREFIX = "</proxy_thinker_memo"
+_THINKER_TAG_PREFIXES = (_THINKER_OPEN_TAG_PREFIX, _THINKER_CLOSE_TAG_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -53,30 +45,93 @@ class _ProxyThinkerMemoTagStripper:
     def feed(self, text: str) -> str:
         combined = f"{self._pending}{text}"
         self._pending = ""
-        hold_index = self._incomplete_tag_start(combined)
-        if hold_index is not None:
-            self._pending = combined[hold_index:]
-            combined = combined[:hold_index]
-        return _PROXY_THINKER_TAG_RE.sub("", combined)
+        sanitized, pending = self._strip_tags(combined, hold_incomplete=True)
+        self._pending = pending
+        return sanitized
 
     def flush(self) -> str:
         if not self._pending:
             return ""
         pending = self._pending
         self._pending = ""
-        return _PROXY_THINKER_TAG_RE.sub("", pending)
+        lowered_pending = pending.lower()
+        if self._partial_tag_prefix(lowered_pending) or self._matching_tag_prefix(
+            lowered_pending, 0
+        ):
+            return ""
+        sanitized, _pending = self._strip_tags(pending, hold_incomplete=False)
+        return sanitized
+
+    @classmethod
+    def strip_complete(cls, text: str) -> str:
+        sanitized, _pending = cls._strip_tags(text, hold_incomplete=False)
+        return sanitized
+
+    @classmethod
+    def _strip_tags(cls, text: str, *, hold_incomplete: bool) -> tuple[str, str]:
+        lowered = text.lower()
+        output: list[str] = []
+        index = 0
+        while index < len(text):
+            if text[index] != "<":
+                output.append(text[index])
+                index += 1
+                continue
+
+            prefix = cls._matching_tag_prefix(lowered, index)
+            if prefix is None:
+                partial_prefix = cls._partial_tag_prefix(lowered[index:])
+                if partial_prefix and hold_incomplete:
+                    return "".join(output), text[index:]
+                output.append(text[index])
+                index += 1
+                continue
+
+            boundary_index = index + len(prefix)
+            if boundary_index < len(text) and not cls._is_tag_name_boundary(
+                text[boundary_index]
+            ):
+                output.append(text[index])
+                index += 1
+                continue
+
+            tag_end = cls._find_tag_end(text, boundary_index)
+            if tag_end is None:
+                if hold_incomplete:
+                    return "".join(output), text[index:]
+                return "".join(output), ""
+            index = tag_end + 1
+
+        return "".join(output), ""
 
     @staticmethod
-    def _incomplete_tag_start(text: str) -> int | None:
-        lowered = text.lower()
-        starts = (_THINKER_OPEN_TAG_PREFIX, _THINKER_CLOSE_TAG_PREFIX)
-        for index, char in enumerate(lowered):
-            if char != "<":
+    def _matching_tag_prefix(lowered: str, index: int) -> str | None:
+        for prefix in _THINKER_TAG_PREFIXES:
+            if lowered.startswith(prefix, index):
+                return prefix
+        return None
+
+    @staticmethod
+    def _partial_tag_prefix(suffix: str) -> bool:
+        return any(prefix.startswith(suffix) for prefix in _THINKER_TAG_PREFIXES)
+
+    @staticmethod
+    def _is_tag_name_boundary(char: str) -> bool:
+        return char.isspace() or char in {">", "/"}
+
+    @staticmethod
+    def _find_tag_end(text: str, start: int) -> int | None:
+        quote: str | None = None
+        for index in range(start, len(text)):
+            char = text[index]
+            if quote is not None:
+                if char == quote:
+                    quote = None
                 continue
-            suffix = lowered[index:]
-            if any(start.startswith(suffix) for start in starts):
-                return index
-            if any(suffix.startswith(start) for start in starts) and ">" not in suffix:
+            if char in {"'", '"'}:
+                quote = char
+                continue
+            if char == ">":
                 return index
         return None
 
@@ -409,14 +464,7 @@ class InterleavedThinkingOutputRecorder:
 
     @staticmethod
     def _normalize_memo_text(memo: str) -> str:
-        tagged_parts = [
-            match.group(1).strip()
-            for match in _PROXY_THINKER_MEMO_RE.finditer(memo)
-            if match.group(1).strip()
-        ]
-        if tagged_parts:
-            return "\n\n".join(tagged_parts).strip()
-        return _PROXY_THINKER_TAG_RE.sub("", memo).strip()
+        return _ProxyThinkerMemoTagStripper.strip_complete(memo).strip()
 
     @classmethod
     def _sanitize_visible_item(
@@ -504,17 +552,60 @@ class InterleavedThinkingOutputRecorder:
                         )
                         or emitted_text
                     )
-            return sanitized if emitted_text else None
+            if emitted_text:
+                cls._strip_tagged_strings_in_place(sanitized)
+                return sanitized
+            return None
 
-        for key in ("delta", "text", "content"):
+        for key in ("delta", "text", "content", "message", "data"):
             value = sanitized.get(key)
             if isinstance(value, str):
                 sanitized_value = tag_stripper.feed(value)
                 if sanitized_value:
                     sanitized[key] = sanitized_value
+                    cls._strip_tagged_strings_in_place(sanitized)
                     return sanitized
                 return None
-        return None
+            if isinstance(value, dict):
+                nested = cls._sanitize_visible_dict(value, tag_stripper)
+                if nested is not None:
+                    sanitized[key] = nested
+                    cls._strip_tagged_strings_in_place(sanitized)
+                    return sanitized
+
+        return sanitized if cls._strip_tagged_strings_in_place(sanitized) else None
+
+    @classmethod
+    def _strip_tagged_strings_in_place(cls, value: Any) -> bool:
+        found_tagged_text = False
+        if isinstance(value, dict):
+            for key, item in list(value.items()):
+                if isinstance(item, str):
+                    if cls._contains_proxy_thinker_tag(item):
+                        value[key] = _ProxyThinkerMemoTagStripper.strip_complete(item)
+                        found_tagged_text = True
+                    continue
+                if isinstance(item, dict | list):
+                    found_tagged_text = (
+                        cls._strip_tagged_strings_in_place(item) or found_tagged_text
+                    )
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                if isinstance(item, str):
+                    if cls._contains_proxy_thinker_tag(item):
+                        value[index] = _ProxyThinkerMemoTagStripper.strip_complete(item)
+                        found_tagged_text = True
+                    continue
+                if isinstance(item, dict | list):
+                    found_tagged_text = (
+                        cls._strip_tagged_strings_in_place(item) or found_tagged_text
+                    )
+        return found_tagged_text
+
+    @staticmethod
+    def _contains_proxy_thinker_tag(text: str) -> bool:
+        lowered = text.lower()
+        return any(prefix in lowered for prefix in _THINKER_TAG_PREFIXES)
 
     @staticmethod
     def _sanitize_visible_message_container(

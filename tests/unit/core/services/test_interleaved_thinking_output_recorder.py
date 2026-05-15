@@ -203,8 +203,39 @@ def test_recorder_strips_proxy_thinker_memo_tags_before_storing() -> None:
     )
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
-    assert stored["memo"] == "inner memo"
+    assert stored["memo"] == "prefix inner memo suffix"
     assert "<proxy_thinker_memo>" not in stored["memo"]
+
+
+def test_recorder_strips_proxy_thinker_memo_tags_with_quoted_gt_attribute() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+    response = ResponseEnvelope(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            'prefix <proxy_thinker_memo data="a>b">inner memo'
+                            "</proxy_thinker_memo> suffix"
+                        )
+                    }
+                }
+            ]
+        }
+    )
+
+    recorder.capture_non_streaming(
+        response=response,
+        session=session,
+        context=_context(),
+        backend_type="openai",
+        effective_model="gpt-4",
+    )
+
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "prefix inner memo suffix"
+    assert "proxy_thinker_memo" not in stored["memo"]
 
 
 def test_recorder_preserves_xml_tool_call_text_in_stored_memo_and_response() -> None:
@@ -332,6 +363,74 @@ async def test_recorder_sanitizes_visible_stream_and_converts_reasoning_to_conte
     assert delta["content"] == "visible memo"
     assert "reasoning_content" not in delta
     assert recorder.stream_to_client is True
+
+
+@pytest.mark.asyncio
+async def test_recorder_sanitizes_visible_sse_data_frame() -> None:
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(
+            content=(
+                'data: {"choices": [{"delta": {"content": '
+                '"<proxy_thinker_memo>visible</proxy_thinker_memo>"}}]}\n\n'
+            )
+        )
+        yield ProcessedResponse(content="data: [DONE]\n\n")
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert len(chunks) == 1
+    chunk = cast(dict[str, Any], chunks[0].content)
+    assert chunk["choices"][0]["delta"]["content"] == "visible"
+
+
+@pytest.mark.asyncio
+async def test_recorder_sanitizes_tags_split_across_chunks() -> None:
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(content="<proxy_thinke")
+        yield ProcessedResponse(content="r_memo>visible")
+        yield ProcessedResponse(content="</proxy_thinker_memo>")
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert [chunk.content for chunk in chunks] == ["visible"]
+
+
+@pytest.mark.asyncio
+async def test_recorder_discards_incomplete_tag_on_visible_stream_flush() -> None:
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(content="visible <proxy_thinker")
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert [chunk.content for chunk in chunks] == ["visible "]
+
+
+@pytest.mark.asyncio
+async def test_recorder_sanitizes_non_choices_visible_dict_content() -> None:
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(
+            content={
+                "message": "<proxy_thinker_memo>visible</proxy_thinker_memo>",
+                "metadata": {
+                    "note": "<proxy_thinker_memo>sanitized</proxy_thinker_memo>"
+                },
+            }
+        )
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert len(chunks) == 1
+    chunk = cast(dict[str, Any], chunks[0].content)
+    assert chunk["message"] == "visible"
+    assert "proxy_thinker_memo" not in str(chunk)
 
 
 @pytest.mark.asyncio

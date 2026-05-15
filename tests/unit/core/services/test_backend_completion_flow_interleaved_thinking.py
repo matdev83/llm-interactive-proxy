@@ -309,12 +309,73 @@ async def test_completion_flow_can_stream_sanitized_thinker_text_before_executor
 
     assert isinstance(result, StreamingResponseEnvelope)
     assert result.content is not None
+    assert deps["connector_invoker"].invoke.await_count == 2
     chunks = [item async for item in result.content]
     rendered = "\n".join(str(chunk.content) for chunk in chunks)
     assert "visible plan" in rendered
     assert "executor answer" in rendered
     assert "proxy_thinker_memo" not in rendered
-    assert deps["connector_invoker"].invoke.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_completion_flow_visible_thinker_wraps_non_streaming_executor_result(
+    tmp_path: Path,
+) -> None:
+    instructions_file = tmp_path / "thinker.md"
+    instructions_file.write_text("Thinker instructions", encoding="utf-8")
+    session = _stateful_session()
+
+    async def thinker_stream() -> Any:
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "delta": {
+                            "content": "<proxy_thinker_memo>visible plan</proxy_thinker_memo>"
+                        }
+                    }
+                ]
+            }
+        )
+
+    flow, deps = _build_flow(
+        session=session,
+        target=BackendTarget(backend="openai", model="gpt-4", uri_params={}),
+        response=StreamingResponseEnvelope(content=thinker_stream()),
+        settings=BackendSettings(
+            interleaved_thinking_instructions_file=str(instructions_file),
+            interleaved_thinking_stream_to_client=True,
+        ),
+    )
+    deps["request_preparer"].prepare_request = AsyncMock(
+        side_effect=[
+            BackendTarget(backend="openai", model="gpt-4", uri_params={}),
+            BackendTarget(backend="openrouter", model="flash", uri_params={}),
+        ]
+    )
+    deps["connector_invoker"].invoke = AsyncMock(
+        side_effect=[
+            StreamingResponseEnvelope(content=thinker_stream()),
+            ResponseEnvelope(content={"choices": [{"message": {"content": "done"}}]}),
+        ]
+    )
+
+    result = await flow.call_completion(
+        request=CanonicalChatRequest(
+            model="alias:hybrid",
+            messages=[ChatMessage(role="user", content="hello")],
+        ),
+        stream=True,
+        allow_failover=False,
+        context=_context(thinker=True),
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.content is not None
+    chunks = [item async for item in result.content]
+    rendered = "\n".join(str(chunk.content) for chunk in chunks)
+    assert "visible plan" in rendered
+    assert "done" in rendered
 
 
 @pytest.mark.asyncio

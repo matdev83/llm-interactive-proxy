@@ -683,7 +683,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             context=self._build_interleaved_thinking_continuation_context(context),
         )
 
-    def _build_visible_interleaved_thinking_stream(
+    async def _build_visible_interleaved_thinking_stream(
         self,
         *,
         thinker_response: StreamingResponseEnvelope,
@@ -694,20 +694,23 @@ class BackendCompletionFlow(IBackendCompletionFlow):
     ) -> StreamingResponseEnvelope:
         assert self._interleaved_thinking_output_recorder is not None
         output_recorder = self._interleaved_thinking_output_recorder
+        visible_items: list[Any] = []
+        if thinker_response.content is not None:
+            async for item in output_recorder.sanitize_visible_stream(
+                thinker_response.content
+            ):
+                visible_items.append(item)
+
+        continuation = await self._continue_after_interleaved_thinking(
+            request=request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
 
         async def _combined_stream() -> AsyncIterator[Any]:
-            if thinker_response.content is not None:
-                async for item in output_recorder.sanitize_visible_stream(
-                    thinker_response.content
-                ):
-                    yield item
-
-            continuation = await self._continue_after_interleaved_thinking(
-                request=request,
-                stream=stream,
-                allow_failover=allow_failover,
-                context=context,
-            )
+            for item in visible_items:
+                yield item
             if isinstance(continuation, StreamingResponseEnvelope):
                 if continuation.content is not None:
                     async for item in continuation.content:
@@ -745,7 +748,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         if not self._should_record_interleaved_thinking(attempt_context):
             return None
         if self._should_stream_interleaved_thinking_to_client(attempt_context):
-            return self._build_visible_interleaved_thinking_stream(
+            return await self._build_visible_interleaved_thinking_stream(
                 thinker_response=handled_streaming_response,
                 request=original_client_request,
                 stream=stream,
