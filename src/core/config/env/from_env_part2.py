@@ -267,6 +267,20 @@ def apply_config_part2(
             path="backends.interleaved_thinking_instructions_file",
             resolution=resolution,
         ),
+        "interleaved_thinking_stream_to_client": _env_to_bool(
+            "INTERLEAVED_THINKING_STREAM_TO_CLIENT",
+            False,
+            env,
+            path="backends.interleaved_thinking_stream_to_client",
+            resolution=resolution,
+        ),
+        "interleaved_thinking_regular_turns_remaining": _env_to_int(
+            "INTERLEAVED_THINKING_REGULAR_TURNS_REMAINING",
+            2,
+            env,
+            path="backends.interleaved_thinking_regular_turns_remaining",
+            resolution=resolution,
+        ),
     }
 
     config["routing"] = {

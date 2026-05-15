@@ -41,6 +41,8 @@ When no CLI override applies and `notifications.enabled` is omitted in YAML, the
 | `--hybrid-reasoning-model-timeout SECONDS` | `HYBRID_REASONING_MODEL_TIMEOUT` | Timeout for the reasoning model call in hybrid scenarios (default: 60). |
 | `--hybrid-reasoning-force-initial-turns N` | `HYBRID_REASONING_FORCE_INITIAL_TURNS` | Number of turns at start of session to force reasoning model usage (default: 4). |
 | `--interleaved-thinking-instructions-file PATH` | `INTERLEAVED_THINKING_INSTRUCTIONS_FILE` | Path to custom instructions injected only into `[thinker]` routed requests. |
+| `--interleaved-thinking-stream-to-client` | `INTERLEAVED_THINKING_STREAM_TO_CLIENT=1` | Stream sanitized thinker text to the client before executor output. |
+| config/env only | `INTERLEAVED_THINKING_REGULAR_TURNS_REMAINING` | Number of regular executor turns that suppress thinker selection after storing a thinker memo. |
 | `--model-alias PATTERN=REPLACEMENT` | `MODEL_ALIASES` (JSON string) | Add a model name rewrite rule (regex pattern and replacement). Can be used multiple times. |
 
 ---

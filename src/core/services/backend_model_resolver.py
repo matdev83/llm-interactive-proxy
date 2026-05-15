@@ -48,6 +48,7 @@ from src.core.services.composite_routing_state import (
     COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_RESOLUTION_FLAG,
     COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
+    INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY,
     resolve_composite_routing_surface,
 )
 from src.core.services.replacement_compatibility_bridge import (
@@ -156,6 +157,10 @@ class BackendModelResolver(IBackendModelResolver):
                         request=request,
                         context=context,
                     )
+                )
+                self._apply_interleaved_thinking_suppression_from_session(
+                    context=context,
+                    session=session,
                 )
                 should_consume_weighted_first_flag = bool(
                     session is not None
@@ -599,6 +604,29 @@ class BackendModelResolver(IBackendModelResolver):
         if isinstance(max_hops, int) and max_hops > 0:
             return max_hops
         return None
+
+    @classmethod
+    def _apply_interleaved_thinking_suppression_from_session(
+        cls,
+        *,
+        context: RequestContext | None,
+        session: Any | None,
+    ) -> None:
+        if context is None or session is None:
+            return
+        base_state = cls._session_state_as_session_state(
+            getattr(session, "state", None)
+        )
+        if base_state is None:
+            return
+        raw_state = base_state.interleaved_thinking_state
+        if not isinstance(raw_state, dict):
+            return
+        remaining = raw_state.get("regular_turns_remaining", 0)
+        if isinstance(remaining, int) and remaining > 0:
+            context.extensions[INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY] = (
+                True
+            )
 
     @staticmethod
     def _require_explicit_backend_for_surface(surface: RoutingSurface) -> bool:

@@ -264,6 +264,12 @@ class ArgumentParserBuilder:
             metavar="PATH",
             help="Path to custom instructions injected only into [thinker] routed requests",
         )
+        parser.add_argument(
+            "--interleaved-thinking-stream-to-client",
+            dest="interleaved_thinking_stream_to_client",
+            action="store_true",
+            help="Stream sanitized thinker text to the client before executor output",
+        )
 
         parser.add_argument(
             "--model-alias",

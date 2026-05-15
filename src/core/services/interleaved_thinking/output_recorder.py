@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import copy
+import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -25,6 +28,16 @@ logger = logging.getLogger(__name__)
 INTERLEAVED_THINKING_RECORDER_DIAGNOSTIC_KEY = (
     "interleaved_thinking_recorder_diagnostic"
 )
+_PROXY_THINKER_MEMO_RE = re.compile(
+    r"<proxy_thinker_memo\b[^>]*>(.*?)</proxy_thinker_memo>",
+    re.IGNORECASE | re.DOTALL,
+)
+_PROXY_THINKER_TAG_RE = re.compile(
+    r"</?proxy_thinker_memo\b[^>]*>",
+    re.IGNORECASE,
+)
+_THINKER_OPEN_TAG_PREFIX = "<proxy_thinker_memo"
+_THINKER_CLOSE_TAG_PREFIX = "</proxy_thinker_memo"
 
 
 @dataclass(frozen=True)
@@ -33,11 +46,58 @@ class _ExtractedMemo:
     source: str
 
 
+class _ProxyThinkerMemoTagStripper:
+    def __init__(self) -> None:
+        self._pending = ""
+
+    def feed(self, text: str) -> str:
+        combined = f"{self._pending}{text}"
+        self._pending = ""
+        hold_index = self._incomplete_tag_start(combined)
+        if hold_index is not None:
+            self._pending = combined[hold_index:]
+            combined = combined[:hold_index]
+        return _PROXY_THINKER_TAG_RE.sub("", combined)
+
+    def flush(self) -> str:
+        if not self._pending:
+            return ""
+        pending = self._pending
+        self._pending = ""
+        return _PROXY_THINKER_TAG_RE.sub("", pending)
+
+    @staticmethod
+    def _incomplete_tag_start(text: str) -> int | None:
+        lowered = text.lower()
+        starts = (_THINKER_OPEN_TAG_PREFIX, _THINKER_CLOSE_TAG_PREFIX)
+        for index, char in enumerate(lowered):
+            if char != "<":
+                continue
+            suffix = lowered[index:]
+            if any(start.startswith(suffix) for start in starts):
+                return index
+            if any(suffix.startswith(start) for start in starts) and ">" not in suffix:
+                return index
+        return None
+
+
 class InterleavedThinkingOutputRecorder:
     """Capture thinker output into the current session state."""
 
-    def __init__(self, *, max_output_chars: int = 8000) -> None:
+    def __init__(
+        self,
+        *,
+        max_output_chars: int = 8000,
+        stream_to_client: bool = False,
+        regular_turns_remaining: int = 2,
+    ) -> None:
         self._max_output_chars = max(1, max_output_chars)
+        self._stream_to_client = stream_to_client
+        self._regular_turns_remaining = max(0, regular_turns_remaining)
+
+    @property
+    def stream_to_client(self) -> bool:
+        return self._stream_to_client
 
     def capture_non_streaming(
         self,
@@ -145,6 +205,7 @@ class InterleavedThinkingOutputRecorder:
                 backend_type=backend_type,
                 effective_model=effective_model,
                 extraction_source=extraction_source,
+                visible_to_client=self._stream_to_client,
                 empty_reason=(
                     "empty_memo"
                     if extraction_source is not None
@@ -164,6 +225,7 @@ class InterleavedThinkingOutputRecorder:
         backend_type: str,
         effective_model: str,
         extraction_source: str | None = None,
+        visible_to_client: bool = False,
         empty_reason: str = "empty_memo",
     ) -> None:
         if session is None:
@@ -204,7 +266,7 @@ class InterleavedThinkingOutputRecorder:
                 extraction_source,
             )
             return
-        normalized_memo = memo.strip()[: self._max_output_chars]
+        normalized_memo = self._normalize_memo_text(memo)[: self._max_output_chars]
         if not normalized_memo:
             return
 
@@ -224,6 +286,8 @@ class InterleavedThinkingOutputRecorder:
             "request_id": stored_request_id,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "injected_count": 0,
+            "regular_turns_remaining": self._regular_turns_remaining,
+            "visible_to_client": visible_to_client,
             "extraction_source": extraction_source,
         }
         base_state = as_session_state(getattr(session, "state", None))
@@ -263,7 +327,7 @@ class InterleavedThinkingOutputRecorder:
         logger.info(
             "Interleaved thinking memo stored: request_id=%s session_id=%s "
             "backend=%s model=%s source_selector=%s memo_chars=%d "
-            "extraction_source=%s truncated=%s",
+            "extraction_source=%s visible_to_client=%s truncated=%s",
             request_id(context),
             session_id(context, session),
             backend_type,
@@ -271,8 +335,22 @@ class InterleavedThinkingOutputRecorder:
             source_selector,
             len(normalized_memo),
             extraction_source,
+            visible_to_client,
             len(memo.strip()) > self._max_output_chars,
         )
+
+    async def sanitize_visible_stream(
+        self,
+        source: AsyncIterator[ProcessedResponse],
+    ) -> AsyncIterator[ProcessedResponse]:
+        tag_stripper = _ProxyThinkerMemoTagStripper()
+        async for item in source:
+            sanitized = self._sanitize_visible_item(item, tag_stripper)
+            if sanitized is not None:
+                yield sanitized
+        tail = tag_stripper.flush()
+        if tail:
+            yield ProcessedResponse(content=tail)
 
     @staticmethod
     def _record_diagnostic(
@@ -328,6 +406,139 @@ class InterleavedThinkingOutputRecorder:
                 content.decode("utf-8", errors="replace"), "raw_bytes"
             )
         return None
+
+    @staticmethod
+    def _normalize_memo_text(memo: str) -> str:
+        tagged_parts = [
+            match.group(1).strip()
+            for match in _PROXY_THINKER_MEMO_RE.finditer(memo)
+            if match.group(1).strip()
+        ]
+        if tagged_parts:
+            return "\n\n".join(tagged_parts).strip()
+        return _PROXY_THINKER_TAG_RE.sub("", memo).strip()
+
+    @classmethod
+    def _sanitize_visible_item(
+        cls,
+        item: ProcessedResponse,
+        tag_stripper: _ProxyThinkerMemoTagStripper,
+    ) -> ProcessedResponse | None:
+        content = item.content
+        if isinstance(content, dict):
+            sanitized_dict = cls._sanitize_visible_dict(content, tag_stripper)
+            if sanitized_dict is None:
+                return None
+            return ProcessedResponse(
+                content=sanitized_dict,
+                usage=item.usage,
+                metadata=dict(item.metadata),
+            )
+        if isinstance(content, bytes):
+            return cls._sanitize_visible_text_like_item(
+                content.decode("utf-8", errors="replace"),
+                item,
+                tag_stripper,
+            )
+        if isinstance(content, str):
+            return cls._sanitize_visible_text_like_item(content, item, tag_stripper)
+        return None
+
+    @classmethod
+    def _sanitize_visible_text_like_item(
+        cls,
+        text: str,
+        item: ProcessedResponse,
+        tag_stripper: _ProxyThinkerMemoTagStripper,
+    ) -> ProcessedResponse | None:
+        stripped = text.strip()
+        if stripped.startswith("data:"):
+            data = stripped[5:].strip()
+            if data == "[DONE]":
+                return None
+            try:
+                parsed = json.loads(data)
+            except json.JSONDecodeError:
+                pass
+            else:
+                if isinstance(parsed, dict):
+                    sanitized = cls._sanitize_visible_dict(parsed, tag_stripper)
+                    if sanitized is None:
+                        return None
+                    return ProcessedResponse(
+                        content=sanitized,
+                        usage=item.usage,
+                        metadata=dict(item.metadata),
+                    )
+
+        sanitized_text = tag_stripper.feed(text)
+        if not sanitized_text:
+            return None
+        return ProcessedResponse(
+            content=sanitized_text,
+            usage=item.usage,
+            metadata=dict(item.metadata),
+        )
+
+    @classmethod
+    def _sanitize_visible_dict(
+        cls,
+        content: dict[str, Any],
+        tag_stripper: _ProxyThinkerMemoTagStripper,
+    ) -> dict[str, Any] | None:
+        sanitized = copy.deepcopy(content)
+        emitted_text = False
+        choices = sanitized.get("choices")
+        if isinstance(choices, list):
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+                for container_key in ("delta", "message"):
+                    container = choice.get(container_key)
+                    if not isinstance(container, dict):
+                        continue
+                    emitted_text = (
+                        cls._sanitize_visible_message_container(
+                            container,
+                            tag_stripper,
+                        )
+                        or emitted_text
+                    )
+            return sanitized if emitted_text else None
+
+        for key in ("delta", "text", "content"):
+            value = sanitized.get(key)
+            if isinstance(value, str):
+                sanitized_value = tag_stripper.feed(value)
+                if sanitized_value:
+                    sanitized[key] = sanitized_value
+                    return sanitized
+                return None
+        return None
+
+    @staticmethod
+    def _sanitize_visible_message_container(
+        container: dict[str, Any],
+        tag_stripper: _ProxyThinkerMemoTagStripper,
+    ) -> bool:
+        text = container.get("content")
+        if not isinstance(text, str) or not text:
+            for key in ("reasoning_content", "reasoning", "thinking", "thought"):
+                candidate = container.get(key)
+                if isinstance(candidate, str) and candidate:
+                    text = candidate
+                    break
+        if not isinstance(text, str) or not text:
+            return False
+
+        sanitized_text = tag_stripper.feed(text)
+        for key in ("reasoning_content", "reasoning", "thinking", "thought"):
+            container.pop(key, None)
+        if not sanitized_text:
+            container.pop("content", None)
+            return False
+        container["content"] = sanitized_text
+        return True
 
     @staticmethod
     def _first_choice(content: dict[str, Any]) -> dict[str, Any] | None:

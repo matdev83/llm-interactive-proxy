@@ -69,6 +69,30 @@ def test_recorder_captures_non_streaming_reasoning_content() -> None:
     assert diagnostic["extraction_source"] == "reasoning_content"
 
 
+def test_recorder_uses_configured_regular_turns_remaining() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(
+        max_output_chars=8000,
+        regular_turns_remaining=4,
+    )
+    response = ResponseEnvelope(
+        content={
+            "choices": [{"message": {"reasoning_content": "memo from reasoning field"}}]
+        }
+    )
+
+    recorder.capture_non_streaming(
+        response=response,
+        session=session,
+        context=_context(),
+        backend_type="openai",
+        effective_model="gpt-4",
+    )
+
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["regular_turns_remaining"] == 4
+
+
 def test_recorder_writes_capture_diagnostic_when_memo_is_stored() -> None:
     session = _session()
     context = _context()
@@ -150,6 +174,37 @@ def test_recorder_falls_back_to_non_streaming_message_content() -> None:
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "visible memo"
     assert stored["extraction_source"] == "content"
+
+
+def test_recorder_strips_proxy_thinker_memo_tags_before_storing() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+    response = ResponseEnvelope(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "prefix <proxy_thinker_memo>inner memo"
+                            "</proxy_thinker_memo> suffix"
+                        )
+                    }
+                }
+            ]
+        }
+    )
+
+    recorder.capture_non_streaming(
+        response=response,
+        session=session,
+        context=_context(),
+        backend_type="openai",
+        effective_model="gpt-4",
+    )
+
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "inner memo"
+    assert "<proxy_thinker_memo>" not in stored["memo"]
 
 
 def test_recorder_preserves_xml_tool_call_text_in_stored_memo_and_response() -> None:
@@ -240,6 +295,43 @@ async def test_recorder_wraps_stream_without_buffering_before_yield() -> None:
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "memo done"
+
+
+@pytest.mark.asyncio
+async def test_recorder_sanitizes_visible_stream_and_converts_reasoning_to_content() -> (
+    None
+):
+    recorder = InterleavedThinkingOutputRecorder(
+        max_output_chars=8000,
+        stream_to_client=True,
+    )
+
+    async def stream():
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "delta": {
+                            "reasoning_content": ("<proxy_thinker_memo>visible memo")
+                        }
+                    }
+                ]
+            }
+        )
+        yield ProcessedResponse(
+            content={
+                "choices": [{"delta": {"reasoning_content": "</proxy_thinker_memo>"}}]
+            }
+        )
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert len(chunks) == 1
+    chunk = cast(dict[str, Any], chunks[0].content)
+    delta = chunk["choices"][0]["delta"]
+    assert delta["content"] == "visible memo"
+    assert "reasoning_content" not in delta
+    assert recorder.stream_to_client is True
 
 
 @pytest.mark.asyncio

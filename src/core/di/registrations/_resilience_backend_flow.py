@@ -559,7 +559,10 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 interleaved_thinking_transformer=InterleavedThinkingRequestTransformer(
                     config.backends
                 ),
-                interleaved_thinking_output_recorder=InterleavedThinkingOutputRecorder(),
+                interleaved_thinking_output_recorder=InterleavedThinkingOutputRecorder(
+                    stream_to_client=config.backends.interleaved_thinking_stream_to_client,
+                    regular_turns_remaining=config.backends.interleaved_thinking_regular_turns_remaining,
+                ),
             )
 
         register_singleton_if_absent(

@@ -50,6 +50,17 @@ def _diagnostic(context: RequestContext) -> dict[str, Any]:
     return cast(dict[str, Any], context.extensions[INTERLEAVED_THINKING_DIAGNOSTIC_KEY])
 
 
+def _stateful_session(state: SessionState) -> MagicMock:
+    session = MagicMock()
+    session.state = state
+
+    def update_state(updated_state: SessionState) -> None:
+        session.state = updated_state
+
+    session.update_state = MagicMock(side_effect=update_state)
+    return session
+
+
 def test_transformer_adds_thinker_instructions_and_preserves_tools(
     tmp_path: Path,
 ) -> None:
@@ -244,6 +255,44 @@ def test_transformer_skips_stored_memo_when_reasoning_content_exists() -> None:
     assert diagnostic["request_reasoning_chars"] == len("client-carried thinker memo")
     assert diagnostic["message_count_before"] == 2
     assert diagnostic["message_count_after"] == 2
+
+
+def test_transformer_skips_visible_memo_already_carried_by_client_context() -> None:
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    session = _stateful_session(
+        SessionState(
+            interleaved_thinking_state={
+                "memo": "Stored thinker memo",
+                "source_selector": "openai:gpt-4",
+                "injected_count": 0,
+                "regular_turns_remaining": 2,
+                "visible_to_client": True,
+            }
+        )
+    )
+    context = _context(thinker=False)
+    request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[
+            ChatMessage(role="assistant", content="Stored thinker memo"),
+            ChatMessage(role="user", content="hello"),
+        ],
+    )
+
+    transformed = transformer.transform(
+        request=request,
+        target=BackendTarget(backend="openrouter", model="flash", uri_params={}),
+        session=session,
+        context=context,
+    )
+
+    assert transformed.messages == request.messages
+    updated_state = session.state
+    assert updated_state.interleaved_thinking_state["injected_count"] == 0
+    assert updated_state.interleaved_thinking_state["regular_turns_remaining"] == 1
+    diagnostic = _diagnostic(context)
+    assert diagnostic["action"] == "memo_injection_skipped"
+    assert diagnostic["reason"] == "memo_already_visible_in_request"
 
 
 def test_transformer_records_skip_reason_when_non_thinker_has_no_memo() -> None:

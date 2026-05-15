@@ -157,6 +157,21 @@ class BackendSettings(DomainModel):
         default=DEFAULT_INTERLEAVED_THINKING_INSTRUCTIONS_FILE,
         description="Path to a file containing instructions injected only into [thinker] routed requests.",
     )
+    interleaved_thinking_stream_to_client: bool = Field(
+        default=False,
+        description=(
+            "When enabled, stream sanitized thinker text to the client before "
+            "continuing with the executor model."
+        ),
+    )
+    interleaved_thinking_regular_turns_remaining: int = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Number of subsequent regular executor turns that suppress thinker "
+            "selection after storing a thinker memo."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod

@@ -30,6 +30,7 @@ from src.core.services.composite_routing_state import (
     COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
     COMPOSITE_SELECTED_LEAF_SELECTOR_KEY,
     FAILOVER_MODE,
+    INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY,
     WEIGHTED_RETRY_MODE,
     FailoverRuntimeState,
     WeightedRetryBranch,
@@ -173,6 +174,10 @@ class CompositeRoutingCoordinator:
                     },
                 )
 
+            eligible_weighted_children = self._filter_thinker_children_if_needed(
+                context=context,
+                children=eligible_weighted_children,
+            )
             if len(eligible_weighted_children) == 1:
                 selected_leaf = eligible_weighted_children[0]
             else:
@@ -314,6 +319,25 @@ class CompositeRoutingCoordinator:
 
         while branch_index < len(node.children):
             current_branch = node.children[branch_index]
+            if (
+                self._should_suppress_thinker_selection(context)
+                and current_branch.leaf_selector.thinker_annotation
+            ):
+                if should_publish_diagnostics:
+                    branch_history_omitted = self._append_branch_history(
+                        branch_history=branch_history,
+                        entry=self._branch_history_entry(
+                            selector_fragment=current_branch.leaf_selector.normalized_selector,
+                            outcome_category=CompositeBranchOutcomeCategory.INELIGIBLE.value,
+                            reason_code="interleaved_thinking_cooldown",
+                        ),
+                        limit=history_limit,
+                        omitted=branch_history_omitted,
+                    )
+                state["next_index"] = branch_index + 1
+                self._persist_state(context=context, state=state)
+                branch_index += 1
+                continue
             if not self._is_branch_eligible_for_max_context(
                 leaf=current_branch,
                 request_context_tokens=routing_input.request_context_tokens,
@@ -478,6 +502,30 @@ class CompositeRoutingCoordinator:
                 branch_history_omitted=branch_history_omitted,
             )
         raise build_failover_exhausted_error(state)
+
+    @staticmethod
+    def _should_suppress_thinker_selection(context: RequestContext | None) -> bool:
+        if context is None:
+            return False
+        return bool(
+            context.extensions.get(INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY)
+        )
+
+    @classmethod
+    def _filter_thinker_children_if_needed(
+        cls,
+        *,
+        context: RequestContext | None,
+        children: Sequence[CompositeLeafNode],
+    ) -> list[CompositeLeafNode]:
+        if not cls._should_suppress_thinker_selection(context):
+            return list(children)
+        non_thinker_children = [
+            child for child in children if not child.leaf_selector.thinker_annotation
+        ]
+        # Suppression is best-effort: all-thinker groups remain routable instead of
+        # failing a request that has no executor branch to choose.
+        return non_thinker_children or list(children)
 
     @staticmethod
     def _append_branch_history(

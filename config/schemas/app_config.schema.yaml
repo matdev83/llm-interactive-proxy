@@ -378,6 +378,15 @@ properties:
         type: ["string", "null"]
         default: "config/prompts/interleaved_thinking/thinker_prompt.md"
         description: "Path to custom instructions injected only into [thinker] routed requests."
+      interleaved_thinking_stream_to_client:
+        type: boolean
+        default: false
+        description: "Stream sanitized thinker text to the client before executor output."
+      interleaved_thinking_regular_turns_remaining:
+        type: integer
+        minimum: 0
+        default: 2
+        description: "Number of subsequent regular executor turns that suppress thinker selection after storing a thinker memo."
       openai_codex:
         type: object
         additionalProperties: true

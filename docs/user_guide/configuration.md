@@ -135,6 +135,8 @@ backends:
   hybrid_reasoning_force_initial_turns: 1
   hybrid_execution_model_timeout: 120
   interleaved_thinking_instructions_file: "config/prompts/interleaved_thinking/thinker_prompt.md"
+  interleaved_thinking_stream_to_client: false
+  interleaved_thinking_regular_turns_remaining: 2
   
   # Backend-specific configurations
   openai:

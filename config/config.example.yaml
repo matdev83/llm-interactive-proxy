@@ -323,6 +323,8 @@ backends:
   default_backend: "openai"
   # hybrid_backend_repeat_messages: false  # Set to true to repeat reasoning output as an artificial message in the session
   interleaved_thinking_instructions_file: "config/prompts/interleaved_thinking/thinker_prompt.md"  # File injected only into [thinker] routed requests
+  interleaved_thinking_stream_to_client: false  # Stream sanitized thinker text to the client before executor output
+  interleaved_thinking_regular_turns_remaining: 2  # Regular executor turns that suppress thinker selection after storing a memo
 
   openai:
     # API key set via OPENROUTER_API_KEY environment variable

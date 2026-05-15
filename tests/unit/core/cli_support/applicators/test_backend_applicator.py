@@ -174,6 +174,25 @@ class TestBackendApplicator:
             )
             assert resolution.is_set("backends.interleaved_thinking_instructions_file")
 
+    def test_apply_interleaved_thinking_stream_to_client(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        empty_args.interleaved_thinking_stream_to_client = True
+        with mock.patch.dict(os.environ, {}, clear=True):
+            applicator.apply(empty_args, overrides, resolution)
+
+            assert "backends" in overrides
+            assert (
+                overrides["backends"].get("interleaved_thinking_stream_to_client")
+                is True
+            )
+            assert os.environ.get("INTERLEAVED_THINKING_STREAM_TO_CLIENT") == "1"
+            assert resolution.is_set("backends.interleaved_thinking_stream_to_client")
+
     def test_apply_openrouter_api_key(
         self,
         applicator,

@@ -114,6 +114,7 @@ class TestBackendSelectionFlags:
             "--hybrid-reasoning-model-timeout",
             "--hybrid-reasoning-force-initial-turns",
             "--interleaved-thinking-instructions-file",
+            "--interleaved-thinking-stream-to-client",
             "--model-alias",
             "--quality-verifier-model",
             "--quality-verifier-frequency",

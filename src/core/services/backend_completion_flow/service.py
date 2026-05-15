@@ -6,7 +6,7 @@ import asyncio
 import logging
 import threading
 import time
-from collections.abc import Awaitable, Callable, Coroutine
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from typing import Any, cast
 from uuid import uuid4
 
@@ -62,7 +62,11 @@ from src.core.services.boundary_validation import (
     log_boundary_validation_failure,
 )
 from src.core.services.composite_routing_state import (
+    COMPOSITE_ROUTING_STATE_KEY,
     COMPOSITE_ROUTING_SURFACE_KEY,
+    COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
+    COMPOSITE_SELECTED_LEAF_SELECTOR_KEY,
+    INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY,
     resolve_composite_routing_surface,
 )
 from src.core.services.connector_invoker import ConnectorInvoker
@@ -71,6 +75,7 @@ from src.core.services.interleaved_thinking.output_recorder import (
 )
 from src.core.services.interleaved_thinking.transformer import (
     INTERLEAVED_THINKING_ACTIVE_KEY,
+    INTERLEAVED_THINKING_DIAGNOSTIC_KEY,
     InterleavedThinkingRequestTransformer,
 )
 from src.core.services.resilience.scope import (
@@ -589,6 +594,15 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             return False
         return bool(context.extensions.get(INTERLEAVED_THINKING_ACTIVE_KEY))
 
+    def _should_stream_interleaved_thinking_to_client(
+        self,
+        context: RequestContext | None,
+    ) -> bool:
+        if not self._should_record_interleaved_thinking(context):
+            return False
+        assert self._interleaved_thinking_output_recorder is not None
+        return self._interleaved_thinking_output_recorder.stream_to_client
+
     def _record_interleaved_thinking_streaming_response(
         self,
         *,
@@ -627,6 +641,182 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             context=context,
             backend_type=backend_type,
             effective_model=effective_model,
+        )
+
+    @staticmethod
+    async def _drain_streaming_response(result: StreamingResponseEnvelope) -> None:
+        if result.content is None:
+            return
+        async for _item in result.content:
+            pass
+
+    @staticmethod
+    def _build_interleaved_thinking_continuation_context(
+        context: RequestContext | None,
+    ) -> RequestContext | None:
+        if context is None:
+            return None
+        continuation = context.with_processing_context()
+        continuation.extensions.pop(INTERLEAVED_THINKING_ACTIVE_KEY, None)
+        continuation.extensions.pop(INTERLEAVED_THINKING_DIAGNOSTIC_KEY, None)
+        continuation.extensions.pop(COMPOSITE_SELECTED_LEAF_SELECTOR_KEY, None)
+        continuation.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY] = False
+        continuation.extensions[INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY] = (
+            True
+        )
+        continuation.extensions.pop("resolved_uri_params", None)
+        continuation.extensions.pop(COMPOSITE_ROUTING_STATE_KEY, None)
+        return continuation
+
+    async def _continue_after_interleaved_thinking(
+        self,
+        *,
+        request: CanonicalChatRequest,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        return await self.call_completion(
+            request=request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=self._build_interleaved_thinking_continuation_context(context),
+        )
+
+    def _build_visible_interleaved_thinking_stream(
+        self,
+        *,
+        thinker_response: StreamingResponseEnvelope,
+        request: CanonicalChatRequest,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        assert self._interleaved_thinking_output_recorder is not None
+        output_recorder = self._interleaved_thinking_output_recorder
+
+        async def _combined_stream() -> AsyncIterator[Any]:
+            if thinker_response.content is not None:
+                async for item in output_recorder.sanitize_visible_stream(
+                    thinker_response.content
+                ):
+                    yield item
+
+            continuation = await self._continue_after_interleaved_thinking(
+                request=request,
+                stream=stream,
+                allow_failover=allow_failover,
+                context=context,
+            )
+            if isinstance(continuation, StreamingResponseEnvelope):
+                if continuation.content is not None:
+                    async for item in continuation.content:
+                        yield item
+                return
+
+            from src.core.interfaces.response_processor_interface import (
+                ProcessedResponse,
+            )
+
+            yield ProcessedResponse(
+                content=continuation.content,
+                usage=continuation.usage,
+                metadata=dict(continuation.metadata or {}),
+            )
+
+        return StreamingResponseEnvelope(
+            content=_combined_stream(),
+            media_type=thinker_response.media_type,
+            headers=thinker_response.headers,
+            status_code=thinker_response.status_code,
+            metadata=dict(thinker_response.metadata or {}),
+        )
+
+    async def _maybe_continue_after_interleaved_thinking_stream(
+        self,
+        *,
+        handled_streaming_response: StreamingResponseEnvelope,
+        attempt_context: RequestContext | None,
+        original_client_request: CanonicalChatRequest,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope | None:
+        if not self._should_record_interleaved_thinking(attempt_context):
+            return None
+        if self._should_stream_interleaved_thinking_to_client(attempt_context):
+            return self._build_visible_interleaved_thinking_stream(
+                thinker_response=handled_streaming_response,
+                request=original_client_request,
+                stream=stream,
+                allow_failover=allow_failover,
+                context=context,
+            )
+        await self._drain_streaming_response(handled_streaming_response)
+        continued = await self._continue_after_interleaved_thinking(
+            request=original_client_request,
+            stream=stream,
+            allow_failover=allow_failover,
+            context=context,
+        )
+        if isinstance(continued, StreamingResponseEnvelope):
+            return continued
+        return StreamingResponseEnvelope(
+            content=self._single_non_streaming_response_as_stream(continued),
+            status_code=continued.status_code,
+            headers=continued.headers,
+            metadata=continued.metadata,
+        )
+
+    @staticmethod
+    async def _single_non_streaming_response_as_stream(
+        response: ResponseEnvelope,
+    ) -> AsyncIterator[Any]:
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        yield ProcessedResponse(
+            content=response.content,
+            usage=response.usage,
+            metadata=dict(response.metadata or {}),
+        )
+
+    @staticmethod
+    def _coerce_canonical_request(
+        request: ChatRequest,
+        context: RequestContext | None,
+    ) -> CanonicalChatRequest:
+        # BOUNDARY HARDENING: Reject dict input - coercion must happen at adapter boundaries
+        if isinstance(request, dict):
+            from src.core.common.exceptions import InvalidRequestError
+
+            log_boundary_validation_failure(
+                logger=logger,
+                message="BackendCompletionFlow received dict input. "
+                "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters). "
+                "Expected ChatRequest or CanonicalChatRequest.",
+                context=context,
+                service="BackendCompletionFlow",
+                violation_type="dict_input",
+                details={
+                    "received_type": "dict",
+                    "expected_type": "ChatRequest | CanonicalChatRequest",
+                },
+            )
+
+            raise InvalidRequestError(
+                message="BackendCompletionFlow received dict input. "
+                "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters). "
+                "Expected ChatRequest or CanonicalChatRequest.",
+                details={
+                    "received_type": "dict",
+                    "service": "BackendCompletionFlow",
+                },
+            )
+
+        return (
+            request
+            if isinstance(request, CanonicalChatRequest)
+            else CanonicalChatRequest.model_validate(request.model_dump())
         )
 
     def _build_capture_metadata(
@@ -841,42 +1031,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             RateLimitExceededError: If backend is rate limited
             AuthenticationError: If authentication fails
         """
-        # BOUNDARY HARDENING: Reject dict input - coercion must happen at adapter boundaries
-        if isinstance(request, dict):
-            from src.core.common.exceptions import InvalidRequestError
-
-            # Log boundary validation failure with correlation identifiers
-            log_boundary_validation_failure(
-                logger=logger,
-                message="BackendCompletionFlow received dict input. "
-                "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters). "
-                "Expected ChatRequest or CanonicalChatRequest.",
-                context=context,
-                service="BackendCompletionFlow",
-                violation_type="dict_input",
-                details={
-                    "received_type": "dict",
-                    "expected_type": "ChatRequest | CanonicalChatRequest",
-                },
-            )
-
-            raise InvalidRequestError(
-                message="BackendCompletionFlow received dict input. "
-                "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters). "
-                "Expected ChatRequest or CanonicalChatRequest.",
-                details={
-                    "received_type": "dict",
-                    "service": "BackendCompletionFlow",
-                },
-            )
-
-        # Ensure canonical type (ChatRequest → CanonicalChatRequest conversion)
-        # This is a compatibility check between typed contracts, not dict coercion
-        canonical_request = (
-            request
-            if isinstance(request, CanonicalChatRequest)
-            else CanonicalChatRequest.model_validate(request.model_dump())
-        )
+        canonical_request = self._coerce_canonical_request(request, context)
+        original_client_request = canonical_request.model_copy(deep=True)
 
         if context is not None:
             self._initialize_retry_metadata(context)
@@ -1224,7 +1380,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         backend_type=backend_type,
                         effective_model=effective_model,
                     )
-                    return await self._handle_streaming_response(
+                    handled_streaming_response = await self._handle_streaming_response(
                         result=result,
                         backend_type=backend_type,
                         effective_model=effective_model,
@@ -1233,6 +1389,19 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         session_id_for_backend=session_id_for_backend,
                         session_key=session_key,
                     )
+                    interleaved_continuation = (
+                        await self._maybe_continue_after_interleaved_thinking_stream(
+                            handled_streaming_response=handled_streaming_response,
+                            attempt_context=attempt_context,
+                            original_client_request=original_client_request,
+                            stream=stream,
+                            allow_failover=allow_failover,
+                            context=context,
+                        )
+                    )
+                    if interleaved_continuation is not None:
+                        return interleaved_continuation
+                    return handled_streaming_response
 
                 # Step 11: Handle non-streaming response
                 # Wire-capture: capture inbound response
@@ -1243,14 +1412,24 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     backend_type=backend_type,
                     effective_model=effective_model,
                 )
-                return await self._handle_non_streaming_response(
-                    result=result,
-                    backend_type=backend_type,
-                    effective_model=effective_model,
-                    context=attempt_context,
-                    session_id_for_backend=session_id_for_backend,
-                    session_key=session_key,
+                handled_non_streaming_response = (
+                    await self._handle_non_streaming_response(
+                        result=result,
+                        backend_type=backend_type,
+                        effective_model=effective_model,
+                        context=attempt_context,
+                        session_id_for_backend=session_id_for_backend,
+                        session_key=session_key,
+                    )
                 )
+                if self._should_record_interleaved_thinking(attempt_context):
+                    return await self._continue_after_interleaved_thinking(
+                        request=original_client_request,
+                        stream=stream,
+                        allow_failover=allow_failover,
+                        context=context,
+                    )
+                return handled_non_streaming_response
 
             except asyncio.CancelledError:
                 raise

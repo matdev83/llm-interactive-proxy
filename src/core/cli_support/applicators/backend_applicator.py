@@ -209,6 +209,16 @@ class BackendApplicator:
                 origin="--interleaved-thinking-instructions-file",
             )
 
+        if getattr(args, "interleaved_thinking_stream_to_client", False):
+            backend_overrides["interleaved_thinking_stream_to_client"] = True
+            os.environ["INTERLEAVED_THINKING_STREAM_TO_CLIENT"] = "1"
+            resolution.record(
+                "backends.interleaved_thinking_stream_to_client",
+                True,
+                ParameterSource.CLI,
+                origin="--interleaved-thinking-stream-to-client",
+            )
+
     def _apply_api_keys(
         self,
         args: CliArgs,

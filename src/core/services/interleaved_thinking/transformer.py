@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -168,6 +169,33 @@ class InterleavedThinkingRequestTransformer:
             )
             return request
 
+        if self._stored_memo_was_visible_to_client(
+            session
+        ) and self._request_contains_visible_memo(request, memo):
+            self._consume_regular_turn(session)
+            self._record_diagnostic(
+                context,
+                action="memo_injection_skipped",
+                reason="memo_already_visible_in_request",
+                target=target,
+                memo_chars=len(memo),
+                request_reasoning_messages=reasoning_message_count,
+                request_reasoning_chars=reasoning_chars,
+                message_count_before=len(request.messages),
+                message_count_after=len(request.messages),
+            )
+            logger.info(
+                "Interleaved thinking memo injection skipped: visible memo already "
+                "present in request context request_id=%s session_id=%s backend=%s "
+                "model=%s memo_chars=%d",
+                request_id(context),
+                session_id(context, session),
+                target.backend,
+                target.model,
+                len(memo),
+            )
+            return request
+
         system_message = ChatMessage(
             role="system",
             content=f"{_DEFAULT_SYSTEM_INJECTION_PREFIX}\n\n{memo}",
@@ -318,7 +346,103 @@ class InterleavedThinkingRequestTransformer:
         return None
 
     @staticmethod
+    def _stored_memo_was_visible_to_client(session: ISession | None) -> bool:
+        if session is None:
+            return False
+        raw_state = InterleavedThinkingRequestTransformer._get_interleaved_state(
+            session
+        )
+        return bool(
+            raw_state.get("visible_to_client", False)
+            if isinstance(raw_state, dict)
+            else False
+        )
+
+    @staticmethod
+    def _request_contains_visible_memo(
+        request: CanonicalChatRequest,
+        memo: str,
+    ) -> bool:
+        normalized_memo = InterleavedThinkingRequestTransformer._normalize_text(memo)
+        if not normalized_memo:
+            return False
+        for message in request.messages:
+            content_text = InterleavedThinkingRequestTransformer._message_content_text(
+                message.content
+            )
+            reasoning_text = getattr(message, "reasoning_content", None)
+            candidates = [content_text]
+            if isinstance(reasoning_text, str):
+                candidates.append(reasoning_text)
+            for candidate in candidates:
+                if (
+                    normalized_memo
+                    in InterleavedThinkingRequestTransformer._normalize_text(candidate)
+                ):
+                    return True
+        return False
+
+    @staticmethod
+    def _message_content_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+            return "\n".join(parts)
+        return ""
+
+    @staticmethod
+    def _normalize_text(value: str) -> str:
+        return " ".join(value.split())
+
+    @staticmethod
     def _increment_injected_count(session: ISession | None) -> None:
+        def update_state(state: dict[str, Any]) -> dict[str, Any]:
+            current = state.get("injected_count", 0)
+            injected_count = current if isinstance(current, int) else 0
+            raw_regular_turns = state.get("regular_turns_remaining", 0)
+            regular_turns_remaining = (
+                raw_regular_turns if isinstance(raw_regular_turns, int) else 0
+            )
+            state["injected_count"] = injected_count + 1
+            if regular_turns_remaining > 0:
+                state["regular_turns_remaining"] = regular_turns_remaining - 1
+            return state
+
+        InterleavedThinkingRequestTransformer._update_interleaved_state(
+            session,
+            update_state,
+        )
+
+    @staticmethod
+    def _consume_regular_turn(session: ISession | None) -> None:
+        def update_state(state: dict[str, Any]) -> dict[str, Any] | None:
+            raw_regular_turns = state.get("regular_turns_remaining", 0)
+            regular_turns_remaining = (
+                raw_regular_turns if isinstance(raw_regular_turns, int) else 0
+            )
+            if regular_turns_remaining <= 0:
+                return None
+            state["regular_turns_remaining"] = regular_turns_remaining - 1
+            return state
+
+        InterleavedThinkingRequestTransformer._update_interleaved_state(
+            session,
+            update_state,
+        )
+
+    @staticmethod
+    def _update_interleaved_state(
+        session: ISession | None,
+        update_state: Callable[[dict[str, Any]], dict[str, Any] | None],
+    ) -> None:
         if session is None:
             return
         base_state = as_session_state(getattr(session, "state", None))
@@ -327,10 +451,9 @@ class InterleavedThinkingRequestTransformer:
         raw_state = base_state.interleaved_thinking_state
         if not isinstance(raw_state, dict):
             return
-        current = raw_state.get("injected_count", 0)
-        injected_count = current if isinstance(current, int) else 0
-        updated_state = dict(raw_state)
-        updated_state["injected_count"] = injected_count + 1
+        updated_state = update_state(dict(raw_state))
+        if updated_state is None:
+            return
         session.update_state(
             cast(Any, base_state.with_interleaved_thinking_state(updated_state))
         )
