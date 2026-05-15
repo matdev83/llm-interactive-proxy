@@ -540,7 +540,7 @@ async def test_weighted_coordinator_skips_thinker_when_suppressed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_weighted_coordinator_can_only_fall_back_to_single_thinker_when_suppressed() -> (
+async def test_weighted_coordinator_raises_when_suppression_leaves_only_thinker() -> (
     None
 ):
     parser = CompositeSelectorParser()
@@ -570,16 +570,16 @@ async def test_weighted_coordinator_can_only_fall_back_to_single_thinker_when_su
     context = _context()
     context.extensions[INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY] = True
 
-    result = await coordinator.execute(
-        plan=plan,
-        routing_input=routing_input,
-        request=_request(),
-        context=context,
-    )
+    with pytest.raises(RoutingError) as exc_info:
+        await coordinator.execute(
+            plan=plan,
+            routing_input=routing_input,
+            request=_request(),
+            context=context,
+        )
 
-    assert result.backend == "openai"
-    assert leaf_resolver.calls == ["openai:gpt-4"]
-    assert context.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY] is True
+    assert exc_info.value.details.get("reason") == "interleaved_thinking_suppressed"
+    assert leaf_resolver.calls == []
 
 
 @pytest.mark.asyncio

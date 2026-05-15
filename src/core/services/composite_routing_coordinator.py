@@ -178,6 +178,41 @@ class CompositeRoutingCoordinator:
                 context=context,
                 children=eligible_weighted_children,
             )
+            if not eligible_weighted_children:
+                if should_publish:
+                    self._diagnostics_publisher.publish_exhaustion(
+                        context=context,
+                        selector=routing_input.selector,
+                        surface=routing_input.surface,
+                        reason="interleaved_thinking_suppressed",
+                        details={
+                            "branch_count": len(root.children),
+                            "request_context_tokens": routing_input.request_context_tokens,
+                        },
+                        branch_history=[
+                            *filtered_weighted_history,
+                            *(
+                                self._branch_history_entry(
+                                    selector_fragment=leaf.leaf_selector.normalized_selector,
+                                    outcome_category=CompositeBranchOutcomeCategory.INELIGIBLE.value,
+                                    reason_code="interleaved_thinking_suppressed",
+                                )
+                                for leaf in root.children
+                                if leaf.leaf_selector.thinker_annotation
+                            ),
+                        ],
+                    )
+                raise RoutingError(
+                    message=(
+                        "All weighted branches were excluded by interleaved thinking suppression."
+                    ),
+                    details={
+                        "code": "temporarily_unavailable",
+                        "category": "availability",
+                        "retryable": True,
+                        "reason": "interleaved_thinking_suppressed",
+                    },
+                )
             if len(eligible_weighted_children) == 1:
                 selected_leaf = eligible_weighted_children[0]
             else:
@@ -520,12 +555,9 @@ class CompositeRoutingCoordinator:
     ) -> list[CompositeLeafNode]:
         if not cls._should_suppress_thinker_selection(context):
             return list(children)
-        non_thinker_children = [
+        return [
             child for child in children if not child.leaf_selector.thinker_annotation
         ]
-        # Suppression is best-effort: all-thinker groups remain routable instead of
-        # failing a request that has no executor branch to choose.
-        return non_thinker_children or list(children)
 
     @staticmethod
     def _append_branch_history(

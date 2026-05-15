@@ -54,6 +54,8 @@ class _ProxyThinkerMemoTagStripper:
             return ""
         pending = self._pending
         self._pending = ""
+        if pending == "<":
+            return pending
         lowered_pending = pending.lower()
         if self._partial_tag_prefix(lowered_pending) or self._matching_tag_prefix(
             lowered_pending, 0
@@ -573,7 +575,8 @@ class InterleavedThinkingOutputRecorder:
                     cls._strip_tagged_strings_in_place(sanitized)
                     return sanitized
 
-        return sanitized if cls._strip_tagged_strings_in_place(sanitized) else None
+        cls._strip_tagged_strings_in_place(sanitized)
+        return sanitized
 
     @classmethod
     def _strip_tagged_strings_in_place(cls, value: Any) -> bool:

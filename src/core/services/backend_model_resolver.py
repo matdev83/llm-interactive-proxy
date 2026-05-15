@@ -162,6 +162,10 @@ class BackendModelResolver(IBackendModelResolver):
                     context=context,
                     session=session,
                 )
+                self._apply_interleaved_thinking_suppression_for_first_turn(
+                    context=context,
+                    is_first_turn=prefer_first_weighted_branch,
+                )
                 should_consume_weighted_first_flag = bool(
                     session is not None
                     and not bool(
@@ -627,6 +631,16 @@ class BackendModelResolver(IBackendModelResolver):
             context.extensions[INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY] = (
                 True
             )
+
+    @staticmethod
+    def _apply_interleaved_thinking_suppression_for_first_turn(
+        *,
+        context: RequestContext | None,
+        is_first_turn: bool,
+    ) -> None:
+        if context is None or not is_first_turn:
+            return
+        context.extensions[INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY] = True
 
     @staticmethod
     def _require_explicit_backend_for_surface(surface: RoutingSurface) -> bool:

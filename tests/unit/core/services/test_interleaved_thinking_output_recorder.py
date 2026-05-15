@@ -412,6 +412,18 @@ async def test_recorder_discards_incomplete_tag_on_visible_stream_flush() -> Non
 
 
 @pytest.mark.asyncio
+async def test_recorder_preserves_bare_less_than_on_visible_stream_flush() -> None:
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(content="2 <")
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert [chunk.content for chunk in chunks] == ["2 ", "<"]
+
+
+@pytest.mark.asyncio
 async def test_recorder_sanitizes_non_choices_visible_dict_content() -> None:
     recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
 
@@ -431,6 +443,29 @@ async def test_recorder_sanitizes_non_choices_visible_dict_content() -> None:
     chunk = cast(dict[str, Any], chunks[0].content)
     assert chunk["message"] == "visible"
     assert "proxy_thinker_memo" not in str(chunk)
+
+
+@pytest.mark.asyncio
+async def test_recorder_preserves_metadata_only_visible_dict() -> None:
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(
+            content={
+                "id": "chatcmpl-123",
+                "model": "gpt-4",
+                "created": 123,
+            }
+        )
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert len(chunks) == 1
+    assert chunks[0].content == {
+        "id": "chatcmpl-123",
+        "model": "gpt-4",
+        "created": 123,
+    }
 
 
 @pytest.mark.asyncio

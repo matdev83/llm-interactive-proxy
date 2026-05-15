@@ -426,32 +426,30 @@ def test_parse_weighted_selector_accepts_thinker_in_combined_annotation_block() 
     )
 
 
-def test_parse_weighted_selector_accepts_first_thinker_in_combined_annotation_block() -> (
-    None
-):
+@pytest.mark.parametrize(
+    "selector",
+    [
+        "[first,thinker]openai:gpt-5.5-pro^openrouter:deepseek/deepseek-v4-flash",
+        "[thinker,first]openai:gpt-5.5-pro^openrouter:deepseek/deepseek-v4-flash",
+        "[first][thinker]openai:gpt-5.5-pro^openrouter:deepseek/deepseek-v4-flash",
+        "[thinker][first]openai:gpt-5.5-pro^openrouter:deepseek/deepseek-v4-flash",
+    ],
+)
+def test_parse_weighted_selector_rejects_first_thinker_combination(
+    selector: str,
+) -> None:
     parser = CompositeSelectorParser()
 
-    plan = _parse(
-        parser,
-        "[first,thinker]openai:gpt-5.5-pro^"
-        "[weight=10]openrouter:deepseek/deepseek-v4-flash",
-    )
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, selector)
 
-    assert plan.root_node.kind == "weighted_group"
-    leaves = [child.leaf_selector for child in plan.root_node.children]
-    assert len(leaves) == 2
-    assert leaves[0].normalized_selector == "openai:gpt-5.5-pro"
-    assert leaves[0].weight_annotation == 1
-    assert leaves[0].first_annotation is True
-    assert leaves[0].thinker_annotation is True
-    assert leaves[1].normalized_selector == ("openrouter:deepseek/deepseek-v4-flash")
-    assert leaves[1].weight_annotation == 10
-    assert leaves[1].first_annotation is False
-    assert leaves[1].thinker_annotation is False
-    assert plan.normalized_selector == (
-        "[weight=1][first][thinker]openai:gpt-5.5-pro^"
-        "[weight=10]openrouter:deepseek/deepseek-v4-flash"
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
     )
+    message = exc_info.value.envelope.message.lower()
+    assert "thinker" in message
+    assert "first" in message
 
 
 def test_parse_weighted_selector_rejects_multiple_thinker_annotations() -> None:

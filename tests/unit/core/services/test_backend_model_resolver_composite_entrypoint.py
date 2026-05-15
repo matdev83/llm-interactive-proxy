@@ -24,6 +24,7 @@ from src.core.services.composite_routing_service import CompositeRoutingService
 from src.core.services.composite_routing_state import (
     COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
+    COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
 )
 from src.core.services.composite_selector_parser import CompositeSelectorParser
 from src.core.services.weighted_branch_selector import WeightedBranchSelector
@@ -828,6 +829,31 @@ async def test_first_request_in_session_uses_first_tagged_branch() -> None:
 
     assert result.backend == "openai"
     assert result.model == "first-model"
+
+
+@pytest.mark.asyncio
+async def test_first_request_in_session_excludes_thinker_from_weighted_selection() -> (
+    None
+):
+    resolver = _build_resolver_with_real_composite()
+    _attach_deterministic_weighted_composite(resolver, random_for_weights=lambda: 0.0)
+    session = Session(
+        session_id="session-main",
+        state=SessionState(weighted_first_request_consumed=False),
+    )
+    _patch_session_service(resolver, session)
+    context = _context("main")
+
+    result = await resolver.resolve_target(
+        _request(
+            "[weight=100,thinker]openai:thinker-model^[weight=1]openai:regular-model"
+        ),
+        context=context,
+    )
+
+    assert result.backend == "openai"
+    assert result.model == "regular-model"
+    assert context.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY] is False
 
 
 @pytest.mark.asyncio

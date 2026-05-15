@@ -126,6 +126,18 @@ class CompositeSelectorParser:
                     selector=routing_input.selector,
                     message="Only one branch can have a [thinker] annotation in a weighted group.",
                 )
+            if any(
+                leaf.leaf.first_annotation and leaf.leaf.thinker_annotation
+                for leaf in leaves
+            ):
+                self._raise_validation_error(
+                    code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                    selector=routing_input.selector,
+                    message=(
+                        "A thinker branch cannot also have a [first] annotation; "
+                        "there is no prior session context to reflect on during the first turn."
+                    ),
+                )
             normalized = "^".join(leaf.normalized_leaf_for_plan for leaf in leaves)
             return CompositeRoutePlan(
                 source_selector=routing_input.selector,
