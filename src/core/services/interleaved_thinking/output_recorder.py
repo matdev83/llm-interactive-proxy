@@ -7,6 +7,7 @@ import logging
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import Any, cast
 
 from src.core.domain.request_context import RequestContext
@@ -202,12 +203,23 @@ class InterleavedThinkingOutputRecorder:
         async def _wrapped() -> AsyncIterator[ProcessedResponse]:
             parts: list[str] = []
             extraction_source: str | None = None
+            saw_incremental_text = False
             try:
                 async for item in source:
                     extracted = self._extract_from_content(item.content)
                     if extracted is not None:
+                        if extracted.source == "output_text" and saw_incremental_text:
+                            yield item
+                            continue
                         parts.append(extracted.text)
                         extraction_source = extraction_source or extracted.source
+                        if extracted.source in {
+                            "content",
+                            "delta",
+                            "reasoning_content",
+                            "reasoning",
+                        }:
+                            saw_incremental_text = True
                     yield item
             except (GeneratorExit, asyncio.CancelledError):
                 partial_memo_chars = len("".join(parts))
@@ -384,30 +396,51 @@ class InterleavedThinkingOutputRecorder:
         logger.info(
             "Interleaved thinking memo stored: request_id=%s session_id=%s "
             "backend=%s model=%s source_selector=%s memo_chars=%d "
-            "extraction_source=%s visible_to_client=%s truncated=%s",
+            "memo_hash=%s memo_snippet=%r extraction_source=%s "
+            "visible_to_client=%s truncated=%s regular_turns_remaining=%d",
             request_id(context),
             session_id(context, session),
             backend_type,
             effective_model,
             source_selector,
             len(normalized_memo),
+            self._text_hash(normalized_memo),
+            self._snippet(normalized_memo),
             extraction_source,
             visible_to_client,
             len(memo.strip()) > self._max_output_chars,
+            self._regular_turns_remaining,
         )
 
     async def sanitize_visible_stream(
         self,
         source: AsyncIterator[ProcessedResponse],
+        *,
+        as_reasoning_content: bool = False,
     ) -> AsyncIterator[ProcessedResponse]:
         tag_stripper = _ProxyThinkerMemoTagStripper()
         async for item in source:
-            sanitized = self._sanitize_visible_item(item, tag_stripper)
+            sanitized = self._sanitize_visible_item(
+                item,
+                tag_stripper,
+                as_reasoning_content=as_reasoning_content,
+            )
             if sanitized is not None:
                 yield sanitized
         tail = tag_stripper.flush()
         if tail:
-            yield ProcessedResponse(content=tail)
+            if as_reasoning_content:
+                yield ProcessedResponse(
+                    content=self._text_to_reasoning_chunk(tail),
+                )
+            else:
+                yield ProcessedResponse(content=tail)
+
+    def extract_memo_text(self, content: Any) -> str | None:
+        extracted = self._extract_from_content(content)
+        if extracted is None:
+            return None
+        return extracted.text
 
     @staticmethod
     def _record_diagnostic(
@@ -445,6 +478,13 @@ class InterleavedThinkingOutputRecorder:
 
     def _extract_from_content(self, content: Any) -> _ExtractedMemo | None:
         if isinstance(content, dict):
+            if content.get("type") == "response.output_text.delta":
+                delta = content.get("delta")
+                if isinstance(delta, str):
+                    return _ExtractedMemo(delta, "delta")
+            output_text = self._extract_output_text(content)
+            if output_text is not None:
+                return _ExtractedMemo(output_text, "output_text")
             choice = self._first_choice(content)
             if choice is not None:
                 for container_key in ("message", "delta"):
@@ -457,26 +497,136 @@ class InterleavedThinkingOutputRecorder:
             if extracted is not None:
                 return extracted
         if isinstance(content, str):
+            if self._has_sse_data_payload(content):
+                parsed_sse_items = self._parse_sse_data_payloads(content)
+                extracted_parts: list[str] = []
+                extraction_source: str | None = None
+                for parsed_sse in parsed_sse_items:
+                    extracted = self._extract_from_content(parsed_sse)
+                    if extracted is None:
+                        continue
+                    extracted_parts.append(extracted.text)
+                    extraction_source = extraction_source or extracted.source
+                if not extracted_parts:
+                    return None
+                return _ExtractedMemo(
+                    "".join(extracted_parts),
+                    extraction_source or "sse_data",
+                )
             return _ExtractedMemo(content, "raw_string")
         if isinstance(content, bytes):
-            return _ExtractedMemo(
-                content.decode("utf-8", errors="replace"), "raw_bytes"
-            )
+            return self._extract_from_content(content.decode("utf-8", errors="replace"))
+        return None
+
+    @staticmethod
+    def _parse_sse_data_payloads(content: str) -> list[Any]:
+        stripped = content.strip()
+        if not stripped:
+            return []
+        data_lines: list[str] = []
+        parsed_payloads: list[Any] = []
+
+        def _flush() -> None:
+            if not data_lines:
+                return
+            data = "\n".join(data_lines).strip()
+            data_lines.clear()
+            if not data or data == "[DONE]":
+                return
+            try:
+                parsed_payloads.append(json.loads(data))
+            except json.JSONDecodeError:
+                return
+
+        for line in stripped.splitlines():
+            line = line.strip()
+            if not line:
+                _flush()
+                continue
+            if not line.startswith("data:"):
+                continue
+            data_lines.append(line[5:].strip())
+        _flush()
+        return parsed_payloads
+
+    @classmethod
+    def _parse_sse_data_payload(cls, content: str) -> Any | None:
+        payloads = cls._parse_sse_data_payloads(content)
+        return payloads[0] if payloads else None
+
+    @staticmethod
+    def _has_sse_data_payload(content: str) -> bool:
+        return any(line.strip().startswith("data:") for line in content.splitlines())
+
+    @classmethod
+    def _extract_output_text(cls, content: dict[str, Any]) -> str | None:
+        text = content.get("text")
+        if isinstance(text, str):
+            return text
+        part = content.get("part")
+        if isinstance(part, dict):
+            extracted = cls._extract_output_text(part)
+            if extracted is not None:
+                return extracted
+        item = content.get("item")
+        if isinstance(item, dict):
+            extracted = cls._extract_output_text(item)
+            if extracted is not None:
+                return extracted
+        content_value = content.get("content")
+        if isinstance(content_value, list):
+            parts: list[str] = []
+            for entry in content_value:
+                if not isinstance(entry, dict):
+                    continue
+                text = entry.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+            if parts:
+                return "".join(parts)
+        output = content.get("output")
+        if isinstance(output, list):
+            parts = []
+            for entry in output:
+                if not isinstance(entry, dict):
+                    continue
+                extracted = cls._extract_output_text(entry)
+                if extracted is not None:
+                    parts.append(extracted)
+            if parts:
+                return "".join(parts)
         return None
 
     @staticmethod
     def _normalize_memo_text(memo: str) -> str:
         return _ProxyThinkerMemoTagStripper.strip_complete(memo).strip()
 
+    @staticmethod
+    def _text_hash(text: str) -> str:
+        return sha256(text.encode("utf-8", errors="replace")).hexdigest()[:12]
+
+    @staticmethod
+    def _snippet(text: str, *, limit: int = 180) -> str:
+        normalized = " ".join(text.split())
+        if len(normalized) <= limit:
+            return normalized
+        return f"{normalized[:limit]}..."
+
     @classmethod
     def _sanitize_visible_item(
         cls,
         item: ProcessedResponse,
         tag_stripper: _ProxyThinkerMemoTagStripper,
+        *,
+        as_reasoning_content: bool = False,
     ) -> ProcessedResponse | None:
         content = item.content
         if isinstance(content, dict):
-            sanitized_dict = cls._sanitize_visible_dict(content, tag_stripper)
+            sanitized_dict = cls._sanitize_visible_dict(
+                content,
+                tag_stripper,
+                as_reasoning_content=as_reasoning_content,
+            )
             if sanitized_dict is None:
                 return None
             return ProcessedResponse(
@@ -489,9 +639,15 @@ class InterleavedThinkingOutputRecorder:
                 content.decode("utf-8", errors="replace"),
                 item,
                 tag_stripper,
+                as_reasoning_content=as_reasoning_content,
             )
         if isinstance(content, str):
-            return cls._sanitize_visible_text_like_item(content, item, tag_stripper)
+            return cls._sanitize_visible_text_like_item(
+                content,
+                item,
+                tag_stripper,
+                as_reasoning_content=as_reasoning_content,
+            )
         return None
 
     @classmethod
@@ -500,30 +656,37 @@ class InterleavedThinkingOutputRecorder:
         text: str,
         item: ProcessedResponse,
         tag_stripper: _ProxyThinkerMemoTagStripper,
+        *,
+        as_reasoning_content: bool = False,
     ) -> ProcessedResponse | None:
         stripped = text.strip()
-        if stripped.startswith("data:"):
-            data = stripped[5:].strip()
-            if data == "[DONE]":
+        if cls._has_sse_data_payload(stripped):
+            data = cls._parse_sse_data_payload(stripped)
+            if data is None:
                 return None
-            try:
-                parsed = json.loads(data)
-            except json.JSONDecodeError:
-                pass
-            else:
-                if isinstance(parsed, dict):
-                    sanitized = cls._sanitize_visible_dict(parsed, tag_stripper)
-                    if sanitized is None:
-                        return None
-                    return ProcessedResponse(
-                        content=sanitized,
-                        usage=item.usage,
-                        metadata=dict(item.metadata),
-                    )
+            if isinstance(data, dict):
+                sanitized = cls._sanitize_visible_dict(
+                    data,
+                    tag_stripper,
+                    as_reasoning_content=as_reasoning_content,
+                )
+                if sanitized is None:
+                    return None
+                return ProcessedResponse(
+                    content=sanitized,
+                    usage=item.usage,
+                    metadata=dict(item.metadata),
+                )
 
         sanitized_text = tag_stripper.feed(text)
         if not sanitized_text:
             return None
+        if as_reasoning_content:
+            return ProcessedResponse(
+                content=cls._text_to_reasoning_chunk(sanitized_text),
+                usage=item.usage,
+                metadata=dict(item.metadata),
+            )
         return ProcessedResponse(
             content=sanitized_text,
             usage=item.usage,
@@ -535,6 +698,8 @@ class InterleavedThinkingOutputRecorder:
         cls,
         content: dict[str, Any],
         tag_stripper: _ProxyThinkerMemoTagStripper,
+        *,
+        as_reasoning_content: bool = False,
     ) -> dict[str, Any] | None:
         sanitized = copy.deepcopy(content)
         emitted_text = False
@@ -551,6 +716,7 @@ class InterleavedThinkingOutputRecorder:
                         cls._sanitize_visible_message_container(
                             container,
                             tag_stripper,
+                            as_reasoning_content=as_reasoning_content,
                         )
                         or emitted_text
                     )
@@ -569,7 +735,11 @@ class InterleavedThinkingOutputRecorder:
                     return sanitized
                 return None
             if isinstance(value, dict):
-                nested = cls._sanitize_visible_dict(value, tag_stripper)
+                nested = cls._sanitize_visible_dict(
+                    value,
+                    tag_stripper,
+                    as_reasoning_content=as_reasoning_content,
+                )
                 if nested is not None:
                     sanitized[key] = nested
                     cls._strip_tagged_strings_in_place(sanitized)
@@ -614,6 +784,8 @@ class InterleavedThinkingOutputRecorder:
     def _sanitize_visible_message_container(
         container: dict[str, Any],
         tag_stripper: _ProxyThinkerMemoTagStripper,
+        *,
+        as_reasoning_content: bool = False,
     ) -> bool:
         text = container.get("content")
         if not isinstance(text, str) or not text:
@@ -631,8 +803,25 @@ class InterleavedThinkingOutputRecorder:
         if not sanitized_text:
             container.pop("content", None)
             return False
+        if as_reasoning_content:
+            container["content"] = ""
+            container["reasoning_content"] = sanitized_text
+            return True
         container["content"] = sanitized_text
         return True
+
+    @staticmethod
+    def _text_to_reasoning_chunk(text: str) -> dict[str, Any]:
+        return {
+            "choices": [
+                {
+                    "delta": {
+                        "reasoning_content": text,
+                        "content": "",
+                    }
+                }
+            ]
+        }
 
     @staticmethod
     def _first_choice(content: dict[str, Any]) -> dict[str, Any] | None:

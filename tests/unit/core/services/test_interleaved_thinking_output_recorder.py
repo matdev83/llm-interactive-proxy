@@ -386,6 +386,214 @@ async def test_recorder_sanitizes_visible_sse_data_frame() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recorder_can_emit_visible_thinker_text_as_reasoning_content() -> None:
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "delta": {
+                            "content": (
+                                "<proxy_thinker_memo>visible memo"
+                                "</proxy_thinker_memo>"
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+    chunks = [
+        item
+        async for item in recorder.sanitize_visible_stream(
+            stream(),
+            as_reasoning_content=True,
+        )
+    ]
+
+    assert len(chunks) == 1
+    chunk = cast(dict[str, Any], chunks[0].content)
+    delta = chunk["choices"][0]["delta"]
+    assert delta["reasoning_content"] == "visible memo"
+    assert delta["content"] == ""
+
+
+@pytest.mark.asyncio
+async def test_recorder_captures_codex_output_text_delta_sse_frame() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+
+    async def stream():
+        yield ProcessedResponse(
+            content=(
+                "event: response.output_text.delta\n"
+                'data: {"type": "response.output_text.delta", "delta": '
+                '"first "}\n\n'
+            )
+        )
+        yield ProcessedResponse(
+            content={
+                "type": "response.output_text.delta",
+                "delta": "second",
+            }
+        )
+        yield ProcessedResponse(content="data: [DONE]\n\n")
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    wrapped = recorder.wrap_streaming(
+        response=envelope,
+        session=session,
+        context=_context(),
+        backend_type="openai-codex",
+        effective_model="gpt-5.5",
+    )
+
+    assert wrapped.content is not None
+    chunks = [item async for item in wrapped.content]
+    assert len(chunks) == 3
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "first second"
+    assert stored["extraction_source"] == "delta"
+
+
+@pytest.mark.asyncio
+async def test_recorder_captures_coalesced_codex_output_text_delta_sse_frames() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+
+    async def stream():
+        yield ProcessedResponse(
+            content=(
+                "event: response.output_text.delta\n"
+                'data: {"type": "response.output_text.delta", "delta": "one"}\n\n'
+                "event: response.output_text.delta\n"
+                'data: {"type": "response.output_text.delta", "delta": " two"}\n\n'
+            )
+        )
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    wrapped = recorder.wrap_streaming(
+        response=envelope,
+        session=session,
+        context=_context(),
+        backend_type="openai-codex",
+        effective_model="gpt-5.5",
+    )
+
+    assert wrapped.content is not None
+    chunks = [item async for item in wrapped.content]
+    assert len(chunks) == 1
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "one two"
+
+
+@pytest.mark.asyncio
+async def test_recorder_captures_codex_output_text_done_sse_frame() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+
+    async def stream():
+        yield ProcessedResponse(
+            content=(
+                "event: response.output_text.done\n"
+                'data: {"type": "response.output_text.done", "text": '
+                '"<proxy_thinker_memo>final memo</proxy_thinker_memo>"}\n\n'
+            )
+        )
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    wrapped = recorder.wrap_streaming(
+        response=envelope,
+        session=session,
+        context=_context(),
+        backend_type="openai-codex",
+        effective_model="gpt-5.5",
+    )
+
+    assert wrapped.content is not None
+    chunks = [item async for item in wrapped.content]
+    assert len(chunks) == 1
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "final memo"
+    assert stored["extraction_source"] == "output_text"
+
+
+@pytest.mark.asyncio
+async def test_recorder_captures_codex_content_part_done_sse_frame() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+
+    async def stream():
+        yield ProcessedResponse(
+            content=(
+                "event: response.content_part.done\n"
+                'data: {"type": "response.content_part.done", "part": '
+                '{"type": "output_text", "text": '
+                '"<proxy_thinker_memo>part memo</proxy_thinker_memo>"}}\n\n'
+            )
+        )
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    wrapped = recorder.wrap_streaming(
+        response=envelope,
+        session=session,
+        context=_context(),
+        backend_type="openai-codex",
+        effective_model="gpt-5.5",
+    )
+
+    assert wrapped.content is not None
+    chunks = [item async for item in wrapped.content]
+    assert len(chunks) == 1
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "part memo"
+    assert stored["extraction_source"] == "output_text"
+
+
+@pytest.mark.asyncio
+async def test_recorder_does_not_duplicate_codex_final_output_item_after_deltas() -> (
+    None
+):
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+
+    async def stream():
+        yield ProcessedResponse(
+            content={"type": "response.output_text.delta", "delta": "memo"}
+        )
+        yield ProcessedResponse(
+            content={
+                "type": "response.output_item.done",
+                "item": {
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "memo",
+                        }
+                    ]
+                },
+            }
+        )
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    wrapped = recorder.wrap_streaming(
+        response=envelope,
+        session=session,
+        context=_context(),
+        backend_type="openai-codex",
+        effective_model="gpt-5.5",
+    )
+
+    assert wrapped.content is not None
+    chunks = [item async for item in wrapped.content]
+    assert len(chunks) == 2
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "memo"
+
+
+@pytest.mark.asyncio
 async def test_recorder_sanitizes_tags_split_across_chunks() -> None:
     recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
 

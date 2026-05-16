@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
 import time
@@ -26,7 +27,7 @@ from src.core.common.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
 from src.core.domain.b2bua_identity import B2buaIdentity
-from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
@@ -73,9 +74,11 @@ from src.core.services.connector_invoker import ConnectorInvoker
 from src.core.services.interleaved_thinking.output_recorder import (
     InterleavedThinkingOutputRecorder,
 )
+from src.core.services.interleaved_thinking.state_utils import request_id, session_id
 from src.core.services.interleaved_thinking.transformer import (
     INTERLEAVED_THINKING_ACTIVE_KEY,
     INTERLEAVED_THINKING_DIAGNOSTIC_KEY,
+    INTERLEAVED_THINKING_SUPPRESS_MEMO_INJECTION_KEY,
     InterleavedThinkingRequestTransformer,
 )
 from src.core.services.resilience.scope import (
@@ -561,6 +564,114 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             context=context,
         )
 
+    @classmethod
+    def _strip_client_reasoning_content_from_request(
+        cls,
+        request: CanonicalChatRequest,
+        context: RequestContext | None,
+    ) -> CanonicalChatRequest:
+        if not cls._is_interleaved_composite_attempt(context):
+            return request
+
+        messages: list[ChatMessage] = []
+        stripped_count = 0
+        dropped_count = 0
+        for message in request.messages:
+            if message.reasoning_content is None:
+                messages.append(message)
+                continue
+
+            stripped_count += 1
+            stripped_message = message.model_copy(update={"reasoning_content": None})
+            if cls._is_empty_reasoning_only_message(stripped_message):
+                dropped_count += 1
+                continue
+            messages.append(stripped_message)
+
+        if stripped_count <= 0:
+            return request
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Stripped client-carried reasoning_content from interleaved "
+                "backend request: request_id=%s session_id=%s stripped_messages=%d "
+                "dropped_empty_messages=%d",
+                request_id(context),
+                session_id(context, None),
+                stripped_count,
+                dropped_count,
+            )
+        return request.model_copy(update={"messages": messages})
+
+    @staticmethod
+    def _is_empty_reasoning_only_message(message: ChatMessage) -> bool:
+        content = message.content
+        has_content = False
+        if isinstance(content, str):
+            has_content = bool(content.strip())
+        elif content is not None:
+            has_content = True
+        return (
+            not has_content
+            and not message.tool_calls
+            and not message.tool_call_id
+            and not message.name
+        )
+
+    @staticmethod
+    def _is_interleaved_composite_attempt(context: RequestContext | None) -> bool:
+        if context is None:
+            return False
+        return COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY in context.extensions
+
+    def _should_strip_executor_reasoning_to_client(
+        self,
+        context: RequestContext | None,
+    ) -> bool:
+        if self._interleaved_thinking_output_recorder is None:
+            return False
+        if not self._is_interleaved_composite_attempt(context):
+            return False
+        if context is None:
+            return False
+        return not bool(context.extensions.get(COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY))
+
+    def _strip_executor_reasoning_from_streaming_envelope(
+        self,
+        response: StreamingResponseEnvelope,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        if not self._should_strip_executor_reasoning_to_client(context):
+            return response
+        if response.content is None:
+            return response
+        original_content = response.content
+
+        async def _stripped() -> AsyncIterator[Any]:
+            async for item in original_content:
+                sanitized_item = self._strip_executor_reasoning_from_stream_item(item)
+                if sanitized_item is not None:
+                    yield sanitized_item
+
+        response.content = _stripped()
+        return response
+
+    def _strip_executor_reasoning_from_response_envelope(
+        self,
+        response: ResponseEnvelope,
+        context: RequestContext | None,
+    ) -> ResponseEnvelope:
+        if not self._should_strip_executor_reasoning_to_client(context):
+            return response
+        return ResponseEnvelope(
+            content=self._strip_executor_reasoning_from_content(response.content),
+            headers=response.headers,
+            status_code=response.status_code,
+            media_type=response.media_type,
+            usage=response.usage,
+            metadata=response.metadata,
+            canonical_usage=response.canonical_usage,
+        )
+
     @staticmethod
     def _extract_retry_after(headers: dict[str, str] | None) -> float | None:
         if not headers:
@@ -598,10 +709,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self,
         context: RequestContext | None,
     ) -> bool:
-        if not self._should_record_interleaved_thinking(context):
-            return False
-        assert self._interleaved_thinking_output_recorder is not None
-        return self._interleaved_thinking_output_recorder.stream_to_client
+        return self._should_record_interleaved_thinking(context)
 
     def _record_interleaved_thinking_streaming_response(
         self,
@@ -650,9 +758,37 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         async for _item in result.content:
             pass
 
+    def _drain_interleaved_thinking_stream_in_background(
+        self,
+        result: StreamingResponseEnvelope,
+        context: RequestContext | None,
+    ) -> None:
+        async def _drain() -> None:
+            await self._drain_streaming_response(result)
+
+        task = asyncio.create_task(_drain())
+
+        def _observe_completion(done: asyncio.Task[None]) -> None:
+            if done.cancelled():
+                return
+            exception = done.exception()
+            if exception is None:
+                return
+            logger.warning(
+                "Background interleaved thinking stream drain failed: "
+                "request_id=%s session_id=%s",
+                request_id(context),
+                session_id(context, None),
+                exc_info=(type(exception), exception, exception.__traceback__),
+            )
+
+        task.add_done_callback(_observe_completion)
+
     @staticmethod
     def _build_interleaved_thinking_continuation_context(
         context: RequestContext | None,
+        *,
+        suppress_memo_injection: bool = False,
     ) -> RequestContext | None:
         if context is None:
             return None
@@ -666,6 +802,10 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         )
         continuation.extensions.pop("resolved_uri_params", None)
         continuation.extensions.pop(COMPOSITE_ROUTING_STATE_KEY, None)
+        if suppress_memo_injection:
+            continuation.extensions[
+                INTERLEAVED_THINKING_SUPPRESS_MEMO_INJECTION_KEY
+            ] = True
         return continuation
 
     async def _continue_after_interleaved_thinking(
@@ -675,13 +815,38 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         stream: bool,
         allow_failover: bool,
         context: RequestContext | None,
+        suppress_memo_injection: bool = False,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         return await self.call_completion(
             request=request,
             stream=stream,
             allow_failover=allow_failover,
-            context=self._build_interleaved_thinking_continuation_context(context),
+            context=self._build_interleaved_thinking_continuation_context(
+                context,
+                suppress_memo_injection=suppress_memo_injection,
+            ),
         )
+
+    @staticmethod
+    def _append_visible_interleaved_thinking_output(
+        request: CanonicalChatRequest,
+        memo: str,
+    ) -> CanonicalChatRequest:
+        normalized_memo = memo.strip()
+        if not normalized_memo:
+            return request
+        messages = [
+            *request.messages,
+            ChatMessage(
+                role="assistant",
+                content=normalized_memo,
+                metadata={
+                    "source": "interleaved_thinking",
+                    "kind": "visible_thinker_output",
+                },
+            ),
+        ]
+        return request.model_copy(update={"messages": messages})
 
     async def _build_visible_interleaved_thinking_stream(
         self,
@@ -698,23 +863,39 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         stream_finished = object()
 
         async def _produce_stream() -> None:
+            visible_memo_parts: list[str] = []
             try:
                 if thinker_response.content is not None:
                     async for item in output_recorder.sanitize_visible_stream(
-                        thinker_response.content
+                        thinker_response.content,
+                        as_reasoning_content=True,
                     ):
+                        extracted_text = output_recorder.extract_memo_text(item.content)
+                        if extracted_text:
+                            current_memo = "".join(visible_memo_parts)
+                            if extracted_text != current_memo:
+                                visible_memo_parts.append(extracted_text)
                         await queue.put(item)
 
+                continuation_request = self._append_visible_interleaved_thinking_output(
+                    request,
+                    "".join(visible_memo_parts),
+                )
                 continuation = await self._continue_after_interleaved_thinking(
-                    request=request,
+                    request=continuation_request,
                     stream=stream,
                     allow_failover=allow_failover,
                     context=context,
+                    suppress_memo_injection=True,
                 )
                 if isinstance(continuation, StreamingResponseEnvelope):
                     if continuation.content is not None:
                         async for item in continuation.content:
-                            await queue.put(item)
+                            sanitized_item = (
+                                self._strip_executor_reasoning_from_stream_item(item)
+                            )
+                            if sanitized_item is not None:
+                                await queue.put(sanitized_item)
                     return
 
                 from src.core.interfaces.response_processor_interface import (
@@ -723,7 +904,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                 await queue.put(
                     ProcessedResponse(
-                        content=continuation.content,
+                        content=self._strip_executor_reasoning_from_content(
+                            continuation.content
+                        ),
                         usage=continuation.usage,
                         metadata=dict(continuation.metadata or {}),
                     )
@@ -764,6 +947,97 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             metadata=dict(thinker_response.metadata or {}),
         )
 
+    @classmethod
+    def _strip_executor_reasoning_from_stream_item(
+        cls,
+        item: Any,
+    ) -> Any | None:
+        content = getattr(item, "content", None)
+        stripped_content = cls._strip_executor_reasoning_from_content(content)
+        if stripped_content is None:
+            return None
+
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        return ProcessedResponse(
+            content=stripped_content,
+            usage=getattr(item, "usage", None),
+            metadata=dict(getattr(item, "metadata", {}) or {}),
+        )
+
+    @classmethod
+    def _strip_executor_reasoning_from_content(cls, content: Any) -> Any | None:
+        if isinstance(content, dict):
+            sanitized = cls._strip_reasoning_content_from_dict(content)
+            return sanitized if cls._dict_has_emittable_delta(sanitized) else None
+        if isinstance(content, bytes):
+            stripped = cls._strip_reasoning_content_from_sse_text(
+                content.decode("utf-8", errors="replace")
+            )
+            return stripped.encode("utf-8") if stripped is not None else None
+        if isinstance(content, str):
+            return cls._strip_reasoning_content_from_sse_text(content)
+        return content
+
+    @classmethod
+    def _strip_reasoning_content_from_sse_text(cls, text: str) -> str | None:
+        stripped = text.strip()
+        if not stripped.startswith("data:"):
+            return text
+        data = stripped[5:].strip()
+        if not data or data == "[DONE]":
+            return text
+        try:
+            parsed = json.loads(data)
+        except json.JSONDecodeError:
+            return text
+        if not isinstance(parsed, dict):
+            return text
+        sanitized = cls._strip_reasoning_content_from_dict(parsed)
+        if not cls._dict_has_emittable_delta(sanitized):
+            return None
+        return f"data: {json.dumps(sanitized, separators=(',', ':'))}\n\n"
+
+    @classmethod
+    def _strip_reasoning_content_from_dict(
+        cls,
+        content: dict[str, Any],
+    ) -> dict[str, Any]:
+        sanitized = dict(content)
+        choices = sanitized.get("choices")
+        if isinstance(choices, list):
+            sanitized_choices: list[Any] = []
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    sanitized_choices.append(choice)
+                    continue
+                sanitized_choice = dict(choice)
+                delta = sanitized_choice.get("delta")
+                if isinstance(delta, dict):
+                    sanitized_delta = dict(delta)
+                    sanitized_delta.pop("reasoning_content", None)
+                    sanitized_choice["delta"] = sanitized_delta
+                sanitized_choices.append(sanitized_choice)
+            sanitized["choices"] = sanitized_choices
+        return sanitized
+
+    @staticmethod
+    def _dict_has_emittable_delta(content: dict[str, Any]) -> bool:
+        choices = content.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return True
+        for choice in choices:
+            if not isinstance(choice, dict):
+                return True
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                return True
+            if any(value not in (None, "") for value in delta.values()):
+                return True
+            if choice.get("finish_reason") is not None:
+                return True
+        return False
+
     async def _maybe_continue_after_interleaved_thinking_stream(
         self,
         *,
@@ -784,7 +1058,10 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 allow_failover=allow_failover,
                 context=context,
             )
-        await self._drain_streaming_response(handled_streaming_response)
+        self._drain_interleaved_thinking_stream_in_background(
+            handled_streaming_response,
+            attempt_context,
+        )
         continued = await self._continue_after_interleaved_thinking(
             request=original_client_request,
             stream=stream,
@@ -1075,6 +1352,14 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         )
         canonical_request = self._request_preparer.synchronize_request_with_target(
             canonical_request, target
+        )
+        canonical_request = self._strip_client_reasoning_content_from_request(
+            canonical_request,
+            context,
+        )
+        original_client_request = self._strip_client_reasoning_content_from_request(
+            original_client_request,
+            context,
         )
         recovery_canonical_request = canonical_request.model_copy(deep=True)
         backend_type = target.backend
@@ -1433,6 +1718,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     )
                     if interleaved_continuation is not None:
                         return interleaved_continuation
+                    handled_streaming_response = (
+                        self._strip_executor_reasoning_from_streaming_envelope(
+                            handled_streaming_response,
+                            attempt_context,
+                        )
+                    )
                     return handled_streaming_response
 
                 # Step 11: Handle non-streaming response
@@ -1461,6 +1752,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         allow_failover=allow_failover,
                         context=context,
                     )
+                handled_non_streaming_response = (
+                    self._strip_executor_reasoning_from_response_envelope(
+                        handled_non_streaming_response,
+                        attempt_context,
+                    )
+                )
                 return handled_non_streaming_response
 
             except asyncio.CancelledError:

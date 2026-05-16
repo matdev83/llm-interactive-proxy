@@ -21,6 +21,7 @@ from src.connectors.openai import (
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.model_utils import RESOLVED_URI_PARAMS_EXTRA_BODY_KEY
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.responses_native_wiring import (
     RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
@@ -698,6 +699,80 @@ class TestOpenAICanonicalAPI:
 class TestOpenAIPayloadCleaning:
     """Tests for outbound payload hygiene."""
 
+    @pytest.mark.asyncio
+    async def test_prepare_payload_disables_deepseek_native_reasoning_controls(
+        self, openai_connector
+    ):
+        request = CanonicalChatRequest(
+            model="deepseek-v4-flash-free",
+            messages=[ChatMessage(role="user", content="one")],
+            reasoning_effort="max",
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request,
+            request.messages,
+            "deepseek-v4-flash-free",
+        )
+
+        assert "reasoning" not in payload
+        assert "thinking" not in payload
+        assert "reasoning_effort" not in payload
+
+    @pytest.mark.asyncio
+    async def test_prepare_payload_preserves_deepseek_reasoning_continuation(
+        self, openai_connector
+    ):
+        request = CanonicalChatRequest(
+            model="deepseek-v4-flash-free",
+            messages=[
+                ChatMessage(role="user", content="one"),
+                ChatMessage(
+                    role="assistant",
+                    content="two",
+                    reasoning_content="old partial reasoning",
+                ),
+                ChatMessage(role="user", content="three"),
+            ],
+            reasoning_effort="max",
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request,
+            request.messages,
+            "deepseek-v4-flash-free",
+        )
+
+        assert "reasoning" not in payload
+        assert "thinking" not in payload
+        assert payload["messages"][1]["reasoning_content"] == "old partial reasoning"
+        assert "reasoning" not in payload["messages"][1]
+
+    @pytest.mark.asyncio
+    async def test_prepare_payload_preserves_non_deepseek_reasoning_continuation(
+        self, openai_connector
+    ):
+        request = CanonicalChatRequest(
+            model="gpt-compatible",
+            messages=[
+                ChatMessage(
+                    role="assistant",
+                    content="two",
+                    reasoning_content="reasoning to preserve",
+                ),
+            ],
+            reasoning_effort="high",
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request,
+            request.messages,
+            "gpt-compatible",
+        )
+
+        assert payload["reasoning"] == {"effort": "high"}
+        assert payload["messages"][0]["reasoning_content"] == "reasoning to preserve"
+
     def test_clean_openai_payload_strips_internal_stream_routing_keys(
         self, openai_connector
     ):
@@ -705,10 +780,12 @@ class TestOpenAIPayloadCleaning:
             {
                 "model": "gpt-4",
                 "messages": [],
+                RESOLVED_URI_PARAMS_EXTRA_BODY_KEY: {"reasoning_effort": "max"},
                 _LLM_PROXY_STREAM_URL_KEY: "https://x/v1/chat/completions",
                 _LLM_PROXY_STREAM_HEADERS_KEY: {"Authorization": "Bearer z"},
             }
         )
+        assert RESOLVED_URI_PARAMS_EXTRA_BODY_KEY not in cleaned
         assert _LLM_PROXY_STREAM_URL_KEY not in cleaned
         assert _LLM_PROXY_STREAM_HEADERS_KEY not in cleaned
         assert cleaned.get("model") == "gpt-4"

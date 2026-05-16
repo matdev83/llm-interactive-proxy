@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, cast
 
@@ -26,10 +28,28 @@ logger = logging.getLogger(__name__)
 
 INTERLEAVED_THINKING_ACTIVE_KEY = "interleaved_thinking_active"
 INTERLEAVED_THINKING_DIAGNOSTIC_KEY = "interleaved_thinking_diagnostic"
+INTERLEAVED_THINKING_SUPPRESS_MEMO_INJECTION_KEY = (
+    "interleaved_thinking_suppress_memo_injection"
+)
 _DEFAULT_SYSTEM_INJECTION_PREFIX = (
     "The proxy captured this thinker memo for the next executor model. "
     "Use it as planning context, but obey the user's latest request."
 )
+_THINKER_MEMO_MARKER = "<proxy_thinker_memo"
+
+
+@dataclass(frozen=True)
+class _ReasoningContentStats:
+    message_count: int = 0
+    total_chars: int = 0
+    interleaved_metadata_count: int = 0
+    tagged_memo_count: int = 0
+    first_role: str | None = None
+    last_role: str | None = None
+    first_hash: str | None = None
+    last_hash: str | None = None
+    first_snippet: str | None = None
+    last_snippet: str | None = None
 
 
 class InterleavedThinkingRequestTransformer:
@@ -79,6 +99,12 @@ class InterleavedThinkingRequestTransformer:
                 ),
                 *request.messages,
             ]
+            request_updates: dict[str, Any] = {
+                "messages": messages,
+                "tools": None,
+                "tool_choice": None,
+                "parallel_tool_calls": None,
+            }
             if context is not None:
                 context.extensions[INTERLEAVED_THINKING_ACTIVE_KEY] = True
             self._record_diagnostic(
@@ -92,7 +118,8 @@ class InterleavedThinkingRequestTransformer:
             logger.info(
                 "Interleaved thinking prompt injected: request_id=%s "
                 "session_id=%s backend=%s model=%s instructions_chars=%d "
-                "messages_before=%d messages_after=%d tools_present=%s",
+                "messages_before=%d messages_after=%d tools_present_before=%s "
+                "tools_forwarded=False",
                 request_id(context),
                 session_id(context, session),
                 target.backend,
@@ -102,35 +129,67 @@ class InterleavedThinkingRequestTransformer:
                 len(messages),
                 bool(request.tools),
             )
-            return request.model_copy(update={"messages": messages})
+            return request.model_copy(update=request_updates)
 
-        reasoning_message_count, reasoning_chars = (
-            self._request_reasoning_content_stats(request)
-        )
+        reasoning_stats = self._request_reasoning_content_stats(request)
         memo = self._get_stored_memo(session)
+        if self._is_memo_injection_suppressed(context):
+            self._record_diagnostic(
+                context,
+                action="memo_injection_skipped",
+                reason="suppressed_by_continuation",
+                target=target,
+                memo_chars=len(memo) if memo else None,
+                request_reasoning=reasoning_stats,
+                message_count_before=len(request.messages),
+                message_count_after=len(request.messages),
+            )
+            logger.info(
+                "Interleaved thinking memo injection skipped: suppressed by "
+                "continuation request_id=%s session_id=%s backend=%s model=%s "
+                "stored_memo_chars=%d",
+                request_id(context),
+                session_id(context, session),
+                target.backend,
+                target.model,
+                len(memo) if memo else 0,
+            )
+            return request
         if not memo:
             self._record_diagnostic(
                 context,
                 action="memo_injection_skipped",
                 reason="no_stored_memo",
                 target=target,
-                request_reasoning_messages=reasoning_message_count,
-                request_reasoning_chars=reasoning_chars,
+                request_reasoning=reasoning_stats,
                 message_count_before=len(request.messages),
                 message_count_after=len(request.messages),
             )
-            if reasoning_message_count:
+            if reasoning_stats.message_count:
                 logger.info(
                     "Interleaved thinking memo injection skipped: no stored proxy memo, "
                     "but request already carries reasoning_content "
                     "request_id=%s session_id=%s backend=%s model=%s "
-                    "reasoning_messages=%d reasoning_chars=%d",
+                    "reasoning_messages=%d reasoning_chars=%d "
+                    "reasoning_interleaved_metadata_messages=%d "
+                    "reasoning_tagged_memo_messages=%d first_role=%s last_role=%s "
+                    "first_hash=%s last_hash=%s first_snippet=%r last_snippet=%r "
+                    "interpretation=%s",
                     request_id(context),
                     session_id(context, session),
                     target.backend,
                     target.model,
-                    reasoning_message_count,
-                    reasoning_chars,
+                    reasoning_stats.message_count,
+                    reasoning_stats.total_chars,
+                    reasoning_stats.interleaved_metadata_count,
+                    reasoning_stats.tagged_memo_count,
+                    reasoning_stats.first_role,
+                    reasoning_stats.last_role,
+                    reasoning_stats.first_hash,
+                    reasoning_stats.last_hash,
+                    reasoning_stats.first_snippet,
+                    reasoning_stats.last_snippet,
+                    self._reasoning_interpretation(reasoning_stats),
                 )
             else:
                 logger.info(
@@ -143,29 +202,43 @@ class InterleavedThinkingRequestTransformer:
                 )
             return request
 
-        if reasoning_message_count:
+        if reasoning_stats.message_count and not self._should_inject_visible_memo_only(
+            target
+        ):
             self._record_diagnostic(
                 context,
                 action="memo_injection_skipped",
                 reason="request_already_has_reasoning_content",
                 target=target,
                 memo_chars=len(memo),
-                request_reasoning_messages=reasoning_message_count,
-                request_reasoning_chars=reasoning_chars,
+                request_reasoning=reasoning_stats,
                 message_count_before=len(request.messages),
                 message_count_after=len(request.messages),
             )
             logger.info(
                 "Interleaved thinking memo injection skipped: request already carries "
                 "reasoning_content request_id=%s session_id=%s backend=%s model=%s "
-                "memo_chars=%d reasoning_messages=%d reasoning_chars=%d",
+                "stored_memo_chars=%d reasoning_messages=%d reasoning_chars=%d "
+                "reasoning_interleaved_metadata_messages=%d "
+                "reasoning_tagged_memo_messages=%d first_role=%s last_role=%s "
+                "first_hash=%s last_hash=%s first_snippet=%r last_snippet=%r "
+                "interpretation=%s",
                 request_id(context),
                 session_id(context, session),
                 target.backend,
                 target.model,
                 len(memo),
-                reasoning_message_count,
-                reasoning_chars,
+                reasoning_stats.message_count,
+                reasoning_stats.total_chars,
+                reasoning_stats.interleaved_metadata_count,
+                reasoning_stats.tagged_memo_count,
+                reasoning_stats.first_role,
+                reasoning_stats.last_role,
+                reasoning_stats.first_hash,
+                reasoning_stats.last_hash,
+                reasoning_stats.first_snippet,
+                reasoning_stats.last_snippet,
+                self._reasoning_interpretation(reasoning_stats),
             )
             return request
 
@@ -179,8 +252,7 @@ class InterleavedThinkingRequestTransformer:
                 reason="memo_already_visible_in_request",
                 target=target,
                 memo_chars=len(memo),
-                request_reasoning_messages=reasoning_message_count,
-                request_reasoning_chars=reasoning_chars,
+                request_reasoning=reasoning_stats,
                 message_count_before=len(request.messages),
                 message_count_after=len(request.messages),
             )
@@ -215,7 +287,10 @@ class InterleavedThinkingRequestTransformer:
         )
         messages = list(request.messages)
         insert_at = self._last_user_message_index(messages)
-        if insert_at is None:
+        visible_memo_only = self._should_inject_visible_memo_only(target)
+        if visible_memo_only:
+            messages = [system_message, *messages]
+        elif insert_at is None:
             messages = [system_message, reasoning_message, *messages]
         else:
             messages.insert(insert_at, reasoning_message)
@@ -231,15 +306,20 @@ class InterleavedThinkingRequestTransformer:
         )
         logger.info(
             "Interleaved thinking memo injected: request_id=%s session_id=%s "
-            "backend=%s model=%s memo_chars=%d messages_before=%d "
-            "messages_after=%d insert_before_last_user=%s tools_present=%s",
+            "backend=%s model=%s memo_chars=%d memo_hash=%s memo_snippet=%r "
+            "messages_before=%d "
+            "messages_after=%d injection_mode=%s insert_before_last_user=%s "
+            "tools_present=%s",
             request_id(context),
             session_id(context, session),
             target.backend,
             target.model,
             len(memo),
+            self._text_hash(memo),
+            self._snippet(memo),
             len(request.messages),
             len(messages),
+            "visible_system_context" if visible_memo_only else "system_and_reasoning",
             insert_at is not None,
             bool(request.tools),
         )
@@ -254,8 +334,7 @@ class InterleavedThinkingRequestTransformer:
         target: BackendTarget,
         reason: str | None = None,
         memo_chars: int | None = None,
-        request_reasoning_messages: int | None = None,
-        request_reasoning_chars: int | None = None,
+        request_reasoning: _ReasoningContentStats | None = None,
         message_count_before: int,
         message_count_after: int,
     ) -> None:
@@ -274,10 +353,28 @@ class InterleavedThinkingRequestTransformer:
             diagnostic["reason"] = reason
         if memo_chars is not None:
             diagnostic["memo_chars"] = memo_chars
-        if request_reasoning_messages is not None:
-            diagnostic["request_reasoning_messages"] = request_reasoning_messages
-        if request_reasoning_chars is not None:
-            diagnostic["request_reasoning_chars"] = request_reasoning_chars
+        if request_reasoning is not None:
+            diagnostic["request_reasoning_messages"] = request_reasoning.message_count
+            diagnostic["request_reasoning_chars"] = request_reasoning.total_chars
+            diagnostic["request_reasoning_interleaved_metadata_messages"] = (
+                request_reasoning.interleaved_metadata_count
+            )
+            diagnostic["request_reasoning_tagged_memo_messages"] = (
+                request_reasoning.tagged_memo_count
+            )
+            diagnostic["request_reasoning_first_role"] = request_reasoning.first_role
+            diagnostic["request_reasoning_last_role"] = request_reasoning.last_role
+            diagnostic["request_reasoning_first_hash"] = request_reasoning.first_hash
+            diagnostic["request_reasoning_last_hash"] = request_reasoning.last_hash
+            diagnostic["request_reasoning_first_snippet"] = (
+                request_reasoning.first_snippet
+            )
+            diagnostic["request_reasoning_last_snippet"] = (
+                request_reasoning.last_snippet
+            )
+            diagnostic["request_reasoning_interpretation"] = (
+                cls._reasoning_interpretation(request_reasoning)
+            )
         context.extensions[INTERLEAVED_THINKING_DIAGNOSTIC_KEY] = diagnostic
 
     @staticmethod
@@ -292,6 +389,14 @@ class InterleavedThinkingRequestTransformer:
         if context is None:
             return False
         return bool(context.extensions.get(COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY))
+
+    @staticmethod
+    def _is_memo_injection_suppressed(context: RequestContext | None) -> bool:
+        if context is None:
+            return False
+        return bool(
+            context.extensions.get(INTERLEAVED_THINKING_SUPPRESS_MEMO_INJECTION_KEY)
+        )
 
     def _load_instructions(self) -> str:
         if self._cached_instructions is not None:
@@ -461,15 +566,75 @@ class InterleavedThinkingRequestTransformer:
     @staticmethod
     def _request_reasoning_content_stats(
         request: CanonicalChatRequest,
-    ) -> tuple[int, int]:
-        count = 0
+    ) -> _ReasoningContentStats:
+        messages: list[tuple[ChatMessage, str]] = []
         total_chars = 0
+        interleaved_metadata_count = 0
+        tagged_memo_count = 0
         for message in request.messages:
             reasoning_content = getattr(message, "reasoning_content", None)
             if isinstance(reasoning_content, str) and reasoning_content.strip():
-                count += 1
-                total_chars += len(reasoning_content.strip())
-        return count, total_chars
+                stripped = reasoning_content.strip()
+                messages.append((message, stripped))
+                total_chars += len(stripped)
+                if InterleavedThinkingRequestTransformer._message_has_interleaved_metadata(
+                    message
+                ):
+                    interleaved_metadata_count += 1
+                if _THINKER_MEMO_MARKER in stripped.lower():
+                    tagged_memo_count += 1
+        if not messages:
+            return _ReasoningContentStats()
+
+        first_message, first_text = messages[0]
+        last_message, last_text = messages[-1]
+        return _ReasoningContentStats(
+            message_count=len(messages),
+            total_chars=total_chars,
+            interleaved_metadata_count=interleaved_metadata_count,
+            tagged_memo_count=tagged_memo_count,
+            first_role=first_message.role,
+            last_role=last_message.role,
+            first_hash=InterleavedThinkingRequestTransformer._text_hash(first_text),
+            last_hash=InterleavedThinkingRequestTransformer._text_hash(last_text),
+            first_snippet=InterleavedThinkingRequestTransformer._snippet(first_text),
+            last_snippet=InterleavedThinkingRequestTransformer._snippet(last_text),
+        )
+
+    @staticmethod
+    def _message_has_interleaved_metadata(message: ChatMessage) -> bool:
+        metadata = message.metadata
+        if not isinstance(metadata, dict):
+            return False
+        return metadata.get("source") == "interleaved_thinking" or str(
+            metadata.get("kind", "")
+        ).startswith("thinker_memo")
+
+    @staticmethod
+    def _text_hash(text: str) -> str:
+        return sha256(text.encode("utf-8", errors="replace")).hexdigest()[:12]
+
+    @staticmethod
+    def _snippet(text: str, *, limit: int = 180) -> str:
+        normalized = " ".join(text.split())
+        if len(normalized) <= limit:
+            return normalized
+        return f"{normalized[:limit]}..."
+
+    @staticmethod
+    def _reasoning_interpretation(stats: _ReasoningContentStats) -> str:
+        if stats.message_count <= 0:
+            return "no_reasoning_content"
+        if stats.interleaved_metadata_count:
+            return "proxy_injected_interleaved_thinking_memo"
+        if stats.tagged_memo_count:
+            return "tagged_proxy_thinker_memo_in_request"
+        return "preexisting_or_client_carried_reasoning_content"
+
+    @staticmethod
+    def _should_inject_visible_memo_only(target: BackendTarget) -> bool:
+        target_text = f"{target.backend}:{target.model}".lower()
+        return "deepseek" in target_text
 
     @staticmethod
     def _get_interleaved_state(session: ISession) -> dict[str, Any] | None:

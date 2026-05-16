@@ -44,6 +44,7 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.model_utils import RESOLVED_URI_PARAMS_EXTRA_BODY_KEY
 from src.core.domain.models_listing import ModelsListingResponse
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -1263,6 +1264,11 @@ class OpenAIConnector(LLMBackend):
         extra = getattr(request_data, "extra_body", None)
         if isinstance(extra, dict):
             payload.update(extra)
+        self._sanitize_deepseek_thinking_continuation_payload(
+            payload,
+            effective_model,
+            context,
+        )
         self._enforce_reasoning_model_min_tokens(payload, effective_model, context)
         # Remove internal-only keys and any None-valued entries (recursively)
         # so providers receive a clean OpenAI-compatible payload.
@@ -1339,6 +1345,57 @@ class OpenAIConnector(LLMBackend):
                 extra=log_extra_payload if log_extra_payload else None,
             )
 
+    def _sanitize_deepseek_thinking_continuation_payload(
+        self,
+        payload: dict[str, Any],
+        effective_model: str,
+        context: ConnectorRequestContext | None = None,
+    ) -> None:
+        """Avoid DeepSeek 400s for mixed transcripts with partial reasoning history."""
+
+        model = str(payload.get("model") or effective_model or "").lower()
+        if "deepseek" not in model:
+            return
+
+        removed_controls = []
+        for key in ("reasoning", "thinking", "reasoning_effort"):
+            if key in payload:
+                removed_controls.append(key)
+                payload.pop(key, None)
+
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return
+
+        reasoning_message_count = 0
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            if message.get("reasoning_content") is not None:
+                reasoning_message_count += 1
+            elif message.get("reasoning") is not None:
+                reasoning_message_count += 1
+                message["reasoning_content"] = message.get("reasoning")
+                message.pop("reasoning", None)
+            elif message.get("reasoning_details") is not None:
+                reasoning_message_count += 1
+                message["reasoning_content"] = message.get("reasoning_details")
+                message.pop("reasoning_details", None)
+
+        if reasoning_message_count <= 0 and not removed_controls:
+            return
+
+        log_extra_payload = self._get_log_extra(context) if context else None
+        logger.warning(
+            "Removed DeepSeek native thinking fields from outbound payload "
+            "to avoid invalid mixed thinking-mode history: model=%s "
+            "reasoning_messages=%d removed_controls=%s",
+            model,
+            reasoning_message_count,
+            removed_controls,
+            extra=log_extra_payload if log_extra_payload else None,
+        )
+
     def _clean_openai_payload(self, payload: Any) -> dict[str, Any]:
         """Strip None values and internal-only top-level keys from an OpenAI payload."""
         disallowed_top_level_keys = {
@@ -1348,6 +1405,7 @@ class OpenAIConnector(LLMBackend):
             "session_id",
             "reasoning_effort",
             "request_context_tokens",
+            RESOLVED_URI_PARAMS_EXTRA_BODY_KEY,
             _LLM_PROXY_STREAM_URL_KEY,
             _LLM_PROXY_STREAM_HEADERS_KEY,
             _LLM_PROXY_REQUEST_ID_KEY,

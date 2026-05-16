@@ -52,12 +52,10 @@ def test_backend_settings_accepts_interleaved_thinking_instructions_file() -> No
     )
 
 
-def test_backend_settings_defaults_interleaved_thinking_stream_to_client_false() -> (
-    None
-):
+def test_backend_settings_defaults_interleaved_thinking_stream_to_client_true() -> None:
     settings = BackendSettings()
 
-    assert settings.interleaved_thinking_stream_to_client is False
+    assert settings.interleaved_thinking_stream_to_client is True
     assert settings.interleaved_thinking_regular_turns_remaining == 2
 
 

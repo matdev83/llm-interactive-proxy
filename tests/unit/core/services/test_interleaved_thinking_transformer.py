@@ -61,7 +61,7 @@ def _stateful_session(state: SessionState) -> MagicMock:
     return session
 
 
-def test_transformer_adds_thinker_instructions_and_preserves_tools(
+def test_transformer_adds_thinker_instructions_and_suppresses_tools(
     tmp_path: Path,
 ) -> None:
     instructions_file = tmp_path / "thinker.md"
@@ -86,9 +86,9 @@ def test_transformer_adds_thinker_instructions_and_preserves_tools(
         "source": "interleaved_thinking",
         "kind": "thinker_instructions",
     }
-    assert transformed.tools == [{"type": "function", "function": {"name": "do_it"}}]
-    assert transformed.tool_choice == "auto"
-    assert transformed.parallel_tool_calls is True
+    assert transformed.tools is None
+    assert transformed.tool_choice is None
+    assert transformed.parallel_tool_calls is None
     assert context.extensions[INTERLEAVED_THINKING_ACTIVE_KEY] is True
     diagnostic = _diagnostic(context)
     assert diagnostic["action"] == "thinker_prompt_injected"
@@ -255,6 +255,60 @@ def test_transformer_skips_stored_memo_when_reasoning_content_exists() -> None:
     assert diagnostic["request_reasoning_chars"] == len("client-carried thinker memo")
     assert diagnostic["message_count_before"] == 2
     assert diagnostic["message_count_after"] == 2
+
+
+def test_transformer_injects_deepseek_memo_as_visible_context_when_reasoning_exists() -> (
+    None
+):
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    session = MagicMock(
+        state=SessionState(
+            interleaved_thinking_state={
+                "memo": "Stored thinker memo",
+                "source_selector": "openai:gpt-4",
+                "injected_count": 0,
+            }
+        )
+    )
+    session.update_state = MagicMock()
+    context = _context(thinker=False)
+    request = CanonicalChatRequest(
+        model="deepseek-v4-flash-free",
+        messages=[
+            ChatMessage(
+                role="assistant",
+                content="",
+                reasoning_content="stale DeepSeek-incompatible reasoning",
+            ),
+            ChatMessage(role="user", content="hello"),
+        ],
+    )
+
+    transformed = transformer.transform(
+        request=request,
+        target=BackendTarget(
+            backend="opencode-zen.1",
+            model="deepseek-v4-flash-free",
+            uri_params={},
+        ),
+        session=session,
+        context=context,
+    )
+
+    assert transformed.messages[0].role == "system"
+    assert "Stored thinker memo" in str(transformed.messages[0].content)
+    assert transformed.messages[1:] == request.messages
+    assert all(
+        message.reasoning_content != "Stored thinker memo"
+        for message in transformed.messages
+    )
+    updated_state = session.update_state.call_args.args[0]
+    assert updated_state.interleaved_thinking_state["injected_count"] == 1
+    diagnostic = _diagnostic(context)
+    assert diagnostic["action"] == "memo_injected"
+    assert diagnostic["memo_chars"] == len("Stored thinker memo")
+    assert diagnostic["message_count_before"] == 2
+    assert diagnostic["message_count_after"] == 3
 
 
 def test_transformer_skips_visible_memo_already_carried_by_client_context() -> None:

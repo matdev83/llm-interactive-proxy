@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -176,7 +176,9 @@ async def test_completion_flow_applies_thinker_transform_and_records_output(
         deps["connector_invoker"].invoke.await_args_list[0].kwargs["domain_request"]
     )
     assert invoked_request.messages[0].content == "Thinker instructions"
-    assert invoked_request.tools == [{"type": "function", "function": {"name": "tool"}}]
+    assert invoked_request.tools is None
+    assert invoked_request.tool_choice is None
+    assert invoked_request.parallel_tool_calls is None
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "new thinker memo"
 
@@ -241,16 +243,27 @@ async def test_completion_flow_swallows_thinker_stream_and_continues_with_execut
     assert isinstance(result, StreamingResponseEnvelope)
     assert result.content is not None
     chunks = [item async for item in result.content]
-    assert len(chunks) == 1
-    assert "final answer" in str(chunks[0].content)
+    rendered = "\n".join(str(chunk.content) for chunk in chunks)
+    assert "plan it" in rendered
+    assert "final answer" in rendered
     assert all("proxy_thinker_memo" not in str(chunk.content) for chunk in chunks)
     assert deps["connector_invoker"].invoke.await_count == 2
     executor_request = (
         deps["connector_invoker"].invoke.await_args_list[1].kwargs["domain_request"]
     )
-    assert any(
-        message.reasoning_content == "plan it" for message in executor_request.messages
+    assert executor_request.messages[-2].role == "user"
+    assert executor_request.messages[-1].role == "assistant"
+    assert executor_request.messages[-1].content == "plan it"
+    assert executor_request.messages[-1].metadata == {
+        "source": "interleaved_thinking",
+        "kind": "visible_thinker_output",
+    }
+    assert all(
+        message.reasoning_content is None for message in executor_request.messages
     )
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "plan it"
+    assert stored["visible_to_client"] is True
 
 
 @pytest.mark.asyncio
@@ -315,7 +328,218 @@ async def test_completion_flow_can_stream_sanitized_thinker_text_before_executor
     assert "visible plan" in rendered
     assert "executor answer" in rendered
     assert "proxy_thinker_memo" not in rendered
+    thinker_chunk = cast(dict[str, Any], chunks[0].content)
+    thinker_delta = thinker_chunk["choices"][0]["delta"]
+    assert thinker_delta["reasoning_content"] == "visible plan"
+    assert thinker_delta["content"] == ""
     assert deps["connector_invoker"].invoke.await_count == 2
+    executor_request = (
+        deps["connector_invoker"].invoke.await_args_list[1].kwargs["domain_request"]
+    )
+    assert executor_request.messages[-2].role == "user"
+    assert executor_request.messages[-1].role == "assistant"
+    assert executor_request.messages[-1].content == "visible plan"
+
+
+@pytest.mark.asyncio
+async def test_completion_flow_strips_client_carried_reasoning_before_thinker_call(
+    tmp_path: Path,
+) -> None:
+    instructions_file = tmp_path / "thinker.md"
+    instructions_file.write_text("Thinker instructions", encoding="utf-8")
+    session = _stateful_session()
+    flow, deps = _build_flow(
+        session=session,
+        target=BackendTarget(backend="openai", model="gpt-4", uri_params={}),
+        response=ResponseEnvelope(
+            content={"choices": [{"message": {"content": "fresh memo"}}]}
+        ),
+        settings=BackendSettings(
+            interleaved_thinking_instructions_file=str(instructions_file),
+            interleaved_thinking_stream_to_client=True,
+        ),
+    )
+
+    await flow.call_completion(
+        request=CanonicalChatRequest(
+            model="alias:hybrid",
+            messages=[
+                ChatMessage(role="user", content="start"),
+                ChatMessage(
+                    role="assistant",
+                    content="",
+                    reasoning_content=(
+                        "Goal:\nPreviously visible thinker memo that must not loop"
+                    ),
+                ),
+                ChatMessage(role="user", content="continue"),
+            ],
+        ),
+        stream=False,
+        allow_failover=False,
+        context=_context(thinker=True),
+    )
+
+    invoked_request = (
+        deps["connector_invoker"].invoke.await_args_list[0].kwargs["domain_request"]
+    )
+    assert all(
+        message.reasoning_content is None for message in invoked_request.messages
+    )
+    assert "Previously visible thinker memo" not in "\n".join(
+        str(message.content) for message in invoked_request.messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_completion_flow_strips_non_thinker_reasoning_for_interleaved_selector(
+    tmp_path: Path,
+) -> None:
+    instructions_file = tmp_path / "thinker.md"
+    instructions_file.write_text("Thinker instructions", encoding="utf-8")
+    session = _stateful_session()
+
+    async def executor_stream() -> Any:
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "delta": {
+                            "reasoning_content": "deepseek hidden reasoning",
+                            "content": "",
+                        }
+                    }
+                ]
+            }
+        )
+        yield ProcessedResponse(
+            content={"choices": [{"delta": {"content": "executor answer"}}]}
+        )
+
+    flow, deps = _build_flow(
+        session=session,
+        target=BackendTarget(backend="opencode-zen.1", model="deepseek", uri_params={}),
+        response=StreamingResponseEnvelope(content=executor_stream()),
+        settings=BackendSettings(
+            interleaved_thinking_instructions_file=str(instructions_file),
+            interleaved_thinking_stream_to_client=True,
+        ),
+    )
+
+    result = await flow.call_completion(
+        request=CanonicalChatRequest(
+            model="alias:hybrid",
+            messages=[
+                ChatMessage(role="user", content="start"),
+                ChatMessage(
+                    role="assistant",
+                    content="",
+                    reasoning_content="old visible thinker memo",
+                ),
+                ChatMessage(role="user", content="continue"),
+            ],
+        ),
+        stream=True,
+        allow_failover=False,
+        context=_context(thinker=False),
+    )
+
+    invoked_request = (
+        deps["connector_invoker"].invoke.await_args_list[0].kwargs["domain_request"]
+    )
+    assert all(
+        message.reasoning_content is None for message in invoked_request.messages
+    )
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.content is not None
+    chunks = [item async for item in result.content]
+    rendered = "\n".join(str(chunk.content) for chunk in chunks)
+    assert "executor answer" in rendered
+    assert "deepseek hidden reasoning" not in rendered
+    assert all("reasoning_content" not in str(chunk.content) for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_completion_flow_strips_executor_reasoning_from_visible_thinker_stream(
+    tmp_path: Path,
+) -> None:
+    instructions_file = tmp_path / "thinker.md"
+    instructions_file.write_text("Thinker instructions", encoding="utf-8")
+    session = _stateful_session()
+
+    async def thinker_stream() -> Any:
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "delta": {
+                            "content": (
+                                "<proxy_thinker_memo>thinker plan"
+                                "</proxy_thinker_memo>"
+                            )
+                        }
+                    }
+                ]
+            }
+        )
+
+    async def executor_stream() -> Any:
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "delta": {
+                            "reasoning_content": "executor hidden reasoning",
+                            "content": "",
+                        }
+                    }
+                ]
+            }
+        )
+        yield ProcessedResponse(
+            content={"choices": [{"delta": {"content": "executor answer"}}]}
+        )
+
+    flow, deps = _build_flow(
+        session=session,
+        target=BackendTarget(backend="openai", model="gpt-4", uri_params={}),
+        response=StreamingResponseEnvelope(content=thinker_stream()),
+        settings=BackendSettings(
+            interleaved_thinking_instructions_file=str(instructions_file),
+            interleaved_thinking_stream_to_client=True,
+        ),
+    )
+    deps["request_preparer"].prepare_request = AsyncMock(
+        side_effect=[
+            BackendTarget(backend="openai", model="gpt-4", uri_params={}),
+            BackendTarget(backend="opencode-zen.1", model="deepseek", uri_params={}),
+        ]
+    )
+    deps["connector_invoker"].invoke = AsyncMock(
+        side_effect=[
+            StreamingResponseEnvelope(content=thinker_stream()),
+            StreamingResponseEnvelope(content=executor_stream()),
+        ]
+    )
+
+    result = await flow.call_completion(
+        request=CanonicalChatRequest(
+            model="alias:hybrid",
+            messages=[ChatMessage(role="user", content="hello")],
+        ),
+        stream=True,
+        allow_failover=False,
+        context=_context(thinker=True),
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.content is not None
+    chunks = [item async for item in result.content]
+    rendered = "\n".join(str(chunk.content) for chunk in chunks)
+    assert "thinker plan" in rendered
+    assert "executor answer" in rendered
+    assert "executor hidden reasoning" not in rendered
+    assert all("reasoning_content" not in str(chunk.content) for chunk in chunks[1:])
 
 
 @pytest.mark.asyncio
