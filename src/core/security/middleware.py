@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import math
+import secrets
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -219,7 +220,16 @@ class APIKeyMiddleware:
         all_valid_keys: set[str] = self.valid_keys | app_state_keys
 
         method = request.method
-        if not api_key or api_key not in all_valid_keys:
+        is_valid_key = False
+        if api_key:
+            for valid_key in all_valid_keys:
+                if isinstance(valid_key, str) and secrets.compare_digest(
+                    api_key, valid_key
+                ):
+                    is_valid_key = True
+                    break
+
+        if not is_valid_key:
             logger.warning(
                 "Invalid or missing API key for %s %s from client %s",
                 method,
@@ -525,7 +535,16 @@ class APIKeyMiddleware:
             f"API Key authentication is enabled key_count={len(all_valid_keys)}"
         )
         method = scope.get("method", "UNKNOWN")
-        if not api_key or api_key not in all_valid_keys:
+        is_valid_key = False
+        if api_key:
+            for valid_key in all_valid_keys:
+                if isinstance(valid_key, str) and secrets.compare_digest(
+                    api_key, valid_key
+                ):
+                    is_valid_key = True
+                    break
+
+        if not is_valid_key:
             logger.warning(
                 "Invalid or missing API key for %s %s from client %s",
                 method,
@@ -659,7 +678,15 @@ class AuthMiddleware:
         method = request.method
 
         # Validate the token
-        if not token or token != self.valid_token:
+        is_valid_token = False
+        if (
+            token
+            and isinstance(self.valid_token, str)
+            and secrets.compare_digest(token, self.valid_token)
+        ):
+            is_valid_token = True
+
+        if not is_valid_token:
             logger.warning(
                 "Invalid or missing auth token for %s %s from client %s",
                 method,
@@ -763,7 +790,15 @@ class AuthMiddleware:
         method = scope.get("method", "UNKNOWN")
 
         # Validate the token
-        if not token or token != self.valid_token:
+        is_valid_token = False
+        if (
+            token
+            and isinstance(self.valid_token, str)
+            and secrets.compare_digest(token, self.valid_token)
+        ):
+            is_valid_token = True
+
+        if not is_valid_token:
             logger.warning(
                 "Invalid or missing auth token for %s %s from client %s",
                 method,
