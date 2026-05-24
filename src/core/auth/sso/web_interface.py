@@ -1184,6 +1184,10 @@ def _render_provider_selection_page(
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
         }}
+        .provider-button:focus-visible {{
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
+        }}
         .provider-icon {{
             font-size: 24px;
             margin-right: 16px;
@@ -1301,6 +1305,10 @@ def _render_error_page(title: str, message: str) -> str:
         }}
         .button:hover {{
             background: #5568d3;
+        }}
+        .button:focus-visible {{
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
         }}
     </style>
 </head>
@@ -1469,6 +1477,7 @@ def _render_confirmation_form(
         input[type="text"]:focus {{
             outline: none;
             border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.25);
         }}
         button {{
             padding: 14px 24px;
@@ -1487,6 +1496,10 @@ def _render_confirmation_form(
         button:active {{
             transform: translateY(1px);
         }}
+        button:focus-visible {{
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
+        }}
         .footer {{
             margin-top: 24px;
             text-align: center;
@@ -1499,25 +1512,25 @@ def _render_confirmation_form(
     <div class="container">
         <h1>Enter Confirmation Code</h1>
         <p class="subtitle">Check your server console for the 6-digit code</p>
-        
+
         <div class="info-box">
             <p>
                 A 6-digit confirmation code has been logged to your server console.
                 Please check the server logs and enter the code below to complete authorization.
             </p>
         </div>
-        
+
         {error_html}
-        
+
         <form method="POST" action="{base_url}/auth/confirm">
             <input type="hidden" name="state" value="{state}">
             <div class="form-group">
                 <label for="code">Confirmation Code</label>
-                <input 
-                    type="text" 
-                    id="code" 
-                    name="code" 
-                    maxlength="6" 
+                <input
+                    type="text"
+                    id="code"
+                    name="code"
+                    maxlength="6"
                     pattern="[0-9]{{6}}"
                     placeholder="000000"
                     required
@@ -1527,12 +1540,12 @@ def _render_confirmation_form(
             </div>
             <button type="submit">Verify Code</button>
         </form>
-        
+
         <div class="footer">
             The code expires in 10 minutes
         </div>
     </div>
-    
+
     <script>
         // Auto-format code input
         const codeInput = document.getElementById('code');
@@ -1641,7 +1654,7 @@ def _render_reauth_success_page() -> str:
         <div class="success-icon">OK</div>
         <h1>Re-authentication Successful!</h1>
         <p class="subtitle">Your session has been restored</p>
-        
+
         <div class="info-box">
             <h2>What This Means</h2>
             <p>
@@ -1654,7 +1667,7 @@ def _render_reauth_success_page() -> str:
                 the proxy service without any interruption.
             </p>
         </div>
-        
+
         <div class="footer">
             You can now close this window and continue using your AI agent
         </div>
@@ -1780,6 +1793,10 @@ def _render_success_page(token: str) -> str:
         .copy-button:active {{
             transform: translateY(1px);
         }}
+        .copy-button:focus-visible {{
+            outline: 2px solid #667eea;
+            outline-offset: 2px;
+        }}
         .copy-button.copied {{
             background: #2e7d32;
         }}
@@ -1847,12 +1864,12 @@ def _render_success_page(token: str) -> str:
         <div class="success-icon">OK</div>
         <h1>Authentication Successful!</h1>
         <p class="subtitle">Your agent token has been generated</p>
-        
+
         <div class="warning-box">
             <p><strong>Important:</strong> This token will only be shown once.</p>
             <p>Copy it now and store it securely. You will need to configure your AI agent with this token.</p>
         </div>
-        
+
         <div class="token-section">
             <div class="token-label">Your Agent Token:</div>
             <div class="token-container">
@@ -1862,7 +1879,7 @@ def _render_success_page(token: str) -> str:
                 </button>
             </div>
         </div>
-        
+
         <div class="instructions">
             <h2>Configuration Instructions</h2>
             <ol>
@@ -1872,7 +1889,7 @@ def _render_success_page(token: str) -> str:
                 <li>Paste the token into that field</li>
                 <li>Save your configuration</li>
             </ol>
-            
+
             <div class="agent-examples">
                 <h3>Common AI Agents:</h3>
                 <ul>
@@ -1883,21 +1900,21 @@ def _render_success_page(token: str) -> str:
                 </ul>
             </div>
         </div>
-        
+
         <div class="footer">
             You can now close this window and start using your AI agent
         </div>
     </div>
-    
+
     <script>
         function copyToken() {{
             const tokenText = document.getElementById('token').textContent;
             const button = document.getElementById('copyButton');
-            
+
             navigator.clipboard.writeText(tokenText).then(function() {{
                 button.textContent = 'Copied!';
                 button.classList.add('copied');
-                
+
                 setTimeout(function() {{
                     button.textContent = 'Copy';
                     button.classList.remove('copied');
