@@ -182,6 +182,51 @@ class TestBackendRequestManagerDeduplication:
         assert b"data: [DONE]" in rendered
 
     @pytest.mark.asyncio
+    async def test_streaming_http_error_marks_dedup_complete_before_iteration(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Streaming HTTP errors must immediately allow legitimate client retries."""
+
+        monkeypatch.setenv("LLM_PROXY_DISABLE_EMPTY_STREAM_RECOVERY", "1")
+        request = ChatRequest(
+            model="openai-codex:gpt-5.5",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        async def _error_stream():
+            yield ProcessedResponse(content=b"upstream connect error")
+
+        mock_dedup_service.check_and_register.return_value = (False, "hash123")
+        mock_backend_processor.process_backend_request = AsyncMock(
+            return_value=StreamingResponseEnvelope(
+                content=_error_stream(),
+                status_code=503,
+                media_type="text/plain",
+            )
+        )
+
+        result = await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.status_code == 503
+        mock_dedup_service.mark_request_complete.assert_awaited_once_with(
+            "hash123",
+            session_id,
+            status_code=503,
+        )
+
+    @pytest.mark.asyncio
     async def test_streaming_dedup_enabled_for_streaming_requests(
         self,
         backend_request_manager: BackendRequestManager,

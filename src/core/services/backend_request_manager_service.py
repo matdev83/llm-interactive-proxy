@@ -443,6 +443,16 @@ class BackendRequestManager(IBackendRequestManager):
 
             if isinstance(canonical_converted, StreamingResponseEnvelope):
                 streaming_result = canonical_converted
+                if (
+                    self._dedup_service
+                    and content_hash
+                    and streaming_result.status_code >= 400
+                ):
+                    await self._dedup_service.mark_request_complete(
+                        content_hash,
+                        session_id,
+                        status_code=streaming_result.status_code,
+                    )
                 if self._dedup_service and content_hash:
                     dedup_service = self._dedup_service
                     assert dedup_service is not None
@@ -450,7 +460,11 @@ class BackendRequestManager(IBackendRequestManager):
 
                     async def _wrapped_stream() -> AsyncIterator[Any]:
                         client_disconnected = False
-                        last_status_code: int | None = None
+                        last_status_code: int | None = (
+                            streaming_result.status_code
+                            if streaming_result.status_code >= 400
+                            else None
+                        )
                         saw_done_sentinel = False
                         saw_terminal_finish = False
                         saw_terminal_error = False
