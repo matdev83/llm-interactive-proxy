@@ -53,6 +53,8 @@ DEFAULT_REQUEST_PATTERNS: list[str] = [
     r"old_string\s+not\s+found\s+in\s+content",
     r"old_string\s+appears\s+multiple\s+times\s+in\s+the\s+content",
     r"patch\s+contains\s+fuzzy\s+matches\s+\(fuzz\s+level:\s*\d+\)",
+    r"apply_patch\s+verification\s+failed",
+    r"Failed\s+to\s+find\s+expected\s+lines\s+in",
     r"Missing\s+value\s+for\s+required\s+parameter\s+'diff'",
     r"Special\s+marker\s+'>>>>>>>(?:[^']*)'\s+found",
     r"Unexpected\s+end\s+of\s+sequence:\s+Expected\s+'>>>>>>>\s*REPLACE'\s+was\s+not\s+found",
@@ -64,6 +66,8 @@ DEFAULT_RESPONSE_PATTERNS: list[str] = [
     r"SEARCH\s+block.*does\s+not\s+match",
     r"No\s+sufficiently\s+similar\s+match\s+found",
     r"hunk\s+failed\s+to\s+apply",
+    r"apply_patch\s+verification\s+failed",
+    r"Failed\s+to\s+find\s+expected\s+lines\s+in",
 ]
 
 

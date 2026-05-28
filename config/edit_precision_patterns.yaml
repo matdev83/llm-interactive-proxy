@@ -17,9 +17,14 @@ request_patterns:
   - "old_string\\s+appears\\s+multiple\\s+times\\s+in\\s+the\\s+content"
   # OpenCode patch fuzz
   - "patch\\s+contains\\s+fuzzy\\s+matches\\s+\\(fuzz\\s+level:\\s*\\d+\\)"
+  # OpenCode apply_patch failures
+  - "apply_patch\\s+verification\\s+failed"
+  - "Failed\\s+to\\s+find\\s+expected\\s+lines\\s+in"
 
 response_patterns:
   - "<diff_error>|diff_error"
   - "SEARCH\\s+block.*does\\s+not\\s+match"
   - "No\\s+sufficiently\\s+similar\\s+match\\s+found"
   - "hunk\\s+failed\\s+to\\s+apply"
+  - "apply_patch\\s+verification\\s+failed"
+  - "Failed\\s+to\\s+find\\s+expected\\s+lines\\s+in"

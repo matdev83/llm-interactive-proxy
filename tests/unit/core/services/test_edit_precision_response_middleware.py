@@ -40,6 +40,27 @@ async def test_response_middleware_sets_pending_on_non_streaming_match(
 
 
 @pytest.mark.asyncio
+async def test_response_middleware_detects_opencode_apply_patch_failure(
+    app_state: ApplicationStateService,
+) -> None:
+    mw = EditPrecisionResponseMiddleware(app_state)
+
+    session_id = "sess-opencode-apply-patch"
+    resp = ProcessedResponse(
+        content=(
+            "apply_patch verification failed: Error: Failed to find expected "
+            "lines in C:\\repo\\src\\strategy.py:\n    return old_value"
+        )
+    )
+
+    await mw.process(resp, session_id, context={"response_type": "non_streaming"})
+
+    pending = app_state.get_setting("edit_precision_pending", {})
+    assert isinstance(pending, dict)
+    assert pending.get(session_id, 0) >= 1
+
+
+@pytest.mark.asyncio
 async def test_streaming_processor_applies_middleware_and_sets_pending(
     app_state: ApplicationStateService,
 ) -> None:
