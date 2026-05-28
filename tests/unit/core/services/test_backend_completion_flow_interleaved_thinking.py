@@ -392,7 +392,7 @@ async def test_completion_flow_strips_client_carried_reasoning_before_thinker_ca
 
 
 @pytest.mark.asyncio
-async def test_completion_flow_strips_non_thinker_reasoning_for_interleaved_selector(
+async def test_completion_flow_preserves_non_thinker_reasoning_for_interleaved_selector(
     tmp_path: Path,
 ) -> None:
     instructions_file = tmp_path / "thinker.md"
@@ -447,20 +447,18 @@ async def test_completion_flow_strips_non_thinker_reasoning_for_interleaved_sele
     invoked_request = (
         deps["connector_invoker"].invoke.await_args_list[0].kwargs["domain_request"]
     )
-    assert all(
-        message.reasoning_content is None for message in invoked_request.messages
-    )
+    assert invoked_request.messages[1].reasoning_content == "old visible thinker memo"
     assert isinstance(result, StreamingResponseEnvelope)
     assert result.content is not None
     chunks = [item async for item in result.content]
     rendered = "\n".join(str(chunk.content) for chunk in chunks)
     assert "executor answer" in rendered
-    assert "deepseek hidden reasoning" not in rendered
-    assert all("reasoning_content" not in str(chunk.content) for chunk in chunks)
+    assert "deepseek hidden reasoning" in rendered
+    assert any("reasoning_content" in str(chunk.content) for chunk in chunks)
 
 
 @pytest.mark.asyncio
-async def test_completion_flow_strips_executor_reasoning_from_visible_thinker_stream(
+async def test_completion_flow_preserves_executor_reasoning_from_visible_thinker_stream(
     tmp_path: Path,
 ) -> None:
     instructions_file = tmp_path / "thinker.md"
@@ -525,7 +523,15 @@ async def test_completion_flow_strips_executor_reasoning_from_visible_thinker_st
     result = await flow.call_completion(
         request=CanonicalChatRequest(
             model="alias:hybrid",
-            messages=[ChatMessage(role="user", content="hello")],
+            messages=[
+                ChatMessage(role="user", content="hello"),
+                ChatMessage(
+                    role="assistant",
+                    content="",
+                    reasoning_content="prior deepseek reasoning",
+                ),
+                ChatMessage(role="user", content="continue"),
+            ],
         ),
         stream=True,
         allow_failover=False,
@@ -538,8 +544,15 @@ async def test_completion_flow_strips_executor_reasoning_from_visible_thinker_st
     rendered = "\n".join(str(chunk.content) for chunk in chunks)
     assert "thinker plan" in rendered
     assert "executor answer" in rendered
-    assert "executor hidden reasoning" not in rendered
-    assert all("reasoning_content" not in str(chunk.content) for chunk in chunks[1:])
+    assert "executor hidden reasoning" in rendered
+    assert any("reasoning_content" in str(chunk.content) for chunk in chunks[1:])
+    executor_request = (
+        deps["connector_invoker"].invoke.await_args_list[1].kwargs["domain_request"]
+    )
+    assert any(
+        message.reasoning_content == "prior deepseek reasoning"
+        for message in executor_request.messages
+    )
 
 
 @pytest.mark.asyncio

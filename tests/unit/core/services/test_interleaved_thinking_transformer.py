@@ -110,8 +110,10 @@ def test_transformer_loads_shipped_default_thinker_prompt() -> None:
     )
 
     assert transformed.messages[0].role == "system"
-    assert "interleaved session thinker" in str(transformed.messages[0].content)
-    assert "<proxy_thinker_memo>" in str(transformed.messages[0].content)
+    prompt = str(transformed.messages[0].content)
+    assert "thinker" in prompt.lower()
+    assert "<proxy_thinker_memo>" in prompt
+    assert "</proxy_thinker_memo>" in prompt
 
 
 def test_transformer_caches_loaded_thinker_instructions(
