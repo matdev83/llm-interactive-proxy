@@ -138,12 +138,13 @@ _OPENCODE_GO_OPENAI_MODELS: tuple[str, ...] = (
     "mimo-v2.5-pro",
     "mimo-v2-pro",
     "mimo-v2-omni",
-    "qwen3.6-plus",
-    "qwen3.5-plus",
 )
 _OPENCODE_GO_ANTHROPIC_MODELS: tuple[str, ...] = (
     "minimax-m2.5",
     "minimax-m2.7",
+    "qwen3.7-max",
+    "qwen3.6-plus",
+    "qwen3.5-plus",
 )
 _OPENCODE_GO_SUPPORTED_PROTOCOLS = {"openai", "anthropic"}
 _MODELS_CACHE_TTL: int = 60  # seconds

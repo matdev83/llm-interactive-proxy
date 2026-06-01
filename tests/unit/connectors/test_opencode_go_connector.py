@@ -33,12 +33,13 @@ CURATED_OPENAI_MODELS = [
     "mimo-v2.5-pro",
     "mimo-v2-pro",
     "mimo-v2-omni",
-    "qwen3.6-plus",
-    "qwen3.5-plus",
 ]
 CURATED_ANTHROPIC_MODELS = [
     "minimax-m2.5",
     "minimax-m2.7",
+    "qwen3.7-max",
+    "qwen3.6-plus",
+    "qwen3.5-plus",
 ]
 CURATED_MODELS = CURATED_OPENAI_MODELS + CURATED_ANTHROPIC_MODELS
 
@@ -209,6 +210,29 @@ async def test_anthropic_path_routes_curated_anthropic_models_to_messages() -> N
 
     payload = _posted_json(recorder.requests, "/messages")
     assert payload["model"] == "minimax-m2.7"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["qwen3.7-max", "qwen3.6-plus", "qwen3.5-plus"])
+async def test_qwen_models_route_to_anthropic_messages(model: str) -> None:
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+
+        await backend.chat_completions(_make_request(f"opencode-go:{model}"))
+
+    assert not any(
+        request.method == "POST" and request.url.path.endswith("/chat/completions")
+        for request in recorder.requests
+    )
+
+    request = _matching_request(recorder.requests, "/messages")
+    payload = cast(dict[str, Any], json.loads(request.content.decode("utf-8")))
+    assert payload["model"] == model
+    assert request.headers["x-api-key"] == "test-api-key"
+    assert "authorization" not in request.headers
 
 
 @pytest.mark.asyncio
