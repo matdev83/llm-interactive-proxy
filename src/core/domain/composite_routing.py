@@ -321,6 +321,7 @@ class CompositeRoutingInput(DomainModel):
     default_backend: str = ""
     prefer_first_weighted_branch: bool = False
     request_context_tokens: int | None = None
+    interleaved_thinking_weighted_cycle_state: dict[str, JsonValue] | None = None
 
     @field_validator("selector")
     @classmethod

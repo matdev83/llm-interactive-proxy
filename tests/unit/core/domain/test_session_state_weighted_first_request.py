@@ -1,5 +1,7 @@
 """Tests for SessionState class."""
 
+from typing import cast
+
 from src.core.domain.session import SessionState
 
 
@@ -53,6 +55,37 @@ class TestSessionStateWeightedFirstRequest:
         state = SessionState(weighted_first_request_consumed=True)
         state_dict = state.to_dict()
 
-        restored_state = SessionState.from_dict(state_dict)
+        restored_state = cast(SessionState, SessionState.from_dict(state_dict))
 
         assert restored_state.weighted_first_request_consumed is True
+
+    def test_with_interleaved_thinking_weighted_cycle_state_returns_new_state(
+        self,
+    ) -> None:
+        state = SessionState()
+        cycle_state = {
+            "selector": "[weight=1]anthropic:claude^[weight=1][thinker]openai:gpt-4",
+            "sequence": ["anthropic:claude", "openai:gpt-4"],
+            "next_index": 1,
+        }
+
+        new_state = state.with_interleaved_thinking_weighted_cycle_state(cycle_state)
+
+        assert state.interleaved_thinking_weighted_cycle_state is None
+        assert new_state.interleaved_thinking_weighted_cycle_state == cycle_state
+
+    def test_interleaved_thinking_weighted_cycle_state_persists_via_dict(
+        self,
+    ) -> None:
+        cycle_state = {
+            "selector": "[weight=1]anthropic:claude^[weight=1][thinker]openai:gpt-4",
+            "sequence": ["anthropic:claude", "openai:gpt-4"],
+            "next_index": 1,
+        }
+        state = SessionState(
+            interleaved_thinking_weighted_cycle_state=cycle_state,
+        )
+
+        restored_state = cast(SessionState, SessionState.from_dict(state.to_dict()))
+
+        assert restored_state.interleaved_thinking_weighted_cycle_state == cycle_state

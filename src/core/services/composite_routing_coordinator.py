@@ -31,6 +31,7 @@ from src.core.services.composite_routing_state import (
     COMPOSITE_SELECTED_LEAF_SELECTOR_KEY,
     FAILOVER_MODE,
     INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY,
+    INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY,
     WEIGHTED_RETRY_MODE,
     FailoverRuntimeState,
     WeightedRetryBranch,
@@ -174,10 +175,21 @@ class CompositeRoutingCoordinator:
                     },
                 )
 
-            eligible_weighted_children = self._filter_thinker_children_if_needed(
-                context=context,
-                children=eligible_weighted_children,
-            )
+            has_thinker_branch = self._has_thinker_branch(root.children)
+            if (
+                has_thinker_branch
+                and self._should_suppress_thinker_selection(context)
+                and not any(
+                    not child.leaf_selector.thinker_annotation
+                    for child in eligible_weighted_children
+                )
+            ):
+                eligible_weighted_children = []
+            elif not has_thinker_branch:
+                eligible_weighted_children = self._filter_thinker_children_if_needed(
+                    context=context,
+                    children=eligible_weighted_children,
+                )
             if not eligible_weighted_children:
                 if should_publish:
                     self._diagnostics_publisher.publish_exhaustion(
@@ -213,7 +225,15 @@ class CompositeRoutingCoordinator:
                         "reason": "interleaved_thinking_suppressed",
                     },
                 )
-            if len(eligible_weighted_children) == 1:
+            if has_thinker_branch:
+                selected_leaf = self._select_interleaved_thinking_weighted_cycle_leaf(
+                    children=eligible_weighted_children,
+                    selector=plan.normalized_selector,
+                    cycle_state=routing_input.interleaved_thinking_weighted_cycle_state,
+                    prefer_first=routing_input.prefer_first_weighted_branch,
+                    context=context,
+                )
+            elif len(eligible_weighted_children) == 1:
                 selected_leaf = eligible_weighted_children[0]
             else:
                 selected_leaf = self._weighted_branch_selector.select(
@@ -254,7 +274,11 @@ class CompositeRoutingCoordinator:
                         reason_code=(
                             None
                             if leaf is selected_leaf
-                            else "weighted_random_non_winner"
+                            else (
+                                "interleaved_thinking_weighted_cycle_non_winner"
+                                if has_thinker_branch
+                                else "weighted_random_non_winner"
+                            )
                         ),
                     )
                     for leaf in eligible_weighted_children
@@ -558,6 +582,90 @@ class CompositeRoutingCoordinator:
         return [
             child for child in children if not child.leaf_selector.thinker_annotation
         ]
+
+    @staticmethod
+    def _has_thinker_branch(children: Sequence[CompositeLeafNode]) -> bool:
+        return any(child.leaf_selector.thinker_annotation for child in children)
+
+    @staticmethod
+    def _select_interleaved_thinking_weighted_cycle_leaf(
+        *,
+        children: Sequence[CompositeLeafNode],
+        selector: str,
+        cycle_state: dict[str, JsonValue] | None,
+        prefer_first: bool,
+        context: RequestContext | None,
+    ) -> CompositeLeafNode:
+        sequence = CompositeRoutingCoordinator._build_interleaved_thinking_sequence(
+            children
+        )
+        if not sequence:
+            raise ValueError("Weighted node must contain at least one branch.")
+
+        next_index = 0
+        if isinstance(cycle_state, dict):
+            stored_selector = cycle_state.get("selector")
+            stored_sequence = cycle_state.get("sequence")
+            stored_next_index = cycle_state.get("next_index")
+            sequence_selectors = [
+                child.leaf_selector.normalized_selector for child in sequence
+            ]
+            if (
+                stored_selector == selector
+                and isinstance(stored_sequence, list)
+                and stored_sequence == sequence_selectors
+                and isinstance(stored_next_index, int)
+                and stored_next_index >= 0
+            ):
+                next_index = stored_next_index % len(sequence)
+            elif prefer_first:
+                next_index = (
+                    CompositeRoutingCoordinator._first_annotation_sequence_index(
+                        sequence
+                    )
+                    or 0
+                )
+        elif prefer_first:
+            next_index = (
+                CompositeRoutingCoordinator._first_annotation_sequence_index(sequence)
+                or 0
+            )
+
+        selected_leaf = sequence[next_index]
+        persisted_state: dict[str, JsonValue] = {
+            "selector": selector,
+            "sequence": [child.leaf_selector.normalized_selector for child in sequence],
+            "next_index": (next_index + 1) % len(sequence),
+        }
+        if context is not None:
+            context.extensions[INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY] = cast(
+                JsonValue, persisted_state
+            )
+        return selected_leaf
+
+    @staticmethod
+    def _build_interleaved_thinking_sequence(
+        children: Sequence[CompositeLeafNode],
+    ) -> list[CompositeLeafNode]:
+        non_thinkers: list[CompositeLeafNode] = []
+        thinkers: list[CompositeLeafNode] = []
+        for child in children:
+            raw_weight = child.leaf_selector.weight_annotation
+            resolved_weight = 1 if raw_weight is None else raw_weight
+            if child.leaf_selector.thinker_annotation:
+                thinkers.append(child)
+            else:
+                non_thinkers.extend([child] * resolved_weight)
+        return [*non_thinkers, *thinkers]
+
+    @staticmethod
+    def _first_annotation_sequence_index(
+        sequence: Sequence[CompositeLeafNode],
+    ) -> int | None:
+        for index, child in enumerate(sequence):
+            if child.leaf_selector.first_annotation:
+                return index
+        return None
 
     @staticmethod
     def _append_branch_history(

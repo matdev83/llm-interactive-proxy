@@ -18,6 +18,7 @@ from src.core.services.composite_routing_state import (
     COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
     COMPOSITE_SELECTED_LEAF_SELECTOR_KEY,
     INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY,
+    INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY,
 )
 from src.core.services.composite_selector_parser import CompositeSelectorParser
 from src.core.services.weighted_branch_selector import WeightedBranchSelector
@@ -140,8 +141,16 @@ async def test_weighted_coordinator_selects_exactly_one_branch() -> None:
 async def test_weighted_coordinator_persists_selected_thinker_metadata() -> None:
     parser = CompositeSelectorParser()
     routing_input = CompositeRoutingInput(
-        selector="[thinker]openai:gpt-4^[weight=10]anthropic:claude-3-5-sonnet",
+        selector="[thinker]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet",
         surface=RoutingSurface.MAIN,
+        interleaved_thinking_weighted_cycle_state={
+            "selector": (
+                "[weight=1][thinker]openai:gpt-4^"
+                "[weight=1]anthropic:claude-3-5-sonnet"
+            ),
+            "sequence": ["anthropic:claude-3-5-sonnet", "openai:gpt-4"],
+            "next_index": 1,
+        },
     )
     plan = parser.parse(routing_input)
     leaf_resolver = _LeafResolverDouble(
@@ -207,6 +216,209 @@ async def test_weighted_coordinator_persists_non_thinker_metadata() -> None:
         == "anthropic:claude-3-5-sonnet"
     )
     assert context.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY] is False
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_with_thinker_cycles_non_thinkers_then_thinker() -> (
+    None
+):
+    parser = CompositeSelectorParser()
+    selector = (
+        "[thinker]openai:gpt-5.5?"
+        "reasoning_effort=low^"
+        "[weight=2]opencode-go:opencode-go/mimo-v2.5-pro?"
+        "reasoning_effort=high^"
+        "[weight=1]opencode-go:opencode-go/deepseek-v4-flash?"
+        "reasoning_effort=max"
+    )
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-5.5?reasoning_effort=low": _LeafOutcome(
+                target=_target("openai", "gpt-5.5")
+            ),
+            "opencode-go:opencode-go/mimo-v2.5-pro?reasoning_effort=high": _LeafOutcome(
+                target=_target("opencode-go", "opencode-go/mimo-v2.5-pro")
+            ),
+            "opencode-go:opencode-go/deepseek-v4-flash?reasoning_effort=max": _LeafOutcome(
+                target=_target("opencode-go", "opencode-go/deepseek-v4-flash")
+            ),
+        }
+    )
+
+    def random_value_provider() -> float:
+        raise AssertionError("thinker-weighted routing must not use random selection")
+
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=random_value_provider
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    cycle_state: dict[str, Any] | None = None
+    selected: list[str] = []
+    thinker_flags: list[bool] = []
+
+    for _ in range(4):
+        routing_input = CompositeRoutingInput(
+            selector=selector,
+            surface=RoutingSurface.MAIN,
+            interleaved_thinking_weighted_cycle_state=cycle_state,
+        )
+        plan = parser.parse(routing_input)
+        context = _context()
+
+        await coordinator.execute(
+            plan=plan,
+            routing_input=routing_input,
+            request=_request(),
+            context=context,
+        )
+
+        selected.append(
+            cast(str, context.extensions[COMPOSITE_SELECTED_LEAF_SELECTOR_KEY])
+        )
+        thinker_flags.append(
+            cast(bool, context.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY])
+        )
+        cycle_state = cast(
+            dict[str, Any],
+            context.extensions[INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY],
+        )
+
+    assert selected == [
+        "opencode-go:opencode-go/mimo-v2.5-pro?reasoning_effort=high",
+        "opencode-go:opencode-go/mimo-v2.5-pro?reasoning_effort=high",
+        "opencode-go:opencode-go/deepseek-v4-flash?reasoning_effort=max",
+        "openai:gpt-5.5?reasoning_effort=low",
+    ]
+    assert thinker_flags == [False, False, False, True]
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_with_thinker_restarts_cycle_after_thinker() -> None:
+    parser = CompositeSelectorParser()
+    selector = "[thinker]openai:gpt-4^[weight=1]anthropic:claude"
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4")),
+            "anthropic:claude": _LeafOutcome(target=_target("anthropic", "claude")),
+        }
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.0
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    cycle_state: dict[str, Any] | None = None
+    selected: list[str] = []
+
+    for _ in range(3):
+        routing_input = CompositeRoutingInput(
+            selector=selector,
+            surface=RoutingSurface.MAIN,
+            interleaved_thinking_weighted_cycle_state=cycle_state,
+        )
+        context = _context()
+        await coordinator.execute(
+            plan=parser.parse(routing_input),
+            routing_input=routing_input,
+            request=_request(),
+            context=context,
+        )
+        selected.append(
+            cast(str, context.extensions[COMPOSITE_SELECTED_LEAF_SELECTOR_KEY])
+        )
+        cycle_state = cast(
+            dict[str, Any],
+            context.extensions[INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY],
+        )
+
+    assert selected == ["anthropic:claude", "openai:gpt-4", "anthropic:claude"]
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_with_thinker_preserves_first_annotation() -> None:
+    parser = CompositeSelectorParser()
+    selector = "openai:regular^[first]openai:first^[thinker]openai:thinker"
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:regular": _LeafOutcome(target=_target("openai", "regular")),
+            "openai:first": _LeafOutcome(target=_target("openai", "first")),
+            "openai:thinker": _LeafOutcome(target=_target("openai", "thinker")),
+        }
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.0
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    routing_input = CompositeRoutingInput(
+        selector=selector,
+        surface=RoutingSurface.MAIN,
+        prefer_first_weighted_branch=True,
+    )
+    context = _context()
+
+    await coordinator.execute(
+        plan=parser.parse(routing_input),
+        routing_input=routing_input,
+        request=_request(),
+        context=context,
+    )
+
+    assert context.extensions[COMPOSITE_SELECTED_LEAF_SELECTOR_KEY] == "openai:first"
+    cycle_state = cast(
+        dict[str, Any],
+        context.extensions[INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY],
+    )
+    assert cycle_state["next_index"] == 2
+
+
+@pytest.mark.asyncio
+async def test_weighted_coordinator_with_thinker_uses_one_thinker_slot_per_cycle() -> (
+    None
+):
+    parser = CompositeSelectorParser()
+    selector = "[weight=3,thinker]openai:thinker^[weight=1]openai:regular"
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:thinker": _LeafOutcome(target=_target("openai", "thinker")),
+            "openai:regular": _LeafOutcome(target=_target("openai", "regular")),
+        }
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.0
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+    cycle_state: dict[str, Any] | None = None
+    selected: list[str] = []
+
+    for _ in range(3):
+        routing_input = CompositeRoutingInput(
+            selector=selector,
+            surface=RoutingSurface.MAIN,
+            interleaved_thinking_weighted_cycle_state=cycle_state,
+        )
+        context = _context()
+        await coordinator.execute(
+            plan=parser.parse(routing_input),
+            routing_input=routing_input,
+            request=_request(),
+            context=context,
+        )
+        selected.append(
+            cast(str, context.extensions[COMPOSITE_SELECTED_LEAF_SELECTOR_KEY])
+        )
+        cycle_state = cast(
+            dict[str, Any],
+            context.extensions[INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY],
+        )
+
+    assert selected == ["openai:regular", "openai:thinker", "openai:regular"]
 
 
 @pytest.mark.asyncio

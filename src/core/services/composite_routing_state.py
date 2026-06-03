@@ -18,6 +18,7 @@ __all__ = [
     "COMPOSITE_ROUTING_SURFACE_KEY",
     "COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY",
     "COMPOSITE_SELECTED_LEAF_SELECTOR_KEY",
+    "INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY",
     "FAILOVER_MODE",
     "FailoverRuntimeState",
     "INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY",
@@ -40,6 +41,9 @@ COMPOSITE_LEAF_PARSED_BACKEND_EXTRA_BODY_KEY = "_composite_leaf_parsed_backend"
 COMPOSITE_LEAF_PARSED_MODEL_EXTRA_BODY_KEY = "_composite_leaf_parsed_model"
 COMPOSITE_SELECTED_LEAF_SELECTOR_KEY = "composite_selected_leaf_selector"
 COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY = "composite_selected_leaf_is_thinker"
+INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY = (
+    "interleaved_thinking_weighted_cycle_state"
+)
 INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY = (
     "interleaved_thinking_suppress_thinker_selection"
 )

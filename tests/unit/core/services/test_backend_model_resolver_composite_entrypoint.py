@@ -25,6 +25,7 @@ from src.core.services.composite_routing_state import (
     COMPOSITE_LEAF_RESOLUTION_EXTRA_BODY_KEY,
     COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
     COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
+    INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY,
 )
 from src.core.services.composite_selector_parser import CompositeSelectorParser
 from src.core.services.weighted_branch_selector import WeightedBranchSelector
@@ -133,6 +134,86 @@ def _patch_session_service(
     mock.update_session = AsyncMock()
     resolver._session_service = mock  # type: ignore[assignment]
     return mock
+
+
+@pytest.mark.asyncio
+async def test_resolver_persists_interleaved_thinking_weighted_cycle_state() -> None:
+    resolver = _build_resolver_with_real_composite()
+
+    def random_value_provider() -> float:
+        raise AssertionError("thinker-weighted routing must not use random selection")
+
+    _attach_deterministic_weighted_composite(resolver, random_value_provider)
+    session = Session(
+        session_id="session-main",
+        state=SessionState(weighted_first_request_consumed=True),
+    )
+    session_service = _patch_session_service(resolver, session)
+    selector = (
+        "[thinker]openai:gpt-4^"
+        "[weight=2]anthropic:claude-3-5-sonnet^"
+        "[weight=1]gemini:gemini-2.0-flash"
+    )
+    selected: list[tuple[str, str, bool]] = []
+
+    for _ in range(4):
+        context = _context("main")
+        request = ChatRequest(
+            model=selector,
+            messages=[ChatMessage(role="user", content="hello")],
+            extra_body={"session_id": "session-main"},
+        )
+
+        target = await resolver.resolve_target(request, context=context)
+
+        selected.append(
+            (
+                target.backend,
+                target.model,
+                cast(bool, context.extensions[COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY]),
+            )
+        )
+        assert INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY in context.extensions
+
+    assert selected == [
+        ("anthropic", "claude-3-5-sonnet", False),
+        ("anthropic", "claude-3-5-sonnet", False),
+        ("gemini", "gemini-2.0-flash", False),
+        ("openai", "gpt-4", True),
+    ]
+    stored_cycle_state = session.state.interleaved_thinking_weighted_cycle_state
+    assert isinstance(stored_cycle_state, dict)
+    assert stored_cycle_state["next_index"] == 0
+    assert session_service.update_session.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_resolver_does_not_persist_interleaved_thinking_cycle_without_session() -> (
+    None
+):
+    resolver = _build_resolver_with_real_composite()
+
+    def random_value_provider() -> float:
+        raise AssertionError("thinker-weighted routing must not use random selection")
+
+    _attach_deterministic_weighted_composite(resolver, random_value_provider)
+    session_service = cast(MagicMock, resolver._session_service)
+    selector = "[thinker]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet"
+    context = _context("main")
+
+    target = await resolver.resolve_target(
+        ChatRequest(
+            model=selector,
+            messages=[ChatMessage(role="user", content="hello")],
+            extra_body={},
+        ),
+        context=context,
+    )
+
+    assert target.backend == "anthropic"
+    assert target.model == "claude-3-5-sonnet"
+    assert INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY in context.extensions
+    session_service.update_session.assert_not_called()
 
 
 @pytest.mark.asyncio

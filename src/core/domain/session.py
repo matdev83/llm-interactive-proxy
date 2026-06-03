@@ -81,6 +81,7 @@ class SessionState(ValueObject):
     planning_phase_original_model: str | None = None
     replacement_state: dict[str, Any] | None = None
     interleaved_thinking_state: dict[str, Any] | None = None
+    interleaved_thinking_weighted_cycle_state: dict[str, Any] | None = None
     replacement_disabled: bool = False
     client_os: str | None = None
 
@@ -187,6 +188,15 @@ class SessionState(ValueObject):
     ) -> SessionState:
         """Create a new session state with updated interleaved thinking memory."""
         return self.model_copy(update={"interleaved_thinking_state": state})
+
+    def with_interleaved_thinking_weighted_cycle_state(
+        self,
+        state: dict[str, Any] | None,
+    ) -> SessionState:
+        """Create a new session state with updated interleaved thinking cycle state."""
+        return self.model_copy(
+            update={"interleaved_thinking_weighted_cycle_state": state}
+        )
 
     def with_history_compaction_allowed(self, allowed: bool) -> SessionState:
         """Create a new session state with updated history_compaction_allowed flag."""
@@ -372,6 +382,16 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         return bool(getattr(self._state, "weighted_first_request_consumed", False))
 
     @property
+    def interleaved_thinking_weighted_cycle_state(
+        self,
+    ) -> dict[str, Any] | None:
+        """Persisted weighted-cycle cursor for interleaved thinker routing."""
+        raw_state = getattr(
+            self._state, "interleaved_thinking_weighted_cycle_state", None
+        )
+        return raw_state if isinstance(raw_state, dict) else None
+
+    @property
     def planning_phase_turn_count(self) -> int:
         """Number of turns completed in planning phase."""
         return self._state.planning_phase_turn_count
@@ -467,6 +487,16 @@ class SessionStateAdapter(ISessionState, ISessionStateMutator):
         new_state = cast(SessionState, self._state).with_history_compaction_allowed(
             allowed
         )
+        return SessionStateAdapter(new_state)
+
+    def with_interleaved_thinking_weighted_cycle_state(
+        self,
+        state: dict[str, Any] | None,
+    ) -> ISessionState:
+        """Create a new state with updated interleaved thinking cycle state."""
+        new_state = cast(
+            SessionState, self._state
+        ).with_interleaved_thinking_weighted_cycle_state(state)
         return SessionStateAdapter(new_state)
 
     def with_planning_phase_config(self, config: IPlanningPhaseConfig) -> ISessionState:

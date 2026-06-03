@@ -49,6 +49,7 @@ from src.core.services.composite_routing_state import (
     COMPOSITE_LEAF_RESOLUTION_FLAG,
     COMPOSITE_LEAF_SELECTOR_EXTRA_BODY_KEY,
     INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY,
+    INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY,
     resolve_composite_routing_surface,
 )
 from src.core.services.replacement_compatibility_bridge import (
@@ -172,6 +173,16 @@ class BackendModelResolver(IBackendModelResolver):
                         getattr(session.state, "weighted_first_request_consumed", False)
                     )
                 )
+                base_session_state = (
+                    self._session_state_as_session_state(cast(Any, session).state)
+                    if session is not None
+                    else None
+                )
+                cycle_state = (
+                    base_session_state.interleaved_thinking_weighted_cycle_state
+                    if base_session_state is not None
+                    else None
+                )
                 composite_input = CompositeRoutingInput(
                     selector=selector_for_routing,
                     surface=routing_surface,
@@ -184,6 +195,7 @@ class BackendModelResolver(IBackendModelResolver):
                     request_context_tokens=self._extract_request_context_tokens(
                         request
                     ),
+                    interleaved_thinking_weighted_cycle_state=cycle_state,
                 )
                 try:
                     return await self._composite_routing_service.resolve_target(
@@ -192,15 +204,34 @@ class BackendModelResolver(IBackendModelResolver):
                         context=context,
                     )
                 finally:
-                    if should_consume_weighted_first_flag:
+                    raw_cycle_state = (
+                        context.extensions.get(
+                            INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY
+                        )
+                        if context is not None
+                        else None
+                    )
+                    should_persist_cycle_state = session is not None and isinstance(
+                        raw_cycle_state, dict
+                    )
+                    if should_consume_weighted_first_flag or should_persist_cycle_state:
                         session_for_update = cast(Any, session)
                         base_state = self._session_state_as_session_state(
                             session_for_update.state
                         )
                         if base_state is not None:
-                            session_for_update.update_state(
-                                base_state.with_weighted_first_request_consumed(True)
-                            )
+                            next_state = base_state
+                            if should_consume_weighted_first_flag:
+                                next_state = (
+                                    next_state.with_weighted_first_request_consumed(
+                                        True
+                                    )
+                                )
+                            if should_persist_cycle_state:
+                                next_state = next_state.with_interleaved_thinking_weighted_cycle_state(
+                                    cast(dict[str, Any], raw_cycle_state)
+                                )
+                            session_for_update.update_state(next_state)
                             await self._session_service.update_session(
                                 session_for_update
                             )

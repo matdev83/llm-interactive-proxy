@@ -307,3 +307,17 @@ class ISessionState(IValueObject, ISessionStateMutator):
     @abstractmethod
     def with_history_compaction_allowed(self, allowed: bool) -> ISessionState:
         """Create a new state with updated history_compaction_allowed flag."""
+
+    @property
+    @abstractmethod
+    def interleaved_thinking_weighted_cycle_state(
+        self,
+    ) -> dict[str, Any] | None:
+        """Get persisted weighted-cycle cursor for interleaved thinker routing."""
+
+    @abstractmethod
+    def with_interleaved_thinking_weighted_cycle_state(
+        self,
+        state: dict[str, Any] | None,
+    ) -> ISessionState:
+        """Create a new state with updated interleaved thinking cycle state."""
