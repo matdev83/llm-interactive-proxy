@@ -45,6 +45,8 @@ class CompositeValidationErrorCode(str, Enum):
     UNSUPPORTED_CONSTRUCT = "unsupported_construct"
     INVALID_WEIGHT = "invalid_weight"
     INVALID_MAX_CONTEXT = "invalid_max_context"
+    INVALID_HANDICAP = "invalid_handicap"
+    INVALID_TTFT_TIMEOUT = "invalid_ttft_timeout"
     INVALID_LEAF = "invalid_leaf"
 
 
@@ -111,6 +113,8 @@ class CompositeLeafSelector(DomainModel):
     first_annotation: bool = False
     thinker_annotation: bool = False
     max_context_tokens: int | None = None
+    handicap_seconds: float = 0.0
+    ttft_timeout_seconds: float = 0.0
     uri_params: dict[str, JsonValue] = Field(default_factory=dict)
     backend_type: str = ""
     model_name: str = ""
@@ -150,6 +154,13 @@ class CompositeLeafSelector(DomainModel):
     @classmethod
     def _validate_thinker_annotation(cls, value: bool) -> bool:
         return value
+
+    @field_validator("handicap_seconds", "ttft_timeout_seconds")
+    @classmethod
+    def _validate_non_negative_parallel_timing(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("parallel timing values must be non-negative")
+        return float(value)
 
 
 class CompositeLeafNode(DomainModel):
@@ -197,8 +208,29 @@ class CompositeWeightedGroupNode(DomainModel):
         return value
 
 
+class CompositeParallelGroupNode(DomainModel):
+    """Parallel racing group (`!`) represented as a flat branch list."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["parallel_group"] = "parallel_group"
+    children: list[CompositeLeafNode]
+
+    @field_validator("children")
+    @classmethod
+    def _require_multiple_children(
+        cls, value: list[CompositeLeafNode]
+    ) -> list[CompositeLeafNode]:
+        if len(value) < 2:
+            raise ValueError("parallel groups require at least two branches")
+        return value
+
+
 CompositeNode = (
-    CompositeLeafNode | CompositeFailoverGroupNode | CompositeWeightedGroupNode
+    CompositeLeafNode
+    | CompositeFailoverGroupNode
+    | CompositeWeightedGroupNode
+    | CompositeParallelGroupNode
 )
 CompositeNodeDiscriminated = Annotated[CompositeNode, Field(discriminator="kind")]
 
@@ -402,6 +434,7 @@ __all__ = [
     "CompositeSelectorValidationError",
     "CompositeValidationErrorCode",
     "CompositeValidationErrorEnvelope",
+    "CompositeParallelGroupNode",
     "CompositeWeightedGroupNode",
     "RoutingSurface",
 ]

@@ -196,13 +196,18 @@ to override heuristic token estimation for `max_context` checks on that request.
 When a weighted branch fails before meaningful output starts, runtime recovery can
 re-roll within the same request by excluding the failed branch and choosing from the remaining weighted leaves.
 
+**Parallel routing:** Use `!` to race several streaming backends and bridge the first one that emits meaningful output. `|` remains ordered failover, so `!` is the parallel separator.
+```bash
+--default-backend "[handicap=10,ttft_timeout=10]nvidia:moonshotai/kimi-k2.6![handicap=5]nvidia:minimaxai/minimax-m3!nvidia:mistralai/mistral-large-3-675b-instruct-2512"
+```
+Parallel routing is streaming-only. The proxy emits standard SSE keep-alive comments while racing B-legs, cancels losers through their protocol cancellation callback, and stops every active or scheduled B-leg on A-leg disconnect or cancellation.
+
 **With parameters:** Pass model parameters in the selector
 ```bash
 --default-backend "openai:gpt-4o?temperature=0.5&max_tokens=2000"
 ```
 
-See the [Technical Reference: Routing Selectors](docs/development_guide/routing-selectors.md) for detailed syntax rules and advanced usage.
-
+See the [Technical Reference: Routing Selectors](docs/development_guide/routing-selectors.md) for full syntax rules, including parallel routing.
 ## Access Modes
 
 The proxy supports two operational modes with different security assumptions:

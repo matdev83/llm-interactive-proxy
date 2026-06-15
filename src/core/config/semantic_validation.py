@@ -44,7 +44,10 @@ from src.core.services.backend_registry import backend_registry
 from src.core.services.composite_selector_parser import CompositeSelectorParser
 
 logger = logging.getLogger(__name__)
-_MIXED_OPERATOR_ERROR_MESSAGE = "Composite selector cannot mix failover ('|') and weighted ('^') operators in one string."
+_MIXED_OPERATOR_ERROR_MESSAGE = (
+    "Composite selector cannot mix failover ('|'), weighted ('^'), "
+    "and parallel ('!') operators in one string."
+)
 
 
 class ConfigurationValidator:

@@ -10,6 +10,7 @@ from src.core.domain.composite_routing import (
     CompositeFailoverGroupNode,
     CompositeLeafNode,
     CompositeLeafSelector,
+    CompositeParallelGroupNode,
     CompositeRoutePlan,
     CompositeRoutingInput,
     CompositeSelectorValidationError,
@@ -25,6 +26,7 @@ from src.core.domain.model_utils import (
 __all__ = ["CompositeSelectorParser"]
 
 _INTEGER_PATTERN = re.compile(r"^[+-]?\d+$")
+_COMPOSITE_OPERATORS = frozenset({"|", "^", "!"})
 _ANNOTATION_TRUE_VALUES = {"true", "yes", "1"}
 _ANNOTATION_FALSE_VALUES = {"false", "no", "0"}
 
@@ -41,10 +43,12 @@ class _PrefixAnnotations:
     first_annotation: bool = False
     thinker_annotation: bool = False
     max_context_tokens: int | None = None
+    handicap_seconds: float | None = None
+    ttft_timeout_seconds: float | None = None
 
 
 class CompositeSelectorParser:
-    """Parse flat failover (`|`) and weighted (`^`) composite selectors."""
+    """Parse flat failover (`|`), weighted (`^`), and parallel (`!`) composite selectors."""
 
     def parse(self, routing_input: CompositeRoutingInput) -> CompositeRoutePlan:
         selector = routing_input.selector.strip()
@@ -60,6 +64,7 @@ class CompositeSelectorParser:
             parsed_single = self._parse_leaf(
                 leaf_text=selector,
                 is_weighted_group=False,
+                is_parallel_group=False,
                 routing_input=routing_input,
             )
             return CompositeRoutePlan(
@@ -69,17 +74,19 @@ class CompositeSelectorParser:
             )
 
         parts = self._split_top_level(selector, operator)
-        other_operator = "^" if operator == "|" else "|"
+        other_operators = _COMPOSITE_OPERATORS - {operator}
         has_mixed_operator = any(
             self._contains_operator_outside_brackets(segment, other_operator)
             for segment in parts
+            for other_operator in other_operators
         )
         if has_mixed_operator:
             self._raise_validation_error(
                 code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                 selector=selector,
                 message=(
-                    "Composite selector cannot mix failover ('|') and weighted ('^') operators in one string."
+                    "Composite selector cannot mix failover ('|'), weighted ('^'), "
+                    "and parallel ('!') operators in one string."
                 ),
             )
 
@@ -88,6 +95,7 @@ class CompositeSelectorParser:
                 self._parse_leaf(
                     leaf_text=segment,
                     is_weighted_group=False,
+                    is_parallel_group=False,
                     routing_input=routing_input,
                 )
                 for segment in parts
@@ -108,6 +116,7 @@ class CompositeSelectorParser:
                 self._parse_leaf(
                     leaf_text=segment,
                     is_weighted_group=True,
+                    is_parallel_group=False,
                     routing_input=routing_input,
                 )
                 for segment in parts
@@ -149,6 +158,36 @@ class CompositeSelectorParser:
                 ),
             )
 
+        if operator == "!":
+            for segment in parts:
+                if self._contains_operator_outside_brackets(segment, "!"):
+                    self._raise_validation_error(
+                        code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                        selector=selector,
+                        message=(
+                            "Parallel ('!') operator cannot appear inside a branch selector."
+                        ),
+                    )
+            leaves = [
+                self._parse_leaf(
+                    leaf_text=segment,
+                    is_weighted_group=False,
+                    is_parallel_group=True,
+                    routing_input=routing_input,
+                )
+                for segment in parts
+            ]
+            normalized = "!".join(leaf.normalized_leaf_for_plan for leaf in leaves)
+            return CompositeRoutePlan(
+                source_selector=routing_input.selector,
+                normalized_selector=normalized,
+                root_node=CompositeParallelGroupNode(
+                    children=[
+                        CompositeLeafNode(leaf_selector=item.leaf) for item in leaves
+                    ]
+                ),
+            )
+
         self._raise_validation_error(
             code=CompositeValidationErrorCode.SYNTAX_ERROR,
             selector=selector,
@@ -158,12 +197,17 @@ class CompositeSelectorParser:
     @staticmethod
     def _detect_primary_operator(selector: str) -> str | None:
         bracket_depth = 0
+        in_query = False
         for char in selector:
             if char == "[":
                 bracket_depth += 1
             elif char == "]" and bracket_depth > 0:
                 bracket_depth -= 1
-            elif bracket_depth == 0 and char in {"|", "^"}:
+            elif char == "?" and bracket_depth == 0:
+                in_query = True
+            elif bracket_depth == 0 and char in _COMPOSITE_OPERATORS:
+                if char == "!" and in_query:
+                    continue
                 return char
         return None
 
@@ -184,16 +228,24 @@ class CompositeSelectorParser:
         segments: list[str] = []
         current: list[str] = []
         bracket_depth = 0
+        in_query = False
+        ignore_operator_in_query = operator == "!"
 
         for char in selector:
             if char == "[":
                 bracket_depth += 1
             elif char == "]" and bracket_depth > 0:
                 bracket_depth -= 1
+            elif char == "?" and bracket_depth == 0:
+                in_query = True
 
             if char == operator and bracket_depth == 0:
+                if ignore_operator_in_query and in_query:
+                    current.append(char)
+                    continue
                 segments.append("".join(current))
                 current = []
+                in_query = False
                 continue
 
             current.append(char)
@@ -206,6 +258,7 @@ class CompositeSelectorParser:
         *,
         leaf_text: str,
         is_weighted_group: bool,
+        is_parallel_group: bool,
         routing_input: CompositeRoutingInput,
     ) -> _LeafParseResult:
         raw_leaf_text = leaf_text.strip()
@@ -246,6 +299,31 @@ class CompositeSelectorParser:
                 selector=routing_input.selector,
                 message="Thinker annotations are only supported for weighted ('^') selectors.",
             )
+        if annotations.handicap_seconds is not None and not is_parallel_group:
+            self._raise_validation_error(
+                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                selector=routing_input.selector,
+                message="Handicap annotations are only supported for parallel ('!') selectors.",
+            )
+        if annotations.ttft_timeout_seconds is not None and not is_parallel_group:
+            self._raise_validation_error(
+                code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                selector=routing_input.selector,
+                message=(
+                    "[ttft_timeout] annotations are only supported for parallel ('!') selectors."
+                ),
+            )
+
+        handicap_seconds = (
+            annotations.handicap_seconds
+            if annotations.handicap_seconds is not None
+            else 0.0
+        )
+        ttft_timeout_seconds = (
+            annotations.ttft_timeout_seconds
+            if annotations.ttft_timeout_seconds is not None
+            else 0.0
+        )
 
         if is_weighted_group:
             if weight_annotation is None:
@@ -258,6 +336,12 @@ class CompositeSelectorParser:
             if annotations.max_context_tokens is not None:
                 prefix_parts += f"[max_context={annotations.max_context_tokens}]"
             normalized_leaf_for_plan = f"{prefix_parts}{normalized_leaf_selector}"
+        elif is_parallel_group:
+            normalized_leaf_for_plan = self._format_parallel_leaf_for_plan(
+                normalized_leaf_selector=normalized_leaf_selector,
+                handicap_seconds=handicap_seconds,
+                ttft_timeout_seconds=ttft_timeout_seconds,
+            )
         elif annotations.max_context_tokens is not None:
             normalized_leaf_for_plan = (
                 f"[max_context={annotations.max_context_tokens}]"
@@ -309,6 +393,8 @@ class CompositeSelectorParser:
                 annotations.thinker_annotation if is_weighted_group else False
             ),
             max_context_tokens=annotations.max_context_tokens,
+            handicap_seconds=handicap_seconds,
+            ttft_timeout_seconds=ttft_timeout_seconds,
             uri_params=parsed_leaf.uri_params,
             backend_type=parsed_leaf.backend_type,
             model_name=parsed_leaf.model_name,
@@ -329,6 +415,8 @@ class CompositeSelectorParser:
         first_annotation = False
         thinker_annotation = False
         max_context_tokens: int | None = None
+        handicap_seconds: float | None = None
+        ttft_timeout_seconds: float | None = None
 
         while remaining.startswith("["):
             closing_index = remaining.find("]")
@@ -423,6 +511,38 @@ class CompositeSelectorParser:
                     )
                     continue
 
+                if key == "handicap":
+                    if handicap_seconds is not None:
+                        self._raise_validation_error(
+                            code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                            selector=source_selector,
+                            message="Duplicate [handicap=N] annotations are not supported.",
+                        )
+                    handicap_seconds = self._parse_non_negative_number_annotation(
+                        key="handicap",
+                        raw_value=raw_value,
+                        source_selector=source_selector,
+                        error_code=CompositeValidationErrorCode.INVALID_HANDICAP,
+                    )
+                    continue
+
+                if key == "ttft_timeout":
+                    if ttft_timeout_seconds is not None:
+                        self._raise_validation_error(
+                            code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                            selector=source_selector,
+                            message=(
+                                "Duplicate [ttft_timeout=N] annotations are not supported."
+                            ),
+                        )
+                    ttft_timeout_seconds = self._parse_non_negative_number_annotation(
+                        key="ttft_timeout",
+                        raw_value=raw_value,
+                        source_selector=source_selector,
+                        error_code=CompositeValidationErrorCode.INVALID_TTFT_TIMEOUT,
+                    )
+                    continue
+
                 self._raise_validation_error(
                     code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                     selector=source_selector,
@@ -444,9 +564,71 @@ class CompositeSelectorParser:
                 first_annotation=first_annotation,
                 thinker_annotation=thinker_annotation,
                 max_context_tokens=max_context_tokens,
+                handicap_seconds=handicap_seconds,
+                ttft_timeout_seconds=ttft_timeout_seconds,
             ),
             remaining.strip(),
         )
+
+    @staticmethod
+    def _format_parallel_leaf_for_plan(
+        *,
+        normalized_leaf_selector: str,
+        handicap_seconds: float,
+        ttft_timeout_seconds: float,
+    ) -> str:
+        annotation_parts: list[str] = []
+        if handicap_seconds != 0.0:
+            annotation_parts.append(
+                f"handicap={CompositeSelectorParser._format_annotation_number(handicap_seconds)}"
+            )
+        if ttft_timeout_seconds != 0.0:
+            annotation_parts.append(
+                "ttft_timeout="
+                f"{CompositeSelectorParser._format_annotation_number(ttft_timeout_seconds)}"
+            )
+        if not annotation_parts:
+            return normalized_leaf_selector
+        return f"[{','.join(annotation_parts)}]{normalized_leaf_selector}"
+
+    @staticmethod
+    def _format_annotation_number(value: float) -> str:
+        if value == int(value):
+            return str(int(value))
+        return str(value)
+
+    def _parse_non_negative_number_annotation(
+        self,
+        *,
+        key: str,
+        raw_value: str | None,
+        source_selector: str,
+        error_code: CompositeValidationErrorCode,
+    ) -> float:
+        value_text = "" if raw_value is None else raw_value.strip()
+        if not value_text:
+            self._raise_validation_error(
+                code=error_code,
+                selector=source_selector,
+                message=f"Invalid [{key}=N] annotation '{value_text}'.",
+            )
+
+        try:
+            value = float(value_text)
+        except ValueError:
+            self._raise_validation_error(
+                code=error_code,
+                selector=source_selector,
+                message=f"Invalid [{key}=N] annotation '{value_text}'.",
+            )
+
+        if value < 0:
+            self._raise_validation_error(
+                code=error_code,
+                selector=source_selector,
+                message=f"{key} must be a non-negative number, received {value_text}.",
+            )
+        return value
 
     def _parse_positive_integer_annotation(
         self,

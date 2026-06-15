@@ -562,3 +562,162 @@ def test_parse_rejects_duplicate_max_context_annotation() -> None:
         exc_info.value.envelope.code
         == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
     )
+
+
+def test_parse_parallel_selector_is_deterministic_and_normalized() -> None:
+    parser = CompositeSelectorParser()
+    selector = " openai:gpt-4 ! anthropic:claude-3-5-sonnet "
+
+    first_plan = _parse(parser, selector)
+    second_plan = _parse(parser, selector)
+
+    assert first_plan.model_dump() == second_plan.model_dump()
+    assert first_plan.normalized_selector == "openai:gpt-4!anthropic:claude-3-5-sonnet"
+    assert first_plan.root_node.kind == "parallel_group"
+    normalized_children = [
+        child.leaf_selector.normalized_selector
+        for child in first_plan.root_node.children
+    ]
+    assert normalized_children == ["openai:gpt-4", "anthropic:claude-3-5-sonnet"]
+
+
+def test_parse_parallel_selector_applies_handicap_and_ttft_annotations() -> None:
+    parser = CompositeSelectorParser()
+    plan = _parse(
+        parser,
+        "[handicap=2.5]openai:gpt-4![ttft_timeout=3]anthropic:claude-3",
+    )
+
+    assert plan.root_node.kind == "parallel_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert leaves[0].handicap_seconds == 2.5
+    assert leaves[0].ttft_timeout_seconds == 0.0
+    assert leaves[1].handicap_seconds == 0.0
+    assert leaves[1].ttft_timeout_seconds == 3.0
+    assert plan.normalized_selector == (
+        "[handicap=2.5]openai:gpt-4![ttft_timeout=3]anthropic:claude-3"
+    )
+
+
+def test_parse_parallel_selector_supports_combined_annotation_block() -> None:
+    parser = CompositeSelectorParser()
+    plan = _parse(
+        parser,
+        "[handicap=1,ttft_timeout=4]openai:gpt-4!anthropic:claude-3",
+    )
+
+    assert plan.root_node.kind == "parallel_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert leaves[0].handicap_seconds == 1.0
+    assert leaves[0].ttft_timeout_seconds == 4.0
+    assert leaves[1].handicap_seconds == 0.0
+    assert leaves[1].ttft_timeout_seconds == 0.0
+
+
+def test_parse_parallel_selector_rejects_mixed_failover_operator() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "openai:gpt-4|anthropic:claude-3!openrouter:gpt-4o-mini")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+
+
+def test_parse_parallel_selector_rejects_mixed_weighted_operator() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "openai:gpt-4^anthropic:claude-3!openrouter:gpt-4o-mini")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+
+
+def test_parse_parallel_selector_rejects_bang_anywhere_in_branch_text() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "openai:gpt-4!anthropic:claude-3?note=foo!bar")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+
+
+def test_parse_parallel_selector_rejects_handicap_outside_parallel_groups() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "[handicap=1]openai:gpt-4|anthropic:claude-3")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+    assert "handicap" in exc_info.value.envelope.message.lower()
+
+
+def test_parse_parallel_selector_rejects_ttft_timeout_outside_parallel_groups() -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, "[ttft_timeout=2]openai:gpt-4^anthropic:claude-3")
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
+    )
+    assert "ttft_timeout" in exc_info.value.envelope.message.lower()
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        "[handicap=-1]openai:gpt-4!anthropic:claude-3",
+        "[handicap=abc]openai:gpt-4!anthropic:claude-3",
+    ],
+)
+def test_parse_rejects_invalid_handicap_values(selector: str) -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, selector)
+
+    assert exc_info.value.envelope.code == CompositeValidationErrorCode.INVALID_HANDICAP
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        "[ttft_timeout=-1]openai:gpt-4!anthropic:claude-3",
+        "[ttft_timeout=abc]openai:gpt-4!anthropic:claude-3",
+    ],
+)
+def test_parse_rejects_invalid_ttft_timeout_values(selector: str) -> None:
+    parser = CompositeSelectorParser()
+
+    with pytest.raises(CompositeSelectorValidationError) as exc_info:
+        _parse(parser, selector)
+
+    assert (
+        exc_info.value.envelope.code
+        == CompositeValidationErrorCode.INVALID_TTFT_TIMEOUT
+    )
+
+
+def test_parse_failover_and_weighted_selectors_remain_unchanged_with_parallel_feature() -> (
+    None
+):
+    parser = CompositeSelectorParser()
+
+    failover_plan = _parse(parser, "openai:gpt-4|anthropic:claude-3")
+    weighted_plan = _parse(parser, "[weight=2]openai:gpt-4^anthropic:claude-3")
+
+    assert failover_plan.root_node.kind == "failover_group"
+    assert weighted_plan.root_node.kind == "weighted_group"

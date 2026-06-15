@@ -127,6 +127,43 @@ The proxy does not strip, suppress, or rewrite the request's tool definitions fo
 thinker turns; if the selected model emits tool calls, they are passed through using
 the normal backend/client protocol.
 
+#### Parallel Routing
+
+Uses `!` to fork one streaming A-leg into multiple backend/model B-legs and bridge
+the first leg that emits meaningful output:
+
+```
+[handicap=10,ttft_timeout=10]nvidia:moonshotai/kimi-k2.6![handicap=5,ttft_timeout=5]nvidia:minimaxai/minimax-m3![handicap=2]nvidia:nvidia/nemotron-3-ultra-550b-a55b!nvidia:stepfun-ai/step-3.7-flash
+```
+
+Parallel routing is streaming-only. Non-streaming requests with `!` are rejected
+because the winner is defined by first emitted meaningful output. Meaningful output
+includes non-whitespace chat content, reasoning content, or tool-call deltas;
+SSE keep-alives, whitespace-only chunks, and terminal error chunks do not win.
+
+While no winner exists, the proxy keeps the client-side A-leg open with standard
+SSE comment keep-alives (`: keep-alive\n\n`). Once a winner is found, the proxy
+bridges that B-leg to the A-leg and cancels all losing B-legs through their
+protocol-specific cancellation callback before local task cleanup. If the client
+disconnects or submits an explicit cancellation request, all active and scheduled
+B-legs are stopped, including the winning leg if one has already been selected.
+
+Accepted parallel-only annotations:
+
+- `[handicap=N]` - Non-negative seconds. The highest handicap starts immediately;
+  each other leg starts after `max_handicap - handicap` seconds. If a started
+  non-zero-handicap leg definitively fails before any winner exists, pending legs
+  are started immediately instead of waiting out the remaining handicap schedule.
+- `[ttft_timeout=N]` - Non-negative seconds. When greater than zero, the leg is
+  cancelled if it does not emit meaningful output within that many seconds after
+  it starts.
+
+Rules:
+
+- `!` cannot be mixed with `|` or `^` in the same selector.
+- `handicap` and `ttft_timeout` are valid only on parallel (`!`) selectors.
+- URL-encode literal `!` characters in query values as `%21`.
+
 ### Selector Rules
 
 1. **No mixing operators** - Composite selectors must not mix `|` and `^` in the same selector string. These are rejected during validation.
@@ -153,6 +190,9 @@ python -m src.core.cli --default-backend "openai:gpt-4o|anthropic:claude-3-5-son
 
 # Weighted routing
 python -m src.core.cli --default-backend "[weight=3]openai:gpt-4^[weight=1]anthropic:claude-3-5-sonnet"
+
+# Parallel routing for streaming requests
+python -m src.core.cli --default-backend "[handicap=5,ttft_timeout=8]openai:gpt-4o!anthropic:claude-3-5-sonnet"
 
 # Weighted with first-request override
 python -m src.core.cli --default-backend "[weight=3]openai:gpt-4^[first][weight=1]anthropic:claude-3-5-sonnet"

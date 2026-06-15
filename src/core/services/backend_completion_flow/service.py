@@ -27,6 +27,7 @@ from src.core.common.session_key_resolver import (
 )
 from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
+from src.core.domain.composite_routing import CompositeRoutePlan
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
@@ -67,6 +68,7 @@ from src.core.services.composite_routing_state import (
     COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
     COMPOSITE_SELECTED_LEAF_SELECTOR_KEY,
     INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY,
+    PARALLEL_COMPLETION_ACTIVE_KEY,
     resolve_composite_routing_surface,
 )
 from src.core.services.connector_invoker import ConnectorInvoker
@@ -79,6 +81,11 @@ from src.core.services.interleaved_thinking.transformer import (
     INTERLEAVED_THINKING_DIAGNOSTIC_KEY,
     INTERLEAVED_THINKING_SUPPRESS_MEMO_INJECTION_KEY,
     InterleavedThinkingRequestTransformer,
+)
+from src.core.services.parallel_completion_orchestrator import (
+    CallCompletionFn,
+    ParallelCompletionOrchestrator,
+    try_parse_parallel_plan,
 )
 from src.core.services.resilience.scope import (
     build_resilience_error_context,
@@ -185,6 +192,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._interleaved_thinking_output_recorder = (
             interleaved_thinking_output_recorder
         )
+        self._parallel_orchestrator = ParallelCompletionOrchestrator()
         # Track cancellation tasks to prevent resource leaks
         self._cancellation_tasks: set[asyncio.Task[None]] = set()
         self._cancellation_tasks_lock = threading.Lock()
@@ -1163,6 +1171,64 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             )
             return context, None
 
+    async def _begin_call_completion(
+        self,
+        *,
+        request: ChatRequest,
+        context: RequestContext | None,
+        stream: bool,
+    ) -> tuple[CanonicalChatRequest, StreamingResponseEnvelope | None]:
+        canonical_request = self._coerce_canonical_request(request, context)
+        if context is not None:
+            self._initialize_retry_metadata(context)
+            self._set_composite_routing_surface(context)
+        parallel_result = await self._maybe_execute_parallel_completion(
+            request=canonical_request,
+            context=context,
+            stream=stream,
+        )
+        return canonical_request, parallel_result
+
+    async def _maybe_execute_parallel_completion(
+        self,
+        *,
+        request: CanonicalChatRequest,
+        context: RequestContext | None,
+        stream: bool,
+    ) -> StreamingResponseEnvelope | None:
+        if (
+            context is not None
+            and context.extensions.get(PARALLEL_COMPLETION_ACTIVE_KEY) is True
+        ):
+            return None
+
+        parallel_plan = try_parse_parallel_plan(request, context)
+        if parallel_plan is None:
+            return None
+
+        return await self._execute_parallel_streaming_completion(
+            plan=parallel_plan,
+            request=request,
+            context=context,
+            stream=stream,
+        )
+
+    async def _execute_parallel_streaming_completion(
+        self,
+        *,
+        plan: CompositeRoutePlan,
+        request: CanonicalChatRequest,
+        context: RequestContext | None,
+        stream: bool,
+    ) -> StreamingResponseEnvelope:
+        return await self._parallel_orchestrator.execute(
+            plan=plan,
+            request=request,
+            context=context,
+            stream=stream,
+            call_completion=cast(CallCompletionFn, self.call_completion),
+        )
+
     async def call_completion(
         self,
         request: ChatRequest,
@@ -1197,12 +1263,15 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             RateLimitExceededError: If backend is rate limited
             AuthenticationError: If authentication fails
         """
-        canonical_request = self._coerce_canonical_request(request, context)
+        canonical_request, parallel_result = await self._begin_call_completion(
+            request=request,
+            context=context,
+            stream=stream,
+        )
+        if parallel_result is not None:
+            return parallel_result
         original_client_request = canonical_request.model_copy(deep=True)
 
-        if context is not None:
-            self._initialize_retry_metadata(context)
-            self._set_composite_routing_surface(context)
         # Step 1: Prepare request (resolve target + synchronize)
         target = await self._request_preparer.prepare_request(
             canonical_request, context

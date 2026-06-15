@@ -16,6 +16,7 @@ from src.core.domain.composite_routing import (
     CompositeFailoverGroupNode,
     CompositeLeafNode,
     CompositeLeafSelector,
+    CompositeParallelGroupNode,
     CompositeRoutePlan,
     CompositeRoutingAttemptContext,
     CompositeRoutingInput,
@@ -292,6 +293,11 @@ class CompositeRoutingCoordinator:
                     branch_history=branch_history,
                 )
             return resolved
+        if isinstance(root, CompositeParallelGroupNode):
+            raise ConfigurationError(
+                "Parallel composite routing plans must be executed through "
+                "ParallelCompletionOrchestrator, not CompositeRoutingCoordinator."
+            )
         return await self._execute_failover_chain(
             node=root,
             routing_input=routing_input,
