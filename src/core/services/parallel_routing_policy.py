@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from src.core.common.exceptions import ValidationError
 from src.core.domain.composite_routing import (
     CompositeParallelGroupNode,
     CompositeRoutePlan,
@@ -22,11 +21,4 @@ def ensure_parallel_streaming_supported(
 ) -> None:
     if not is_parallel_composite_plan(plan):
         return
-    if stream:
-        return
-    raise ValidationError(
-        message=(
-            "Parallel composite selectors require streaming requests; "
-            "non-streaming requests are not supported."
-        )
-    )
+    return

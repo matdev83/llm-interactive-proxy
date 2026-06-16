@@ -85,6 +85,7 @@ from src.core.services.interleaved_thinking.transformer import (
 from src.core.services.parallel_completion_orchestrator import (
     CallCompletionFn,
     ParallelCompletionOrchestrator,
+    ParallelCompletionResult,
     try_parse_parallel_plan,
 )
 from src.core.services.resilience.scope import (
@@ -1177,7 +1178,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         request: ChatRequest,
         context: RequestContext | None,
         stream: bool,
-    ) -> tuple[CanonicalChatRequest, StreamingResponseEnvelope | None]:
+    ) -> tuple[CanonicalChatRequest, ParallelCompletionResult | None]:
         canonical_request = self._coerce_canonical_request(request, context)
         if context is not None:
             self._initialize_retry_metadata(context)
@@ -1195,7 +1196,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         request: CanonicalChatRequest,
         context: RequestContext | None,
         stream: bool,
-    ) -> StreamingResponseEnvelope | None:
+    ) -> ParallelCompletionResult | None:
         if (
             context is not None
             and context.extensions.get(PARALLEL_COMPLETION_ACTIVE_KEY) is True
@@ -1205,6 +1206,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         parallel_plan = try_parse_parallel_plan(request, context)
         if parallel_plan is None:
             return None
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Executing parallel composite completion: stream=%s selector=%s",
+                stream,
+                parallel_plan.normalized_selector,
+            )
 
         return await self._execute_parallel_streaming_completion(
             plan=parallel_plan,
@@ -1220,7 +1228,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         request: CanonicalChatRequest,
         context: RequestContext | None,
         stream: bool,
-    ) -> StreamingResponseEnvelope:
+    ) -> ParallelCompletionResult:
         return await self._parallel_orchestrator.execute(
             plan=plan,
             request=request,

@@ -17,6 +17,12 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.backend_request_manager.streaming_response_handler import (
+    BackendStreamingResponseHandler,
+)
+from src.core.services.envelope_compatibility_adapter import (
+    EnvelopeCompatibilityAdapter,
+)
 from src.core.services.post_backend_response_coordinator import (
     PostBackendResponseCoordinator,
     response_envelope_as_single_chunk_stream,
@@ -119,6 +125,98 @@ async def test_coordinator_streaming_only_constructor() -> None:
     out_chunks = [c async for c in handle.stream]
     assert len(out_chunks) == 1
     assert out_chunks[0].content == b"x"
+
+
+@pytest.mark.asyncio
+async def test_parallel_aggregated_blocking_response_skips_synthetic_preprocessing() -> (
+    None
+):
+    """Parallel aggregate responses are already final OpenAI chat payloads."""
+    response_processor = MagicMock()
+    response_processor.process_response = AsyncMock(
+        return_value=ProcessedResponse(
+            content={"choices": [{"message": {"content": "rewritten-empty"}}]}
+        )
+    )
+    handler = BackendStreamingResponseHandler(
+        response_processor=response_processor,
+        loop_detector_factory=MagicMock(),
+        quality_verifier_stream_verifier=MagicMock(),
+        tool_call_retry_coordinator=MagicMock(),
+        backend_processor=MagicMock(),
+    )
+    original = ProcessedResponse(
+        content={
+            "id": "chatcmpl-parallel",
+            "object": "chat.completion",
+            "choices": [{"message": {"role": "assistant", "content": "keep me"}}],
+        },
+        metadata={"_parallel_completion_aggregated": True},
+    )
+
+    async def _single_chunk() -> AsyncIterator[ProcessedResponse]:
+        yield original
+
+    processed = await handler._preprocess_synthetic_blocking_stream(
+        _single_chunk(),
+        _proc_ctx(),
+        RequestContext(headers={}, cookies={}, state=None, app_state=None),
+    )
+    chunks = [chunk async for chunk in processed]
+
+    response_processor.process_response.assert_not_awaited()
+    assert chunks == [original]
+
+
+@pytest.mark.asyncio
+async def test_to_non_streaming_preserves_complete_openai_chat_response_dict() -> None:
+    payload = {
+        "id": "chatcmpl-preserve",
+        "object": "chat.completion",
+        "model": "moonshotai/kimi-k2.6",
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": "preserved",
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {"name": "tool", "arguments": "{}"},
+                        }
+                    ],
+                },
+                "finish_reason": "tool_calls",
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+    }
+    response = ResponseEnvelope(
+        content=payload,
+        metadata={"_parallel_completion_aggregated": True},
+    )
+    wrapped = response_envelope_as_single_chunk_stream(response)
+    coordinator = PostBackendResponseCoordinator(
+        streaming_handler=MagicMock(handle=AsyncMock(return_value=wrapped))
+    )
+    handle = await coordinator.from_backend_response(
+        response,
+        request=ChatRequest(
+            model="m", messages=[ChatMessage(role="user", content="x")], stream=False
+        ),
+        context=RequestContext(headers={}, cookies={}, state=None, app_state=None),
+        processing_context=_proc_ctx(),
+        processing_mode=PostBackendProcessingMode.STREAMING_HANDLER,
+    )
+
+    converted = await EnvelopeCompatibilityAdapter().to_non_streaming(
+        handle,
+        RequestContext(headers={}, cookies={}, state=None, app_state=None),
+    )
+
+    assert converted.content == payload
+    assert converted.metadata is None
 
 
 async def _async_one_byte() -> AsyncIterator[ProcessedResponse]:

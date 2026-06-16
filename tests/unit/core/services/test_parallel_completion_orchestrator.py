@@ -6,7 +6,6 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from src.core.common.exceptions import ValidationError
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.composite_routing import (
     CompositeLeafNode,
@@ -15,7 +14,7 @@ from src.core.domain.composite_routing import (
     CompositeRoutePlan,
 )
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.composite_routing_state import PARALLEL_COMPLETION_ACTIVE_KEY
 from src.core.services.parallel_completion_orchestrator import (
@@ -100,16 +99,166 @@ def test_try_parse_parallel_plan_returns_none_for_failover_selector() -> None:
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_rejects_non_streaming_parallel_requests() -> None:
+async def test_orchestrator_non_streaming_aggregates_winner_stream() -> None:
     orchestrator = ParallelCompletionOrchestrator()
-    with pytest.raises(ValidationError):
-        await orchestrator.execute(
-            plan=_parallel_plan(),
-            request=_request(),
-            context=_context(),
-            stream=False,
-            call_completion=AsyncMock(),
-        )
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        assert stream is True
+        assert request.stream is True
+        if request.model == "openai:gpt-4":
+            return _streaming_envelope(
+                [
+                    ProcessedResponse(
+                        content={
+                            "id": "chatcmpl-win",
+                            "created": 123,
+                            "model": "openai:gpt-4",
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "content": "hello",
+                                        "reasoning_content": "think",
+                                        "tool_calls": [
+                                            {
+                                                "index": 0,
+                                                "id": "call_1",
+                                                "type": "function",
+                                                "function": {
+                                                    "name": "f",
+                                                    "arguments": '{"a"',
+                                                },
+                                            }
+                                        ],
+                                    }
+                                }
+                            ],
+                        }
+                    ),
+                    ProcessedResponse(
+                        content={
+                            "model": "openai:gpt-4",
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "content": " world",
+                                        "tool_calls": [
+                                            {
+                                                "index": 0,
+                                                "function": {"arguments": ":1}"},
+                                            }
+                                        ],
+                                    },
+                                    "finish_reason": "tool_calls",
+                                }
+                            ],
+                            "usage": {
+                                "prompt_tokens": 1,
+                                "completion_tokens": 2,
+                                "total_tokens": 3,
+                            },
+                        }
+                    ),
+                ]
+            )
+        return _streaming_envelope([])
+
+    response = await orchestrator.execute(
+        plan=_parallel_plan(),
+        request=_request(),
+        context=_context(),
+        stream=False,
+        call_completion=call_completion,
+    )
+
+    assert isinstance(response, ResponseEnvelope)
+    assert isinstance(response.content, dict)
+    assert response.content["model"] == "openai:gpt-4"
+    assert response.content["usage"] == {
+        "prompt_tokens": 1,
+        "completion_tokens": 2,
+        "total_tokens": 3,
+    }
+    choice = response.content["choices"][0]
+    assert choice["finish_reason"] == "tool_calls"
+    message = choice["message"]
+    assert message["content"] == "hello world"
+    assert message["reasoning_content"] == "think"
+    assert message["reasoning"] == "think"
+    assert message["tool_calls"] == [
+        {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "f", "arguments": '{"a":1}'},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_non_streaming_aggregates_sse_framed_winner_chunks() -> None:
+    orchestrator = ParallelCompletionOrchestrator()
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        assert stream is True
+        assert request.stream is True
+        del allow_failover, context
+        if request.model == "openai:gpt-4":
+            return _streaming_envelope(
+                [
+                    ProcessedResponse(
+                        content=(
+                            b'data: {"id":"chatcmpl-sse","object":"chat.completion.chunk",'
+                            b'"created":123,"model":"openai:gpt-4","choices":[{"index":0,'
+                            b'"delta":{"content":"sse ","reasoning_content":"think "},'
+                            b'"finish_reason":null}]}\n\n'
+                        )
+                    ),
+                    ProcessedResponse(
+                        content=(
+                            'data: {"id":"chatcmpl-sse","object":"chat.completion.chunk",'
+                            '"created":123,"model":"openai:gpt-4","choices":[{"index":0,'
+                            '"delta":{"content":"chunk","reasoning_content":"more",'
+                            '"tool_calls":[{"index":0,"id":"call_sse","type":"function",'
+                            '"function":{"name":"tool","arguments":"{}"}}]},'
+                            '"finish_reason":"tool_calls"}]}\n\n'
+                        )
+                    ),
+                ]
+            )
+        return _streaming_envelope([])
+
+    response = await orchestrator.execute(
+        plan=_parallel_plan(),
+        request=_request(),
+        context=_context(),
+        stream=False,
+        call_completion=call_completion,
+    )
+
+    assert isinstance(response, ResponseEnvelope)
+    assert isinstance(response.content, dict)
+    assert response.content["id"] == "chatcmpl-sse"
+    message = response.content["choices"][0]["message"]
+    assert message["content"] == "sse chunk"
+    assert message["reasoning_content"] == "think more"
+    assert message["tool_calls"] == [
+        {
+            "id": "call_sse",
+            "type": "function",
+            "function": {"name": "tool", "arguments": "{}"},
+        }
+    ]
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from src.core.common.exceptions import ValidationError
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.composite_routing import (
     CompositeLeafNode,
@@ -13,7 +12,7 @@ from src.core.domain.composite_routing import (
     CompositeRoutePlan,
 )
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_completion_flow.service import BackendCompletionFlow
 
 
@@ -80,21 +79,39 @@ def _context() -> RequestContext:
 
 
 @pytest.mark.asyncio
-async def test_call_completion_rejects_non_streaming_parallel_selector() -> None:
+async def test_call_completion_dispatches_non_streaming_parallel_plan() -> None:
     flow = _build_flow()
-    with (
-        patch(
-            "src.core.services.backend_completion_flow.service.try_parse_parallel_plan",
-            return_value=_parallel_plan(),
-        ),
-        pytest.raises(ValidationError),
+    expected = ResponseEnvelope(content={"choices": []})
+
+    async def fake_execute_parallel_streaming_completion(
+        self: BackendCompletionFlow,
+        *,
+        plan: CompositeRoutePlan,
+        request: CanonicalChatRequest,
+        context: RequestContext | None,
+        stream: bool,
+    ) -> ResponseEnvelope:
+        assert plan.source_selector == _parallel_plan().source_selector
+        assert request.model == "openai:gpt-4!anthropic:claude-3"
+        assert context is not None
+        assert stream is False
+        return expected
+
+    flow._execute_parallel_streaming_completion = (  # type: ignore[method-assign]
+        fake_execute_parallel_streaming_completion.__get__(flow, BackendCompletionFlow)
+    )
+
+    with patch(
+        "src.core.services.backend_completion_flow.service.try_parse_parallel_plan",
+        return_value=_parallel_plan(),
     ):
-        await flow.call_completion(
+        result = await flow.call_completion(
             request=_request(),
             stream=False,
             allow_failover=True,
             context=_context(),
         )
+    assert result is expected
     flow._request_preparer.prepare_request.assert_not_awaited()
 
 

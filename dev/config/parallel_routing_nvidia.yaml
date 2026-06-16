@@ -1,0 +1,35 @@
+# Local live-verification config for parallel NVIDIA route testing.
+# Secrets are intentionally omitted; NvidiaConnector reads NVIDIA_API_KEY.
+
+host: "127.0.0.1"
+port: 18080
+public_url: "http://127.0.0.1:18080"
+proxy_timeout: 240
+
+auth:
+  disable_auth: true
+  api_keys: []
+
+logging:
+  level: "WARNING"
+  console_stream: "stdout"
+  request_logging: false
+  response_logging: false
+  log_file: "var/logs/parallel-routing-live.log"
+  cbor_capture_dir: "var/logs/parallel-routing-live-cbor"
+  cbor_capture_session_id: "parallel-routing-live"
+
+backends:
+  default_backend: "nvidia"
+  nvidia:
+    timeout: 240
+    models:
+      - "moonshotai/kimi-k2.6"
+      - "minimaxai/minimax-m3"
+      - "nvidia/nemotron-3-ultra-550b-a55b"
+
+model_registry:
+  download_enabled: false
+
+model_limit_enforcement:
+  enabled: false

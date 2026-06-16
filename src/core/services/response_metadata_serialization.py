@@ -10,7 +10,9 @@ from pydantic.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
-_INTERNAL_METADATA_KEYS: frozenset[str] = frozenset({"_synthetic_blocking_envelope"})
+_INTERNAL_METADATA_KEYS: frozenset[str] = frozenset(
+    {"_synthetic_blocking_envelope", "_parallel_completion_aggregated"}
+)
 
 
 def filter_json_serializable_client_metadata(

@@ -937,6 +937,15 @@ class BackendStreamingResponseHandler:
             return _replay_many()
 
         chunk = chunks[0]
+        if chunk.metadata.get("_parallel_completion_aggregated") is True:
+
+            async def _preserve_parallel_aggregate() -> (
+                AsyncIterator[ProcessedResponse]
+            ):
+                yield chunk
+
+            return _preserve_parallel_aggregate()
+
         original_request = (
             processing_context.original_request or request_context.original_request
         )

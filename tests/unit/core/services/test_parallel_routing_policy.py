@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-from src.core.common.exceptions import ValidationError
 from src.core.domain.composite_routing import (
     CompositeLeafNode,
     CompositeLeafSelector,
@@ -60,10 +58,5 @@ def test_ensure_parallel_streaming_supported_allows_streaming_requests() -> None
     ensure_parallel_streaming_supported(plan=_parallel_plan(), stream=True)
 
 
-def test_ensure_parallel_streaming_supported_rejects_non_streaming_requests() -> None:
-    with pytest.raises(ValidationError) as exc_info:
-        ensure_parallel_streaming_supported(plan=_parallel_plan(), stream=False)
-
-    message = str(exc_info.value).lower()
-    assert "parallel" in message
-    assert "stream" in message
+def test_ensure_parallel_streaming_supported_allows_non_streaming_requests() -> None:
+    ensure_parallel_streaming_supported(plan=_parallel_plan(), stream=False)

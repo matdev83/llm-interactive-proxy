@@ -137,6 +137,16 @@ def _extract_sse_data_payloads(content: object) -> list[ProcessedChunkContent] |
     return payloads
 
 
+def _is_complete_openai_chat_response(payload: dict[str, Any]) -> bool:
+    if payload.get("object") != "chat.completion":
+        return False
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return False
+    first = choices[0]
+    return isinstance(first, dict) and isinstance(first.get("message"), dict)
+
+
 class EnvelopeCompatibilityAdapter:
     """Converts :class:`CanonicalResponseHandle` to public manager envelopes.
 
@@ -233,38 +243,43 @@ class EnvelopeCompatibilityAdapter:
                     list[dict[str, Any]],
                     [x for x in meaningful_contents if isinstance(x, dict)],
                 )
-                merged_text = ""
-                for raw in typed_chunks:
-                    choices = raw.get("choices")
-                    if not isinstance(choices, list):
-                        continue
-                    for choice in choices:
-                        if not isinstance(choice, dict):
-                            continue
-                        delta = choice.get("delta")
-                        if isinstance(delta, dict):
-                            piece = delta.get("content")
-                            if isinstance(piece, str):
-                                merged_text += piece
-                        message = choice.get("message")
-                        if isinstance(message, dict):
-                            msg_piece = message.get("content")
-                            if isinstance(msg_piece, str):
-                                merged_text = msg_piece or merged_text
-                if merged_text:
-                    body = {
-                        "choices": [
-                            {
-                                "message": {
-                                    "role": "assistant",
-                                    "content": merged_text,
-                                },
-                                "finish_reason": "stop",
-                            }
-                        ]
-                    }
+                if len(typed_chunks) == 1 and _is_complete_openai_chat_response(
+                    typed_chunks[0]
+                ):
+                    body = typed_chunks[0]
                 else:
-                    body = meaningful_contents[-1]
+                    merged_text = ""
+                    for raw in typed_chunks:
+                        choices = raw.get("choices")
+                        if not isinstance(choices, list):
+                            continue
+                        for choice in choices:
+                            if not isinstance(choice, dict):
+                                continue
+                            delta = choice.get("delta")
+                            if isinstance(delta, dict):
+                                piece = delta.get("content")
+                                if isinstance(piece, str):
+                                    merged_text += piece
+                            message = choice.get("message")
+                            if isinstance(message, dict):
+                                msg_piece = message.get("content")
+                                if isinstance(msg_piece, str):
+                                    merged_text = msg_piece or merged_text
+                    if merged_text:
+                        body = {
+                            "choices": [
+                                {
+                                    "message": {
+                                        "role": "assistant",
+                                        "content": merged_text,
+                                    },
+                                    "finish_reason": "stop",
+                                }
+                            ]
+                        }
+                    else:
+                        body = meaningful_contents[-1]
             else:
                 # Preserve historical behavior for non-text streamed payloads.
                 body = meaningful_contents[-1]
