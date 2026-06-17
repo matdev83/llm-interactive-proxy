@@ -222,19 +222,22 @@ class InterleavedThinkingOutputRecorder:
                             saw_incremental_text = True
                     yield item
             except (GeneratorExit, asyncio.CancelledError):
-                partial_memo_chars = len("".join(parts))
-                self._record_diagnostic(
-                    context,
-                    action="memo_store_skipped",
-                    reason="stream_interrupted",
+                partial_memo = "".join(parts)
+                partial_memo_chars = len(partial_memo)
+                self._store_memo(
+                    memo=partial_memo,
+                    session=session,
+                    context=context,
                     backend_type=backend_type,
                     effective_model=effective_model,
-                    partial_memo_chars=partial_memo_chars,
                     extraction_source=extraction_source,
+                    visible_to_client=self._stream_to_client,
+                    empty_reason="stream_interrupted",
+                    stream_interrupted=True,
                 )
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Interleaved thinking memo store skipped: stream interrupted "
+                        "Interleaved thinking stream interrupted "
                         "request_id=%s session_id=%s backend=%s model=%s "
                         "partial_memo_chars=%d",
                         request_id(context),
@@ -245,18 +248,21 @@ class InterleavedThinkingOutputRecorder:
                     )
                 raise
             except BaseException:
-                partial_memo_chars = len("".join(parts))
-                self._record_diagnostic(
-                    context,
-                    action="memo_store_skipped",
-                    reason="stream_interrupted",
+                partial_memo = "".join(parts)
+                partial_memo_chars = len(partial_memo)
+                self._store_memo(
+                    memo=partial_memo,
+                    session=session,
+                    context=context,
                     backend_type=backend_type,
                     effective_model=effective_model,
-                    partial_memo_chars=partial_memo_chars,
                     extraction_source=extraction_source,
+                    visible_to_client=self._stream_to_client,
+                    empty_reason="stream_interrupted",
+                    stream_interrupted=True,
                 )
                 logger.warning(
-                    "Interleaved thinking memo store skipped: stream interrupted "
+                    "Interleaved thinking stream interrupted "
                     "request_id=%s session_id=%s backend=%s model=%s "
                     "partial_memo_chars=%d",
                     request_id(context),
@@ -296,6 +302,7 @@ class InterleavedThinkingOutputRecorder:
         extraction_source: str | None = None,
         visible_to_client: bool = False,
         empty_reason: str = "empty_memo",
+        stream_interrupted: bool = False,
     ) -> None:
         if session is None:
             self._record_diagnostic(
@@ -305,6 +312,7 @@ class InterleavedThinkingOutputRecorder:
                 backend_type=backend_type,
                 effective_model=effective_model,
                 extraction_source=extraction_source,
+                stream_interrupted=stream_interrupted,
             )
             logger.info(
                 "Interleaved thinking memo store skipped: missing session "
@@ -322,6 +330,7 @@ class InterleavedThinkingOutputRecorder:
                 backend_type=backend_type,
                 effective_model=effective_model,
                 extraction_source=extraction_source,
+                stream_interrupted=stream_interrupted,
             )
             logger.info(
                 "Interleaved thinking memo store skipped: %s "
@@ -358,6 +367,7 @@ class InterleavedThinkingOutputRecorder:
             "regular_turns_remaining": self._regular_turns_remaining,
             "visible_to_client": visible_to_client,
             "extraction_source": extraction_source,
+            "stream_interrupted": stream_interrupted,
         }
         base_state = as_session_state(getattr(session, "state", None))
         if base_state is None:
@@ -370,6 +380,7 @@ class InterleavedThinkingOutputRecorder:
                 memo_chars=len(normalized_memo),
                 source_selector=source_selector,
                 extraction_source=extraction_source,
+                stream_interrupted=stream_interrupted,
             )
             logger.info(
                 "Interleaved thinking memo store skipped: invalid session state "
@@ -392,12 +403,14 @@ class InterleavedThinkingOutputRecorder:
             memo_chars=len(normalized_memo),
             source_selector=source_selector,
             extraction_source=extraction_source,
+            stream_interrupted=stream_interrupted,
         )
         logger.info(
             "Interleaved thinking memo stored: request_id=%s session_id=%s "
             "backend=%s model=%s source_selector=%s memo_chars=%d "
             "memo_hash=%s memo_snippet=%r extraction_source=%s "
-            "visible_to_client=%s truncated=%s regular_turns_remaining=%d",
+            "visible_to_client=%s stream_interrupted=%s truncated=%s "
+            "regular_turns_remaining=%d",
             request_id(context),
             session_id(context, session),
             backend_type,
@@ -408,6 +421,7 @@ class InterleavedThinkingOutputRecorder:
             self._snippet(normalized_memo),
             extraction_source,
             visible_to_client,
+            stream_interrupted,
             len(memo.strip()) > self._max_output_chars,
             self._regular_turns_remaining,
         )
@@ -454,6 +468,7 @@ class InterleavedThinkingOutputRecorder:
         partial_memo_chars: int | None = None,
         source_selector: str | None = None,
         extraction_source: str | None = None,
+        stream_interrupted: bool = False,
     ) -> None:
         if context is None:
             return
@@ -474,6 +489,8 @@ class InterleavedThinkingOutputRecorder:
             diagnostic["source_selector"] = source_selector
         if extraction_source is not None:
             diagnostic["extraction_source"] = extraction_source
+        if stream_interrupted:
+            diagnostic["stream_interrupted"] = True
         context.extensions[INTERLEAVED_THINKING_RECORDER_DIAGNOSTIC_KEY] = diagnostic
 
     def _extract_from_content(self, content: Any) -> _ExtractedMemo | None:

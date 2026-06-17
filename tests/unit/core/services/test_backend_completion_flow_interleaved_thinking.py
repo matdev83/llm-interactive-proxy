@@ -244,26 +244,41 @@ async def test_completion_flow_swallows_thinker_stream_and_continues_with_execut
     assert result.content is not None
     chunks = [item async for item in result.content]
     rendered = "\n".join(str(chunk.content) for chunk in chunks)
-    assert "plan it" in rendered
+    assert "plan it" not in rendered
     assert "final answer" in rendered
     assert all("proxy_thinker_memo" not in str(chunk.content) for chunk in chunks)
     assert deps["connector_invoker"].invoke.await_count == 2
     executor_request = (
         deps["connector_invoker"].invoke.await_args_list[1].kwargs["domain_request"]
     )
-    assert executor_request.messages[-2].role == "user"
-    assert executor_request.messages[-1].role == "assistant"
-    assert executor_request.messages[-1].content == "plan it"
-    assert executor_request.messages[-1].metadata == {
-        "source": "interleaved_thinking",
-        "kind": "visible_thinker_output",
-    }
+    assert executor_request.messages[0].role == "system"
+    assert "plan it" in str(executor_request.messages[0].content)
+    assert any(
+        message.reasoning_content == "plan it" for message in executor_request.messages
+    )
     assert all(
-        message.reasoning_content is None for message in executor_request.messages
+        message.metadata
+        != {
+            "source": "interleaved_thinking",
+            "kind": "visible_thinker_output",
+        }
+        for message in executor_request.messages
+    )
+    assert executor_request.messages[0].metadata == {
+        "source": "interleaved_thinking",
+        "kind": "thinker_memo_system",
+    }
+    assert any(
+        message.metadata
+        == {
+            "source": "interleaved_thinking",
+            "kind": "thinker_memo_reasoning",
+        }
+        for message in executor_request.messages
     )
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "plan it"
-    assert stored["visible_to_client"] is True
+    assert stored["visible_to_client"] is False
 
 
 @pytest.mark.asyncio

@@ -599,6 +599,25 @@ def test_parse_parallel_selector_applies_handicap_and_ttft_annotations() -> None
     )
 
 
+def test_parse_parallel_selector_supports_handicap_after_uri_params() -> None:
+    parser = CompositeSelectorParser()
+    plan = _parse(
+        parser,
+        "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+        "[handicap=5]nvidia:deepseek-ai/deepseek-v4-pro?reasoning_effort=max!"
+        "nvidia:stepfun-ai/step-3.7-flash?reasoning_effort=high",
+    )
+
+    assert plan.root_node.kind == "parallel_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert [leaf.handicap_seconds for leaf in leaves] == [10.0, 5.0, 0.0]
+    assert [leaf.uri_params for leaf in leaves] == [
+        {"reasoning_effort": "high"},
+        {"reasoning_effort": "max"},
+        {"reasoning_effort": "high"},
+    ]
+
+
 def test_parse_parallel_selector_supports_combined_annotation_block() -> None:
     parser = CompositeSelectorParser()
     plan = _parse(
@@ -638,16 +657,18 @@ def test_parse_parallel_selector_rejects_mixed_weighted_operator() -> None:
     )
 
 
-def test_parse_parallel_selector_rejects_bang_anywhere_in_branch_text() -> None:
+def test_parse_parallel_selector_treats_bang_after_uri_params_as_separator() -> None:
     parser = CompositeSelectorParser()
 
-    with pytest.raises(CompositeSelectorValidationError) as exc_info:
-        _parse(parser, "openai:gpt-4!anthropic:claude-3?note=foo!bar")
+    plan = _parse(parser, "openai:gpt-4!anthropic:claude-3?note=foo!bar")
 
-    assert (
-        exc_info.value.envelope.code
-        == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
-    )
+    assert plan.root_node.kind == "parallel_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert [leaf.normalized_selector for leaf in leaves] == [
+        "openai:gpt-4",
+        "anthropic:claude-3?note=foo",
+        "bar",
+    ]
 
 
 def test_parse_parallel_selector_rejects_handicap_outside_parallel_groups() -> None:

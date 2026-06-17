@@ -197,17 +197,12 @@ class CompositeSelectorParser:
     @staticmethod
     def _detect_primary_operator(selector: str) -> str | None:
         bracket_depth = 0
-        in_query = False
         for char in selector:
             if char == "[":
                 bracket_depth += 1
             elif char == "]" and bracket_depth > 0:
                 bracket_depth -= 1
-            elif char == "?" and bracket_depth == 0:
-                in_query = True
             elif bracket_depth == 0 and char in _COMPOSITE_OPERATORS:
-                if char == "!" and in_query:
-                    continue
                 return char
         return None
 
@@ -228,24 +223,16 @@ class CompositeSelectorParser:
         segments: list[str] = []
         current: list[str] = []
         bracket_depth = 0
-        in_query = False
-        ignore_operator_in_query = operator == "!"
 
         for char in selector:
             if char == "[":
                 bracket_depth += 1
             elif char == "]" and bracket_depth > 0:
                 bracket_depth -= 1
-            elif char == "?" and bracket_depth == 0:
-                in_query = True
 
             if char == operator and bracket_depth == 0:
-                if ignore_operator_in_query and in_query:
-                    current.append(char)
-                    continue
                 segments.append("".join(current))
                 current = []
-                in_query = False
                 continue
 
             current.append(char)

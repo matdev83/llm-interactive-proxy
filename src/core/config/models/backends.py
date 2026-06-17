@@ -158,7 +158,7 @@ class BackendSettings(DomainModel):
         description="Path to a file containing instructions injected only into [thinker] routed requests.",
     )
     interleaved_thinking_stream_to_client: bool = Field(
-        default=True,
+        default=False,
         description=(
             "When enabled, stream sanitized thinker text to the client before "
             "continuing with the executor model."

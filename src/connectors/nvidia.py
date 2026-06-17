@@ -241,6 +241,7 @@ class NvidiaConnector(OpenAIConnector):
             payload["max_tokens"] = mct
         # Strict OpenAI-compat schema on hosted NIM often rejects Chat Completions extensions
         # that the generic OpenAI connector adds (unknown keys -> 422/extra_forbidden).
+        payload.pop("reasoning", None)
         payload.pop("stream_options", None)
         return payload
 

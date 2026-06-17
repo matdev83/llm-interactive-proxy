@@ -672,7 +672,10 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self,
         context: RequestContext | None,
     ) -> bool:
-        return self._should_record_interleaved_thinking(context)
+        if not self._should_record_interleaved_thinking(context):
+            return False
+        assert self._interleaved_thinking_output_recorder is not None
+        return self._interleaved_thinking_output_recorder.stream_to_client
 
     def _record_interleaved_thinking_streaming_response(
         self,
@@ -924,10 +927,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 allow_failover=allow_failover,
                 context=context,
             )
-        self._drain_interleaved_thinking_stream_in_background(
-            handled_streaming_response,
-            attempt_context,
-        )
+        await self._drain_streaming_response(handled_streaming_response)
         continued = await self._continue_after_interleaved_thinking(
             request=original_client_request,
             stream=stream,

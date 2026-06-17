@@ -722,7 +722,7 @@ async def test_recorder_preserves_streaming_tool_call_text_before_yielding() -> 
 
 
 @pytest.mark.asyncio
-async def test_recorder_records_diagnostic_when_stream_is_interrupted() -> None:
+async def test_recorder_stores_partial_memo_when_stream_is_interrupted() -> None:
     session = _session()
     context = _context()
     recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
@@ -747,15 +747,17 @@ async def test_recorder_records_diagnostic_when_stream_is_interrupted() -> None:
     with pytest.raises(RuntimeError, match="stream failed"):
         await anext(wrapped.content)
 
-    session.update_state.assert_not_called()
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "partial memo"
+    assert stored["stream_interrupted"] is True
     diagnostic = _diagnostic(context)
-    assert diagnostic["action"] == "memo_store_skipped"
-    assert diagnostic["reason"] == "stream_interrupted"
-    assert diagnostic["partial_memo_chars"] == len("partial memo")
+    assert diagnostic["action"] == "memo_stored"
+    assert diagnostic["memo_chars"] == len("partial memo")
+    assert diagnostic["stream_interrupted"] is True
 
 
 @pytest.mark.asyncio
-async def test_recorder_does_not_warn_when_stream_is_closed_by_disconnect(
+async def test_recorder_stores_partial_memo_without_warning_when_stream_is_closed(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     session = _session()
@@ -784,17 +786,18 @@ async def test_recorder_does_not_warn_when_stream_is_closed_by_disconnect(
         await anext(wrapped.content)
         await cast(Any, wrapped.content).aclose()
 
-    session.update_state.assert_not_called()
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "partial memo"
+    assert stored["stream_interrupted"] is True
     assert not [
         record
         for record in caplog.records
-        if "Interleaved thinking memo store skipped: stream interrupted"
-        in record.message
+        if "Interleaved thinking stream interrupted" in record.message
     ]
     diagnostic = _diagnostic(context)
-    assert diagnostic["action"] == "memo_store_skipped"
-    assert diagnostic["reason"] == "stream_interrupted"
-    assert diagnostic["partial_memo_chars"] == len("partial memo")
+    assert diagnostic["action"] == "memo_stored"
+    assert diagnostic["memo_chars"] == len("partial memo")
+    assert diagnostic["stream_interrupted"] is True
 
 
 def test_recorder_truncates_stored_memo() -> None:

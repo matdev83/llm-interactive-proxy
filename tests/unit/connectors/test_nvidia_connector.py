@@ -203,6 +203,26 @@ async def test_prepare_payload_keeps_max_tokens_when_both_token_limits_set() -> 
 
 
 @pytest.mark.asyncio
+async def test_prepare_payload_removes_reasoning_extension() -> None:
+    """Hosted NIM rejects OpenAI/OpenRouter reasoning extension objects."""
+    client = AsyncMock()
+    connector = NvidiaConnector(
+        client, AppConfig(), translation_service=TranslationService()
+    )
+    connector.api_key = "k"
+    req = CanonicalChatRequest(
+        model="minimaxai/minimax-m3",
+        messages=[ChatMessage(role="user", content="hi")],
+        reasoning_effort="high",
+    )
+
+    payload = await connector._prepare_payload(req, list(req.messages), req.model, None)
+
+    assert "reasoning" not in payload
+    assert "reasoning_effort" not in payload
+
+
+@pytest.mark.asyncio
 async def test_connector_uses_dedicated_http11_client_when_httpx_real() -> None:
     """NVIDIA traffic must not use the shared HTTP/2 pool (integrator disconnects)."""
 
