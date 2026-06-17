@@ -806,6 +806,23 @@ class TestOpenAIPayloadCleaning:
             "source": "test",
         }
 
+    def test_clean_openai_payload_strips_edit_precision_private_keys(
+        self, openai_connector
+    ):
+        cleaned = openai_connector._clean_openai_payload(
+            {
+                "model": "gpt-4",
+                "messages": [],
+                "_edit_precision_mode": True,
+                "_edit_precision_meta": {"reason": "failed_edit"},
+                "metadata": {"source": "test"},
+            }
+        )
+
+        assert "_edit_precision_mode" not in cleaned
+        assert "_edit_precision_meta" not in cleaned
+        assert cleaned.get("metadata") == {"source": "test"}
+
     def test_clean_openai_payload_preserves_tool_schema_agent_property(
         self, openai_connector
     ):

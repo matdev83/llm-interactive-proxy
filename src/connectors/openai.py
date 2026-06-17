@@ -1405,6 +1405,8 @@ class OpenAIConnector(LLMBackend):
             "session_id",
             "reasoning_effort",
             "request_context_tokens",
+            "_edit_precision_mode",
+            "_edit_precision_meta",
             RESOLVED_URI_PARAMS_EXTRA_BODY_KEY,
             _LLM_PROXY_STREAM_URL_KEY,
             _LLM_PROXY_STREAM_HEADERS_KEY,
