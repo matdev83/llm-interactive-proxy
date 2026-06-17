@@ -1438,6 +1438,11 @@ class OpenAIConnector(LLMBackend):
             cleaned_val = _strip_none(val)
             if cleaned_val is not None:
                 cleaned_payload[key] = cleaned_val
+        messages = cleaned_payload.get("messages")
+        if isinstance(messages, list):
+            for message in messages:
+                if isinstance(message, dict):
+                    message.pop("metadata", None)
         return cleaned_payload
 
     async def _handle_non_streaming_response(

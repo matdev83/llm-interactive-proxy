@@ -25,6 +25,7 @@ OPENCODE_GO_BASE_URL = "https://opencode.ai/zen/go/v1"
 CURATED_OPENAI_MODELS = [
     "glm-5",
     "glm-5.1",
+    "glm-5.2",
     "kimi-k2.5",
     "kimi-k2.6",
     "deepseek-v4-pro",
@@ -127,17 +128,23 @@ def _make_request(
     *,
     stream: bool = False,
     extra_body: dict[str, Any] | None = None,
+    messages: list[ChatMessage] | None = None,
+    processed_messages: list[ChatMessage] | None = None,
+    reasoning_effort: str | None = None,
 ) -> ConnectorChatCompletionsRequest:
+    request_messages = messages or [ChatMessage(role="user", content="hello")]
+    request_processed_messages = processed_messages or request_messages
     canonical_request = CanonicalChatRequest(
         model=model,
-        messages=[ChatMessage(role="user", content="hello")],
+        messages=request_messages,
         max_tokens=16,
         stream=stream,
         extra_body=extra_body,
+        reasoning_effort=reasoning_effort,
     )
     return ConnectorChatCompletionsRequest(
         request=canonical_request,
-        processed_messages=[ChatMessage(role="user", content="hello")],
+        processed_messages=request_processed_messages,
         effective_model=model,
         identity=None,
         cancellation_token=None,
@@ -480,6 +487,37 @@ async def test_openai_payload_strips_extra_body_vendor_prefixed_model() -> None:
 
     payload = _posted_json(recorder.requests, "/chat/completions")
     assert payload["model"] == "kimi-k2.5"
+
+
+@pytest.mark.asyncio
+async def test_openai_payload_strips_glm_rejected_metadata_and_reasoning() -> None:
+    """OpenCode Go GLM rejects message metadata and top-level reasoning fields."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+    messages = [
+        ChatMessage(role="user", content="hello"),
+        ChatMessage(
+            role="assistant",
+            content="memo",
+            metadata={"source": "interleaved_thinking"},
+        ),
+    ]
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(
+            _make_request(
+                "opencode-go:glm-5.2",
+                messages=messages,
+                processed_messages=messages,
+                reasoning_effort="high",
+            )
+        )
+
+    payload = _posted_json(recorder.requests, "/chat/completions")
+    assert "reasoning" not in payload
+    assert "reasoning_effort" not in payload
+    assert all("metadata" not in message for message in payload["messages"])
 
 
 @pytest.mark.asyncio

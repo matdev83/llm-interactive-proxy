@@ -125,11 +125,24 @@ def _opencode_go_normalize_payload_tools(payload: dict[str, Any]) -> None:
         payload.pop("tool_choice", None)
 
 
+def _opencode_go_sanitize_openai_payload(
+    payload: dict[str, Any],
+    model_name: str,
+) -> None:
+    """Remove fields rejected by OpenCode Go's OpenAI-compatible endpoint."""
+
+    normalized_model = _normalize_model_name(model_name).lower()
+    if normalized_model.startswith("glm-"):
+        for key in ("reasoning", "reasoning_effort", "thinking"):
+            payload.pop(key, None)
+
+
 _OPENCODE_GO_DEFAULT_BASE_URL = "https://opencode.ai/zen/go/v1"
 _OPENCODE_GO_VENDOR_PREFIX = "opencode-go"
 _OPENCODE_GO_OPENAI_MODELS: tuple[str, ...] = (
     "glm-5",
     "glm-5.1",
+    "glm-5.2",
     "kimi-k2.5",
     "kimi-k2.6",
     "deepseek-v4-pro",
@@ -378,6 +391,7 @@ class OpencodeGoBackend(OpenAIConnector):
         )
         if wire_model:
             payload["model"] = wire_model
+        _opencode_go_sanitize_openai_payload(payload, wire_model or normalized_model)
         return payload
 
     def _build_unknown_model_error(self, model_name: str) -> RoutingError:
