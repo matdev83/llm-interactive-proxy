@@ -44,6 +44,7 @@ from src.core.interfaces.request_processor_internal import (
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.services.composite_routing_state import is_composite_selector
 
 logger = logging.getLogger(__name__)
 
@@ -550,16 +551,23 @@ class RequestProcessor(IRequestProcessor):
             backend_type = None
 
         model_spec = getattr(request_data, "model", "") or ""
+        is_composite_model_selector = isinstance(
+            model_spec, str
+        ) and is_composite_selector(model_spec)
         has_explicit_backend = isinstance(model_spec, str) and (
-            has_explicit_backend_selector(model_spec)
+            not is_composite_model_selector
+            and has_explicit_backend_selector(model_spec)
         )
-        parsed = parse_model_backend(str(model_spec), (backend_type or ""))
+        parsed_model_spec = "" if is_composite_model_selector else str(model_spec)
+        parsed = parse_model_backend(parsed_model_spec, (backend_type or ""))
         original_backend = (
             parsed.backend_type
             if has_explicit_backend
             else (context.backend or parsed.backend_type)
         )
-        original_model = parsed.model_name
+        original_model = (
+            str(model_spec) if is_composite_model_selector else parsed.model_name
+        )
 
         # Ensure requested_model is populated for metrics and tracking
         if not context.requested_model:

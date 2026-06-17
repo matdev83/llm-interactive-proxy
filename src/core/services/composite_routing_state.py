@@ -124,15 +124,15 @@ def contains_top_level_operator(selector: str, operator: str) -> bool:
 
 
 def is_composite_selector(model: str) -> bool:
-    """Return True when *model* contains a top-level failover or weighted operator.
+    """Return True when *model* contains a top-level composite operator.
 
     Scans the full selector (including query portions) so that composite
     selectors whose first leaf carries query params are correctly detected.
     Operators in query parameter *values* must be URL-encoded (``%5E`` for
-    ``^``, ``%7C`` for ``|``) to avoid false positives.
+    ``^``, ``%7C`` for ``|``, ``%21`` for ``!``) to avoid false positives.
     """
-    return contains_top_level_operator(model, "|") or contains_top_level_operator(
-        model, "^"
+    return any(
+        contains_top_level_operator(model, operator) for operator in ("|", "^", "!")
     )
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -16,7 +16,10 @@ from src.core.domain.composite_routing import (
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
-from src.core.services.composite_routing_state import PARALLEL_COMPLETION_ACTIVE_KEY
+from src.core.services.composite_routing_state import (
+    PARALLEL_COMPLETION_ACTIVE_KEY,
+    is_composite_selector,
+)
 from src.core.services.parallel_completion_orchestrator import (
     ParallelCompletionOrchestrator,
     try_parse_parallel_plan,
@@ -96,6 +99,14 @@ def test_try_parse_parallel_plan_returns_none_for_failover_selector() -> None:
         messages=[ChatMessage(role="user", content="hello")],
     )
     assert try_parse_parallel_plan(request, _context()) is None
+
+
+def test_annotated_parallel_selector_is_composite_model_selector() -> None:
+    assert is_composite_selector(
+        "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+        "[handicap=5]nvidia:deepseek-ai/deepseek-v4-pro?reasoning_effort=max!"
+        "nvidia:stepfun-ai/step-3.7-flash?reasoning_effort=high"
+    )
 
 
 @pytest.mark.asyncio
@@ -285,12 +296,15 @@ async def test_orchestrator_starts_legs_and_bridges_winner_token() -> None:
         )
 
     orchestrator = ParallelCompletionOrchestrator()
-    envelope = await orchestrator.execute(
-        plan=_parallel_plan(),
-        request=_request(),
-        context=_context(),
-        stream=True,
-        call_completion=call_completion,
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=_parallel_plan(),
+            request=_request(),
+            context=_context(),
+            stream=True,
+            call_completion=call_completion,
+        ),
     )
     assert isinstance(envelope, StreamingResponseEnvelope)
     assert envelope.content is not None
@@ -333,12 +347,15 @@ async def test_orchestrator_cancel_callback_stops_all_legs() -> None:
         )
 
     orchestrator = ParallelCompletionOrchestrator()
-    envelope = await orchestrator.execute(
-        plan=_parallel_plan(),
-        request=_request(),
-        context=_context(),
-        stream=True,
-        call_completion=call_completion,
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=_parallel_plan(),
+            request=_request(),
+            context=_context(),
+            stream=True,
+            call_completion=call_completion,
+        ),
     )
     assert envelope.content is not None
     assert envelope.cancel_callback is not None
@@ -402,12 +419,15 @@ async def test_orchestrator_cancel_callback_after_winner_bridged_cancels_winner_
         )
 
     orchestrator = ParallelCompletionOrchestrator()
-    envelope = await orchestrator.execute(
-        plan=_parallel_plan(),
-        request=_request(),
-        context=_context(),
-        stream=True,
-        call_completion=call_completion,
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=_parallel_plan(),
+            request=_request(),
+            context=_context(),
+            stream=True,
+            call_completion=call_completion,
+        ),
     )
     assert envelope.content is not None
     assert envelope.cancel_callback is not None
@@ -427,3 +447,78 @@ async def test_orchestrator_cancel_callback_after_winner_bridged_cancels_winner_
         chunk.content == {"choices": [{"delta": {"content": "win-first"}}]}
         for chunk in chunks
     )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_fast_winner_cleans_up_handicap_wait_tasks() -> None:
+    plan = CompositeRoutePlan(
+        source_selector="[handicap=10]openai:gpt-4!anthropic:claude-3",
+        normalized_selector="[handicap=10]openai:gpt-4!anthropic:claude-3",
+        root_node=CompositeParallelGroupNode(
+            children=[
+                CompositeLeafNode(
+                    leaf_selector=CompositeLeafSelector(
+                        raw_selector="[handicap=10]openai:gpt-4",
+                        normalized_selector="openai:gpt-4",
+                        handicap_seconds=10.0,
+                        uri_params={},
+                    )
+                ),
+                CompositeLeafNode(
+                    leaf_selector=CompositeLeafSelector(
+                        raw_selector="anthropic:claude-3",
+                        normalized_selector="anthropic:claude-3",
+                        handicap_seconds=0.0,
+                        uri_params={},
+                    )
+                ),
+            ]
+        ),
+    )
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        del stream, allow_failover, context
+        if request.model == "openai:gpt-4":
+            return _streaming_envelope(
+                [
+                    ProcessedResponse(
+                        content={"choices": [{"delta": {"content": "win"}}]}
+                    )
+                ]
+            )
+        return _streaming_envelope(
+            [ProcessedResponse(content={"choices": [{"delta": {"content": "lose"}}]})]
+        )
+
+    before_tasks = asyncio.all_tasks()
+    orchestrator = ParallelCompletionOrchestrator()
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=plan,
+            request=_request(),
+            context=_context(),
+            stream=True,
+            call_completion=call_completion,
+        ),
+    )
+    assert envelope.content is not None
+
+    chunks = [chunk async for chunk in envelope.content]
+    await asyncio.sleep(0)
+
+    assert [chunk.content for chunk in chunks] == [
+        {"choices": [{"delta": {"content": "win"}}]}
+    ]
+    leaked_tasks = [
+        task
+        for task in asyncio.all_tasks() - before_tasks
+        if not task.done() and "Event.wait" in repr(task)
+    ]
+    assert leaked_tasks == []

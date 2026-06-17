@@ -4,6 +4,7 @@ from src.core.domain.composite_routing import RoutingSurface
 from src.core.domain.request_context import RequestContext
 from src.core.services.composite_routing_state import (
     COMPOSITE_ROUTING_SURFACE_KEY,
+    is_composite_selector,
     resolve_composite_routing_surface,
 )
 
@@ -46,3 +47,9 @@ def test_quality_verifier_prefixed_call_purpose_overrides_stale_surface_hint() -
     resolved = resolve_composite_routing_surface(context)
 
     assert resolved is RoutingSurface.QUALITY_VERIFIER
+
+
+def test_parallel_selector_is_composite_selector() -> None:
+    assert is_composite_selector(
+        "[handicap=5]nvidia:minimaxai/m3!openai:gpt-4?reasoning_effort=high"
+    )

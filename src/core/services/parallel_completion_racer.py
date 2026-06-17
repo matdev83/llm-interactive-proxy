@@ -69,14 +69,18 @@ async def _wait_handicap_delay(
         return
     sleep_task = asyncio.create_task(asyncio.sleep(delay))
     accelerate_task = asyncio.create_task(handicap_accelerate.wait())
-    _done, pending = await asyncio.wait(
-        {sleep_task, accelerate_task},
-        return_when=asyncio.FIRST_COMPLETED,
-    )
-    for task in pending:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+    tasks = {sleep_task, accelerate_task}
+    try:
+        _done, pending = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+    finally:
+        pending = {task for task in tasks if not task.done()}
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
 
 async def _maybe_accelerate_pending_legs(
