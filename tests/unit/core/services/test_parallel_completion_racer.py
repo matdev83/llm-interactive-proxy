@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Callable
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 
 import pytest
+from src.core.common.exceptions import RoutingError
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.parallel_completion_racer import (
     ParallelCompletionRacer,
@@ -59,6 +61,18 @@ class _TrackedLeg:
             ttft_timeout_seconds=ttft_timeout_seconds,
             cancel=self.cancel,
         )
+
+
+@dataclass
+class _FlakyCancelLeg(_TrackedLeg):
+    fail_cancel_once: bool = True
+
+    async def cancel(self) -> None:
+        self.cancel_calls += 1
+        if self.fail_cancel_once:
+            self.fail_cancel_once = False
+            raise RuntimeError("cancel failed")
+        self.cancelled.set()
 
 
 async def _collect_race_output(
@@ -416,6 +430,18 @@ async def test_parallel_racer_invokes_protocol_cancel_before_closing_loser_strea
             "a",
         ),
         (
+            {"choices": [{"delta": {"reasoning": "think"}}]},
+            "a",
+        ),
+        (
+            {"choices": [{"delta": {"thinking": "think"}}]},
+            "a",
+        ),
+        (
+            {"choices": [{"delta": {"thought": "think"}}]},
+            "a",
+        ),
+        (
             {
                 "choices": [
                     {
@@ -439,6 +465,40 @@ async def test_parallel_racer_invokes_protocol_cancel_before_closing_loser_strea
             "b",
         ),
         ({"choices": [{"delta": {}}]}, "b"),
+        (
+            b'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n',
+            "b",
+        ),
+        (
+            'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n',
+            "b",
+        ),
+        (
+            b'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n',
+            "a",
+        ),
+        (
+            'data: {"choices":[{"delta":{"reasoning_content":"think"}}]}\n\n',
+            "a",
+        ),
+        (
+            'data: {"choices":[{"delta":{"reasoning":"think"}}]}\n\n',
+            "a",
+        ),
+        (
+            'data: {"choices":[{"delta":{"thinking":"think"}}]}\n\n',
+            "a",
+        ),
+        (
+            'data: {"choices":[{"delta":{"thought":"think"}}]}\n\n',
+            "a",
+        ),
+        (
+            b'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","type":"function","function":{"name":"fn"}}]}}]}\n\n',
+            "a",
+        ),
+        (b"data: [DONE]\n\n", "b"),
+        ("data: [DONE]\n\n", "b"),
     ],
 )
 async def test_parallel_racer_ignores_non_meaningful_first_tokens(
@@ -742,6 +802,34 @@ async def test_parallel_racer_client_cancel_after_winner_cancels_winner_and_bloc
 
 
 @pytest.mark.asyncio
+async def test_parallel_racer_retries_protocol_cancel_after_callback_failure() -> None:
+    leg_winner = _TrackedLeg(leg_id="winner", chunks=[b"win-token", b"win-rest"])
+    leg_winner.release_rest = asyncio.Event()
+    leg_loser = _FlakyCancelLeg(leg_id="loser", chunks=[b"lose-token"])
+    client_cancelled = asyncio.Event()
+    racer = ParallelCompletionRacer()
+
+    race_task = asyncio.create_task(
+        _collect_race_output(
+            racer,
+            [leg_winner.to_race_leg(), leg_loser.to_race_leg()],
+            client_cancelled=client_cancelled,
+        )
+    )
+    await asyncio.wait_for(leg_winner.started.wait(), timeout=1.0)
+    await asyncio.wait_for(leg_loser.started.wait(), timeout=1.0)
+
+    leg_winner.release_first_token.set()
+    await asyncio.sleep(0)
+    client_cancelled.set()
+    output, winner = await asyncio.wait_for(race_task, timeout=1.0)
+
+    assert winner == "winner"
+    assert output == [b"win-token"]
+    assert leg_loser.cancel_calls == 2
+
+
+@pytest.mark.asyncio
 async def test_parallel_racer_aclose_after_winner_cancels_winner_stream() -> None:
     leg_winner = _TrackedLeg(leg_id="winner", chunks=[b"win-token", b"win-rest"])
     leg_loser = _TrackedLeg(leg_id="loser", chunks=[b"lose-token"])
@@ -791,3 +879,548 @@ async def test_parallel_racer_does_not_leak_background_tasks() -> None:
     assert output == [b"a-token"]
     leaked = after - before
     assert all(task.done() for task in leaked)
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_loser_cancel_requested_before_winner_chunk_consumed() -> (
+    None
+):
+    loser_cancel_started = asyncio.Event()
+    release_loser_cancel = asyncio.Event()
+    winner_consumed = asyncio.Event()
+
+    async def _noop_cancel_a() -> None:
+        return
+
+    async def _cancel_b() -> None:
+        loser_cancel_started.set()
+        await release_loser_cancel.wait()
+
+    async def _stream_a() -> AsyncIterator[bytes]:
+        yield b"a-token"
+        await winner_consumed.wait()
+
+    async def _stream_b() -> AsyncIterator[bytes]:
+        await asyncio.Event().wait()
+        yield b"never"
+
+    racer = ParallelCompletionRacer()
+
+    async def _consume_first_chunk() -> tuple[list[bytes], str | None]:
+        output: list[bytes] = []
+        winning_leg_id: str | None = None
+        async for chunk, winner in racer.race(
+            [
+                ParallelRaceLeg(
+                    leg_id="a",
+                    stream_factory=_stream_a,
+                    cancel=_noop_cancel_a,
+                ),
+                ParallelRaceLeg(
+                    leg_id="b",
+                    stream_factory=_stream_b,
+                    cancel=_cancel_b,
+                ),
+            ],
+        ):
+            output.append(chunk)
+            if winner is not None:
+                winning_leg_id = winner
+            winner_consumed.set()
+            break
+        return output, winning_leg_id
+
+    race_task = asyncio.create_task(_consume_first_chunk())
+    await asyncio.wait_for(loser_cancel_started.wait(), timeout=1.0)
+    assert winner_consumed.is_set() is False
+
+    release_loser_cancel.set()
+    output, winner = await asyncio.wait_for(race_task, timeout=1.0)
+
+    assert winner == "a"
+    assert output == [b"a-token"]
+    assert winner_consumed.is_set() is True
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_routing_error_is_handled_as_unavailable_leg(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, logger="src.core.services.parallel_completion_racer")
+    failed_cancelled = asyncio.Event()
+    fallback_started = asyncio.Event()
+
+    async def _failed_stream() -> AsyncIterator[bytes]:
+        raise RoutingError(
+            message="No available backend instance for 'nvidia:deepseek-ai/deepseek-v4-pro'."
+        )
+        yield b"never"
+
+    async def _fallback_stream() -> AsyncIterator[bytes]:
+        fallback_started.set()
+        yield b"fallback-token"
+
+    async def _failed_cancel() -> None:
+        failed_cancelled.set()
+
+    async def _noop_cancel() -> None:
+        return
+
+    racer = ParallelCompletionRacer()
+    output: list[bytes] = []
+    winner_id: str | None = None
+    async for chunk, winner in racer.race(
+        [
+            ParallelRaceLeg(
+                leg_id="parallel-1-openai:gpt-4",
+                stream_factory=_fallback_stream,
+                cancel=_noop_cancel,
+                model="openai:gpt-4",
+            ),
+            ParallelRaceLeg(
+                leg_id="parallel-0-nvidia:deepseek-ai/deepseek-v4-pro?reasoning_effort=max",
+                stream_factory=_failed_stream,
+                cancel=_failed_cancel,
+                handicap_seconds=10.0,
+                model="nvidia:deepseek-ai/deepseek-v4-pro?reasoning_effort=max",
+            ),
+        ]
+    ):
+        output.append(chunk)
+        if winner is not None:
+            winner_id = winner
+
+    assert output == [b"fallback-token"]
+    assert winner_id == "parallel-1-openai:gpt-4"
+    assert failed_cancelled.is_set()
+    assert fallback_started.is_set()
+    assert "Parallel race leg became unavailable before winning" in caplog.text
+    assert "Parallel race leg failed before winning" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_cancels_losers_concurrently() -> None:
+    cancel_started: dict[str, asyncio.Event] = {
+        leg_id: asyncio.Event() for leg_id in ("b", "c", "d")
+    }
+    cancel_release: dict[str, asyncio.Event] = {
+        leg_id: asyncio.Event() for leg_id in ("b", "c", "d")
+    }
+    cancel_order: list[str] = []
+
+    def _make_cancel(leg_id: str) -> Callable[[], Awaitable[None]]:
+        async def _cancel() -> None:
+            cancel_order.append(f"{leg_id}-cancel-start")
+            cancel_started[leg_id].set()
+            await cancel_release[leg_id].wait()
+            cancel_order.append(f"{leg_id}-cancel-done")
+
+        return _cancel
+
+    async def _stream_winner() -> AsyncIterator[bytes]:
+        yield b"win-token"
+
+    async def _stream_loser() -> AsyncIterator[bytes]:
+        await asyncio.Event().wait()
+        yield b"never"
+
+    async def _noop_cancel() -> None:
+        return
+
+    racer = ParallelCompletionRacer()
+    race_task = asyncio.create_task(
+        _collect_race_output(
+            racer,
+            [
+                ParallelRaceLeg(
+                    leg_id="a",
+                    stream_factory=_stream_winner,
+                    cancel=_noop_cancel,
+                ),
+                ParallelRaceLeg(
+                    leg_id="b",
+                    stream_factory=_stream_loser,
+                    cancel=_make_cancel("b"),
+                ),
+                ParallelRaceLeg(
+                    leg_id="c",
+                    stream_factory=_stream_loser,
+                    cancel=_make_cancel("c"),
+                ),
+                ParallelRaceLeg(
+                    leg_id="d",
+                    stream_factory=_stream_loser,
+                    cancel=_make_cancel("d"),
+                ),
+            ],
+        )
+    )
+    await asyncio.wait_for(
+        asyncio.gather(
+            *(cancel_started[leg_id].wait() for leg_id in ("b", "c", "d")),
+        ),
+        timeout=1.0,
+    )
+    for leg_id in ("b", "c", "d"):
+        cancel_release[leg_id].set()
+    output, winner = await asyncio.wait_for(race_task, timeout=1.0)
+
+    assert winner == "a"
+    assert output == [b"win-token"]
+    start_indices = [
+        cancel_order.index(f"{leg_id}-cancel-start") for leg_id in ("b", "c", "d")
+    ]
+    done_indices = [
+        cancel_order.index(f"{leg_id}-cancel-done") for leg_id in ("b", "c", "d")
+    ]
+    assert max(start_indices) < min(done_indices)
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_terminal_error_leg_self_cancels() -> None:
+    self_cancel_calls = 0
+
+    async def _cancel_high() -> None:
+        nonlocal self_cancel_calls
+        self_cancel_calls += 1
+
+    async def _stream_high() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(
+            content={"error": {"message": "backend failed"}},
+            metadata={"finish_reason": "error", "error": {"message": "backend failed"}},
+        )
+
+    async def _stream_low() -> AsyncIterator[bytes]:
+        yield b"low-token"
+
+    async def _noop_cancel_low() -> None:
+        return
+
+    racer = ParallelCompletionRacer()
+    output, winner = await _collect_race_output(
+        racer,
+        [
+            ParallelRaceLeg(
+                leg_id="high",
+                stream_factory=_stream_high,
+                cancel=_cancel_high,
+                handicap_seconds=0.0,
+            ),
+            ParallelRaceLeg(
+                leg_id="low",
+                stream_factory=_stream_low,
+                cancel=_noop_cancel_low,
+                handicap_seconds=0.0,
+            ),
+        ],
+    )
+
+    assert winner == "low"
+    assert output == [b"low-token"]
+    assert self_cancel_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_exception_leg_self_cancels() -> None:
+    self_cancel_calls = 0
+
+    async def _cancel_failing() -> None:
+        nonlocal self_cancel_calls
+        self_cancel_calls += 1
+
+    async def _stream_failing() -> AsyncIterator[bytes]:
+        raise RuntimeError("stream exploded")
+        yield b""  # pragma: no cover
+
+    async def _stream_winner() -> AsyncIterator[bytes]:
+        await asyncio.sleep(0.05)
+        yield b"win-token"
+
+    async def _noop_cancel_winner() -> None:
+        return
+
+    racer = ParallelCompletionRacer()
+    output, winner = await _collect_race_output(
+        racer,
+        [
+            ParallelRaceLeg(
+                leg_id="failing",
+                stream_factory=_stream_failing,
+                cancel=_cancel_failing,
+            ),
+            ParallelRaceLeg(
+                leg_id="winner",
+                stream_factory=_stream_winner,
+                cancel=_noop_cancel_winner,
+            ),
+        ],
+    )
+
+    assert winner == "winner"
+    assert output == [b"win-token"]
+    assert self_cancel_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_skipped_pending_leg_logs_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    leg_high = _TrackedLeg(leg_id="high", chunks=[b"high-token"])
+    leg_low = _TrackedLeg(leg_id="low", chunks=[b"low-token"])
+    racer = ParallelCompletionRacer()
+
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        race_task = asyncio.create_task(
+            _collect_race_output(
+                racer,
+                [
+                    leg_high.to_race_leg(handicap_seconds=10.0),
+                    leg_low.to_race_leg(handicap_seconds=0.0),
+                ],
+            )
+        )
+        await asyncio.wait_for(leg_high.started.wait(), timeout=1.0)
+        leg_high.release_first_token.set()
+        await asyncio.wait_for(race_task, timeout=1.0)
+
+        clock.advance(10.0)
+        await asyncio.sleep(0)
+
+    not_started_records = [
+        record
+        for record in caplog.records
+        if record.levelno == logging.INFO
+        and "parallel_race_leg_not_started" in record.getMessage()
+    ]
+    assert not_started_records
+    assert any(
+        "reason=winner_already_selected" in record.getMessage()
+        for record in not_started_records
+    )
+    assert any("leg=low" in record.getMessage() for record in not_started_records)
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_cancel_logging_uses_neutral_event_names(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    leg_a = _TrackedLeg(leg_id="a", chunks=[b"a-token"])
+    leg_b = _TrackedLeg(leg_id="b", chunks=[b"b-token"])
+    racer = ParallelCompletionRacer()
+
+    race_task = asyncio.create_task(
+        _collect_race_output(
+            racer,
+            [leg_a.to_race_leg(), leg_b.to_race_leg()],
+        )
+    )
+    await asyncio.wait_for(leg_a.started.wait(), timeout=1.0)
+    await asyncio.wait_for(leg_b.started.wait(), timeout=1.0)
+    leg_a.release_first_token.set()
+    await asyncio.wait_for(race_task, timeout=1.0)
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("parallel_race_leg_cancel_requested" in msg for msg in messages)
+    assert any("parallel_race_leg_cancel_callback_completed" in msg for msg in messages)
+    assert not any("parallel_race_loser" in msg for msg in messages)
+    cancel_requested = next(
+        msg for msg in messages if "parallel_race_leg_cancel_requested" in msg
+    )
+    assert "reason=" in cancel_requested
+    assert "leg=" in cancel_requested
+    assert "winner=" in cancel_requested
+    assert "started=True" in cancel_requested
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_cancel_requested_started_false_for_pending_leg(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+
+    leg_high = _TrackedLeg(leg_id="high", chunks=[b"high-token"])
+    leg_low = _TrackedLeg(leg_id="low", chunks=[b"low-token"])
+    racer = ParallelCompletionRacer()
+
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        race_task = asyncio.create_task(
+            _collect_race_output(
+                racer,
+                [
+                    leg_high.to_race_leg(handicap_seconds=10.0),
+                    leg_low.to_race_leg(handicap_seconds=0.0),
+                ],
+            )
+        )
+        await asyncio.wait_for(leg_high.started.wait(), timeout=1.0)
+        leg_high.release_first_token.set()
+        await asyncio.wait_for(race_task, timeout=1.0)
+
+        clock.advance(10.0)
+        await asyncio.sleep(0)
+
+    cancel_records = [
+        record.getMessage()
+        for record in caplog.records
+        if "parallel_race_leg_cancel_requested" in record.getMessage()
+        and "leg=low" in record.getMessage()
+    ]
+    assert cancel_records
+    assert all("started=False" in message for message in cancel_records)
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_logs_cancel_callback_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.WARNING)
+
+    async def _failing_cancel() -> None:
+        raise RuntimeError("cancel boom")
+
+    async def _stream_a() -> AsyncIterator[bytes]:
+        yield b"a-token"
+
+    async def _stream_b() -> AsyncIterator[bytes]:
+        await asyncio.Event().wait()
+        yield b"never"
+
+    async def _noop_cancel() -> None:
+        return
+
+    racer = ParallelCompletionRacer()
+    output, winner = await _collect_race_output(
+        racer,
+        [
+            ParallelRaceLeg(
+                leg_id="a",
+                stream_factory=_stream_a,
+                cancel=_noop_cancel,
+            ),
+            ParallelRaceLeg(
+                leg_id="b",
+                stream_factory=_stream_b,
+                cancel=_failing_cancel,
+                model="test-model",
+            ),
+        ],
+    )
+
+    assert winner == "a"
+    assert output == [b"a-token"]
+    failed_records = [
+        record
+        for record in caplog.records
+        if "parallel_race_leg_cancel_callback_failed" in record.getMessage()
+    ]
+    assert failed_records
+    message = failed_records[0].getMessage()
+    assert "reason=winner_selected" in message
+    assert "leg=b" in message
+    assert "model=test-model" in message
+    assert "winner=a" in message
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_aclose_mid_claim_waits_for_first_chunk() -> None:
+    loser_cancel_started = asyncio.Event()
+    release_loser_cancel = asyncio.Event()
+    winner_cancel_started = asyncio.Event()
+
+    async def _cancel_b() -> None:
+        loser_cancel_started.set()
+        await release_loser_cancel.wait()
+
+    async def _cancel_a() -> None:
+        winner_cancel_started.set()
+
+    async def _stream_a() -> AsyncIterator[bytes]:
+        yield b"win-token"
+        await asyncio.Event().wait()
+
+    async def _stream_b() -> AsyncIterator[bytes]:
+        await asyncio.Event().wait()
+        yield b"never"
+
+    racer = ParallelCompletionRacer()
+
+    async def _consume() -> None:
+        async for _chunk, _winner in racer.race(
+            [
+                ParallelRaceLeg(
+                    leg_id="a",
+                    stream_factory=_stream_a,
+                    cancel=_cancel_a,
+                ),
+                ParallelRaceLeg(
+                    leg_id="b",
+                    stream_factory=_stream_b,
+                    cancel=_cancel_b,
+                ),
+            ]
+        ):
+            await asyncio.Event().wait()
+
+    race_task = asyncio.create_task(_consume())
+    await asyncio.wait_for(loser_cancel_started.wait(), timeout=1.0)
+    assert winner_cancel_started.is_set() is False
+
+    race_task.cancel()
+    release_loser_cancel.set()
+    with pytest.raises(asyncio.CancelledError):
+        await race_task
+    await asyncio.wait_for(winner_cancel_started.wait(), timeout=1.0)
+    await asyncio.sleep(0)
+    leaked = [
+        task
+        for task in asyncio.all_tasks()
+        if task is not asyncio.current_task() and not task.done()
+    ]
+    assert not leaked
+
+
+@pytest.mark.asyncio
+async def test_parallel_racer_aclose_aborted_race_cleans_up_background_tasks() -> None:
+    active_started = asyncio.Event()
+
+    async def _noop_cancel() -> None:
+        return
+
+    async def _stream_active() -> AsyncIterator[bytes]:
+        active_started.set()
+        yield b": keepalive\n\n"
+        await asyncio.Event().wait()
+
+    racer = ParallelCompletionRacer()
+
+    async def _consume_until_cancelled() -> None:
+        async for _chunk, _winner in racer.race(
+            [
+                ParallelRaceLeg(
+                    leg_id="active",
+                    stream_factory=_stream_active,
+                    cancel=_noop_cancel,
+                    handicap_seconds=10.0,
+                ),
+            ]
+        ):
+            await asyncio.Event().wait()
+
+    race_task = asyncio.create_task(_consume_until_cancelled())
+    await asyncio.wait_for(active_started.wait(), timeout=1.0)
+
+    race_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await race_task
+    await asyncio.sleep(0)
+
+    leaked = [
+        task
+        for task in asyncio.all_tasks()
+        if task is not asyncio.current_task() and not task.done()
+    ]
+    assert not leaked

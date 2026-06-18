@@ -68,7 +68,9 @@ from src.core.services.composite_routing_state import (
     COMPOSITE_SELECTED_LEAF_IS_THINKER_KEY,
     COMPOSITE_SELECTED_LEAF_SELECTOR_KEY,
     INTERLEAVED_THINKING_SUPPRESS_THINKER_SELECTION_KEY,
+    INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY,
     PARALLEL_COMPLETION_ACTIVE_KEY,
+    contains_top_level_operator,
     resolve_composite_routing_surface,
 )
 from src.core.services.connector_invoker import ConnectorInvoker
@@ -1203,7 +1205,21 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         ):
             return None
 
-        parallel_plan = try_parse_parallel_plan(request, context)
+        special_route_session = await self._load_special_parallel_cycle_state(
+            request=request,
+            context=context,
+        )
+        parse_context = context
+        if (
+            context is not None
+            and special_route_session is None
+            and self._is_thinker_parallel_selector(request.model)
+        ):
+            # Keep special-route cycle mutations ephemeral when no durable session
+            # is available to persist them.
+            parse_context = context.with_processing_context()
+
+        parallel_plan = try_parse_parallel_plan(request, parse_context)
         if parallel_plan is None:
             return None
 
@@ -1214,12 +1230,73 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 parallel_plan.normalized_selector,
             )
 
-        return await self._execute_parallel_streaming_completion(
-            plan=parallel_plan,
-            request=request,
-            context=context,
-            stream=stream,
+        try:
+            return await self._execute_parallel_streaming_completion(
+                plan=parallel_plan,
+                request=request,
+                context=context,
+                stream=stream,
+            )
+        finally:
+            self._persist_special_parallel_cycle_state(
+                session=special_route_session,
+                context=context,
+            )
+
+    async def _load_special_parallel_cycle_state(
+        self,
+        *,
+        request: CanonicalChatRequest,
+        context: RequestContext | None,
+    ) -> ISession | None:
+        if context is None or not self._is_thinker_parallel_selector(request.model):
+            return None
+
+        session, _session_id_for_backend = await self._session_resolver.resolve_session(
+            context,
+            request,
         )
+        if session is None:
+            return None
+
+        cycle_state = getattr(
+            session.state,
+            "interleaved_thinking_weighted_cycle_state",
+            None,
+        )
+        if isinstance(cycle_state, dict):
+            context.extensions[INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY] = cast(
+                JsonValue,
+                cycle_state,
+            )
+        return session
+
+    @staticmethod
+    def _is_thinker_parallel_selector(model: str) -> bool:
+        selector = model.strip()
+        return (
+            "[thinker]" in selector
+            and contains_top_level_operator(selector, "^")
+            and contains_top_level_operator(selector, "!")
+        )
+
+    @staticmethod
+    def _persist_special_parallel_cycle_state(
+        *,
+        session: ISession | None,
+        context: RequestContext | None,
+    ) -> None:
+        if session is None or context is None:
+            return
+        raw_cycle_state = context.extensions.get(
+            INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY
+        )
+        if not isinstance(raw_cycle_state, dict):
+            return
+        next_state = session.state.with_interleaved_thinking_weighted_cycle_state(
+            cast(dict[str, Any], raw_cycle_state)
+        )
+        session.update_state(next_state)
 
     async def _execute_parallel_streaming_completion(
         self,

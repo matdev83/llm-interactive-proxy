@@ -6,10 +6,13 @@ import asyncio
 import contextlib
 import copy
 import json
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field
 from typing import Any, cast
+
+from pydantic.types import JsonValue
 
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.composite_routing import (
@@ -17,11 +20,13 @@ from src.core.domain.composite_routing import (
     CompositeParallelGroupNode,
     CompositeRoutePlan,
     CompositeRoutingInput,
+    CompositeWeightedGroupNode,
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.composite_routing_state import (
+    INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY,
     PARALLEL_COMPLETION_ACTIVE_KEY,
     contains_top_level_operator,
     resolve_composite_routing_surface,
@@ -42,6 +47,8 @@ __all__ = [
     "try_parse_parallel_plan",
 ]
 
+logger = logging.getLogger(__name__)
+
 CallCompletionFn = Callable[
     ...,
     Awaitable[StreamingResponseEnvelope],
@@ -53,6 +60,9 @@ ParallelCompletionResult = ResponseEnvelope | StreamingResponseEnvelope
 @dataclass(slots=True)
 class _LegRuntime:
     leg_id: str
+    model: str
+    request_id: str | None = None
+    session_id: str | None = None
     envelope: StreamingResponseEnvelope | None = None
     stream: AsyncIterator[Any] | None = None
     call_task: asyncio.Task[StreamingResponseEnvelope] | None = None
@@ -77,7 +87,82 @@ def try_parse_parallel_plan(
     )
     if is_parallel_composite_plan(plan):
         return plan
+    special_parallel_plan = _try_select_special_thinker_parallel_executor(
+        plan=plan,
+        parser=parser,
+        context=context,
+    )
+    if special_parallel_plan is not None:
+        return special_parallel_plan
     return None
+
+
+def _try_select_special_thinker_parallel_executor(
+    *,
+    plan: CompositeRoutePlan,
+    parser: CompositeSelectorParser,
+    context: RequestContext | None,
+) -> CompositeRoutePlan | None:
+    root = plan.root_node
+    if not isinstance(root, CompositeWeightedGroupNode):
+        return None
+    if len(root.children) != 2:
+        return None
+    embedded_children = [
+        child for child in root.children if child.leaf_selector.embedded_selector
+    ]
+    thinker_children = [
+        child for child in root.children if child.leaf_selector.thinker_annotation
+    ]
+    if len(embedded_children) != 1 or len(thinker_children) != 1:
+        return None
+
+    sequence = [embedded_children[0], thinker_children[0]]
+    next_index = 0
+    cycle_state = (
+        context.extensions.get(INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY)
+        if context is not None
+        else None
+    )
+    sequence_selectors = [child.leaf_selector.normalized_selector for child in sequence]
+    if isinstance(cycle_state, dict):
+        stored_selector = cycle_state.get("selector")
+        stored_sequence = cycle_state.get("sequence")
+        stored_next_index = cycle_state.get("next_index")
+        if (
+            stored_selector == plan.normalized_selector
+            and stored_sequence == sequence_selectors
+            and isinstance(stored_next_index, int)
+            and stored_next_index >= 0
+        ):
+            next_index = stored_next_index % len(sequence)
+
+    selected = sequence[next_index]
+    if selected.leaf_selector.thinker_annotation:
+        return None
+
+    embedded_selector = selected.leaf_selector.embedded_selector
+    if not embedded_selector:
+        return None
+    embedded_plan = parser.parse(
+        CompositeRoutingInput(
+            selector=embedded_selector,
+            surface=resolve_composite_routing_surface(context),
+        )
+    )
+    if not is_parallel_composite_plan(embedded_plan):
+        return None
+
+    persisted_state = {
+        "selector": plan.normalized_selector,
+        "sequence": sequence_selectors,
+        "next_index": (next_index + 1) % len(sequence),
+    }
+    if context is not None:
+        context.extensions[INTERLEAVED_THINKING_WEIGHTED_CYCLE_STATE_KEY] = cast(
+            JsonValue, persisted_state
+        )
+    return embedded_plan
 
 
 class ParallelCompletionOrchestrator:
@@ -154,10 +239,33 @@ class ParallelCompletionOrchestrator:
     ) -> ParallelRaceLeg:
         leaf_selector = leaf.leaf_selector
         leg_id = f"parallel-{index}-{leaf_selector.normalized_selector}"
-        runtime = _LegRuntime(leg_id=leg_id)
+        correlation = self._leg_correlation_fields(context)
+        runtime = _LegRuntime(
+            leg_id=leg_id,
+            model=leaf_selector.normalized_selector,
+            request_id=correlation.get("request_id"),
+            session_id=correlation.get("session_id"),
+        )
         leg_runtimes[leg_id] = runtime
 
         async def _stream_factory() -> AsyncIterator[Any]:
+            if runtime.cancelled:
+                logger.info(
+                    "parallel_leg_upstream_dispatch_skipped leg=%s model=%s request_id=%s session_id=%s",
+                    runtime.leg_id,
+                    runtime.model,
+                    runtime.request_id,
+                    runtime.session_id,
+                )
+                return
+
+            logger.info(
+                "parallel_leg_upstream_dispatch_requested leg=%s model=%s request_id=%s session_id=%s",
+                runtime.leg_id,
+                runtime.model,
+                runtime.request_id,
+                runtime.session_id,
+            )
             leg_request = request.model_copy(
                 update={"model": leaf_selector.normalized_selector, "stream": True},
                 deep=True,
@@ -174,6 +282,15 @@ class ParallelCompletionOrchestrator:
             )
             envelope = await runtime.call_task
             runtime.envelope = envelope
+            if runtime.cancelled:
+                logger.info(
+                    "parallel_leg_upstream_dispatch_cancelled leg=%s model=%s request_id=%s session_id=%s",
+                    runtime.leg_id,
+                    runtime.model,
+                    runtime.request_id,
+                    runtime.session_id,
+                )
+                return
             if envelope.content is None:
                 return
             runtime.stream = envelope.content
@@ -189,7 +306,19 @@ class ParallelCompletionOrchestrator:
             cancel=_cancel,
             handicap_seconds=leaf_selector.handicap_seconds,
             ttft_timeout_seconds=leaf_selector.ttft_timeout_seconds,
+            model=leaf_selector.normalized_selector,
         )
+
+    @staticmethod
+    def _leg_correlation_fields(context: RequestContext | None) -> dict[str, str]:
+        fields: dict[str, str] = {}
+        if context is None:
+            return fields
+        if context.request_id:
+            fields["request_id"] = context.request_id
+        if context.session_id:
+            fields["session_id"] = context.session_id
+        return fields
 
     @staticmethod
     def _clone_context_for_leg(
@@ -197,51 +326,79 @@ class ParallelCompletionOrchestrator:
     ) -> RequestContext | None:
         if context is None:
             return None
-        extensions = copy.deepcopy(context.extensions) if context.extensions else {}
-        extensions[PARALLEL_COMPLETION_ACTIVE_KEY] = True
-        return RequestContext(
-            headers=context.headers,
-            cookies=context.cookies,
-            state=context.state,
-            app_state=None,
-            client_host=context.client_host,
-            session_id=context.session_id,
-            request_id=context.request_id,
-            agent=context.agent,
-            original_request=context.original_request,
-            processing_context=(
-                copy.deepcopy(context.processing_context)
-                if context.processing_context
-                else None
-            ),
-            domain_request=context.domain_request,
-            raw_body=context.raw_body,
-            backend=context.backend,
-            effective_model=context.effective_model,
-            requested_model=context.requested_model,
-            extensions=extensions,
-            b2bua_identity=(
-                copy.deepcopy(context.b2bua_identity)
-                if context.b2bua_identity
-                else None
-            ),
-            original_domain_request=context.original_domain_request,
+        leg_context = context.with_processing_context()
+        leg_context.processing_context = (
+            copy.deepcopy(context.processing_context)
+            if context.processing_context
+            else None
         )
+        leg_context.extensions[PARALLEL_COMPLETION_ACTIVE_KEY] = True
+        return leg_context
 
     async def _cancel_leg_runtime(self, runtime: _LegRuntime) -> None:
         if runtime.cancelled:
             return
+
+        envelope_exists = runtime.envelope is not None
+        call_task_exists = runtime.call_task is not None
+        logger.info(
+            "parallel_leg_cancel_requested leg=%s model=%s envelope=%s call_task=%s request_id=%s session_id=%s",
+            runtime.leg_id,
+            runtime.model,
+            envelope_exists,
+            call_task_exists,
+            runtime.request_id,
+            runtime.session_id,
+        )
         runtime.cancelled = True
 
         envelope = runtime.envelope
         if envelope is not None and envelope.cancel_callback is not None:
+            logger.info(
+                "parallel_leg_envelope_cancel_requested leg=%s model=%s request_id=%s session_id=%s",
+                runtime.leg_id,
+                runtime.model,
+                runtime.request_id,
+                runtime.session_id,
+            )
             await envelope.cancel_callback()
+            logger.info(
+                "parallel_leg_envelope_cancel_completed leg=%s model=%s request_id=%s session_id=%s",
+                runtime.leg_id,
+                runtime.model,
+                runtime.request_id,
+                runtime.session_id,
+            )
 
         call_task = runtime.call_task
         if call_task is not None and not call_task.done():
+            logger.info(
+                "parallel_leg_call_task_cancel_requested leg=%s model=%s request_id=%s session_id=%s",
+                runtime.leg_id,
+                runtime.model,
+                runtime.request_id,
+                runtime.session_id,
+            )
             call_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await call_task
+            logger.info(
+                "parallel_leg_call_task_cancel_completed leg=%s model=%s request_id=%s session_id=%s",
+                runtime.leg_id,
+                runtime.model,
+                runtime.request_id,
+                runtime.session_id,
+            )
+
+        logger.info(
+            "parallel_leg_cancel_completed leg=%s model=%s envelope=%s call_task=%s request_id=%s session_id=%s",
+            runtime.leg_id,
+            runtime.model,
+            envelope_exists,
+            call_task_exists,
+            runtime.request_id,
+            runtime.session_id,
+        )
 
 
 def _keepalive_factory() -> ProcessedResponse:

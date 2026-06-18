@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from typing import Any, cast
 from unittest.mock import AsyncMock
@@ -12,6 +13,8 @@ from src.core.domain.composite_routing import (
     CompositeLeafSelector,
     CompositeParallelGroupNode,
     CompositeRoutePlan,
+    CompositeRoutingInput,
+    RoutingSurface,
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -20,8 +23,10 @@ from src.core.services.composite_routing_state import (
     PARALLEL_COMPLETION_ACTIVE_KEY,
     is_composite_selector,
 )
+from src.core.services.composite_selector_parser import CompositeSelectorParser
 from src.core.services.parallel_completion_orchestrator import (
     ParallelCompletionOrchestrator,
+    _try_select_special_thinker_parallel_executor,
     try_parse_parallel_plan,
 )
 
@@ -99,6 +104,80 @@ def test_try_parse_parallel_plan_returns_none_for_failover_selector() -> None:
         messages=[ChatMessage(role="user", content="hello")],
     )
     assert try_parse_parallel_plan(request, _context()) is None
+
+
+def test_try_parse_parallel_plan_extracts_executor_first_for_special_route() -> None:
+    context = _context()
+    request = CanonicalChatRequest(
+        model=(
+            "[thinker]opencode-go:opencode-go/glm-5.2?reasoning_effort=high^"
+            "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+            "opencode-go:minimaxai/minimax-m3"
+        ),
+        messages=[ChatMessage(role="user", content="hello")],
+    )
+
+    plan = try_parse_parallel_plan(request, context)
+
+    assert plan is not None
+    assert isinstance(plan.root_node, CompositeParallelGroupNode)
+    stored_state = context.extensions["interleaved_thinking_weighted_cycle_state"]
+    assert isinstance(stored_state, dict)
+    assert stored_state["next_index"] == 1
+
+
+def test_try_parse_parallel_plan_returns_none_for_thinker_turn_of_special_route() -> (
+    None
+):
+    context = _context()
+    context.extensions["interleaved_thinking_weighted_cycle_state"] = {
+        "selector": (
+            "[weight=1][thinker]opencode-go:opencode-go/glm-5.2?reasoning_effort=high^"
+            "[weight=1][handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+            "opencode-go:minimaxai/minimax-m3"
+        ),
+        "sequence": [
+            "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+            "opencode-go:minimaxai/minimax-m3",
+            "opencode-go:opencode-go/glm-5.2?reasoning_effort=high",
+        ],
+        "next_index": 1,
+    }
+    request = CanonicalChatRequest(
+        model=(
+            "[thinker]opencode-go:opencode-go/glm-5.2?reasoning_effort=high^"
+            "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+            "opencode-go:minimaxai/minimax-m3"
+        ),
+        messages=[ChatMessage(role="user", content="hello")],
+    )
+
+    assert try_parse_parallel_plan(request, context) is None
+    stored_state = context.extensions["interleaved_thinking_weighted_cycle_state"]
+    assert isinstance(stored_state, dict)
+    assert stored_state["next_index"] == 1
+
+
+def test_special_thinker_executor_non_parallel_plan_does_not_advance_cycle_state() -> (
+    None
+):
+    parser = CompositeSelectorParser()
+    plan = parser.parse(
+        CompositeRoutingInput(
+            selector="[thinker]openai:gpt-4^openai:gpt-4|anthropic:claude-3",
+            surface=RoutingSurface.MAIN,
+        )
+    )
+    context = _context()
+
+    selected = _try_select_special_thinker_parallel_executor(
+        plan=plan,
+        parser=parser,
+        context=context,
+    )
+
+    assert selected is None
+    assert "interleaved_thinking_weighted_cycle_state" not in context.extensions
 
 
 def test_annotated_parallel_selector_is_composite_model_selector() -> None:
@@ -320,6 +399,64 @@ async def test_orchestrator_starts_legs_and_bridges_winner_token() -> None:
 
 
 @pytest.mark.asyncio
+async def test_orchestrator_leg_context_preserves_parent_app_state() -> None:
+    orchestrator = ParallelCompletionOrchestrator()
+    app_state = object()
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state={},
+        app_state=app_state,
+        request_id="req-parallel",
+        session_id="session-parallel",
+    )
+    seen_app_states: list[object | None] = []
+    started: list[str] = []
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        assert stream is True
+        assert allow_failover is False
+        leg_context = context
+        assert leg_context is not None
+        seen_app_states.append(leg_context.app_state)
+        started.append(request.model)
+        if request.model == "openai:gpt-4":
+            return _streaming_envelope(
+                [
+                    ProcessedResponse(
+                        content={"choices": [{"delta": {"content": "win"}}]}
+                    )
+                ],
+            )
+        return _streaming_envelope([])
+
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=_parallel_plan(),
+            request=_request(),
+            context=context,
+            stream=True,
+            call_completion=call_completion,
+        ),
+    )
+    assert envelope.content is not None
+
+    async for _chunk in envelope.content:
+        pass
+
+    assert set(started) == {"openai:gpt-4", "anthropic:claude-3"}
+    assert seen_app_states
+    assert all(item is app_state for item in seen_app_states)
+
+
+@pytest.mark.asyncio
 async def test_orchestrator_cancel_callback_stops_all_legs() -> None:
     cancel_a = AsyncMock()
     cancel_b = AsyncMock()
@@ -522,3 +659,358 @@ async def test_orchestrator_fast_winner_cleans_up_handicap_wait_tasks() -> None:
         if not task.done() and "Event.wait" in repr(task)
     ]
     assert leaked_tasks == []
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_terminal_error_accelerates_delayed_fallback(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(
+        logging.DEBUG,
+        logger="src.core.services.parallel_completion_racer",
+    )
+    plan = CompositeRoutePlan(
+        source_selector="[handicap=10]openai:gpt-4!anthropic:claude-3",
+        normalized_selector="[handicap=10]openai:gpt-4!anthropic:claude-3",
+        root_node=CompositeParallelGroupNode(
+            children=[
+                CompositeLeafNode(
+                    leaf_selector=CompositeLeafSelector(
+                        raw_selector="[handicap=10]openai:gpt-4",
+                        normalized_selector="openai:gpt-4",
+                        handicap_seconds=10.0,
+                        uri_params={},
+                    )
+                ),
+                CompositeLeafNode(
+                    leaf_selector=CompositeLeafSelector(
+                        raw_selector="anthropic:claude-3",
+                        normalized_selector="anthropic:claude-3",
+                        handicap_seconds=0.0,
+                        uri_params={},
+                    )
+                ),
+            ]
+        ),
+    )
+    started: list[str] = []
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        del stream, allow_failover, context
+        started.append(request.model)
+        if request.model == "openai:gpt-4":
+            return _streaming_envelope(
+                [
+                    ProcessedResponse(
+                        content={"error": "rate limit"}, metadata={"error": True}
+                    )
+                ]
+            )
+        return _streaming_envelope(
+            [
+                ProcessedResponse(
+                    content={"choices": [{"delta": {"content": "fallback"}}]}
+                )
+            ]
+        )
+
+    orchestrator = ParallelCompletionOrchestrator()
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=plan,
+            request=_request(),
+            context=_context(),
+            stream=True,
+            call_completion=call_completion,
+        ),
+    )
+    assert envelope.content is not None
+
+    chunks = await asyncio.wait_for(_collect_stream(envelope.content), timeout=0.5)
+
+    assert started == ["openai:gpt-4", "anthropic:claude-3"]
+    assert [chunk.content for chunk in chunks] == [
+        {"choices": [{"delta": {"content": "fallback"}}]}
+    ]
+    assert "Parallel race accelerating delayed legs" in caplog.text
+    assert "parallel_race_winner_selected" in caplog.text
+
+
+async def _collect_stream(
+    stream: AsyncIterator[ProcessedResponse],
+) -> list[ProcessedResponse]:
+    chunks: list[ProcessedResponse] = []
+    async for chunk in stream:
+        chunks.append(chunk)
+    return chunks
+
+
+def _handicap_plan() -> CompositeRoutePlan:
+    return CompositeRoutePlan(
+        source_selector="[handicap=10]openai:gpt-4!anthropic:claude-3",
+        normalized_selector="[handicap=10]openai:gpt-4!anthropic:claude-3",
+        root_node=CompositeParallelGroupNode(
+            children=[
+                CompositeLeafNode(
+                    leaf_selector=CompositeLeafSelector(
+                        raw_selector="[handicap=10]openai:gpt-4",
+                        normalized_selector="openai:gpt-4",
+                        handicap_seconds=10.0,
+                        uri_params={},
+                    )
+                ),
+                CompositeLeafNode(
+                    leaf_selector=CompositeLeafSelector(
+                        raw_selector="anthropic:claude-3",
+                        normalized_selector="anthropic:claude-3",
+                        handicap_seconds=0.0,
+                        uri_params={},
+                    )
+                ),
+            ]
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_early_winner_skips_delayed_leg_call_completion() -> None:
+    dispatched: list[str] = []
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        del stream, allow_failover, context
+        dispatched.append(request.model)
+        if request.model == "openai:gpt-4":
+            return _streaming_envelope(
+                [
+                    ProcessedResponse(
+                        content={"choices": [{"delta": {"content": "win"}}]}
+                    )
+                ]
+            )
+        return _streaming_envelope(
+            [ProcessedResponse(content={"choices": [{"delta": {"content": "lose"}}]})]
+        )
+
+    orchestrator = ParallelCompletionOrchestrator()
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=_handicap_plan(),
+            request=_request(),
+            context=_context(),
+            stream=True,
+            call_completion=call_completion,
+        ),
+    )
+    assert envelope.content is not None
+    chunks = [chunk async for chunk in envelope.content]
+    await asyncio.sleep(0)
+
+    assert dispatched == ["openai:gpt-4"]
+    assert [chunk.content for chunk in chunks] == [
+        {"choices": [{"delta": {"content": "win"}}]}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_pending_leg_cancellation_logs_without_upstream_resources(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(
+        logging.INFO,
+        logger="src.core.services.parallel_completion_orchestrator",
+    )
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        del stream, allow_failover, context
+        if request.model == "openai:gpt-4":
+            return _streaming_envelope(
+                [
+                    ProcessedResponse(
+                        content={"choices": [{"delta": {"content": "win"}}]}
+                    )
+                ]
+            )
+        return _streaming_envelope(
+            [ProcessedResponse(content={"choices": [{"delta": {"content": "lose"}}]})]
+        )
+
+    orchestrator = ParallelCompletionOrchestrator()
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=_handicap_plan(),
+            request=_request(),
+            context=_context(),
+            stream=True,
+            call_completion=call_completion,
+        ),
+    )
+    assert envelope.content is not None
+    await _collect_stream(envelope.content)
+    await asyncio.sleep(0)
+
+    delayed_leg_id = "parallel-1-anthropic:claude-3"
+    cancel_requested = [
+        record.message
+        for record in caplog.records
+        if record.message.startswith("parallel_leg_cancel_requested")
+        and delayed_leg_id in record.message
+    ]
+    cancel_completed = [
+        record.message
+        for record in caplog.records
+        if record.message.startswith("parallel_leg_cancel_completed")
+        and delayed_leg_id in record.message
+    ]
+    assert cancel_requested
+    assert cancel_completed
+    assert "envelope=False" in cancel_requested[0]
+    assert "call_task=False" in cancel_requested[0]
+    assert "request_id=req-parallel" in cancel_requested[0]
+    assert "session_id=session-parallel" in cancel_requested[0]
+    assert "envelope=False" in cancel_completed[0]
+    assert "call_task=False" in cancel_completed[0]
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_logs_upstream_dispatch_requested(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(
+        logging.INFO,
+        logger="src.core.services.parallel_completion_orchestrator",
+    )
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        del stream, allow_failover, context
+        return _streaming_envelope(
+            [ProcessedResponse(content={"choices": [{"delta": {"content": "win"}}]})]
+        )
+
+    orchestrator = ParallelCompletionOrchestrator()
+    envelope = cast(
+        StreamingResponseEnvelope,
+        await orchestrator.execute(
+            plan=_parallel_plan(),
+            request=_request(),
+            context=_context(),
+            stream=True,
+            call_completion=call_completion,
+        ),
+    )
+    assert envelope.content is not None
+    await _collect_stream(envelope.content)
+
+    dispatch_logs = [
+        record.message
+        for record in caplog.records
+        if record.message.startswith("parallel_leg_upstream_dispatch_requested")
+    ]
+    assert len(dispatch_logs) >= 1
+    assert any(
+        "leg=parallel-0-openai:gpt-4" in message
+        and "model=openai:gpt-4" in message
+        and "request_id=req-parallel" in message
+        and "session_id=session-parallel" in message
+        for message in dispatch_logs
+    )
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_cancel_during_call_completion_skips_streaming(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(
+        logging.INFO,
+        logger="src.core.services.parallel_completion_orchestrator",
+    )
+    call_entered = asyncio.Event()
+    release_call = asyncio.Event()
+    leg_runtimes: dict[str, Any] = {}
+
+    async def call_completion(
+        request: CanonicalChatRequest,
+        *,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        del stream, allow_failover, context
+        call_entered.set()
+        await release_call.wait()
+        return _streaming_envelope(
+            [
+                ProcessedResponse(
+                    content={"choices": [{"delta": {"content": "should-not-stream"}}]}
+                )
+            ]
+        )
+
+    orchestrator = ParallelCompletionOrchestrator()
+    request = CanonicalChatRequest(
+        model="anthropic:claude-3",
+        messages=[ChatMessage(role="user", content="hello")],
+    )
+    leg = orchestrator._build_race_leg(
+        leaf=CompositeLeafNode(
+            leaf_selector=CompositeLeafSelector(
+                raw_selector="anthropic:claude-3",
+                normalized_selector="anthropic:claude-3",
+                uri_params={},
+            )
+        ),
+        index=0,
+        request=request,
+        context=_context(),
+        call_completion=call_completion,
+        leg_runtimes=leg_runtimes,
+    )
+    runtime = leg_runtimes[leg.leg_id]
+
+    async def _collect_stream_chunks() -> list[Any]:
+        chunks: list[Any] = []
+        async for chunk in leg.stream_factory():
+            chunks.append(chunk)
+        return chunks
+
+    stream_task = asyncio.create_task(_collect_stream_chunks())
+    await asyncio.wait_for(call_entered.wait(), timeout=1.0)
+    assert runtime.call_task is not None
+    runtime.cancelled = True
+    release_call.set()
+    chunks = await asyncio.wait_for(stream_task, timeout=1.0)
+
+    assert chunks == []
+    dispatch_cancelled = [
+        record.message
+        for record in caplog.records
+        if record.message.startswith("parallel_leg_upstream_dispatch_cancelled")
+        and "anthropic:claude-3" in record.message
+    ]
+    assert dispatch_cancelled
