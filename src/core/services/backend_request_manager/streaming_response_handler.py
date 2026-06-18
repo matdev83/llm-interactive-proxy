@@ -208,16 +208,32 @@ class BackendStreamingResponseHandler:
         return str(content) if content is not None else ""
 
     @staticmethod
+    def _status_from_stream_error_payload(
+        error_payload: dict[str, Any],
+        *,
+        default_unknown_error_status: int | None,
+    ) -> int | None:
+        status_code = error_payload.get("status_code")
+        if isinstance(status_code, int) and status_code >= 400:
+            return status_code
+
+        # OpenAI-compatible context overflow errors are client request errors.
+        # Coding agents key compaction/retry decisions on this canonical 400.
+        if error_payload.get("code") == "context_length_exceeded":
+            return 400
+
+        return default_unknown_error_status
+
+    @staticmethod
     def _extract_terminal_error_status(chunk: Any) -> int | None:
         metadata = getattr(chunk, "metadata", {}) or {}
         finish_reason = metadata.get("finish_reason")
         error_payload = metadata.get("error")
         if isinstance(error_payload, dict):
-            status_code = error_payload.get("status_code")
-            if isinstance(status_code, int) and status_code >= 400:
-                return status_code
-            if finish_reason == "error":
-                return 502
+            return BackendStreamingResponseHandler._status_from_stream_error_payload(
+                error_payload,
+                default_unknown_error_status=502 if finish_reason == "error" else None,
+            )
 
         if finish_reason == "error":
             return 502
@@ -226,10 +242,12 @@ class BackendStreamingResponseHandler:
         if isinstance(content, dict):
             payload_error = content.get("error")
             if isinstance(payload_error, dict):
-                status_code = payload_error.get("status_code")
-                if isinstance(status_code, int) and status_code >= 400:
-                    return status_code
-                return 502
+                return (
+                    BackendStreamingResponseHandler._status_from_stream_error_payload(
+                        payload_error,
+                        default_unknown_error_status=502,
+                    )
+                )
 
             choices = content.get("choices")
             if isinstance(choices, list):
@@ -251,10 +269,10 @@ class BackendStreamingResponseHandler:
             ) in BackendStreamingResponseHandler._try_parse_openai_sse_payloads(text):
                 payload_error = payload.get("error")
                 if isinstance(payload_error, dict):
-                    status_code = payload_error.get("status_code")
-                    if isinstance(status_code, int) and status_code >= 400:
-                        return status_code
-                    return 502
+                    return BackendStreamingResponseHandler._status_from_stream_error_payload(
+                        payload_error,
+                        default_unknown_error_status=502,
+                    )
                 choices = payload.get("choices")
                 if isinstance(choices, list):
                     for choice in choices:

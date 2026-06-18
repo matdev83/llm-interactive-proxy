@@ -111,9 +111,9 @@ This guide covers common issues and their solutions when using the LLM Interacti
    Invalid: gpt-4 (missing backend prefix)
    ```
 
-#### 400 Input Limit Exceeded
+#### 400 Context Length Exceeded
 
-**Error**: `400 Bad Request` with `input_limit_exceeded` error code
+**Error**: `400 Bad Request` with `context_length_exceeded` error code
 
 **Cause**: Request exceeds model's context window limits
 
@@ -123,11 +123,13 @@ This guide covers common issues and their solutions when using the LLM Interacti
    ```json
    {
      "error": {
-       "code": "input_limit_exceeded",
-       "message": "Request exceeds context window",
+       "type": "invalid_request_error",
+       "code": "context_length_exceeded",
+       "param": "input",
+       "message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
        "details": {
-         "measured_tokens": 150000,
-         "limit_tokens": 128000,
+         "measured": 150000,
+         "limit": 128000,
          "model": "openai:gpt-4"
        }
      }

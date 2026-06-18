@@ -112,8 +112,10 @@ When limits are exceeded, the proxy returns a structured 400 error:
 ```json
 {
   "detail": {
-    "code": "input_limit_exceeded",
-    "message": "Input token limit exceeded",
+    "type": "invalid_request_error",
+    "code": "context_length_exceeded",
+    "param": "input",
+    "message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
     "details": {
       "model": "your-model-name",
       "limit": 100000,
@@ -125,7 +127,9 @@ When limits are exceeded, the proxy returns a structured 400 error:
 
 ### Error Response Fields
 
-- **code**: Error code (`input_limit_exceeded`)
+- **type**: Error type (`invalid_request_error`)
+- **code**: Error code (`context_length_exceeded`)
+- **param**: Request parameter (`input`)
 - **message**: Human-readable error message
 - **details.model**: Model name that exceeded the limit
 - **details.limit**: Configured token limit

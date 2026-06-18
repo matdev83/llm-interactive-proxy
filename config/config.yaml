@@ -303,7 +303,12 @@ backends:
 model_defaults:
   "gpt-4":  # Exact model name
     temperature: 0.7
-  
+
+  "openai-codex:gpt-5.5":
+    limits:
+      context_window: 260000
+      max_input_tokens: 260000
+
   "openrouter:claude-3-opus":  # Backend:model format
     reasoning_effort: "high"
 

@@ -579,6 +579,13 @@ backends:
 model_defaults:
   "gpt-4":  # Exact model name
     temperature: 0.7
+
+  "openai-codex:gpt-5.5":
+    # ChatGPT-account Codex currently rejects larger contexts remotely with
+    # context_length_exceeded; enforce locally so clients can compact immediately.
+    limits:
+      context_window: 260000
+      max_input_tokens: 260000
   
   "openrouter:claude-3-opus":  # Backend:model format
     reasoning_effort: "high"

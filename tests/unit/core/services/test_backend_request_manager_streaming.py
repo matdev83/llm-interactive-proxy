@@ -1300,6 +1300,87 @@ def test_should_surface_pre_output_error_considers_details_status_code() -> None
     assert BackendStreamingResponseHandler._should_surface_pre_output_error(be) is True
 
 
+def test_context_length_sse_error_extracts_canonical_bad_request_status() -> None:
+    """OpenAI-compatible context overflow stream errors must surface as HTTP 400."""
+    payload = (
+        "event: error\n"
+        'data: {"type":"error","error":{"type":"invalid_request_error",'
+        '"code":"context_length_exceeded",'
+        '"message":"Your input exceeds the context window of this model.",'
+        '"param":"input"},"sequence_number":2}\n\n'
+    )
+    chunk = ProcessedResponse(content=payload, metadata={})
+
+    assert BackendStreamingResponseHandler._extract_terminal_error_status(chunk) == 400
+
+
+def test_metadata_error_without_terminal_finish_does_not_force_bad_gateway() -> None:
+    """Metadata diagnostics alone must not rewrite a successful stream to HTTP 502."""
+    chunk = ProcessedResponse(
+        content="",
+        metadata={
+            "error": {
+                "type": "diagnostic",
+                "message": "non-terminal diagnostic",
+            }
+        },
+    )
+
+    assert BackendStreamingResponseHandler._extract_terminal_error_status(chunk) is None
+
+
+@pytest.mark.asyncio
+async def test_context_length_sse_error_bypasses_empty_stream_retry() -> None:
+    """Context overflow is a client request error, not an empty stream to retry."""
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
+    manager = create_backend_request_manager(
+        backend_processor=backend_processor,
+        response_processor=response_processor,
+    )
+
+    original_request = ChatRequest(
+        model="openai-codex:gpt-5.5",
+        messages=[ChatMessage(role="user", content="large request")],
+        stream=True,
+    )
+
+    async def context_overflow_stream() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(
+            content=(
+                "event: error\n"
+                'data: {"type":"error","error":{"type":"invalid_request_error",'
+                '"code":"context_length_exceeded",'
+                '"message":"Your input exceeds the context window of this model.",'
+                '"param":"input"},"sequence_number":2}\n\n'
+            ),
+            metadata={},
+        )
+
+    backend_processor.process_backend_request.return_value = StreamingResponseEnvelope(
+        content=context_overflow_stream(),
+    )
+
+    result = await manager.process_backend_request(
+        original_request,
+        "session-context-overflow",
+        _make_context(),
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.status_code == 400
+    assert result.content is not None
+    chunks = [chunk async for chunk in result.content]
+
+    assert backend_processor.process_backend_request.await_count == 1
+    assert len(chunks) == 1
+    assert "context_length_exceeded" in str(chunks[0].content)
+    assert "empty_stream_after_retries" not in str(chunks[0].content)
+
+
 def test_chunk_has_meaningful_output_reasoning_only_dict_with_fallback() -> None:
     """Reasoning-only OpenAI-shaped dict chunks count when fallback flag is on."""
     handler = BackendStreamingResponseHandler(

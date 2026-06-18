@@ -147,10 +147,6 @@ class BackendPreparer(IBackendPreparer):
                 if not enforcement_enabled:
                     return backend_request
 
-                model_defaults_map: dict[str, ModelDefaults] = (
-                    self._app_state.get_model_defaults() or {}
-                )
-
                 # Resolve backend and model name
                 backend_type: str | None = None
                 try:
@@ -175,24 +171,9 @@ class BackendPreparer(IBackendPreparer):
                 backend_key: str = parsed.backend_type
                 model_name: str = parsed.model_name
 
-                model_catalog = self._model_catalog
-                catalog_match = (
-                    model_catalog.resolve(model_name, backend_key)
-                    if model_catalog is not None
-                    else None
+                model_defaults_map: dict[str, ModelDefaults] = (
+                    self._app_state.get_model_defaults() or {}
                 )
-                model_in_catalog = catalog_match is not None and (
-                    catalog_match.tier != ModelCatalogMatchTier.NONE
-                )
-                if model_catalog is not None and not model_in_catalog:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Skipping limit/modality enforcement: model not found in registry (%s)",
-                            requested_model,
-                        )
-                    return backend_request
-
-                # Candidate keys to look up defaults
                 candidate_keys: list[str] = []
                 if requested_model:
                     candidate_keys.append(requested_model)
@@ -211,6 +192,24 @@ class BackendPreparer(IBackendPreparer):
                     if isinstance(md, dict) or hasattr(md, "limits"):
                         model_defaults = md
                         break
+
+                model_catalog = self._model_catalog
+                catalog_match = (
+                    model_catalog.resolve(model_name, backend_key)
+                    if model_catalog is not None
+                    else None
+                )
+                model_in_catalog = catalog_match is not None and (
+                    catalog_match.tier != ModelCatalogMatchTier.NONE
+                )
+                if model_catalog is not None and not model_in_catalog:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Skipping limit/modality enforcement: model not found in registry (%s)",
+                            requested_model,
+                        )
+                    if model_defaults is None:
+                        return backend_request
 
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
@@ -368,10 +367,11 @@ class BackendPreparer(IBackendPreparer):
                                         requested_model,
                                     )
                                 raise InvalidRequestError(
-                                    message="Input token limit exceeded",
-                                    code="input_limit_exceeded",
-                                    param="messages",
-                                    status_code=413,
+                                    message="Your input exceeds the context window of this model. Please adjust your input and try again.",
+                                    code="context_length_exceeded",
+                                    param="input",
+                                    type="invalid_request_error",
+                                    status_code=400,
                                     details={
                                         "model": requested_model or model_name,
                                         "limit": int(max_in),
@@ -407,10 +407,11 @@ class BackendPreparer(IBackendPreparer):
                                                 requested_model,
                                             )
                                         raise InvalidRequestError(
-                                            message="Total token limit exceeded (input + max_tokens exceeds context window)",
-                                            code="total_limit_exceeded",
-                                            param="max_tokens",
-                                            status_code=413,
+                                            message="Your input exceeds the context window of this model. Please adjust your input and try again.",
+                                            code="context_length_exceeded",
+                                            param="input",
+                                            type="invalid_request_error",
+                                            status_code=400,
                                             details={
                                                 "model": requested_model or model_name,
                                                 "context_window": int(context_window),
@@ -438,10 +439,11 @@ class BackendPreparer(IBackendPreparer):
                                             requested_model,
                                         )
                                     raise InvalidRequestError(
-                                        message="Model capacity exceeded: input size leaves no room for maximum model output",
-                                        code="model_capacity_exceeded",
-                                        param="messages",
-                                        status_code=413,
+                                        message="Your input exceeds the context window of this model. Please adjust your input and try again.",
+                                        code="context_length_exceeded",
+                                        param="input",
+                                        type="invalid_request_error",
+                                        status_code=400,
                                         details={
                                             "model": requested_model or model_name,
                                             "context_window": int(context_window),

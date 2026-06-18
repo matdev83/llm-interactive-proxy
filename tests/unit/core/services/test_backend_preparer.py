@@ -147,8 +147,9 @@ async def test_prepare_input_token_limit_exceeded_raises_error(
     with pytest.raises(InvalidRequestError) as exc_info:
         await backend_preparer.prepare(request_context, session_id, request, processed)
 
-    assert exc_info.value.code == "input_limit_exceeded"
-    assert exc_info.value.param == "messages"
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.code == "context_length_exceeded"
+    assert exc_info.value.param == "input"
 
 
 @pytest.mark.asyncio
@@ -186,8 +187,9 @@ async def test_prepare_total_token_limit_exceeded_raises_error(
     with pytest.raises(InvalidRequestError) as exc_info:
         await backend_preparer.prepare(request_context, session_id, request, processed)
 
-    assert exc_info.value.code == "total_limit_exceeded"
-    assert exc_info.value.param == "max_tokens"
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.code == "context_length_exceeded"
+    assert exc_info.value.param == "input"
 
 
 @pytest.mark.asyncio

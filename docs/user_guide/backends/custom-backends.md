@@ -219,8 +219,10 @@ When a request exceeds `max_input_tokens`, the proxy returns a 400 error:
 ```json
 {
   "detail": {
-    "code": "input_limit_exceeded",
-    "message": "Input token limit exceeded",
+    "type": "invalid_request_error",
+    "code": "context_length_exceeded",
+    "param": "input",
+    "message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
     "details": {
       "model": "large-context-model",
       "limit": 200000,

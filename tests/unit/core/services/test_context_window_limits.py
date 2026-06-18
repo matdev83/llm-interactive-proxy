@@ -1,6 +1,7 @@
 # isort: skip_file
 from collections import deque
 from typing import Any
+from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 import pytest
@@ -75,10 +76,12 @@ class TestContextWindowLimits:
             "messages": [{"role": "user", "content": "This should exceed one token."}],
         }
         resp = client.post("/v1/chat/completions", json=payload)
-        assert resp.status_code == 413
+        assert resp.status_code == 400
         body = resp.json()
         detail = body.get("detail", {})
-        assert detail.get("code") == "input_limit_exceeded"
+        assert detail.get("type") == "invalid_request_error"
+        assert detail.get("code") == "context_length_exceeded"
+        assert detail.get("param") == "input"
         details = detail.get("details", {})
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
@@ -96,10 +99,12 @@ class TestContextWindowLimits:
             ],
         }
         resp = client.post("/v1/chat/completions", json=payload)
-        assert resp.status_code == 413
+        assert resp.status_code == 400
         body = resp.json()
         detail = body.get("detail", {})
-        assert detail.get("code") == "input_limit_exceeded"
+        assert detail.get("type") == "invalid_request_error"
+        assert detail.get("code") == "context_length_exceeded"
+        assert detail.get("param") == "input"
         details = detail.get("details", {})
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
@@ -165,10 +170,12 @@ class TestContextWindowLimits:
             "messages": [{"role": "user", "content": long_content}],
         }
         resp = client.post("/v1/chat/completions", json=payload)
-        assert resp.status_code == 413
+        assert resp.status_code == 400
         body = resp.json()
         detail = body.get("detail", {})
-        assert detail.get("code") == "input_limit_exceeded"
+        assert detail.get("type") == "invalid_request_error"
+        assert detail.get("code") == "context_length_exceeded"
+        assert detail.get("param") == "input"
         details = detail.get("details", {})
         assert isinstance(details.get("measured"), int)
         # The limit should be the CLI override value (1), not the config file value (100000)
@@ -203,14 +210,68 @@ class TestContextWindowLimits:
             "messages": [{"role": "user", "content": long_content}],
         }
         resp = client.post("/v1/chat/completions", json=payload)
-        assert resp.status_code == 413
+        assert resp.status_code == 400
         body = resp.json()
         detail = body.get("detail", {})
-        assert detail.get("code") == "input_limit_exceeded"
+        assert detail.get("type") == "invalid_request_error"
+        assert detail.get("code") == "context_length_exceeded"
+        assert detail.get("param") == "input"
         details = detail.get("details", {})
         assert isinstance(details.get("measured"), int)
         # The limit should be the CLI override value (10)
         assert isinstance(details.get("limit"), int) and details["limit"] == 10
+
+    def test_openai_codex_configured_limit_blocks_before_backend_dispatch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        app = build_test_app()
+        sp = app.state.service_provider
+        app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
+        md = ModelDefaults.model_validate(
+            {"limits": ModelLimits(context_window=260000, max_input_tokens=260000)}
+        )
+        app_state.set_model_defaults(
+            {
+                "openai-codex:gpt-5.5": md,
+                "gpt-5.5": md,
+            }
+        )
+        app_state.set_backend_type("openai-codex")
+        app_state.set_setting("disable_auth", True)
+        app.state.disable_auth = True
+
+        import src.core.services.backend_preparer as backend_preparer
+        import src.core.services.backend_request_manager_service as brm
+
+        monkeypatch.setattr(
+            backend_preparer,
+            "count_tokens",
+            lambda *_args, **_kwargs: 260001,
+        )
+        process_backend_request = AsyncMock()
+        monkeypatch.setattr(
+            brm.BackendRequestManager,
+            "process_backend_request",
+            process_backend_request,
+            raising=True,
+        )
+
+        client = TestClient(app)
+        payload = {
+            "model": "openai-codex:gpt-5.5",
+            "messages": [{"role": "user", "content": "large request"}],
+        }
+
+        resp = client.post("/v1/chat/completions", json=payload)
+
+        assert resp.status_code == 400
+        body = resp.json()
+        detail = body.get("detail", {})
+        assert detail.get("type") == "invalid_request_error"
+        assert detail.get("code") == "context_length_exceeded"
+        assert detail.get("param") == "input"
+        assert detail.get("details", {}).get("limit") == 260000
+        process_backend_request.assert_not_called()
 
 
 pytestmark = pytest.mark.filterwarnings(

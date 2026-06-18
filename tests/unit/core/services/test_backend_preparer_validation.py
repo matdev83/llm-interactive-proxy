@@ -74,8 +74,9 @@ async def test_backend_preparer_capacity_rejection(
         await preparer.prepare(context, "session_id", request, processed)
 
     error_dict = excinfo.value.to_dict()
-    assert error_dict["error"]["code"] == "model_capacity_exceeded"
-    assert "input size leaves no room for maximum model output" in str(excinfo.value)
+    assert error_dict["error"]["type"] == "invalid_request_error"
+    assert error_dict["error"]["code"] == "context_length_exceeded"
+    assert error_dict["error"]["param"] == "input"
 
 
 @pytest.mark.asyncio
@@ -196,7 +197,7 @@ async def test_backend_preparer_rejects_unsupported_modalities(
 
 
 @pytest.mark.asyncio
-async def test_backend_preparer_skips_when_model_missing(
+async def test_backend_preparer_enforces_model_defaults_when_catalog_missing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     backend_request_manager = MagicMock()
@@ -240,8 +241,14 @@ async def test_backend_preparer_skips_when_model_missing(
         lambda *_args, **_kwargs: 9999,
     )
 
-    result = await preparer.prepare(context, "session_id", request, processed)
-    assert result is not None
+    with pytest.raises(InvalidRequestError) as exc:
+        await preparer.prepare(context, "session_id", request, processed)
+
+    err = exc.value.to_dict()["error"]
+    assert exc.value.status_code == 400
+    assert err["type"] == "invalid_request_error"
+    assert err["code"] == "context_length_exceeded"
+    assert err["details"]["limit"] == 1000
 
 
 def _real_catalog_service(limits: dict) -> tuple[ModelCatalogService, str]:
@@ -257,7 +264,7 @@ def _real_catalog_service(limits: dict) -> tuple[ModelCatalogService, str]:
 async def test_backend_preparer_enforces_input_limit_via_real_catalog(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Integration: models.dev limits from ModelCatalogService drive 413 input_limit_exceeded."""
+    """Integration: models.dev limits drive canonical context overflow rejection."""
     catalog, path = _real_catalog_service({"context": 500, "output": 100})
     try:
         backend_request_manager = MagicMock()
@@ -288,7 +295,11 @@ async def test_backend_preparer_enforces_input_limit_via_real_catalog(
         )
         with pytest.raises(InvalidRequestError) as exc:
             await preparer.prepare(context, "session_id", request, processed)
-        assert exc.value.to_dict()["error"]["code"] == "input_limit_exceeded"
+        err = exc.value.to_dict()["error"]
+        assert exc.value.status_code == 400
+        assert err["type"] == "invalid_request_error"
+        assert err["code"] == "context_length_exceeded"
+        assert err["param"] == "input"
     finally:
         Path(path).unlink(missing_ok=True)
 
@@ -307,8 +318,8 @@ async def test_backend_preparer_model_defaults_override_catalog_limits(
             model_limit_enforcement=SimpleNamespace(enabled=True)
         )
         app_state.get_model_defaults.return_value = {
-            "gpt-4": ModelDefaults(
-                limits=ModelLimits(context_window=400, max_output_tokens=50)
+            "gpt-4": ModelDefaults.model_validate(
+                {"limits": ModelLimits(context_window=400, max_output_tokens=50)}
             )
         }
         app_state.get_backend_type.return_value = "openai"
@@ -333,7 +344,9 @@ async def test_backend_preparer_model_defaults_override_catalog_limits(
         with pytest.raises(InvalidRequestError) as exc:
             await preparer.prepare(context, "session_id", request, processed)
         err = exc.value.to_dict()["error"]
-        assert err["code"] == "input_limit_exceeded"
+        assert err["type"] == "invalid_request_error"
+        assert err["code"] == "context_length_exceeded"
+        assert err["param"] == "input"
         assert err["details"]["limit"] == 400
     finally:
         Path(path).unlink(missing_ok=True)
