@@ -9,12 +9,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-from collections.abc import (
-    AsyncGenerator,
-    Awaitable,
-    Callable,
-    Mapping,
-)
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from json import JSONDecodeError
 from typing import Any, NoReturn, cast
@@ -194,10 +189,7 @@ def _extract_insufficient_quota_message(body: str) -> str | None:
 
 
 def _build_quota_exhaustion_stream_chunk(
-    *,
-    body: str,
-    error_details: dict[str, Any],
-    model: str,
+    *, body: str, error_details: dict[str, Any], model: str
 ) -> bytes:
     """Build a terminal OpenAI-compatible stream chunk for quota exhaustion."""
 
@@ -248,10 +240,7 @@ def _attach_http_error_details(
                 merged_detail["headers"] = dict(headers)
         return merged_detail
 
-    return {
-        "message": str(error_detail),
-        **response_details,
-    }
+    return {"message": str(error_detail), **response_details}
 
 
 def _message_from_merged_detail(merged: dict[str, Any]) -> str:
@@ -330,30 +319,19 @@ def _raise_upstream_http_error(
 
     if status_code == 503 and _is_quota_exceeded_detail(merged):
         raise BackendError(
-            message=message,
-            backend_name="openai",
-            status_code=503,
-            details=merged,
+            message=message, backend_name="openai", status_code=503, details=merged
         )
 
     if status_code == 401:
-        raise AuthenticationError(
-            message=message,
-            details=merged,
-        )
+        raise AuthenticationError(message=message, details=merged)
 
     if 400 <= status_code < 500:
         raise InvalidRequestError(
-            message=message,
-            details=merged,
-            status_code=status_code,
+            message=message, details=merged, status_code=status_code
         )
 
     raise BackendError(
-        message=message,
-        backend_name="openai",
-        status_code=status_code,
-        details=merged,
+        message=message, backend_name="openai", status_code=status_code, details=merged
     )
 
 
@@ -408,10 +386,7 @@ def _extract_connector_chat_request(
 
 
 def _raise_for_httpx_request_error(
-    exc: httpx.RequestError,
-    *,
-    url: str,
-    log_extra: dict[str, str] | None,
+    exc: httpx.RequestError, *, url: str, log_extra: dict[str, str] | None
 ) -> NoReturn:
     """Map httpx transport errors to domain errors (read timeout vs connect vs other)."""
 
@@ -433,12 +408,7 @@ def _raise_for_httpx_request_error(
 
     if isinstance(exc, httpx.ConnectTimeout):
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "Connect timeout to %s: %s",
-                url,
-                exc,
-                extra=log_extra,
-            )
+            logger.warning("Connect timeout to %s: %s", url, exc, extra=log_extra)
         raise ServiceUnavailableError(
             message=f"Could not connect to backend (connect timeout: {exc!s})",
             details={"url": url, "reason": "connect_timeout"},
@@ -446,12 +416,7 @@ def _raise_for_httpx_request_error(
 
     if isinstance(exc, httpx.WriteTimeout):
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "Write timeout to %s: %s",
-                url,
-                exc,
-                extra=log_extra,
-            )
+            logger.warning("Write timeout to %s: %s", url, exc, extra=log_extra)
         raise BackendError(
             message="Request body upload timed out.",
             details={"url": url, "reason": "write_timeout"},
@@ -494,8 +459,7 @@ def _raise_for_httpx_request_error(
         extra=log_extra if log_extra else None,
     )
     raise ServiceUnavailableError(
-        message=f"Could not connect to backend ({exc!s})",
-        details={"url": url},
+        message=f"Could not connect to backend ({exc!s})", details={"url": url}
     ) from exc
 
 
@@ -594,9 +558,7 @@ class OpenAIConnector(LLMBackend):
         request = build_request()
         try:
             return await self._capture_http_client.send(
-                request,
-                stream=stream,
-                capture=capture,
+                request, stream=stream, capture=capture
             )
         except httpx.RequestError as exc:
             if _is_retryable_http2_stream_termination(exc):
@@ -609,15 +571,11 @@ class OpenAIConnector(LLMBackend):
                 self._bump_wire_capture_http_transport_resend(capture)
                 try:
                     return await self._capture_http_client.send(
-                        retry_request,
-                        stream=stream,
-                        capture=capture,
+                        retry_request, stream=stream, capture=capture
                     )
                 except httpx.RequestError as retry_exc:
                     _raise_for_httpx_request_error(
-                        retry_exc,
-                        url=url,
-                        log_extra=log_extra,
+                        retry_exc, url=url, log_extra=log_extra
                     )
             _raise_for_httpx_request_error(exc, url=url, log_extra=log_extra)
 
@@ -652,9 +610,7 @@ class OpenAIConnector(LLMBackend):
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error closing WebSocket client: %s",
-                        e,
-                        exc_info=True,
+                        "Error closing WebSocket client: %s", e, exc_info=True
                     )
             finally:
                 self._websocket_client = None
@@ -842,13 +798,7 @@ class OpenAIConnector(LLMBackend):
         self._health_check_enabled = False
         logger.info("Health check disabled for %s backend", self.backend_type)
 
-    _XSSI_PREFIXES = (
-        ")]}',\n",
-        ")]}',",
-        ")]}'",
-        "while(1);",
-        "while (1);",
-    )
+    _XSSI_PREFIXES = (")]}',\n", ")]}',", ")]}'", "while(1);", "while (1);")
 
     def _decode_json_payload(self, response: httpx.Response) -> Any:
         """Safely decode JSON payloads that may include XSSI guards or trailing data."""
@@ -964,8 +914,7 @@ class OpenAIConnector(LLMBackend):
         )
 
     async def _chat_completions_canonical(
-        self,
-        request: ConnectorChatCompletionsRequest,
+        self, request: ConnectorChatCompletionsRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Canonical connector API implementation.
 
@@ -1068,10 +1017,7 @@ class OpenAIConnector(LLMBackend):
             # Calculate prompt tokens for usage tracking
             prompt_tokens = 0
             try:
-                from src.core.utils.token_count import (
-                    count_tokens,
-                    extract_prompt_text,
-                )
+                from src.core.utils.token_count import count_tokens, extract_prompt_text
 
                 prompt_text = extract_prompt_text(processed_messages)
                 prompt_tokens = count_tokens(prompt_text, model=effective_model)
@@ -1107,8 +1053,7 @@ class OpenAIConnector(LLMBackend):
             )
 
     async def chat_completions(  # type: ignore[override]
-        self,
-        request: ConnectorChatCompletionsRequest,
+        self, request: ConnectorChatCompletionsRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Invoke OpenAI chat completions using ``ConnectorChatCompletionsRequest`` only.
 
@@ -1265,9 +1210,7 @@ class OpenAIConnector(LLMBackend):
         if isinstance(extra, dict):
             payload.update(extra)
         self._sanitize_deepseek_thinking_continuation_payload(
-            payload,
-            effective_model,
-            context,
+            payload, effective_model, context
         )
         self._enforce_reasoning_model_min_tokens(payload, effective_model, context)
         # Remove internal-only keys and any None-valued entries (recursively)
@@ -1466,8 +1409,7 @@ class OpenAIConnector(LLMBackend):
             ),
             stream=False,
             capture=self._http_boundary_capture(
-                model=str(payload.get("model") or "unknown"),
-                context=context,
+                model=str(payload.get("model") or "unknown"), context=context
             ),
             url=url,
             log_extra=log_extra if log_extra else None,
@@ -1590,8 +1532,7 @@ class OpenAIConnector(LLMBackend):
             ),
             stream=True,
             capture=self._http_boundary_capture(
-                model=str(payload.get("model") or "unknown"),
-                context=context,
+                model=str(payload.get("model") or "unknown"), context=context
             ),
             url=url,
             log_extra=log_extra if log_extra else None,
@@ -1738,12 +1679,26 @@ class OpenAIConnector(LLMBackend):
         cancel_headers = dict(guarded_headers)
         cancel_headers.setdefault("Content-Type", "application/json")
         cancel_base_url = url.rstrip("/")
+        cancel_model = str(payload.get("model") or "unknown")
 
         async def cancel_stream() -> None:
             async with cancel_lock:
                 if cancel_state["called"]:
                     return
                 cancel_state["called"] = True
+
+            logger.debug(
+                "upstream_stream_cancel_requested backend=%s model=%s method=%s session_id=%s",
+                self.backend_type,
+                cancel_model,
+                (
+                    "protocol_cancel_then_close"
+                    if supports_protocol_cancel
+                    else "close_response"
+                ),
+                session_id,
+                extra=log_extra if log_extra else None,
+            )
 
             target_id: str | None = None
             if supports_protocol_cancel:
@@ -1756,31 +1711,67 @@ class OpenAIConnector(LLMBackend):
                         target_id = None
 
             if target_id:
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Cancelling upstream Responses stream (session_id=%s, response_id=%s).",
-                        session_id,
-                        target_id,
-                        extra=log_extra if log_extra else None,
-                    )
-                await self._send_openai_responses_cancel(
+                logger.debug(
+                    "upstream_protocol_cancel_requested backend=%s model=%s response_id=%s session_id=%s",
+                    self.backend_type,
+                    cancel_model,
+                    target_id,
+                    session_id,
+                    extra=log_extra if log_extra else None,
+                )
+                cancel_sent = await self._send_openai_responses_cancel(
                     base_url=cancel_base_url,
                     headers=cancel_headers,
                     response_id=target_id,
                     session_id=session_id,
                     context=context,
                 )
+                if cancel_sent:
+                    logger.debug(
+                        "upstream_protocol_cancel_completed backend=%s model=%s response_id=%s session_id=%s",
+                        self.backend_type,
+                        cancel_model,
+                        target_id,
+                        session_id,
+                        extra=log_extra if log_extra else None,
+                    )
+                else:
+                    logger.warning(
+                        "upstream_protocol_cancel_failed backend=%s model=%s response_id=%s session_id=%s",
+                        self.backend_type,
+                        cancel_model,
+                        target_id,
+                        session_id,
+                        extra=log_extra if log_extra else None,
+                    )
+            elif supports_protocol_cancel:
+                logger.debug(
+                    "upstream_protocol_cancel_skipped backend=%s model=%s reason=response_id_unavailable session_id=%s",
+                    self.backend_type,
+                    cancel_model,
+                    session_id,
+                    extra=log_extra if log_extra else None,
+                )
 
             try:
                 await response.aclose()
             except Exception as e:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to close response during stream cancellation: %s",
-                        e,
-                        exc_info=True,
-                        extra=log_extra if log_extra else None,
-                    )
+                logger.debug(
+                    "upstream_stream_close_failed backend=%s model=%s session_id=%s error=%s",
+                    self.backend_type,
+                    cancel_model,
+                    session_id,
+                    e,
+                    extra=log_extra if log_extra else None,
+                )
+            else:
+                logger.debug(
+                    "upstream_stream_close_completed backend=%s model=%s session_id=%s",
+                    self.backend_type,
+                    cancel_model,
+                    session_id,
+                    extra=log_extra if log_extra else None,
+                )
 
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
             def _extract_chunk_id(chunk: Any) -> str | None:
@@ -2060,9 +2051,7 @@ class OpenAIConnector(LLMBackend):
             response_headers = {}
 
         return StreamingResponseHandle(
-            iterator=gen(),
-            cancel_callback=cancel_stream,
-            headers=response_headers,
+            iterator=gen(), cancel_callback=cancel_stream, headers=response_headers
         )
 
     async def _send_openai_responses_cancel(
@@ -2072,48 +2061,58 @@ class OpenAIConnector(LLMBackend):
         response_id: str,
         session_id: str,
         context: ConnectorRequestContext | None = None,
-    ) -> None:
+    ) -> bool:
         log_extra = self._get_log_extra(context)
         cancel_url = f"{base_url}/{response_id}/cancel"
         try:
             request = self.client.build_request("POST", cancel_url, headers=headers)
         except Exception as exc:
             logger.debug(
-                "Failed to build cancellation request - session_id=%s, url=%s, error=%s",
+                "upstream_protocol_cancel_failed backend=%s response_id=%s session_id=%s error=%s",
+                self.backend_type,
+                response_id,
                 session_id,
-                cancel_url,
                 exc,
-                exc_info=True,
                 extra=log_extra if log_extra else None,
             )
-            return
+            return False
 
         try:
             cancel_response = await self._capture_http_client.send(
                 request,
                 stream=False,
                 capture=self._http_boundary_capture(
-                    model="responses-cancel",
-                    context=context,
+                    model="responses-cancel", context=context
                 ),
             )
         except Exception as exc:
             logger.warning(
-                "Failed to send cancellation request - session_id=%s, url=%s, error=%s",
+                "upstream_protocol_cancel_failed backend=%s response_id=%s session_id=%s error=%s",
+                self.backend_type,
+                response_id,
                 session_id,
-                cancel_url,
                 exc,
-                exc_info=True,
                 extra=log_extra if log_extra else None,
             )
-            return
+            return False
 
+        status_code = cancel_response.status_code
         with contextlib.suppress(Exception):
             await cancel_response.aclose()
+        if status_code < 200 or status_code >= 300:
+            logger.warning(
+                "upstream_protocol_cancel_failed backend=%s response_id=%s session_id=%s status_code=%s",
+                self.backend_type,
+                response_id,
+                session_id,
+                status_code,
+                extra=log_extra if log_extra else None,
+            )
+            return False
+        return True
 
     async def responses(
-        self,
-        request: ConnectorResponsesRequest,
+        self, request: ConnectorResponsesRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle OpenAI Responses API calls.
 
@@ -2317,8 +2316,7 @@ class OpenAIConnector(LLMBackend):
                 "http://", "ws://"
             )
             self._websocket_client = OpenAIWebSocketClient(
-                api_key=api_key,
-                api_base=ws_base,
+                api_key=api_key, api_base=ws_base
             )
 
         # Extract previous_response_id if present
@@ -2338,11 +2336,7 @@ class OpenAIConnector(LLMBackend):
                     yield response_chunk
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        "Error in WebSocket stream: %s",
-                        e,
-                        exc_info=True,
-                    )
+                    logger.error("Error in WebSocket stream: %s", e, exc_info=True)
                 raise
 
         # Create cancel callback
@@ -2384,8 +2378,7 @@ class OpenAIConnector(LLMBackend):
             ),
             stream=False,
             capture=self._http_boundary_capture(
-                model=str(payload.get("model") or "unknown"),
-                context=context,
+                model=str(payload.get("model") or "unknown"), context=context
             ),
             url=url,
             log_extra=None,
@@ -2593,8 +2586,7 @@ class OpenAIConnector(LLMBackend):
             ),
             stream=True,
             capture=self._http_boundary_capture(
-                model=str(effective_model),
-                context=connector_context,
+                model=str(effective_model), context=connector_context
             ),
             url=url,
             log_extra=None,
@@ -2663,9 +2655,7 @@ class OpenAIConnector(LLMBackend):
                     await response.aclose()
 
                 yield _build_quota_exhaustion_stream_chunk(
-                    body=body,
-                    error_details=error_details,
-                    model=str(effective_model),
+                    body=body, error_details=error_details, model=str(effective_model)
                 )
                 yield b"data: [DONE]\n\n"
                 return

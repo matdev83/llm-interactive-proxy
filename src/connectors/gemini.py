@@ -329,9 +329,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 if stripped_parsed:
                     return {
                         "candidates": [
-                            {
-                                "content": {"parts": [{"text": stripped_parsed}]},
-                            }
+                            {"content": {"parts": [{"text": stripped_parsed}]}}
                         ]
                     }
 
@@ -339,13 +337,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             continue
 
         # Fallback to treating the content as plain text
-        return {
-            "candidates": [
-                {
-                    "content": {"parts": [{"text": stripped_chunk}]},
-                }
-            ]
-        }
+        return {"candidates": [{"content": {"parts": [{"text": stripped_chunk}]}}]}
 
     async def _handle_gemini_streaming_response(
         self,
@@ -370,8 +362,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 request,
                 stream=True,
                 capture=self._http_boundary_capture(
-                    model=str(effective_model),
-                    context=context,
+                    model=str(effective_model), context=context
                 ),
             )
         except httpx.RequestError as e:
@@ -389,8 +380,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     request,
                     stream=True,
                     capture=self._http_boundary_capture(
-                        model=str(effective_model),
-                        context=context,
+                        model=str(effective_model), context=context
                     ),
                 )
             except httpx.RequestError as e:
@@ -468,6 +458,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         cancel_lock = asyncio.Lock()
         cancel_state = {"called": False}
+        cancel_model = str(payload.get("model") or "unknown")
 
         async def cancel_stream() -> None:
             async with cancel_lock:
@@ -478,46 +469,73 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             cancel_url = f"{base_url}:cancel"
             cancel_headers = ensure_loop_guard_header(dict(request_headers))
             payload_body = {"requestId": request_id}
+            logger.debug(
+                "upstream_stream_cancel_requested backend=%s model=%s method=protocol_cancel_then_close request_id=%s",
+                "gemini",
+                cancel_model,
+                request_id,
+            )
+            logger.debug(
+                "upstream_protocol_cancel_requested backend=%s model=%s request_id=%s",
+                "gemini",
+                cancel_model,
+                request_id,
+            )
 
             try:
                 cancel_request = self.client.build_request(
-                    "POST",
-                    cancel_url,
-                    json=payload_body,
-                    headers=cancel_headers,
+                    "POST", cancel_url, json=payload_body, headers=cancel_headers
                 )
                 cancel_response = await self._capture_http_client.send(
                     cancel_request,
                     stream=False,
                     capture=self._http_boundary_capture(
-                        model="gemini-cancel",
-                        context=context,
+                        model="gemini-cancel", context=context
                     ),
                 )
             except httpx.RequestError as exc:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Gemini cancel request failed - url=%s request_id=%s error=%s",
-                        cancel_url,
-                        request_id,
-                        exc,
-                        exc_info=True,
-                    )
+                logger.debug(
+                    "upstream_protocol_cancel_failed backend=%s model=%s request_id=%s error=%s",
+                    "gemini",
+                    cancel_model,
+                    request_id,
+                    exc,
+                )
             except Exception as exc:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Unexpected error during Gemini cancel request - url=%s request_id=%s error=%s",
-                        cancel_url,
-                        request_id,
-                        exc,
-                        exc_info=True,
-                    )
+                logger.warning(
+                    "upstream_protocol_cancel_failed backend=%s model=%s request_id=%s error=%s",
+                    "gemini",
+                    cancel_model,
+                    request_id,
+                    exc,
+                )
             else:
                 with contextlib.suppress(Exception):
                     await cancel_response.aclose()
+                logger.debug(
+                    "upstream_protocol_cancel_completed backend=%s model=%s request_id=%s",
+                    "gemini",
+                    cancel_model,
+                    request_id,
+                )
 
-            with contextlib.suppress(Exception):
+            try:
                 await response.aclose()
+            except Exception as exc:
+                logger.debug(
+                    "upstream_stream_close_failed backend=%s model=%s request_id=%s error=%s",
+                    "gemini",
+                    cancel_model,
+                    request_id,
+                    exc,
+                )
+            else:
+                logger.debug(
+                    "upstream_stream_close_completed backend=%s model=%s request_id=%s",
+                    "gemini",
+                    cancel_model,
+                    request_id,
+                )
 
         async def stream_generator() -> AsyncGenerator[ProcessedResponse, None]:
             processed_stream = response.aiter_text()
@@ -540,10 +558,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 if not yield_native_gemini_chunks:
                     done_chunk: dict[str, Any] = {  # type: ignore[reportUnknownVariableType]
                         "candidates": [
-                            {
-                                "content": {"parts": []},
-                                "finishReason": "STOP",
-                            }
+                            {"content": {"parts": []}, "finishReason": "STOP"}
                         ]
                     }
                     yield ProcessedResponse(
@@ -569,9 +584,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         except (TypeError, AttributeError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to convert response.headers to dict: %s",
-                    e,
-                    exc_info=True,
+                    "Failed to convert response.headers to dict: %s", e, exc_info=True
                 )
             response_headers = {}
 
@@ -582,8 +595,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         )
 
     async def _chat_completions_canonical(
-        self,
-        request: ConnectorChatCompletionsRequest,
+        self, request: ConnectorChatCompletionsRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Canonical connector API implementation.
 
@@ -797,10 +809,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
             prompt_tokens = 0
             try:
-                from src.core.utils.token_count import (
-                    count_tokens,
-                    extract_prompt_text,
-                )
+                from src.core.utils.token_count import count_tokens, extract_prompt_text
 
                 prompt_text = extract_prompt_text(processed_messages)
                 prompt_tokens = count_tokens(prompt_text, model=effective_model)
@@ -836,8 +845,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         )
 
     async def chat_completions(  # type: ignore[override]
-        self,
-        request: ConnectorChatCompletionsRequest,
+        self, request: ConnectorChatCompletionsRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Invoke Gemini chat completions using ``ConnectorChatCompletionsRequest`` only.
 
@@ -1074,8 +1082,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 request,
                 stream=False,
                 capture=self._http_boundary_capture(
-                    model=str(effective_model),
-                    context=context,
+                    model=str(effective_model), context=context
                 ),
             )
             if response.status_code >= 400:
@@ -1121,7 +1128,11 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 canonical_response.model_dump() if canonical_response else None
             )
             return ResponseEnvelope(
-                content=content_dict if isinstance(content_dict, dict | type(None)) else str(canonical_response),  # type: ignore[arg-type]
+                content=(
+                    content_dict
+                    if isinstance(content_dict, dict | type(None))
+                    else str(canonical_response)
+                ),  # type: ignore[arg-type]
                 headers=dict(response.headers),
                 status_code=response.status_code,
                 usage=usage,
@@ -1279,7 +1290,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 effective_model=effective_model,
             )
         except HTTPException as e:
-
             raise BackendError(
                 message=e.detail, code="config_error", status_code=e.status_code
             ) from e
@@ -1315,8 +1325,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 http_request,
                 stream=True,
                 capture=self._http_boundary_capture(
-                    model=str(effective_model),
-                    context=connector_context,
+                    model=str(effective_model), context=connector_context
                 ),
             )
         except httpx.RequestError as e:

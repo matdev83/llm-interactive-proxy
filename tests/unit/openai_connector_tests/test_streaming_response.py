@@ -9,6 +9,7 @@ covering the various ways it can handle streaming responses.
 """
 
 import json
+import logging
 import types
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -31,9 +32,7 @@ pytestmark = pytest.mark.filterwarnings(
 
 
 def _connector_chat_request(
-    chat: ChatRequest,
-    processed_messages: list[ChatMessage],
-    effective_model: str,
+    chat: ChatRequest, processed_messages: list[ChatMessage], effective_model: str
 ) -> ConnectorChatCompletionsRequest:
     domain = CanonicalChatRequest.model_validate(chat.model_dump())
     return ConnectorChatCompletionsRequest(
@@ -193,9 +192,11 @@ class ErrorAsyncIterBytes:
 
 @pytest.mark.asyncio
 async def test_responses_stream_cancel_sends_cancel_request(
-    connector: OpenAIConnector, mocker: MockerFixture
+    connector: OpenAIConnector, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Ensure cancellation callback triggers protocol-specific cancel request."""
+    caplog.set_level(logging.DEBUG, logger="src.connectors.openai")
+
     chunk = (
         b'data: {"id": "resp_123","object":"response.chunk","model":"gpt-4o",'
         b'"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}\n\n'
@@ -225,7 +226,7 @@ async def test_responses_stream_cancel_sends_cancel_request(
 
     result = await connector._handle_streaming_response(
         url="https://api.openai.com/v1/responses",
-        payload={"stream": True},
+        payload={"stream": True, "model": "gpt-4o"},
         headers={"Authorization": "Bearer test"},
         session_id="session-123",
         stream_format="openai-responses",
@@ -242,6 +243,226 @@ async def test_responses_stream_cancel_sends_cancel_request(
     assert cancel_request.method == "POST"
     assert cancel_request.url.path.endswith("/responses/resp_123/cancel")
     assert streaming_response.closed is True
+
+    log_messages = [record.message for record in caplog.records]
+    assert any(
+        "upstream_stream_cancel_requested" in message
+        and "method=protocol_cancel_then_close" in message
+        for message in log_messages
+    )
+    assert any(
+        "upstream_protocol_cancel_requested" in message and "resp_123" in message
+        for message in log_messages
+    )
+    assert any(
+        "upstream_protocol_cancel_completed" in message for message in log_messages
+    )
+    assert any("upstream_stream_close_completed" in message for message in log_messages)
+
+
+@pytest.mark.asyncio
+async def test_send_openai_responses_cancel_returns_false_on_error_status(
+    connector: OpenAIConnector, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="src.connectors.openai")
+
+    cancel_response = MockResponse(status_code=404)
+    connector.client.build_request.side_effect = lambda *args, **kwargs: httpx.Request(
+        *args, **kwargs
+    )
+    mocker.patch.object(
+        connector._capture_http_client, "send", AsyncMock(return_value=cancel_response)
+    )
+
+    result = await connector._send_openai_responses_cancel(
+        base_url="https://api.openai.com/v1/responses",
+        headers={"Authorization": "Bearer test"},
+        response_id="resp_404",
+        session_id="session-404",
+    )
+
+    assert result is False
+    log_messages = [record.message for record in caplog.records]
+    assert any(
+        "upstream_protocol_cancel_failed" in message
+        and "status_code=404" in message
+        and "resp_404" in message
+        for message in log_messages
+    )
+    assert cancel_response.closed is True
+
+
+@pytest.mark.asyncio
+async def test_responses_stream_cancel_logs_failed_on_non_success_status(
+    connector: OpenAIConnector, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="src.connectors.openai")
+
+    chunk = (
+        b'data: {"id": "resp_500","object":"response.chunk","model":"gpt-4o",'
+        b'"choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":null}]}\n\n'
+    )
+    done = b"data: [DONE]\n\n"
+
+    streaming_response = MockResponse()
+    streaming_response.aiter_bytes = lambda: AsyncIterBytes([chunk, done])
+    cancel_response = MockResponse(status_code=500)
+
+    connector.client.build_request.side_effect = lambda *args, **kwargs: httpx.Request(
+        *args, **kwargs
+    )
+
+    send_calls: list[tuple[httpx.Request, bool]] = []
+
+    async def send(request: httpx.Request, stream: bool = False) -> MockResponse:
+        send_calls.append((request, stream))
+        if len(send_calls) == 1:
+            return streaming_response
+        return cancel_response
+
+    connector.client.send.side_effect = send
+
+    result = await connector._handle_streaming_response(
+        url="https://api.openai.com/v1/responses",
+        payload={"stream": True, "model": "gpt-4o"},
+        headers={"Authorization": "Bearer test"},
+        session_id="session-500",
+        stream_format="openai-responses",
+    )
+
+    await result.iterator.__anext__()
+    await result.cancel_callback()
+
+    log_messages = [record.message for record in caplog.records]
+    assert any(
+        "upstream_protocol_cancel_failed" in message and "resp_500" in message
+        for message in log_messages
+    )
+    assert not any(
+        "upstream_protocol_cancel_completed" in message for message in log_messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_responses_stream_cancel_skipped_when_response_id_unavailable(
+    connector: OpenAIConnector, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Cancellation without a captured response id skips protocol cancel."""
+    caplog.set_level(logging.DEBUG, logger="src.connectors.openai")
+
+    streaming_response = MockResponse()
+    streaming_response.aiter_bytes = lambda: AsyncIterBytes([])
+
+    connector.client.build_request.side_effect = lambda *args, **kwargs: httpx.Request(
+        *args, **kwargs
+    )
+    send_calls: list[tuple[httpx.Request, bool]] = []
+
+    async def send(request: httpx.Request, stream: bool = False) -> MockResponse:
+        send_calls.append((request, stream))
+        return streaming_response
+
+    connector.client.send.side_effect = send
+
+    result = await connector._handle_streaming_response(
+        url="https://api.openai.com/v1/responses",
+        payload={"stream": True, "model": "gpt-4o"},
+        headers={"Authorization": "Bearer test"},
+        session_id="session-456",
+        stream_format="openai-responses",
+    )
+
+    await result.cancel_callback()
+
+    assert len(send_calls) == 1
+    log_messages = [record.message for record in caplog.records]
+    assert any(
+        "upstream_protocol_cancel_skipped" in message for message in log_messages
+    )
+    assert any("upstream_stream_close_completed" in message for message in log_messages)
+    assert streaming_response.closed is True
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_cancel_close_only_emits_deterministic_logs(
+    connector: OpenAIConnector, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Chat-completions streams close without protocol cancel."""
+    caplog.set_level(logging.DEBUG, logger="src.connectors.openai")
+
+    streaming_response = MockResponse()
+    streaming_response.aiter_bytes = lambda: AsyncIterBytes([])
+
+    connector.client.build_request.side_effect = lambda *args, **kwargs: httpx.Request(
+        *args, **kwargs
+    )
+    send_calls: list[tuple[httpx.Request, bool]] = []
+
+    async def send(request: httpx.Request, stream: bool = False) -> MockResponse:
+        send_calls.append((request, stream))
+        return streaming_response
+
+    connector.client.send.side_effect = send
+
+    result = await connector._handle_streaming_response(
+        url="https://api.openai.com/v1/chat/completions",
+        payload={"stream": True, "model": "gpt-4o"},
+        headers={"Authorization": "Bearer test"},
+        session_id="session-789",
+        stream_format="openai",
+    )
+
+    await result.cancel_callback()
+
+    assert len(send_calls) == 1
+    log_messages = [record.message for record in caplog.records]
+    assert any(
+        "upstream_stream_cancel_requested" in message
+        and "method=close_response" in message
+        for message in log_messages
+    )
+    assert not any(
+        "upstream_protocol_cancel_requested" in message for message in log_messages
+    )
+    assert any("upstream_stream_close_completed" in message for message in log_messages)
+    assert streaming_response.closed is True
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_cancel_close_failure_logs(
+    connector: OpenAIConnector, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Stream close failures emit deterministic failure logs."""
+    caplog.set_level(logging.DEBUG, logger="src.connectors.openai")
+
+    streaming_response = MockResponse()
+    streaming_response.aiter_bytes = lambda: AsyncIterBytes([])
+
+    async def failing_aclose() -> None:
+        raise RuntimeError("close boom")
+
+    streaming_response.aclose = failing_aclose
+
+    connector.client.build_request.side_effect = lambda *args, **kwargs: httpx.Request(
+        *args, **kwargs
+    )
+    connector.client.send = AsyncMock(return_value=streaming_response)
+
+    result = await connector._handle_streaming_response(
+        url="https://api.openai.com/v1/chat/completions",
+        payload={"stream": True, "model": "gpt-4o"},
+        headers={"Authorization": "Bearer test"},
+        session_id="session-close-fail",
+        stream_format="openai",
+    )
+
+    await result.cancel_callback()
+
+    log_messages = [record.message for record in caplog.records]
+    assert any("upstream_stream_close_failed" in message for message in log_messages)
+    assert not any(
+        "upstream_stream_close_completed" in message for message in log_messages
+    )
 
 
 @pytest.fixture
@@ -871,8 +1092,7 @@ async def test_streaming_response_midstream_read_error_maps_to_502(
     """Test that mid-stream read errors surface as BackendError(502)-style chunks."""
 
     read_error = httpx.ReadError(
-        "connection reset by peer",
-        request=httpx.Request("POST", "https://example.com"),
+        "connection reset by peer", request=httpx.Request("POST", "https://example.com")
     )
 
     mock_response = MockResponse(headers={"Content-Type": "text/event-stream"})

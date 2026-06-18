@@ -154,12 +154,7 @@ def _openai_tool_call_to_anthropic_tool_use(tc: Any) -> dict[str, Any]:
     if hasattr(tc, "model_dump"):
         tc = tc.model_dump()
     if not isinstance(tc, dict):
-        return {
-            "type": "tool_use",
-            "id": "",
-            "name": "",
-            "input": {},
-        }
+        return {"type": "tool_use", "id": "", "name": "", "input": {}}
     fn = tc.get("function")
     if not isinstance(fn, dict):
         fn = {}
@@ -191,9 +186,7 @@ def _openai_tool_call_to_anthropic_tool_use(tc: Any) -> dict[str, Any]:
 
 
 def _openai_list_content_to_anthropic_parts(
-    content: list[Any],
-    *,
-    log_extra: dict[str, Any] | None = None,
+    content: list[Any], *, log_extra: dict[str, Any] | None = None
 ) -> list[Any]:
     """Convert OpenAI-style list content (parts) to Anthropic message content blocks."""
 
@@ -240,10 +233,7 @@ def _openai_list_content_to_anthropic_parts(
                             )
                 elif url.startswith(("http://", "https://")):
                     parts.append(
-                        {
-                            "type": "image",
-                            "source": {"type": "url", "url": url},
-                        }
+                        {"type": "image", "source": {"type": "url", "url": url}}
                     )
             elif part_type == "document" or part_type in ("tool_use", "tool_result"):
                 parts.append(part_obj)
@@ -378,8 +368,7 @@ class AnthropicBackend(LLMBackend):
         )
 
     async def _chat_completions_canonical(
-        self,
-        request: ConnectorChatCompletionsRequest,
+        self, request: ConnectorChatCompletionsRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Canonical connector API implementation.
 
@@ -594,8 +583,7 @@ class AnthropicBackend(LLMBackend):
             return response_envelope
 
     async def chat_completions(  # type: ignore[override]
-        self,
-        request: ConnectorChatCompletionsRequest,
+        self, request: ConnectorChatCompletionsRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Invoke Anthropic chat completions using ``ConnectorChatCompletionsRequest`` only.
 
@@ -847,8 +835,7 @@ class AnthropicBackend(LLMBackend):
                 request,
                 stream=False,
                 capture=self._http_boundary_capture(
-                    model=str(original_model),
-                    context=context,
+                    model=str(original_model), context=context
                 ),
             )
         except httpx.RequestError as e:
@@ -948,10 +935,7 @@ class AnthropicBackend(LLMBackend):
             response = await self._capture_http_client.send(
                 request,
                 stream=True,
-                capture=self._http_boundary_capture(
-                    model=str(model),
-                    context=context,
-                ),
+                capture=self._http_boundary_capture(model=str(model), context=context),
             )
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
@@ -1008,6 +992,7 @@ class AnthropicBackend(LLMBackend):
         cancel_lock = asyncio.Lock()
         cancel_state = {"called": False}
         cancel_headers = dict(request_headers)
+        cancel_model = str(model)
 
         def _capture_message_id(chunk_text: str) -> None:
             if message_id_future.done():
@@ -1060,6 +1045,13 @@ class AnthropicBackend(LLMBackend):
                     return
                 cancel_state["called"] = True
 
+            logger.debug(
+                "upstream_stream_cancel_requested backend=%s model=%s method=protocol_cancel_then_close",
+                "anthropic",
+                cancel_model,
+                extra=log_extra if log_extra else None,
+            )
+
             message_id: str | None
             if message_id_future.done():
                 message_id = message_id_future.result()
@@ -1071,6 +1063,13 @@ class AnthropicBackend(LLMBackend):
 
             if message_id:
                 cancel_url = f"{url.rstrip('/')}/{message_id}/cancel"
+                logger.debug(
+                    "upstream_protocol_cancel_requested backend=%s model=%s message_id=%s",
+                    "anthropic",
+                    cancel_model,
+                    message_id,
+                    extra=log_extra if log_extra else None,
+                )
                 try:
                     cancel_request = self.client.build_request(
                         "POST",
@@ -1078,39 +1077,67 @@ class AnthropicBackend(LLMBackend):
                         headers=ensure_loop_guard_header(cancel_headers),
                     )
                 except Exception as exc:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Failed to build Anthropic cancel request - url=%s error=%s",
-                            cancel_url,
-                            exc,
-                            exc_info=True,
-                            extra=log_extra if log_extra else None,
-                        )
+                    logger.debug(
+                        "upstream_protocol_cancel_failed backend=%s model=%s message_id=%s error=%s",
+                        "anthropic",
+                        cancel_model,
+                        message_id,
+                        exc,
+                        extra=log_extra if log_extra else None,
+                    )
                 else:
                     try:
                         cancel_response = await self._capture_http_client.send(
                             cancel_request,
                             stream=False,
                             capture=self._http_boundary_capture(
-                                model="anthropic-cancel",
-                                context=context,
+                                model="anthropic-cancel", context=context
                             ),
                         )
                     except Exception as exc:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Failed to send Anthropic cancel request - url=%s error=%s",
-                                cancel_url,
-                                exc,
-                                exc_info=True,
-                                extra=log_extra if log_extra else None,
-                            )
+                        logger.warning(
+                            "upstream_protocol_cancel_failed backend=%s model=%s message_id=%s error=%s",
+                            "anthropic",
+                            cancel_model,
+                            message_id,
+                            exc,
+                            extra=log_extra if log_extra else None,
+                        )
                     else:
                         with contextlib.suppress(Exception):
                             await cancel_response.aclose()
+                        logger.debug(
+                            "upstream_protocol_cancel_completed backend=%s model=%s message_id=%s",
+                            "anthropic",
+                            cancel_model,
+                            message_id,
+                            extra=log_extra if log_extra else None,
+                        )
+            else:
+                logger.debug(
+                    "upstream_protocol_cancel_skipped backend=%s model=%s reason=message_id_unavailable",
+                    "anthropic",
+                    cancel_model,
+                    extra=log_extra if log_extra else None,
+                )
 
-            with contextlib.suppress(Exception):
+            try:
                 await response.aclose()
+            except Exception as exc:
+                logger.debug(
+                    "upstream_stream_close_failed backend=%s model=%s error=%s",
+                    "anthropic",
+                    cancel_model,
+                    exc,
+                    extra=log_extra if log_extra else None,
+                )
+            else:
+                logger.debug(
+                    "upstream_stream_close_completed backend=%s model=%s",
+                    "anthropic",
+                    cancel_model,
+                    extra=log_extra if log_extra else None,
+                )
 
         async def event_stream() -> AsyncGenerator[ProcessedResponse, None]:
             try:
@@ -1406,8 +1433,7 @@ class AnthropicBackend(LLMBackend):
                 http_request,
                 stream=True,
                 capture=self._http_boundary_capture(
-                    model=str(effective_model),
-                    context=connector_context,
+                    model=str(effective_model), context=connector_context
                 ),
             )
         except httpx.RequestError as e:
@@ -1487,9 +1513,7 @@ class AnthropicBackend(LLMBackend):
                     reset_at=retry_after_seconds,
                 )
             raise BackendError(
-                message=body_text,
-                code="anthropic_error",
-                status_code=status_code,
+                message=body_text, code="anthropic_error", status_code=status_code
             )
         # Stream SSE messages
         try:
