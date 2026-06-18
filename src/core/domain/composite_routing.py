@@ -118,6 +118,7 @@ class CompositeLeafSelector(DomainModel):
     uri_params: dict[str, JsonValue] = Field(default_factory=dict)
     backend_type: str = ""
     model_name: str = ""
+    embedded_selector: str | None = None
 
     @field_validator("raw_selector", "normalized_selector")
     @classmethod

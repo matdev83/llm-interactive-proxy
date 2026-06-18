@@ -81,6 +81,14 @@ class CompositeSelectorParser:
             for other_operator in other_operators
         )
         if has_mixed_operator:
+            if operator == "^":
+                special_plan = self._try_parse_thinker_side_channel_selector(
+                    selector=selector,
+                    parts=parts,
+                    routing_input=routing_input,
+                )
+                if special_plan is not None:
+                    return special_plan
             self._raise_validation_error(
                 code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
                 selector=selector,
@@ -192,6 +200,43 @@ class CompositeSelectorParser:
             code=CompositeValidationErrorCode.SYNTAX_ERROR,
             selector=selector,
             message="Composite selector contains an unsupported operator token.",
+        )
+
+    def _try_parse_thinker_side_channel_selector(
+        self,
+        *,
+        selector: str,
+        parts: list[str],
+        routing_input: CompositeRoutingInput,
+    ) -> CompositeRoutePlan | None:
+        if len(parts) != 2:
+            return None
+
+        parsed_parts = [
+            self._parse_leaf_allowing_embedded_selector(
+                leaf_text=segment,
+                routing_input=routing_input,
+            )
+            for segment in parts
+        ]
+        thinker_parts = [item for item in parsed_parts if item.leaf.thinker_annotation]
+        executor_parts = [
+            item for item in parsed_parts if not item.leaf.thinker_annotation
+        ]
+        if len(thinker_parts) != 1 or len(executor_parts) != 1:
+            return None
+        if not executor_parts[0].leaf.embedded_selector:
+            return None
+
+        normalized = "^".join(item.normalized_leaf_for_plan for item in parsed_parts)
+        return CompositeRoutePlan(
+            source_selector=routing_input.selector,
+            normalized_selector=normalized,
+            root_node=CompositeWeightedGroupNode(
+                children=[
+                    CompositeLeafNode(leaf_selector=item.leaf) for item in parsed_parts
+                ]
+            ),
         )
 
     @staticmethod
@@ -389,6 +434,97 @@ class CompositeSelectorParser:
         return _LeafParseResult(
             leaf=leaf,
             normalized_leaf_for_plan=normalized_leaf_for_plan,
+        )
+
+    def _parse_leaf_allowing_embedded_selector(
+        self,
+        *,
+        leaf_text: str,
+        routing_input: CompositeRoutingInput,
+    ) -> _LeafParseResult:
+        raw_leaf_text = leaf_text.strip()
+        if not raw_leaf_text:
+            self._raise_validation_error(
+                code=CompositeValidationErrorCode.SYNTAX_ERROR,
+                selector=routing_input.selector,
+                message="Composite selector contains an empty branch.",
+            )
+
+        if not raw_leaf_text.startswith("[thinker]") and any(
+            self._contains_operator_outside_brackets(
+                raw_leaf_text,
+                other_operator,
+            )
+            for other_operator in _COMPOSITE_OPERATORS
+        ):
+            leaf = CompositeLeafSelector(
+                raw_selector=raw_leaf_text,
+                normalized_selector=raw_leaf_text,
+                weight_annotation=1,
+                embedded_selector=raw_leaf_text,
+            )
+            return _LeafParseResult(
+                leaf=leaf,
+                normalized_leaf_for_plan=f"[weight=1]{raw_leaf_text}",
+            )
+
+        annotations, normalized_leaf_selector = self._extract_prefix_annotations(
+            raw_leaf_text,
+            source_selector=routing_input.selector,
+        )
+        if annotations.weight_annotation is not None or annotations.first_annotation:
+            return self._parse_leaf(
+                leaf_text=raw_leaf_text,
+                is_weighted_group=True,
+                is_parallel_group=False,
+                routing_input=routing_input,
+            )
+        if annotations.thinker_annotation:
+            return self._parse_leaf(
+                leaf_text=raw_leaf_text,
+                is_weighted_group=True,
+                is_parallel_group=False,
+                routing_input=routing_input,
+            )
+
+        # Non-thinker side of the special ``[thinker]x^executor`` construct may
+        # itself be a composite selector. Keep it opaque for weighted-cycle
+        # selection and parse it later in the appropriate executor path.
+        if any(
+            self._contains_operator_outside_brackets(
+                normalized_leaf_selector,
+                other_operator,
+            )
+            for other_operator in _COMPOSITE_OPERATORS
+        ):
+            if (
+                annotations.handicap_seconds is not None
+                or annotations.ttft_timeout_seconds is not None
+            ):
+                self._raise_validation_error(
+                    code=CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT,
+                    selector=routing_input.selector,
+                    message=(
+                        "Executor-route annotations must be inside the embedded selector."
+                    ),
+                )
+            leaf = CompositeLeafSelector(
+                raw_selector=raw_leaf_text,
+                normalized_selector=normalized_leaf_selector,
+                weight_annotation=1,
+                max_context_tokens=annotations.max_context_tokens,
+                embedded_selector=normalized_leaf_selector,
+            )
+            return _LeafParseResult(
+                leaf=leaf,
+                normalized_leaf_for_plan=f"[weight=1]{normalized_leaf_selector}",
+            )
+
+        return self._parse_leaf(
+            leaf_text=raw_leaf_text,
+            is_weighted_group=True,
+            is_parallel_group=False,
+            routing_input=routing_input,
         )
 
     def _extract_prefix_annotations(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from src.core.domain.composite_routing import (
+    CompositeParallelGroupNode,
     CompositeRoutingInput,
     CompositeSelectorValidationError,
     CompositeValidationErrorCode,
@@ -63,6 +64,44 @@ def test_parse_rejects_mixed_operators() -> None:
         exc_info.value.envelope.code
         == CompositeValidationErrorCode.UNSUPPORTED_CONSTRUCT
     )
+
+
+def test_parse_accepts_thinker_side_channel_with_parallel_executor() -> None:
+    parser = CompositeSelectorParser()
+    selector = (
+        "[thinker]opencode-go:opencode-go/glm-5.2?reasoning_effort=high^"
+        "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+        "opencode-go:minimaxai/minimax-m3"
+    )
+
+    plan = _parse(parser, selector)
+
+    assert plan.root_node.kind == "weighted_group"
+    leaves = [child.leaf_selector for child in plan.root_node.children]
+    assert len(leaves) == 2
+    assert leaves[0].thinker_annotation is True
+    assert leaves[0].normalized_selector == (
+        "opencode-go:opencode-go/glm-5.2?reasoning_effort=high"
+    )
+    assert leaves[1].normalized_selector == (
+        "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+        "opencode-go:minimaxai/minimax-m3"
+    )
+
+    assert leaves[1].embedded_selector == (
+        "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+        "opencode-go:minimaxai/minimax-m3"
+    )
+    executor_plan = _parse(parser, leaves[1].embedded_selector)
+    assert isinstance(executor_plan.root_node, CompositeParallelGroupNode)
+    parallel_leaves = [
+        child.leaf_selector for child in executor_plan.root_node.children
+    ]
+    assert parallel_leaves[0].normalized_selector == (
+        "nvidia:minimaxai/minimax-m3?reasoning_effort=high"
+    )
+    assert parallel_leaves[0].handicap_seconds == 10.0
+    assert parallel_leaves[1].normalized_selector == "opencode-go:minimaxai/minimax-m3"
 
 
 def test_parse_weighted_selector_rejects_pipe_anywhere_in_branch_text() -> None:

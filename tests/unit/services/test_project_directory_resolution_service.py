@@ -48,14 +48,12 @@ def create_app_config(
         disable_default_openrouter_project_dir_resolution_fallback=disable_default_openrouter_fallback,
     )
     return AppConfig(
-        session=session_config,
-        access_mode=AccessModeConfig(mode=access_mode),
+        session=session_config, access_mode=AccessModeConfig(mode=access_mode)
     )
 
 
 @pytest.mark.asyncio
 class TestProjectDirectoryResolutionService:
-
     # Deterministic Tests
     @pytest.mark.parametrize(
         "prompt, expected_path",
@@ -78,8 +76,7 @@ class TestProjectDirectoryResolutionService:
             model="test-model", messages=[ChatMessage(role="user", content=prompt)]
         )
         config = create_app_config(
-            "deterministic",
-            disable_default_openrouter_fallback=True,
+            "deterministic", disable_default_openrouter_fallback=True
         )
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
@@ -141,18 +138,14 @@ class TestProjectDirectoryResolutionService:
             model="test-model",
             messages=[
                 ChatMessage(
-                    role="system",
-                    content="Generic startup instructions only.",
+                    role="system", content="Generic startup instructions only."
                 ),
                 ChatMessage(
                     role="developer",
                     content="Session metadata",
                     metadata={"cwd": str(project_root)},
                 ),
-                ChatMessage(
-                    role="user",
-                    content="Please inspect the project root.",
-                ),
+                ChatMessage(role="user", content="Please inspect the project root."),
             ],
         )
         config = create_app_config(
@@ -182,13 +175,9 @@ class TestProjectDirectoryResolutionService:
             request_metadata={"cwd": str(project_root)},
             messages=[
                 ChatMessage(
-                    role="system",
-                    content="Generic startup instructions only.",
+                    role="system", content="Generic startup instructions only."
                 ),
-                ChatMessage(
-                    role="user",
-                    content="Please inspect the project root.",
-                ),
+                ChatMessage(role="user", content="Please inspect the project root."),
             ],
         )
         config = create_app_config("deterministic")
@@ -213,24 +202,19 @@ class TestProjectDirectoryResolutionService:
             model="test-model",
             messages=[
                 ChatMessage(
-                    role="system",
-                    content="Generic startup instructions only.",
+                    role="system", content="Generic startup instructions only."
                 ),
                 ChatMessage(
                     role="developer",
                     tool_calls=[
                         ToolCall(
                             function=FunctionCall(
-                                name="bash",
-                                arguments=f"cwd: {project_root}",
+                                name="bash", arguments=f"cwd: {project_root}"
                             )
                         )
                     ],
                 ),
-                ChatMessage(
-                    role="user",
-                    content="Please inspect the project root.",
-                ),
+                ChatMessage(role="user", content="Please inspect the project root."),
             ],
         )
         config = create_app_config("deterministic")
@@ -260,17 +244,15 @@ class TestProjectDirectoryResolutionService:
                     tool_calls=[
                         ToolCall(
                             function=FunctionCall(
-                                name="bash",
-                                arguments=f"cwd: {project_root}",
+                                name="bash", arguments=f"cwd: {project_root}"
                             )
                         )
                     ],
-                ),
+                )
             ],
         )
         config = create_app_config(
-            "deterministic",
-            disable_default_openrouter_fallback=True,
+            "deterministic", disable_default_openrouter_fallback=True
         )
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
@@ -304,10 +286,7 @@ class TestProjectDirectoryResolutionService:
                         )
                     ],
                 ),
-                ChatMessage(
-                    role="user",
-                    content="Please inspect the project root.",
-                ),
+                ChatMessage(role="user", content="Please inspect the project root."),
             ],
         )
         config = create_app_config("deterministic")
@@ -340,8 +319,7 @@ class TestProjectDirectoryResolutionService:
             messages=[ChatMessage(role="user", content="Hello world")],
         )
         config = create_app_config(
-            "deterministic",
-            disable_default_openrouter_fallback=True,
+            "deterministic", disable_default_openrouter_fallback=True
         )
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
@@ -409,8 +387,7 @@ class TestProjectDirectoryResolutionService:
             ],
         )
         config = create_app_config(
-            "deterministic",
-            disable_default_openrouter_fallback=True,
+            "deterministic", disable_default_openrouter_fallback=True
         )
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
@@ -462,8 +439,7 @@ class TestProjectDirectoryResolutionService:
             messages=[ChatMessage(role="user", content="I want to work on my project")],
         )
         config = create_app_config(
-            "llm",
-            model_spec="openai:gpt-4o-mini|anthropic:claude-3-5-sonnet",
+            "llm", model_spec="openai:gpt-4o-mini|anthropic:claude-3-5-sonnet"
         )
         mock_backend_service.call_completion.return_value = ResponseEnvelope(
             content=(
@@ -576,9 +552,7 @@ class TestProjectDirectoryResolutionService:
             ],
         )
         config = create_app_config(
-            "hybrid",
-            filesystem_mode="disabled",
-            access_mode=AccessMode.MULTI_USER,
+            "hybrid", filesystem_mode="disabled", access_mode=AccessMode.MULTI_USER
         )
 
         llm_response = ResponseEnvelope(
@@ -598,12 +572,7 @@ class TestProjectDirectoryResolutionService:
         )
 
     async def test_deterministic_mode_auto_fallbacks_to_openrouter_in_single_user_mode(
-        self,
-        mock_backend_service,
-        mock_session_service,
-        session,
-        monkeypatch,
-        caplog,
+        self, mock_backend_service, mock_session_service, session, monkeypatch, caplog
     ) -> None:
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
         request = ChatRequest(
@@ -634,21 +603,14 @@ class TestProjectDirectoryResolutionService:
         )
 
     async def test_deterministic_mode_ignores_user_override_model_in_deterministic_mode(
-        self,
-        mock_backend_service,
-        mock_session_service,
-        session,
-        monkeypatch,
+        self, mock_backend_service, mock_session_service, session, monkeypatch
     ) -> None:
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
         request = ChatRequest(
             model="test-model",
             messages=[ChatMessage(role="user", content="my project is on the desktop")],
         )
-        config = create_app_config(
-            "deterministic",
-            model_spec="openai:gpt-4.1-mini",
-        )
+        config = create_app_config("deterministic", model_spec="openai:gpt-4.1-mini")
         mock_backend_service.call_completion.return_value = ResponseEnvelope(
             content=(
                 "<directory-resolution-response>"
@@ -669,12 +631,7 @@ class TestProjectDirectoryResolutionService:
         assert llm_request.model == "openrouter:openrouter/free"
 
     async def test_deterministic_mode_does_not_fallback_when_disable_flag_is_set(
-        self,
-        mock_backend_service,
-        mock_session_service,
-        session,
-        monkeypatch,
-        caplog,
+        self, mock_backend_service, mock_session_service, session, monkeypatch, caplog
     ) -> None:
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
         request = ChatRequest(
@@ -682,9 +639,7 @@ class TestProjectDirectoryResolutionService:
             messages=[ChatMessage(role="user", content="my project is on the desktop")],
         )
         config = create_app_config(
-            "deterministic",
-            model_spec=None,
-            disable_default_openrouter_fallback=True,
+            "deterministic", model_spec=None, disable_default_openrouter_fallback=True
         )
 
         service = ProjectDirectoryResolutionService(
@@ -764,9 +719,7 @@ class TestProjectDirectoryResolutionService:
             messages=[ChatMessage(role="user", content="some prompt without a path")],
         )
         config = create_app_config(
-            "hybrid",
-            model_spec=None,
-            disable_default_openrouter_fallback=True,
+            "hybrid", model_spec=None, disable_default_openrouter_fallback=True
         )
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
@@ -806,10 +759,7 @@ class TestProjectDirectoryResolutionService:
         request = ChatRequest(
             model="cursor-cli-acp:cursor/composer-2",
             messages=[
-                ChatMessage(
-                    role="user",
-                    content=f"Read the README under {win_path}",
-                )
+                ChatMessage(role="user", content=f"Read the README under {win_path}")
             ],
             tools=[
                 {
@@ -823,8 +773,7 @@ class TestProjectDirectoryResolutionService:
             ],
         )
         config = create_app_config(
-            "deterministic",
-            disable_default_openrouter_fallback=True,
+            "deterministic", disable_default_openrouter_fallback=True
         )
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
@@ -1132,10 +1081,7 @@ class TestProjectDirectoryResolutionService:
             tools=[
                 {
                     "type": "function",
-                    "function": {
-                        "name": "x",
-                        "description": f"Runs in {win_parent}",
-                    },
+                    "function": {"name": "x", "description": f"Runs in {win_parent}"},
                 }
             ],
         )
@@ -1165,7 +1111,7 @@ class TestProjectDirectoryResolutionService:
             model="test-model",
             agent="Cline/3.78.0",
             messages=[
-                ChatMessage(role="user", content=f"Workspace folder: {win_repo}\n"),
+                ChatMessage(role="user", content=f"Workspace folder: {win_repo}\n")
             ],
         )
         config = create_app_config(
@@ -1235,8 +1181,7 @@ class TestProjectDirectoryResolutionService:
             messages=[
                 ChatMessage(role="user", content="(task stub)"),
                 ChatMessage(
-                    role="user",
-                    content=f"Workspace folder: {win_repo}\n\nProceed.\n",
+                    role="user", content=f"Workspace folder: {win_repo}\n\nProceed.\n"
                 ),
             ],
         )
@@ -1269,8 +1214,7 @@ class TestProjectDirectoryResolutionService:
             messages=[
                 ChatMessage(role="system", content="You are a helpful assistant."),
                 ChatMessage(
-                    role="user",
-                    content=f"Workspace Path: {win_repo}\n\nHello.\n",
+                    role="user", content=f"Workspace Path: {win_repo}\n\nHello.\n"
                 ),
             ],
         )
@@ -1301,10 +1245,7 @@ class TestProjectDirectoryResolutionService:
             model="test-model",
             agent=ua,
             messages=[
-                ChatMessage(
-                    role="user",
-                    content=f"Working directory: {win_repo}\n",
-                ),
+                ChatMessage(role="user", content=f"Working directory: {win_repo}\n")
             ],
         )
         config = create_app_config(
@@ -1336,8 +1277,7 @@ class TestProjectDirectoryResolutionService:
             messages=[
                 ChatMessage(role="user", content="(task stub)"),
                 ChatMessage(
-                    role="user",
-                    content=f"Workspace folder: {win_repo}\n\nProceed.\n",
+                    role="user", content=f"Workspace folder: {win_repo}\n\nProceed.\n"
                 ),
             ],
         )
@@ -1366,10 +1306,7 @@ class TestProjectDirectoryResolutionService:
             model="test-model",
             agent="some-other-cli/1.0",
             messages=[
-                ChatMessage(
-                    role="system",
-                    content=f"Working directory: {win_path}\n",
-                ),
+                ChatMessage(role="system", content=f"Working directory: {win_path}\n"),
                 ChatMessage(role="user", content="noop"),
             ],
         )
@@ -1398,8 +1335,7 @@ class TestProjectDirectoryResolutionService:
             extra_body={"project_dir": str(workspace)},
         )
         config = create_app_config(
-            "deterministic",
-            disable_default_openrouter_fallback=True,
+            "deterministic", disable_default_openrouter_fallback=True
         )
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service
@@ -1410,6 +1346,102 @@ class TestProjectDirectoryResolutionService:
         assert session.state.project_dir == str(workspace.resolve())
         mock_backend_service.call_completion.assert_not_called()
 
+    async def test_acp_model_uri_params_still_detects_trusted_cwd_line(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """First ACP turn with ``?reasoning_effort=`` must not skip workspace detection."""
+        project_root = tmp_path / "llm-interactive-proxy"
+        project_root.mkdir(parents=True)
+        win_path = str(project_root.resolve())
+        request = ChatRequest(
+            model="cursor-cli-acp:cursor/composer-2.5?reasoning_effort=high",
+            agent="opencode/1.2.26 ai-sdk/provider-utils/3.0.20 runtime/bun/1.3.10",
+            messages=[
+                ChatMessage(
+                    role="system",
+                    content=(
+                        "You are a coding agent.\n" f"Working directory: {win_path}\n"
+                    ),
+                ),
+                ChatMessage(role="user", content="Say hello."),
+            ],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_path
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
+    async def test_single_backend_model_uri_params_still_detects_path(
+        self, mock_backend_service, mock_session_service, session
+    ) -> None:
+        """Normal ``backend:model?param=value`` selectors must not skip detection."""
+        win_path = "C:\\Users\\Dev\\my-app"
+        request = ChatRequest(
+            model="nvidia:minimaxai/minimax-m3?reasoning_effort=high",
+            messages=[ChatMessage(role="user", content=f"Work in {win_path}")],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+        )
+        config = create_app_config(
+            "deterministic", disable_default_openrouter_fallback=True
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_path
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
+    async def test_composite_model_uri_params_still_detects_trusted_cwd_line(
+        self, mock_backend_service, mock_session_service, session, tmp_path: Path
+    ) -> None:
+        """Composite selectors with per-leaf URI params must not skip detection."""
+        project_root = tmp_path / "composite-ws"
+        project_root.mkdir(parents=True)
+        win_path = str(project_root.resolve())
+        request = ChatRequest(
+            model=(
+                "[handicap=10]nvidia:minimaxai/minimax-m3?reasoning_effort=high!"
+                "nvidia:deepseek-ai/deepseek-v4-pro?reasoning_effort=max"
+            ),
+            agent="opencode/1.2.26 ai-sdk/provider-utils/3.0.20 runtime/bun/1.3.10",
+            messages=[
+                ChatMessage(role="system", content=f"Working directory: {win_path}\n"),
+                ChatMessage(role="user", content="Proceed."),
+            ],
+            tools=[{"type": "function", "function": {"name": "bash"}}],
+        )
+        config = create_app_config(
+            "deterministic",
+            filesystem_mode="disabled",
+            disable_default_openrouter_fallback=True,
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir == win_path
+        assert session.state.project_dir_resolution_attempted is True
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_called_once_with(session)
+
     async def test_vendor_model_selector_still_skips_with_tools(
         self, mock_backend_service, mock_session_service, session
     ) -> None:
@@ -1417,10 +1449,7 @@ class TestProjectDirectoryResolutionService:
         request = ChatRequest(
             model="openai/gpt-4o",
             messages=[
-                ChatMessage(
-                    role="user",
-                    content="Work in C:\\Users\\Dev\\my-app",
-                )
+                ChatMessage(role="user", content="Work in C:\\Users\\Dev\\my-app")
             ],
             tools=[
                 {
@@ -1434,8 +1463,31 @@ class TestProjectDirectoryResolutionService:
             ],
         )
         config = create_app_config(
-            "deterministic",
-            disable_default_openrouter_fallback=True,
+            "deterministic", disable_default_openrouter_fallback=True
+        )
+        service = ProjectDirectoryResolutionService(
+            config, mock_backend_service, mock_session_service
+        )
+
+        await service.maybe_resolve_project_directory(session, request)
+
+        assert session.state.project_dir is None
+        mock_backend_service.call_completion.assert_not_called()
+        mock_session_service.update_session.assert_not_called()
+
+    async def test_vendor_model_selector_with_uri_params_still_skips(
+        self, mock_backend_service, mock_session_service, session
+    ) -> None:
+        """URI params do not make model-only ``provider/model`` selectors safe."""
+        request = ChatRequest(
+            model="openai/gpt-4o?reasoning_effort=high",
+            messages=[
+                ChatMessage(role="user", content="Work in C:\\Users\\Dev\\my-app")
+            ],
+            tools=[{"type": "function", "function": {"name": "read"}}],
+        )
+        config = create_app_config(
+            "deterministic", disable_default_openrouter_fallback=True
         )
         service = ProjectDirectoryResolutionService(
             config, mock_backend_service, mock_session_service

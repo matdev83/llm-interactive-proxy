@@ -1661,9 +1661,7 @@ class ProjectDirectoryResolutionService:
 
         model_value = str(getattr(request, "model", "") or "").strip()
         if model_value:
-            route_portion, separator, _ = model_value.partition("?")
-            if separator:
-                return "request model includes URI parameters"
+            route_portion, _, _ = model_value.partition("?")
             # OpenAI-style model-only selectors like ``anthropic/claude-3`` (no
             # ``backend:`` prefix before the slash) are ambiguous for routing;
             # skip auto-detection for those. Explicit ``backend:model`` strings
