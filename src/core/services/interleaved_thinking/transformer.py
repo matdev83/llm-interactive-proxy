@@ -618,8 +618,10 @@ class InterleavedThinkingRequestTransformer:
     def _snippet(text: str, *, limit: int = 180) -> str:
         normalized = " ".join(text.split())
         if len(normalized) <= limit:
-            return normalized
-        return f"{normalized[:limit]}..."
+            snippet = normalized
+        else:
+            snippet = f"{normalized[:limit]}..."
+        return snippet.encode("ascii", errors="backslashreplace").decode("ascii")
 
     @staticmethod
     def _reasoning_interpretation(stats: _ReasoningContentStats) -> str:

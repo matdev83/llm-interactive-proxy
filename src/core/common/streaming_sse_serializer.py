@@ -946,12 +946,6 @@ class SSESerializer:
                 content_copy["choices"][0]["delta"] = delta
 
         self._ensure_openai_finish_reason_for_terminal_usage(content_copy, chunk)
-        if chunk.is_done:
-            canonical_tool_calls = (
-                self._serialize_canonical_tool_calls_terminal_payload(content_copy)
-            )
-            if canonical_tool_calls is not None:
-                return canonical_tool_calls
 
         parts = [f"data: {json.dumps(content_copy)}\n\n"]
         if chunk.is_done:

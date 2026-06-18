@@ -128,6 +128,7 @@ def get_uvicorn_logging_config(
             "formatter": "default",
             "class": "logging.FileHandler",
             "filename": log_file,
+            "encoding": "utf-8",
         }
         config["loggers"]["uvicorn"]["handlers"].append("file")
         config["loggers"]["uvicorn.error"]["handlers"].append("file")

@@ -394,6 +394,38 @@ def test_transformer_records_existing_reasoning_content_when_no_stored_memo() ->
     assert diagnostic["request_reasoning_chars"] == len("memo")
 
 
+def test_transformer_reasoning_snippets_are_safe_for_windows_log_streams() -> None:
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    context = _context(thinker=False)
+    request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[
+            ChatMessage(
+                role="assistant",
+                content="",
+                reasoning_content=(
+                    "content.content is StopChunkWithUsage "
+                    "\u2192 _serialize_stop_chunk_with_usage"
+                ),
+            ),
+            ChatMessage(role="user", content="hello"),
+        ],
+    )
+
+    transformer.transform(
+        request=request,
+        target=BackendTarget(backend="openrouter", model="flash", uri_params={}),
+        session=MagicMock(state=SessionState()),
+        context=context,
+    )
+
+    diagnostic = _diagnostic(context)
+    snippet = diagnostic["request_reasoning_first_snippet"]
+    assert isinstance(snippet, str)
+    assert "\\u2192" in snippet
+    snippet.encode("cp1250")
+
+
 def test_transformer_increments_existing_injected_count() -> None:
     transformer = InterleavedThinkingRequestTransformer(BackendSettings())
     session = MagicMock(

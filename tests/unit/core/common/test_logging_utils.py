@@ -16,6 +16,7 @@ from src.core.common.logging_utils import (
     redact_text,
     truncate_for_debug_log,
 )
+from src.core.common.uvicorn_logging import get_uvicorn_logging_config
 
 
 class TestApiKeyRedactionFilter:
@@ -531,3 +532,27 @@ class TestConfigureLoggingWebsocketsVerbosity:
     def test_trace_sets_websockets_logger_to_notset(self) -> None:
         configure_logging_with_environment_tagging(level=TRACE_LEVEL)
         assert logging.getLogger("websockets").level == logging.NOTSET
+
+
+class TestConfigureLoggingEncoding:
+    """Logging handlers must accept model/user Unicode text on Windows."""
+
+    def test_file_handler_writes_unicode_with_utf8_encoding(self, tmp_path) -> None:
+        log_path = tmp_path / "proxy.log"
+
+        configure_logging_with_environment_tagging(
+            level=logging.INFO,
+            log_file=str(log_path),
+        )
+        logging.getLogger("test.unicode").info("routing path a \u2192 b")
+        for handler in logging.getLogger().handlers:
+            handler.flush()
+
+        assert "routing path a \u2192 b" in log_path.read_text(encoding="utf-8")
+
+    def test_uvicorn_file_handler_uses_utf8_encoding(self, tmp_path) -> None:
+        log_path = tmp_path / "uvicorn.log"
+
+        config = get_uvicorn_logging_config(log_file=str(log_path))
+
+        assert config["handlers"]["file"]["encoding"] == "utf-8"

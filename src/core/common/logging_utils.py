@@ -632,7 +632,7 @@ def configure_logging_with_environment_tagging(
 
     # File handler if specified
     if log_file:
-        file_handler = logging.FileHandler(log_file)
+        file_handler = logging.FileHandler(log_file, encoding="utf-8")
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
 
