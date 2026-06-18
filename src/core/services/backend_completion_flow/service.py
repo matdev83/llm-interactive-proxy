@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import threading
 import time
@@ -893,13 +894,99 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         producer_task.add_done_callback(_observe_producer_completion)
 
         async def _combined_stream() -> AsyncIterator[Any]:
-            while True:
-                item = await queue.get()
-                if item is stream_finished:
+            try:
+                while True:
+                    item = await queue.get()
+                    if item is stream_finished:
+                        return
+                    if isinstance(item, Exception):
+                        raise item
+                    yield item
+            finally:
+                if not producer_task.done():
+                    producer_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await producer_task
+
+        return StreamingResponseEnvelope(
+            content=_combined_stream(),
+            media_type=thinker_response.media_type,
+            headers=thinker_response.headers,
+            status_code=thinker_response.status_code,
+            metadata=dict(thinker_response.metadata or {}),
+        )
+
+    async def _build_hidden_interleaved_thinking_stream(
+        self,
+        *,
+        thinker_response: StreamingResponseEnvelope,
+        request: CanonicalChatRequest,
+        stream: bool,
+        allow_failover: bool,
+        context: RequestContext | None,
+    ) -> StreamingResponseEnvelope:
+        queue: asyncio.Queue[Any] = asyncio.Queue()
+        stream_finished = object()
+
+        async def _produce_stream() -> None:
+            try:
+                await self._drain_streaming_response(thinker_response)
+                continuation = await self._continue_after_interleaved_thinking(
+                    request=request,
+                    stream=stream,
+                    allow_failover=allow_failover,
+                    context=context,
+                )
+                if isinstance(continuation, StreamingResponseEnvelope):
+                    if continuation.content is not None:
+                        async for item in continuation.content:
+                            await queue.put(item)
                     return
-                if isinstance(item, Exception):
-                    raise item
-                yield item
+
+                from src.core.interfaces.response_processor_interface import (
+                    ProcessedResponse,
+                )
+
+                await queue.put(
+                    ProcessedResponse(
+                        content=continuation.content,
+                        usage=continuation.usage,
+                        metadata=dict(continuation.metadata or {}),
+                    )
+                )
+            except Exception as exc:
+                await queue.put(exc)
+            finally:
+                await queue.put(stream_finished)
+
+        producer_task = asyncio.create_task(_produce_stream())
+
+        def _observe_producer_completion(task: asyncio.Task[None]) -> None:
+            if task.cancelled():
+                return
+            exception = task.exception()
+            if exception is not None:
+                logger.warning(
+                    "Hidden interleaved thinking producer failed unexpectedly",
+                    exc_info=(type(exception), exception, exception.__traceback__),
+                )
+
+        producer_task.add_done_callback(_observe_producer_completion)
+
+        async def _combined_stream() -> AsyncIterator[Any]:
+            try:
+                while True:
+                    item = await queue.get()
+                    if item is stream_finished:
+                        return
+                    if isinstance(item, Exception):
+                        raise item
+                    yield item
+            finally:
+                if not producer_task.done():
+                    producer_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await producer_task
 
         return StreamingResponseEnvelope(
             content=_combined_stream(),
@@ -929,20 +1016,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 allow_failover=allow_failover,
                 context=context,
             )
-        await self._drain_streaming_response(handled_streaming_response)
-        continued = await self._continue_after_interleaved_thinking(
+        return await self._build_hidden_interleaved_thinking_stream(
+            thinker_response=handled_streaming_response,
             request=original_client_request,
             stream=stream,
             allow_failover=allow_failover,
             context=context,
-        )
-        if isinstance(continued, StreamingResponseEnvelope):
-            return continued
-        return StreamingResponseEnvelope(
-            content=self._single_non_streaming_response_as_stream(continued),
-            status_code=continued.status_code,
-            headers=continued.headers,
-            metadata=continued.metadata,
         )
 
     @staticmethod

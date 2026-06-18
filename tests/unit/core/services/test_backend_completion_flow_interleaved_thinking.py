@@ -129,6 +129,10 @@ async def _stream_as_sse_bytes(source: Any) -> Any:
         yield f"data: {json.dumps(item.content)}\n\n".encode()
 
 
+async def _next_stream_item(source: Any) -> Any:
+    return await anext(source)
+
+
 def _stateful_session(state: SessionState | None = None) -> MagicMock:
     session = MagicMock()
     session.state = state or SessionState()
@@ -279,6 +283,93 @@ async def test_completion_flow_swallows_thinker_stream_and_continues_with_execut
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "plan it"
     assert stored["visible_to_client"] is False
+
+
+@pytest.mark.asyncio
+async def test_completion_flow_hidden_thinker_stream_returns_before_drain_finishes(
+    tmp_path: Path,
+) -> None:
+    instructions_file = tmp_path / "thinker.md"
+    instructions_file.write_text("Thinker instructions", encoding="utf-8")
+    session = _stateful_session()
+    thinker_can_finish = asyncio.Event()
+    thinker_closed = asyncio.Event()
+
+    async def thinker_stream() -> Any:
+        try:
+            yield ProcessedResponse(
+                content={
+                    "choices": [
+                        {
+                            "delta": {
+                                "content": (
+                                    "<proxy_thinker_memo>slow plan"
+                                    "</proxy_thinker_memo>"
+                                )
+                            }
+                        }
+                    ]
+                }
+            )
+            await thinker_can_finish.wait()
+        finally:
+            thinker_closed.set()
+
+    async def executor_stream() -> Any:
+        yield ProcessedResponse(
+            content={"choices": [{"delta": {"content": "executor answer"}}]}
+        )
+
+    flow, deps = _build_flow(
+        session=session,
+        target=BackendTarget(backend="openai", model="gpt-4", uri_params={}),
+        response=StreamingResponseEnvelope(content=thinker_stream()),
+        settings=BackendSettings(
+            interleaved_thinking_instructions_file=str(instructions_file)
+        ),
+    )
+    deps["request_preparer"].prepare_request = AsyncMock(
+        side_effect=[
+            BackendTarget(backend="openai", model="gpt-4", uri_params={}),
+            BackendTarget(backend="openrouter", model="flash", uri_params={}),
+        ]
+    )
+    deps["connector_invoker"].invoke = AsyncMock(
+        side_effect=[
+            StreamingResponseEnvelope(content=thinker_stream()),
+            StreamingResponseEnvelope(content=executor_stream()),
+        ]
+    )
+
+    result = await asyncio.wait_for(
+        flow.call_completion(
+            request=CanonicalChatRequest(
+                model="alias:hybrid",
+                messages=[ChatMessage(role="user", content="hello")],
+            ),
+            stream=True,
+            allow_failover=False,
+            context=_context(thinker=True),
+        ),
+        timeout=1,
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.content is not None
+    assert deps["connector_invoker"].invoke.await_count == 1
+
+    stream_iter = result.content.__aiter__()
+    first_chunk_task: asyncio.Task[Any] = asyncio.create_task(
+        _next_stream_item(stream_iter)
+    )
+    await asyncio.sleep(0)
+    assert not first_chunk_task.done()
+
+    first_chunk_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first_chunk_task
+    await asyncio.wait_for(thinker_closed.wait(), timeout=1)
+    assert deps["connector_invoker"].invoke.await_count == 1
 
 
 @pytest.mark.asyncio

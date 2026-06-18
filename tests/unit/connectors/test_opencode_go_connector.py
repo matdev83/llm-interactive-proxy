@@ -28,6 +28,7 @@ CURATED_OPENAI_MODELS = [
     "glm-5.2",
     "kimi-k2.5",
     "kimi-k2.6",
+    "kimi-k2.7-code",
     "deepseek-v4-pro",
     "deepseek-v4-flash",
     "mimo-v2.5",
@@ -36,9 +37,11 @@ CURATED_OPENAI_MODELS = [
     "mimo-v2-omni",
 ]
 CURATED_ANTHROPIC_MODELS = [
+    "minimax-m3",
     "minimax-m2.5",
     "minimax-m2.7",
     "qwen3.7-max",
+    "qwen3.7-plus",
     "qwen3.6-plus",
     "qwen3.5-plus",
 ]
@@ -46,8 +49,11 @@ CURATED_MODELS = CURATED_OPENAI_MODELS + CURATED_ANTHROPIC_MODELS
 
 
 class RequestRecorder:
-    def __init__(self) -> None:
+    def __init__(self, models_payload: dict[str, Any] | None = None) -> None:
         self.requests: list[httpx.Request] = []
+        self.models_payload = models_payload or {
+            "data": [{"id": model} for model in CURATED_MODELS]
+        }
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -56,7 +62,7 @@ class RequestRecorder:
         if path.endswith("/models"):
             return httpx.Response(
                 200,
-                json={"data": [{"id": model} for model in CURATED_MODELS]},
+                json=self.models_payload,
             )
 
         if path.endswith("/chat/completions"):
@@ -454,6 +460,64 @@ async def test_available_models_are_canonically_prefixed() -> None:
     assert async_models[: len(expected)] == expected
     assert "opencode-go/custom-openai-model" in models
     assert "opencode-go/custom-openai-model" in async_models
+
+
+@pytest.mark.asyncio
+async def test_available_models_are_loaded_from_upstream_catalog() -> None:
+    recorder = RequestRecorder(
+        models_payload={
+            "data": [
+                {
+                    "id": "kimi-k2.7-code",
+                    "endpoint": "https://opencode.ai/zen/go/v1/chat/completions",
+                    "ai_sdk_package": "@ai-sdk/openai-compatible",
+                },
+                {
+                    "id": "minimax-m3",
+                    "endpoint": "https://opencode.ai/zen/go/v1/messages",
+                    "ai_sdk_package": "@ai-sdk/anthropic",
+                },
+            ]
+        }
+    )
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        models = backend.get_available_models()
+
+        await backend.chat_completions(_make_request("opencode-go:kimi-k2.7-code"))
+        await backend.chat_completions(_make_request("opencode-go:minimax-m3"))
+
+    assert models == ["opencode-go/kimi-k2.7-code", "opencode-go/minimax-m3"]
+    assert (
+        _posted_json(recorder.requests, "/chat/completions")["model"]
+        == "kimi-k2.7-code"
+    )
+    assert _posted_json(recorder.requests, "/messages")["model"] == "minimax-m3"
+
+
+@pytest.mark.asyncio
+async def test_legacy_kimi_k2_7_alias_is_remapped_to_wire_id() -> None:
+    """User-supplied ``kimi-k2.7`` must hit the gateway as ``kimi-k2.7-code``."""
+    recorder = RequestRecorder()
+    transport = httpx.MockTransport(recorder)
+
+    async with httpx.AsyncClient(transport=transport) as client:
+        backend = await _make_backend(client)
+        await backend.chat_completions(_make_request("opencode-go:kimi-k2.7"))
+        await backend.chat_completions(
+            _make_request("opencode-go:opencode-go/kimi-k2.7")
+        )
+
+    payloads = [
+        cast(dict[str, Any], json.loads(r.content))
+        for r in recorder.requests
+        if r.method == "POST" and r.url.path.endswith("/chat/completions")
+    ]
+    assert len(payloads) == 2
+    assert payloads[0]["model"] == "kimi-k2.7-code"
+    assert payloads[1]["model"] == "kimi-k2.7-code"
 
 
 @pytest.mark.asyncio

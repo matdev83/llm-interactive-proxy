@@ -16,7 +16,7 @@ from src.connectors.contracts import (
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
-from src.core.domain.models_listing import ModelsListingResponse
+from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
@@ -145,6 +145,7 @@ _OPENCODE_GO_OPENAI_MODELS: tuple[str, ...] = (
     "glm-5.2",
     "kimi-k2.5",
     "kimi-k2.6",
+    "kimi-k2.7-code",
     "deepseek-v4-pro",
     "deepseek-v4-flash",
     "mimo-v2.5",
@@ -152,10 +153,18 @@ _OPENCODE_GO_OPENAI_MODELS: tuple[str, ...] = (
     "mimo-v2-pro",
     "mimo-v2-omni",
 )
+# Legacy aliases for model ids the gateway used to advertise. The live
+# /models endpoint is authoritative at runtime; this map only rescues user
+# configs that still reference the older slugs.
+_OPENCODE_GO_LEGACY_MODEL_ALIASES: dict[str, str] = {
+    "kimi-k2.7": "kimi-k2.7-code",
+}
 _OPENCODE_GO_ANTHROPIC_MODELS: tuple[str, ...] = (
+    "minimax-m3",
     "minimax-m2.5",
     "minimax-m2.7",
     "qwen3.7-max",
+    "qwen3.7-plus",
     "qwen3.6-plus",
     "qwen3.5-plus",
 )
@@ -213,6 +222,24 @@ def _normalize_anthropic_base_url(api_base_url: str) -> str:
     if normalized.endswith(suffix):
         return normalized[: -len(suffix)]
     return normalized
+
+
+def _infer_protocol_from_model_info(model: ModelInfo) -> str | None:
+    """Infer OpenCode Go wire protocol from upstream /models metadata.
+
+    Reads only the canonical fields OpenCode documents (``endpoint`` and
+    ``ai_sdk_package``) so unrelated fields such as ``id`` or future
+    extras cannot accidentally flip the protocol classification.
+    """
+
+    raw = model.model_dump(mode="python")
+    endpoint = str(raw.get("endpoint", "")).lower()
+    sdk_pkg = str(raw.get("ai_sdk_package", "")).lower()
+    if "anthropic" in sdk_pkg or endpoint.endswith("/messages"):
+        return "anthropic"
+    if "openai" in sdk_pkg or endpoint.endswith("/chat/completions"):
+        return "openai"
+    return None
 
 
 class _OpencodeGoAnthropicDelegate(AnthropicBackend):
@@ -359,17 +386,27 @@ class OpencodeGoBackend(OpenAIConnector):
             return "anthropic"
         return "openai"
 
+    def _resolve_wire_model_id(self, raw_model: str) -> str:
+        """Map an incoming model id to the gateway-advertised wire id.
+
+        Falls back to a legacy alias map for ids the gateway no longer lists
+        (e.g. ``kimi-k2.7`` -> ``kimi-k2.7-code``) so existing user aliases
+        and configs keep working.
+        """
+        normalized = _normalize_model_name(raw_model)
+        if not normalized:
+            return normalized
+        return _OPENCODE_GO_LEGACY_MODEL_ALIASES.get(normalized, normalized)
+
     def _normalize_request(
         self, request: ConnectorChatCompletionsRequest, raw_model: str
     ) -> ConnectorChatCompletionsRequest:
-        normalized_raw_model = _normalize_model_name(raw_model)
-        normalized_request = request.request.model_copy(
-            update={"model": normalized_raw_model}
-        )
+        wire_model = self._resolve_wire_model_id(raw_model)
+        normalized_request = request.request.model_copy(update={"model": wire_model})
         return replace(
             request,
             request=normalized_request,
-            effective_model=normalized_raw_model,
+            effective_model=wire_model,
         )
 
     async def _prepare_payload(
@@ -379,19 +416,21 @@ class OpencodeGoBackend(OpenAIConnector):
         effective_model: str,
         context: Any | None = None,
     ) -> dict[str, Any]:
-        normalized_model = _normalize_model_name(effective_model)
+        wire_model = self._resolve_wire_model_id(effective_model)
         payload = await super()._prepare_payload(
             request_data,
             processed_messages,
-            normalized_model,
+            wire_model,
             context,
         )
-        wire_model = _normalize_model_name(
-            str(payload.get("model") or normalized_model)
+        canonical_wire_model = _normalize_model_name(
+            str(payload.get("model") or wire_model)
         )
-        if wire_model:
-            payload["model"] = wire_model
-        _opencode_go_sanitize_openai_payload(payload, wire_model or normalized_model)
+        if canonical_wire_model:
+            payload["model"] = canonical_wire_model
+        _opencode_go_sanitize_openai_payload(
+            payload, canonical_wire_model or wire_model
+        )
         return payload
 
     def _build_unknown_model_error(self, model_name: str) -> RoutingError:
@@ -449,6 +488,15 @@ class OpencodeGoBackend(OpenAIConnector):
                 self._model_protocol_overrides
             )
 
+        # When no explicit ``models`` list is configured, attempt a live
+        # ``GET /models`` so new OpenCode Go model additions are picked up
+        # without a connector change. Failure is non-fatal: we keep the
+        # curated static list and log a warning. Operators who want to
+        # avoid the startup HTTP call (e.g. air-gapped deployments) can
+        # pin ``models`` in their backend config to short-circuit it.
+        if not configured_models:
+            await self._refresh_available_models_from_upstream()
+
         self._anthropic_delegate.api_key = self.api_key
         await self._anthropic_delegate.initialize(
             api_key=self.api_key,
@@ -482,6 +530,47 @@ class OpencodeGoBackend(OpenAIConnector):
         response = await super().list_models(api_base_url=api_base_url)
         self._models_cache = (now, response)
         return response
+
+    async def _refresh_available_models_from_upstream(self) -> None:
+        try:
+            response = await self.list_models()
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to refresh OpenCode Go model catalog; using fallback models: %s",
+                    exc,
+                )
+            return
+
+        upstream_models: list[str] = []
+        upstream_protocols: dict[str, str] = {}
+        for model in response.data:
+            model_id = _normalize_model_name(model.id)
+            if not model_id:
+                continue
+            upstream_models.append(model_id)
+            protocol = _infer_protocol_from_model_info(model)
+            if protocol is not None:
+                upstream_protocols[model_id] = protocol
+
+        if not upstream_models:
+            return
+
+        seen: set[str] = set()
+        self.available_models = []
+        for model_id in upstream_models:
+            if model_id not in seen:
+                self.available_models.append(model_id)
+                seen.add(model_id)
+        for override_model in self._model_protocol_overrides:
+            normalized_model = _normalize_model_name(override_model)
+            if normalized_model and normalized_model not in seen:
+                self.available_models.append(normalized_model)
+                seen.add(normalized_model)
+        self._model_protocol_overrides = {
+            **upstream_protocols,
+            **self._model_protocol_overrides,
+        }
 
     def get_provider_name(self) -> str:
         # The outer connector routes OpenAI-compatible requests through the
