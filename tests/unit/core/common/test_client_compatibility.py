@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
 from src.core.common.client_compatibility import resolve_client_reasoning_policy
 from src.core.config.models.session import (
     ClientCompatibilityConfig,
@@ -83,3 +86,23 @@ class TestClientCompatibility:
             request_indicates_reasoning_output=True,
         )
         assert policy.reasoning_counts_as_meaningful is False
+
+    def test_shipped_opencode_rule_coerces_reasoning_to_content(self) -> None:
+        config_path = Path("config/config.example.yaml")
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        rules = (
+            loaded.get("session", {})
+            .get("client_compatibility", {})
+            .get("user_agent_rules", [])
+        )
+
+        opencode_rules = [
+            rule
+            for rule in rules
+            if rule.get("enabled", True)
+            and "opencode" in str(rule.get("user_agent_regex", "")).lower()
+        ]
+
+        assert opencode_rules
+        assert opencode_rules[0]["reasoning_mode"] == "coerce_to_content"
+        assert opencode_rules[0]["reasoning_counts_as_meaningful"] is True

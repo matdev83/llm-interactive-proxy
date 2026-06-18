@@ -199,6 +199,11 @@ class SSESerializer:
         except Exception:
             # Best-effort: usage chunks should never fail serialization.
             pass
+        canonical_tool_calls = self._serialize_canonical_tool_calls_terminal_payload(
+            plain_dict
+        )
+        if canonical_tool_calls is not None:
+            return canonical_tool_calls
         # StopChunkWithUsage is the explicit terminal usage carrier: always one SSE
         # frame with ``usage`` at the top level (OpenRouter-style). Legacy split
         # usage events apply only to plain dict payloads via
@@ -488,6 +493,74 @@ class SSESerializer:
             ),
         )
 
+    def _serialize_canonical_tool_calls_terminal_payload(
+        self, payload: dict[str, Any]
+    ) -> bytes | None:
+        """Serialize terminal tool-call chunks in strict OpenAI streaming shape.
+
+        Tool-call deltas and the terminal ``finish_reason="tool_calls"`` marker
+        must be separate frames. Usage is intentionally omitted from these frames
+        because some coding agents treat usage-bearing tool-call finals as a
+        completed assistant turn instead of dispatching the tool call.
+        """
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return None
+
+        terminal_choices: list[dict[str, Any]] = []
+        delta_choices: list[dict[str, Any]] = []
+        saw_tool_calls_terminal = False
+
+        for idx, choice_any in enumerate(choices):
+            if not isinstance(choice_any, dict):
+                return None
+            if choice_any.get("finish_reason") != "tool_calls":
+                continue
+
+            saw_tool_calls_terminal = True
+            choice_index = choice_any.get("index", idx)
+            terminal_choices.append(
+                {
+                    "index": choice_index,
+                    "delta": {},
+                    "finish_reason": "tool_calls",
+                }
+            )
+
+            delta = choice_any.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            tool_calls = delta.get("tool_calls")
+            if not isinstance(tool_calls, list) or not tool_calls:
+                continue
+            delta_choice = dict(choice_any)
+            delta_choice["finish_reason"] = None
+            delta_choice["delta"] = dict(delta)
+            delta_choices.append(delta_choice)
+
+        if not saw_tool_calls_terminal:
+            return None
+
+        terminal_payload = dict(payload)
+        terminal_payload.pop("usage", None)
+        terminal_payload["choices"] = terminal_choices
+        self._ensure_openai_compatible_top_level_id(terminal_payload)
+
+        if not delta_choices:
+            return (
+                f"data: {json.dumps(terminal_payload)}\n\n" "data: [DONE]\n\n"
+            ).encode()
+
+        delta_payload = dict(payload)
+        delta_payload.pop("usage", None)
+        delta_payload["choices"] = delta_choices
+        self._ensure_openai_compatible_top_level_id(delta_payload)
+        return (
+            f"data: {json.dumps(delta_payload)}\n\n"
+            f"data: {json.dumps(terminal_payload)}\n\n"
+            "data: [DONE]\n\n"
+        ).encode()
+
     def _serialize_openai_chunk_with_done(
         self, chunk: StreamingChunk, content: StreamingContent
     ) -> bytes:
@@ -697,6 +770,12 @@ class SSESerializer:
     def _serialize_openai_done_payload_with_optional_usage(
         self, content_payload: dict[str, Any], content: StreamingContent
     ) -> bytes:
+        canonical_tool_calls = self._serialize_canonical_tool_calls_terminal_payload(
+            content_payload
+        )
+        if canonical_tool_calls is not None:
+            return canonical_tool_calls
+
         if isinstance(
             content_payload.get("usage"), dict
         ) and not self._payload_has_meaningful_openai_choices(content_payload):
@@ -867,6 +946,12 @@ class SSESerializer:
                 content_copy["choices"][0]["delta"] = delta
 
         self._ensure_openai_finish_reason_for_terminal_usage(content_copy, chunk)
+        if chunk.is_done:
+            canonical_tool_calls = (
+                self._serialize_canonical_tool_calls_terminal_payload(content_copy)
+            )
+            if canonical_tool_calls is not None:
+                return canonical_tool_calls
 
         parts = [f"data: {json.dumps(content_copy)}\n\n"]
         if chunk.is_done:

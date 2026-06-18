@@ -516,6 +516,10 @@ class InterleavedThinkingOutputRecorder:
                 delta = content.get("delta")
                 if isinstance(delta, str):
                     return _ExtractedMemo(delta, "delta")
+            if content.get("type") == "response.reasoning_summary_text.delta":
+                delta = content.get("delta")
+                if isinstance(delta, str):
+                    return _ExtractedMemo(delta, "reasoning_summary")
             output_text = self._extract_output_text(content)
             if output_text is not None:
                 return _ExtractedMemo(output_text, "output_text")
@@ -894,7 +898,13 @@ class InterleavedThinkingOutputRecorder:
             return False
 
         sanitized_text = tag_stripper.feed(text)
-        for key in ("reasoning_content", "reasoning", "thinking", "thought"):
+        for key in (
+            "reasoning_content",
+            "reasoning",
+            "reasoning_summary",
+            "thinking",
+            "thought",
+        ):
             container.pop(key, None)
         if not sanitized_text:
             container.pop("content", None)
@@ -935,7 +945,13 @@ class InterleavedThinkingOutputRecorder:
             value = container.get(key)
             if isinstance(value, str):
                 content_candidates.append((key, value))
-        for key in ("reasoning_content", "reasoning", "thinking", "thought"):
+        for key in (
+            "reasoning_content",
+            "reasoning",
+            "reasoning_summary",
+            "thinking",
+            "thought",
+        ):
             value = container.get(key)
             if isinstance(value, str):
                 reasoning_candidates.append((key, value))

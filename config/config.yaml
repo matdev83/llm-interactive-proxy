@@ -75,7 +75,7 @@ session:
       - name: opencode-defaults
         enabled: true
         user_agent_regex: "opencode/"
-        reasoning_mode: passthrough
+        reasoning_mode: coerce_to_content
         reasoning_counts_as_meaningful: true
 
   max_age: 86400  # 1 day

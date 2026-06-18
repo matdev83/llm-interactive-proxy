@@ -437,6 +437,52 @@ async def test_recorder_wraps_stream_without_buffering_before_yield() -> None:
 
 
 @pytest.mark.asyncio
+async def test_recorder_captures_codex_reasoning_summary_stream() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+
+    async def stream():
+        yield ProcessedResponse(
+            content={
+                "choices": [
+                    {
+                        "delta": {
+                            "role": None,
+                            "content": None,
+                            "reasoning_content": None,
+                            "reasoning_summary": "Plan part ",
+                            "tool_calls": None,
+                        },
+                        "finish_reason": None,
+                    }
+                ]
+            }
+        )
+        yield ProcessedResponse(
+            content={
+                "type": "response.reasoning_summary_text.delta",
+                "delta": "from responses event",
+            }
+        )
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    wrapped = recorder.wrap_streaming(
+        response=envelope,
+        session=session,
+        context=_context(),
+        backend_type="openai-codex",
+        effective_model="gpt-5.4-mini",
+    )
+
+    assert wrapped.content is not None
+    chunks = [chunk async for chunk in wrapped.content]
+    assert len(chunks) == 2
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "Plan part from responses event"
+    assert stored["extraction_source"] == "fallback_unstructured_output"
+
+
+@pytest.mark.asyncio
 async def test_recorder_sanitizes_visible_stream_and_converts_reasoning_to_content() -> (
     None
 ):

@@ -435,11 +435,12 @@ class TestSSESerializerStopChunkWithUsage:
         assert payload["id"] == "chatcmpl-test123"
         assert payload["choices"] == []
 
-    def test_stop_chunk_with_usage_infers_finish_reason_for_tool_calls(self) -> None:
-        """Regression: usage-bearing OpenAI chunks must not end with finish_reason=null.
+    def test_stop_chunk_with_usage_splits_terminal_tool_calls_delta(self) -> None:
+        """Tool-call finals must end with a clean terminal marker.
 
-        Some providers send a terminal usage chunk but omit finish_reason. Many
-        OpenAI-compatible clients use finish_reason to dispatch tool calls.
+        Strict OpenAI-compatible clients dispatch tool calls from the final
+        ``finish_reason="tool_calls"`` frame. That marker must not also carry
+        partial tool-call deltas or top-level usage.
         """
         serializer = SSESerializer()
         chunk_data: dict[str, Any] = {
@@ -473,9 +474,56 @@ class TestSSESerializerStopChunkWithUsage:
         )
 
         result = serializer.serialize(chunk).decode("utf-8")
-        json_line = result.strip().split("\n\n")[0][6:]
-        payload = json.loads(json_line)
+        events = [part for part in result.strip().split("\n\n") if part]
+        assert len(events) == 3
+
+        delta_payload = json.loads(events[0][6:])
+        terminal_payload = json.loads(events[1][6:])
+
+        assert delta_payload["choices"][0]["delta"]["tool_calls"][0]["index"] == 0
+        assert delta_payload["choices"][0]["finish_reason"] is None
+        assert "usage" not in delta_payload
+
+        assert terminal_payload["choices"][0]["delta"] == {}
+        assert terminal_payload["choices"][0]["finish_reason"] == "tool_calls"
+        assert "usage" not in terminal_payload
+        assert events[2] == "data: [DONE]"
+
+    def test_done_openai_dict_strips_usage_from_clean_tool_calls_terminal(
+        self,
+    ) -> None:
+        """Clean tool-call terminal frames must not carry usage."""
+        serializer = SSESerializer()
+        chunk_data: dict[str, Any] = {
+            "id": "chatcmpl-test-toolcalls-clean",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": "tool_calls",
+                    "delta": {},
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        chunk = StreamingContent(
+            content=chunk_data,
+            metadata={"provider": "openai"},
+            is_done=True,
+            usage=UsageSummary.from_dict(chunk_data["usage"]),
+        )
+
+        result = serializer.serialize(chunk).decode("utf-8")
+        events = [part for part in result.strip().split("\n\n") if part]
+
+        assert len(events) == 2
+        payload = json.loads(events[0][6:])
+        assert payload["choices"][0]["delta"] == {}
         assert payload["choices"][0]["finish_reason"] == "tool_calls"
+        assert "usage" not in payload
+        assert events[1] == "data: [DONE]"
 
     def test_stop_chunk_with_usage_keeps_usage_on_single_sse_frame(self) -> None:
         """StopChunkWithUsage must emit one OpenAI JSON object with top-level usage."""
@@ -518,6 +566,38 @@ class TestSSESerializerStopChunkWithUsage:
 
 class TestSSESerializerNormalChunks:
     """Test normal (non-done) chunk serialization."""
+
+    def test_coerce_reasoning_only_delta_to_content_for_strict_clients(self) -> None:
+        serializer = SSESerializer()
+        chunk = StreamingContent(
+            content={
+                "id": "chatcmpl-reasoning-only",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "reasoning_content": "Visible answer",
+                            "content": "",
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            metadata={
+                "_suppress_reasoning_fields": True,
+                "_coerce_reasoning_into_content": True,
+            },
+        )
+
+        result = serializer.serialize(chunk).decode("utf-8")
+        payload = json.loads(result.strip().split("\n\n")[0][6:])
+        delta = payload["choices"][0]["delta"]
+
+        assert delta["content"] == "Visible answer"
+        assert "reasoning_content" not in delta
 
     def test_normal_chunk_with_text_content(self) -> None:
         """Normal chunks with text content should serialize correctly."""
