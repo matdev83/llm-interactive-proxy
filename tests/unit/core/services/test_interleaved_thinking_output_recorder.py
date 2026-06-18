@@ -64,9 +64,9 @@ def test_recorder_captures_non_streaming_reasoning_content() -> None:
     assert stored["memo"] == "memo from reasoning field"
     assert stored["backend"] == "openai"
     assert stored["model"] == "gpt-4"
-    assert stored["extraction_source"] == "reasoning_content"
+    assert stored["extraction_source"] == "fallback_unstructured_output"
     diagnostic = _diagnostic(context)
-    assert diagnostic["extraction_source"] == "reasoning_content"
+    assert diagnostic["extraction_source"] == "fallback_unstructured_output"
 
 
 def test_recorder_uses_configured_regular_turns_remaining() -> None:
@@ -114,7 +114,7 @@ def test_recorder_writes_capture_diagnostic_when_memo_is_stored() -> None:
     assert diagnostic["model"] == "gpt-4"
     assert diagnostic["memo_chars"] == len("visible memo")
     assert diagnostic["source_selector"] == "openai:gpt-4"
-    assert diagnostic["extraction_source"] == "content"
+    assert diagnostic["extraction_source"] == "fallback_unstructured_output"
 
 
 def test_recorder_writes_skip_diagnostic_for_empty_memo() -> None:
@@ -173,7 +173,7 @@ def test_recorder_falls_back_to_non_streaming_message_content() -> None:
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "visible memo"
-    assert stored["extraction_source"] == "content"
+    assert stored["extraction_source"] == "fallback_unstructured_output"
 
 
 def test_recorder_strips_proxy_thinker_memo_tags_before_storing() -> None:
@@ -203,8 +203,114 @@ def test_recorder_strips_proxy_thinker_memo_tags_before_storing() -> None:
     )
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
-    assert stored["memo"] == "prefix inner memo suffix"
+    assert stored["memo"] == "inner memo"
+    assert stored["extraction_source"] == "content_structured_xml"
     assert "<proxy_thinker_memo>" not in stored["memo"]
+
+
+def test_recorder_prefers_structured_visible_content_over_reasoning() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+    response = ResponseEnvelope(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "reasoning_content": (
+                            "<proxy_thinker_memo>reasoning memo" "</proxy_thinker_memo>"
+                        ),
+                        "content": (
+                            "prefix <proxy_thinker_memo>visible memo"
+                            "</proxy_thinker_memo> suffix"
+                        ),
+                    }
+                }
+            ]
+        }
+    )
+
+    recorder.capture_non_streaming(
+        response=response,
+        session=session,
+        context=_context(),
+        backend_type="openai",
+        effective_model="gpt-4",
+    )
+
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "visible memo"
+    assert stored["extraction_source"] == "content_structured_xml"
+
+
+def test_recorder_uses_structured_reasoning_when_visible_content_has_no_xml() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+    response = ResponseEnvelope(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "reasoning_content": (
+                            "<proxy_thinker_memo>reasoning memo" "</proxy_thinker_memo>"
+                        ),
+                        "content": "plain final answer",
+                    }
+                }
+            ]
+        }
+    )
+
+    recorder.capture_non_streaming(
+        response=response,
+        session=session,
+        context=_context(),
+        backend_type="openai",
+        effective_model="gpt-4",
+    )
+
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "reasoning memo"
+    assert stored["extraction_source"] == "reasoning_content_structured_xml"
+
+
+def test_recorder_falls_back_to_combined_unstructured_output_and_logs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = _session()
+    context = _context()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+    response = ResponseEnvelope(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "reasoning_content": "raw reasoning",
+                        "content": "plain final answer",
+                    }
+                }
+            ]
+        }
+    )
+
+    with caplog.at_level(
+        logging.INFO,
+        logger="src.core.services.interleaved_thinking.output_recorder",
+    ):
+        recorder.capture_non_streaming(
+            response=response,
+            session=session,
+            context=context,
+            backend_type="openai",
+            effective_model="gpt-4",
+        )
+
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "raw reasoning\n\nplain final answer"
+    assert stored["extraction_source"] == "fallback_unstructured_output"
+    assert any(
+        "failed to provide valid structured XML thinker memo" in record.message
+        for record in caplog.records
+    )
 
 
 def test_recorder_strips_proxy_thinker_memo_tags_with_quoted_gt_attribute() -> None:
@@ -234,7 +340,8 @@ def test_recorder_strips_proxy_thinker_memo_tags_with_quoted_gt_attribute() -> N
     )
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
-    assert stored["memo"] == "prefix inner memo suffix"
+    assert stored["memo"] == "inner memo"
+    assert stored["extraction_source"] == "content_structured_xml"
     assert "proxy_thinker_memo" not in stored["memo"]
 
 
@@ -325,7 +432,8 @@ async def test_recorder_wraps_stream_without_buffering_before_yield() -> None:
         await anext(wrapped.content)
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
-    assert stored["memo"] == "memo done"
+    assert stored["memo"] == "memo \n\nvisible done"
+    assert stored["extraction_source"] == "fallback_unstructured_output"
 
 
 @pytest.mark.asyncio
@@ -455,7 +563,7 @@ async def test_recorder_captures_codex_output_text_delta_sse_frame() -> None:
     assert len(chunks) == 3
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "first second"
-    assert stored["extraction_source"] == "delta"
+    assert stored["extraction_source"] == "fallback_unstructured_output"
 
 
 @pytest.mark.asyncio
@@ -517,7 +625,7 @@ async def test_recorder_captures_codex_output_text_done_sse_frame() -> None:
     assert len(chunks) == 1
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "final memo"
-    assert stored["extraction_source"] == "output_text"
+    assert stored["extraction_source"] == "output_text_structured_xml"
 
 
 @pytest.mark.asyncio
@@ -549,7 +657,7 @@ async def test_recorder_captures_codex_content_part_done_sse_frame() -> None:
     assert len(chunks) == 1
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "part memo"
-    assert stored["extraction_source"] == "output_text"
+    assert stored["extraction_source"] == "output_text_structured_xml"
 
 
 @pytest.mark.asyncio
@@ -674,6 +782,42 @@ async def test_recorder_preserves_metadata_only_visible_dict() -> None:
         "model": "gpt-4",
         "created": 123,
     }
+
+
+@pytest.mark.asyncio
+async def test_recorder_sanitizes_all_coalesced_visible_sse_frames() -> None:
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(
+            content=(
+                'data: {"choices":[{"delta":{"content":"first"}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":"second"}}]}\n\n'
+            )
+        )
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert len(chunks) == 1
+    assert chunks[0].content == (
+        '{"choices": [{"delta": {"content": "first"}}]}\n'
+        '{"choices": [{"delta": {"content": "second"}}]}'
+    )
+
+
+@pytest.mark.asyncio
+async def test_recorder_sanitizes_non_dict_visible_sse_payload_without_data_prefix() -> (
+    None
+):
+    recorder = InterleavedThinkingOutputRecorder(stream_to_client=True)
+
+    async def stream():
+        yield ProcessedResponse(content='data: ["visible", "items"]\n\n')
+
+    chunks = [item async for item in recorder.sanitize_visible_stream(stream())]
+
+    assert len(chunks) == 1
+    assert chunks[0].content == '["visible", "items"]'
 
 
 @pytest.mark.asyncio

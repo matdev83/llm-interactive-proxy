@@ -31,6 +31,7 @@ INTERLEAVED_THINKING_RECORDER_DIAGNOSTIC_KEY = (
 _THINKER_OPEN_TAG_PREFIX = "<proxy_thinker_memo"
 _THINKER_CLOSE_TAG_PREFIX = "</proxy_thinker_memo"
 _THINKER_TAG_PREFIXES = (_THINKER_OPEN_TAG_PREFIX, _THINKER_CLOSE_TAG_PREFIX)
+_UNSTRUCTURED_FALLBACK_SOURCE = "fallback_unstructured_output"
 
 
 @dataclass(frozen=True)
@@ -344,9 +345,25 @@ class InterleavedThinkingOutputRecorder:
                 extraction_source,
             )
             return
-        normalized_memo = self._normalize_memo_text(memo)[: self._max_output_chars]
+        normalized_memo, prepared_source, used_unstructured_fallback = (
+            self._prepare_memo_for_storage(memo, extraction_source)
+        )
+        normalized_memo = normalized_memo[: self._max_output_chars]
         if not normalized_memo:
             return
+        if used_unstructured_fallback:
+            logger.info(
+                "Interleaved thinking model failed to provide valid structured XML "
+                "thinker memo; storing full captured output as fallback. "
+                "request_id=%s session_id=%s backend=%s model=%s "
+                "fallback_chars=%d original_extraction_source=%s",
+                request_id(context),
+                session_id(context, session),
+                backend_type,
+                effective_model,
+                len(normalized_memo),
+                extraction_source,
+            )
 
         source_selector = None
         stored_request_id = None
@@ -366,7 +383,7 @@ class InterleavedThinkingOutputRecorder:
             "injected_count": 0,
             "regular_turns_remaining": self._regular_turns_remaining,
             "visible_to_client": visible_to_client,
-            "extraction_source": extraction_source,
+            "extraction_source": prepared_source,
             "stream_interrupted": stream_interrupted,
         }
         base_state = as_session_state(getattr(session, "state", None))
@@ -379,7 +396,7 @@ class InterleavedThinkingOutputRecorder:
                 effective_model=effective_model,
                 memo_chars=len(normalized_memo),
                 source_selector=source_selector,
-                extraction_source=extraction_source,
+                extraction_source=prepared_source,
                 stream_interrupted=stream_interrupted,
             )
             logger.info(
@@ -402,7 +419,7 @@ class InterleavedThinkingOutputRecorder:
             effective_model=effective_model,
             memo_chars=len(normalized_memo),
             source_selector=source_selector,
-            extraction_source=extraction_source,
+            extraction_source=prepared_source,
             stream_interrupted=stream_interrupted,
         )
         logger.info(
@@ -419,7 +436,7 @@ class InterleavedThinkingOutputRecorder:
             len(normalized_memo),
             self._text_hash(normalized_memo),
             self._snippet(normalized_memo),
-            extraction_source,
+            prepared_source,
             visible_to_client,
             stream_interrupted,
             len(memo.strip()) > self._max_output_chars,
@@ -618,6 +635,41 @@ class InterleavedThinkingOutputRecorder:
     def _normalize_memo_text(memo: str) -> str:
         return _ProxyThinkerMemoTagStripper.strip_complete(memo).strip()
 
+    @classmethod
+    def _prepare_memo_for_storage(
+        cls,
+        memo: str,
+        extraction_source: str | None,
+    ) -> tuple[str, str | None, bool]:
+        if extraction_source is not None and extraction_source.endswith(
+            "_structured_xml"
+        ):
+            return memo.strip(), extraction_source, False
+        structured = cls._extract_proxy_thinker_memo_block(memo)
+        if structured is not None:
+            source = extraction_source or "structured_xml"
+            if not source.endswith("_structured_xml"):
+                source = f"{source}_structured_xml"
+            return structured.strip(), source, False
+        return cls._normalize_memo_text(memo), _UNSTRUCTURED_FALLBACK_SOURCE, True
+
+    @classmethod
+    def _extract_proxy_thinker_memo_block(cls, text: str) -> str | None:
+        lowered = text.lower()
+        open_index = lowered.find(_THINKER_OPEN_TAG_PREFIX)
+        if open_index < 0:
+            return None
+        open_end = _ProxyThinkerMemoTagStripper._find_tag_end(
+            text,
+            open_index + len(_THINKER_OPEN_TAG_PREFIX),
+        )
+        if open_end is None:
+            return None
+        close_index = lowered.find(_THINKER_CLOSE_TAG_PREFIX, open_end + 1)
+        if close_index < 0:
+            return None
+        return text[open_end + 1 : close_index]
+
     @staticmethod
     def _text_hash(text: str) -> str:
         return sha256(text.encode("utf-8", errors="replace")).hexdigest()[:12]
@@ -678,12 +730,12 @@ class InterleavedThinkingOutputRecorder:
     ) -> ProcessedResponse | None:
         stripped = text.strip()
         if cls._has_sse_data_payload(stripped):
-            data = cls._parse_sse_data_payload(stripped)
-            if data is None:
+            payloads = cls._parse_sse_data_payloads(stripped)
+            if not payloads:
                 return None
-            if isinstance(data, dict):
+            if len(payloads) == 1 and isinstance(payloads[0], dict):
                 sanitized = cls._sanitize_visible_dict(
-                    data,
+                    payloads[0],
                     tag_stripper,
                     as_reasoning_content=as_reasoning_content,
                 )
@@ -694,6 +746,33 @@ class InterleavedThinkingOutputRecorder:
                     usage=item.usage,
                     metadata=dict(item.metadata),
                 )
+
+            sanitized_parts: list[str] = []
+            for data in payloads:
+                if isinstance(data, dict):
+                    sanitized = cls._sanitize_visible_dict(
+                        data,
+                        tag_stripper,
+                        as_reasoning_content=as_reasoning_content,
+                    )
+                    if sanitized is not None:
+                        sanitized_parts.append(json.dumps(sanitized))
+                    continue
+                sanitized_parts.append(json.dumps(data))
+            sanitized_text = "\n".join(sanitized_parts)
+            if not sanitized_text:
+                return None
+            if as_reasoning_content:
+                return ProcessedResponse(
+                    content=cls._text_to_reasoning_chunk(sanitized_text),
+                    usage=item.usage,
+                    metadata=dict(item.metadata),
+                )
+            return ProcessedResponse(
+                content=sanitized_text,
+                usage=item.usage,
+                metadata=dict(item.metadata),
+            )
 
         sanitized_text = tag_stripper.feed(text)
         if not sanitized_text:
@@ -850,8 +929,39 @@ class InterleavedThinkingOutputRecorder:
 
     @staticmethod
     def _extract_text_fields(container: dict[str, Any]) -> _ExtractedMemo | None:
-        for key in ("reasoning_content", "reasoning", "content"):
+        content_candidates: list[tuple[str, str]] = []
+        reasoning_candidates: list[tuple[str, str]] = []
+        for key in ("content",):
             value = container.get(key)
             if isinstance(value, str):
-                return _ExtractedMemo(value, key)
+                content_candidates.append((key, value))
+        for key in ("reasoning_content", "reasoning", "thinking", "thought"):
+            value = container.get(key)
+            if isinstance(value, str):
+                reasoning_candidates.append((key, value))
+
+        for key, value in content_candidates:
+            structured = (
+                InterleavedThinkingOutputRecorder._extract_proxy_thinker_memo_block(
+                    value
+                )
+            )
+            if structured is not None:
+                return _ExtractedMemo(structured, f"{key}_structured_xml")
+        for key, value in reasoning_candidates:
+            structured = (
+                InterleavedThinkingOutputRecorder._extract_proxy_thinker_memo_block(
+                    value
+                )
+            )
+            if structured is not None:
+                return _ExtractedMemo(structured, f"{key}_structured_xml")
+
+        fallback_parts = [value for _key, value in reasoning_candidates]
+        fallback_parts.extend(value for _key, value in content_candidates)
+        if fallback_parts:
+            return _ExtractedMemo(
+                "\n\n".join(fallback_parts),
+                _UNSTRUCTURED_FALLBACK_SOURCE,
+            )
         return None
