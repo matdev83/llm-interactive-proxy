@@ -355,6 +355,12 @@ properties:
       quality_verifier_max_consecutive_failures: { type: integer, minimum: 1 }
       quality_verifier_cooldown_seconds: { type: integer, minimum: 0 }
       quality_verifier_ttft_timeout_seconds: { type: number }
+      tool_progress_loop_guard_enabled: { type: boolean }
+      tool_progress_loop_max_consecutive_followups: { type: integer, minimum: 1 }
+      tool_progress_loop_max_repeated_call_signature: { type: integer, minimum: 1 }
+      tool_progress_loop_max_repeated_output: { type: integer, minimum: 1 }
+      tool_progress_loop_max_counts_per_session: { type: integer, minimum: 1 }
+      tool_progress_loop_max_cached_sessions: { type: integer, minimum: 1 }
   backends:
     type: object
     additionalProperties: true

@@ -572,6 +572,36 @@ class ProcessorStage(InitializationStage):
             implementation_factory=project_dir_service_factory,
         )
 
+        from src.core.interfaces.tool_progress_loop_guard_interface import (
+            IToolProgressLoopGuard,
+        )
+        from src.core.services.tool_progress_loop_guard import ToolProgressLoopGuard
+
+        def tool_progress_loop_guard_factory(
+            provider: IServiceProvider,
+        ) -> ToolProgressLoopGuard:
+            app_config = provider.get_required_service(AppConfig)
+            session_config = app_config.session
+            return ToolProgressLoopGuard(
+                max_consecutive_tool_followups=session_config.tool_progress_loop_max_consecutive_followups,
+                max_repeated_tool_call_signature=session_config.tool_progress_loop_max_repeated_call_signature,
+                max_repeated_tool_output=session_config.tool_progress_loop_max_repeated_output,
+                max_counts_per_session=session_config.tool_progress_loop_max_counts_per_session,
+                max_cached_sessions=session_config.tool_progress_loop_max_cached_sessions,
+                enabled=session_config.tool_progress_loop_guard_enabled,
+            )
+
+        services.add_singleton(
+            ToolProgressLoopGuard,
+            implementation_factory=tool_progress_loop_guard_factory,
+        )
+        services.add_singleton_factory(
+            cast(type, IToolProgressLoopGuard),
+            implementation_factory=lambda provider: provider.get_required_service(
+                ToolProgressLoopGuard
+            ),
+        )
+
         def request_processor_factory(
             provider: IServiceProvider,
         ) -> RequestProcessor:
@@ -592,6 +622,9 @@ class ProcessorStage(InitializationStage):
             )
             from src.core.interfaces.session_manager_interface import (
                 ISessionManager,
+            )
+            from src.core.interfaces.tool_progress_loop_guard_interface import (
+                IToolProgressLoopGuard,
             )
 
             command_processor: ICommandProcessor = provider.get_required_service(
@@ -645,6 +678,9 @@ class ProcessorStage(InitializationStage):
             replacement_service: IModelReplacementService | None = provider.get_service(
                 cast(type, IModelReplacementService)
             )
+            tool_progress_loop_guard: IToolProgressLoopGuard | None = (
+                provider.get_service(cast(type, IToolProgressLoopGuard))
+            )
 
             return RequestProcessor(  # DI-bypass-allowed
                 command_processor,
@@ -659,6 +695,7 @@ class ProcessorStage(InitializationStage):
                 request_side_effects=request_side_effects,
                 transform_pipeline=transform_pipeline,
                 backend_executor=backend_executor,
+                tool_progress_loop_guard=tool_progress_loop_guard,
             )
 
         # Register concrete implementation

@@ -327,6 +327,14 @@ class SessionConfig(DomainModel):
     # If no non-keepalive token is received within this window, verifier fails-open.
     quality_verifier_ttft_timeout_seconds: float = 30.0
 
+    # Session-level guard for repeated tool-only progress loops.
+    tool_progress_loop_guard_enabled: bool = True
+    tool_progress_loop_max_consecutive_followups: int = Field(default=12, ge=1)
+    tool_progress_loop_max_repeated_call_signature: int = Field(default=3, ge=1)
+    tool_progress_loop_max_repeated_output: int = Field(default=3, ge=1)
+    tool_progress_loop_max_counts_per_session: int = Field(default=256, ge=1)
+    tool_progress_loop_max_cached_sessions: int = Field(default=1000, ge=1)
+
     @field_validator("quality_verifier_frequency")
     @classmethod
     def _validate_quality_verifier_frequency(cls, value: int) -> int:

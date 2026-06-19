@@ -27,6 +27,7 @@ from src.core.domain.quality_verifier_turns import (
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.tool_progress_loop import ToolProgressLoopAction
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.command_processor_interface import ICommandProcessor
@@ -44,6 +45,9 @@ from src.core.interfaces.request_processor_internal import (
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.interfaces.tool_progress_loop_guard_interface import (
+    IToolProgressLoopGuard,
+)
 from src.core.services.composite_routing_state import is_composite_selector
 
 logger = logging.getLogger(__name__)
@@ -110,6 +114,7 @@ class RequestProcessor(IRequestProcessor):
         backend_executor: IBackendExecutor,
         app_state: IApplicationState | None = None,
         replacement_service: IModelReplacementService | None = None,
+        tool_progress_loop_guard: IToolProgressLoopGuard | None = None,
     ) -> None:
         """Initialize the request processor with decomposed services.
 
@@ -126,6 +131,7 @@ class RequestProcessor(IRequestProcessor):
             backend_executor: Backend execution and persistence side effects (required)
             app_state: Application state for configuration and service access (optional)
             replacement_service: Model replacement service for fallback models (optional)
+            tool_progress_loop_guard: Session-level tool loop guard (optional)
         """
         self._command_processor = command_processor
         self._session_manager = session_manager
@@ -139,6 +145,7 @@ class RequestProcessor(IRequestProcessor):
         self._backend_executor = backend_executor
         self._app_state = app_state
         self._replacement_service = replacement_service
+        self._tool_progress_loop_guard = tool_progress_loop_guard
         self._quality_verifier_turn_counts: OrderedDict[str, int] = OrderedDict()
 
     @staticmethod
@@ -508,6 +515,45 @@ class RequestProcessor(IRequestProcessor):
         # Tool-result continuations should never trigger Quality Verifier.
         if is_tool_followup:
             context.extensions["quality_verifier_skip_verification"] = True
+
+        if self._tool_progress_loop_guard is not None:
+            try:
+                loop_decision = await self._tool_progress_loop_guard.evaluate_request(
+                    session_id=quality_verifier_session_id,
+                    request=request_data,
+                )
+            except Exception:
+                logger.warning(
+                    "Tool progress loop guard failed open for session %s",
+                    quality_verifier_session_id,
+                    exc_info=True,
+                )
+            else:
+                if loop_decision.action == ToolProgressLoopAction.BLOCK:
+                    logger.warning(
+                        "Tool progress loop guard blocked session %s: reason=%s score=%s repeated_calls=%s repeated_outputs=%s",
+                        quality_verifier_session_id,
+                        loop_decision.reason,
+                        loop_decision.score,
+                        loop_decision.repeated_call_count,
+                        loop_decision.repeated_output_count,
+                    )
+                    return ResponseEnvelope(
+                        content={
+                            "error": {
+                                "message": "Tool progress loop detected; backend dispatch was stopped.",
+                                "reason": loop_decision.reason,
+                                "score": loop_decision.score,
+                                "repeated_tool_calls": loop_decision.repeated_call_count,
+                                "repeated_tool_outputs": loop_decision.repeated_output_count,
+                            }
+                        },
+                        status_code=409,
+                        metadata={
+                            "tool_progress_loop_detected": True,
+                            "reason": loop_decision.reason or "unknown",
+                        },
+                    )
 
         quality_verifier_turn_incremented = False
         current_eligible_turn_scaled = 0
