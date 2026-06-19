@@ -31,9 +31,9 @@ class ToolProgressLoopGuard(IToolProgressLoopGuard):
     def __init__(
         self,
         *,
-        max_consecutive_tool_followups: int = 12,
-        max_repeated_tool_call_signature: int = 3,
-        max_repeated_tool_output: int = 3,
+        max_consecutive_tool_followups: int = 50,
+        max_repeated_tool_call_signature: int = 7,
+        max_repeated_tool_output: int = 7,
         max_counts_per_session: int = 256,
         max_cached_sessions: int = 1000,
         enabled: bool = True,
