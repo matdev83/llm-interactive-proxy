@@ -1,7 +1,7 @@
 """Integration tests for client termination detection across transports.
 
 These tests verify that client termination is properly detected and reported
-for HTTP (streaming and non-streaming) and Codebuff WebSocket transports.
+for HTTP (streaming and non-streaming) transports.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -279,80 +278,6 @@ class TestHTTPNonStreamingCancellation:
         assert len(mock_client_eos_service.reported_signals) == 1
         signal = mock_client_eos_service.reported_signals[0]
         assert signal.reason == ClientTerminationReason.CLIENT_CANCELLED
-
-
-class TestCodebuffDisconnect:
-    """Tests for Codebuff WebSocket disconnect detection."""
-
-    @pytest.mark.asyncio
-    async def test_codebuff_disconnect_reports_termination(
-        self,
-        mock_client_eos_service: MockClientEndOfSessionService,
-        mock_metrics_initializer: MockSessionMetricsInitializer,
-    ) -> None:
-        """Test that Codebuff WebSocket disconnect triggers termination reporting."""
-        from src.codebuff.connection_manager import ConnectionManager
-        from src.codebuff.message_router import MessageRouter
-        from src.codebuff.server import CodebuffWebSocketServer
-
-        # Create server with mocks
-        connection_manager = ConnectionManager()
-        message_router = MessageRouter()
-
-        # Create mock config with max_message_size_bytes
-        mock_config = MagicMock()
-        mock_config.max_message_size_bytes = 1024 * 1024  # 1MB
-
-        server = CodebuffWebSocketServer(
-            connection_manager=connection_manager,
-            message_router=message_router,
-            prompt_handler=MagicMock(),
-            init_handler=MagicMock(),
-            subscription_handler=MagicMock(),
-            config=mock_config,
-            metrics_initializer=mock_metrics_initializer,
-            client_eos_service=mock_client_eos_service,
-        )
-
-        # Create mock WebSocket
-        mock_websocket = MagicMock()
-        mock_websocket.accept = AsyncMock()
-        mock_websocket.close = AsyncMock()
-
-        # Mock identify message
-        identify_message = '{"type": "identify", "clientSessionId": "test-session-123"}'
-        mock_websocket.receive_text = AsyncMock(return_value=identify_message)
-
-        # Mock message processing to raise WebSocketDisconnect
-        from fastapi import WebSocketDisconnect
-
-        async def process_messages_side_effect(ws: Any) -> None:
-            raise WebSocketDisconnect()
-
-        server._process_messages = AsyncMock(side_effect=process_messages_side_effect)
-
-        # Mock wait_for_identify to return session_id
-        async def wait_for_identify_side_effect(ws: Any) -> str | None:
-            return "test-session-123"
-
-        server._wait_for_identify = AsyncMock(side_effect=wait_for_identify_side_effect)
-
-        # Handle connection - should initialize metrics and report termination on disconnect
-        with contextlib.suppress(WebSocketDisconnect):
-            await server.handle_connection(mock_websocket)
-
-        # Verify session metrics were initialized
-        assert len(mock_metrics_initializer.initialized_sessions) == 1
-        metrics_session_key = mock_metrics_initializer.initialized_sessions[0]
-        assert metrics_session_key.protocol == "codebuff"
-        assert metrics_session_key.primary_id == "codebuff:test-session-123"
-
-        # Verify termination was reported
-        assert len(mock_client_eos_service.reported_signals) == 1
-        signal = mock_client_eos_service.reported_signals[0]
-        assert signal.reason == ClientTerminationReason.CLIENT_DISCONNECTED
-        assert signal.session_key.protocol == "codebuff"
-        assert signal.session_key.primary_id == "codebuff:test-session-123"
 
 
 class TestMissingSessionContext:

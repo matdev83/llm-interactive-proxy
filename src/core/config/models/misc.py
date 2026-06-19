@@ -23,19 +23,6 @@ class EmptyResponseConfig(DomainModel):
     """
 
 
-class CodebuffConfig(DomainModel):
-    """Codebuff WebSocket server configuration."""
-
-    model_config = ConfigDict(frozen=True)
-
-    enabled: bool = False
-    websocket_path: str = "/ws"
-    heartbeat_timeout_seconds: int = 60
-    session_cleanup_hours: int = 1
-    max_connections: int = 1000
-    max_message_size_bytes: int = 1048576  # 1MB
-
-
 class UsageTrackingConfig(DomainModel):
     """Usage tracking and statistics configuration."""
 

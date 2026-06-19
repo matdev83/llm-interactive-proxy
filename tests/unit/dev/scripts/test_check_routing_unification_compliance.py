@@ -109,7 +109,7 @@ def test_run_checks_detects_bypass_invocation(tmp_path: Path) -> None:
 
 def test_run_checks_detects_bypass_outside_core_services_scope(tmp_path: Path) -> None:
     module = _load_compliance_module()
-    handler_file = tmp_path / "src" / "codebuff" / "handlers" / "bypass.py"
+    handler_file = tmp_path / "src" / "plugin" / "handlers" / "bypass.py"
     handler_file.parent.mkdir(parents=True, exist_ok=True)
     handler_file.write_text(
         "async def run(backend, request):\n"
@@ -122,7 +122,7 @@ def test_run_checks_detects_bypass_outside_core_services_scope(tmp_path: Path) -
     inventory_file.write_text(
         "version: 1\n"
         "scan_roots:\n"
-        "  - src/codebuff/handlers\n"
+        "  - src/plugin/handlers\n"
         "call_surfaces: []\n"
         "allowed_adapter_boundaries: []\n",
         encoding="utf-8",

@@ -99,29 +99,6 @@ async def test_handle_eos_event_calls_cleanup_for_http_session(
 
 
 @pytest.mark.asyncio
-async def test_handle_eos_event_calls_cleanup_for_codebuff_session(
-    subscriber: SessionCancellationCleanupEosSubscriber,
-    mock_coordinator: ISessionCancellationCoordinator,
-) -> None:
-    """Test that handle_eos_event calls cleanup for Codebuff session."""
-    event = RemoteBackendConnectionEndOfSessionEvent(
-        session_id="codebuff:ws-connection-456",
-        signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
-        termination_category=EndOfSessionTerminationCategory.NORMAL,
-    )
-
-    await subscriber._handle_eos_event(event)
-
-    mock_coordinator.cleanup.assert_called_once()
-    call_args = mock_coordinator.cleanup.call_args[0]
-    session_key = call_args[0]
-    assert isinstance(session_key, SessionKey)
-    assert session_key.protocol == "codebuff"
-    assert session_key.primary_id == "codebuff:ws-connection-456"
-    assert session_key.group_id is None
-
-
-@pytest.mark.asyncio
 async def test_handle_eos_event_handles_missing_session_id(
     subscriber: SessionCancellationCleanupEosSubscriber,
     mock_coordinator: ISessionCancellationCoordinator,

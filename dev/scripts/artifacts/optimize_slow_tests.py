@@ -114,21 +114,6 @@ def optimize_usage_normalization_properties(file_path: Path):
     print(f"? Optimized {file_path.name}")
 
 
-def optimize_authentication_properties(file_path: Path):
-    """Optimize test_authentication_properties.py"""
-    content = file_path.read_text()
-
-    # Reduce max_examples from 30 to 10
-    content = re.sub(
-        r"@settings\(max_examples=30, deadline=None\)",
-        "@settings(max_examples=10, deadline=None)",
-        content,
-    )
-
-    file_path.write_text(content)
-    print(f"? Optimized {file_path.name}")
-
-
 def optimize_usage_format_translation_properties(file_path: Path):
     """Optimize test_usage_format_translation_properties.py"""
     content = file_path.read_text()
@@ -185,10 +170,6 @@ def main():
         (
             repo_root / "tests/property/core/test_usage_normalization_properties.py",
             optimize_usage_normalization_properties,
-        ),
-        (
-            repo_root / "tests/property/codebuff/test_authentication_properties.py",
-            optimize_authentication_properties,
         ),
         (
             repo_root / "tests/property/test_usage_format_translation_properties.py",

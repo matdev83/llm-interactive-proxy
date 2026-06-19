@@ -83,9 +83,6 @@ Advanced features that enhance the proxy's capabilities:
 
 ### Client Integration
 
-- **[Codebuff Quick Start](features/codebuff-quick-start.md)** - Get started with Codebuff in 5 minutes
-- **[Codebuff Backend Compatibility](features/codebuff-backend.md)** - WebSocket server for Codebuff coding agent protocol
-- **[Codebuff Protocol Reference](codebuff-protocol-reference.md)** - Complete protocol specification for Codebuff WebSocket communication
 - **[WebSocket Transport for Responses API](features/websocket-transport.md)** - Low-latency WebSocket transport for `/v1/responses`
 - **[Client Identity Override](features/identity-override.md)** - Override client identity headers for compatibility with specific tools
 

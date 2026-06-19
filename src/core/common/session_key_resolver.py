@@ -97,15 +97,3 @@ def resolve_session_key_from_request_context(
                 extra={"request_id": request_id},
             )
         return None
-
-
-def create_codebuff_session_key(client_session_id: str) -> SessionKey:
-    """Create SessionKey for Codebuff WebSocket session."""
-    if not client_session_id or not client_session_id.strip():
-        raise ValueError("client_session_id cannot be empty")
-
-    return SessionKey(
-        protocol="codebuff",
-        primary_id=f"codebuff:{client_session_id.strip()}",
-        group_id=None,
-    )

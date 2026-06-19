@@ -14,7 +14,6 @@ from src.core.config.models.canonical_request_processing import (
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.config.models.logging import LoggingConfig, LogLevel
 from src.core.config.models.misc import (
-    CodebuffConfig,
     EmptyResponseConfig,
     ReasoningModelTokenFloorConfig,
     ResilienceConfig,
@@ -47,7 +46,6 @@ __all__ = [
     "BackendSettings",
     "B2BUAConfig",
     "BruteForceProtectionConfig",
-    "CodebuffConfig",
     "EditPrecisionConfig",
     "EmptyResponseConfig",
     "EndOfSessionConfig",

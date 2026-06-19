@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
 from src.core.domain.request_context import RequestContext
 from src.core.transport.session_key_resolver import (
-    create_codebuff_session_key,
     resolve_session_key_from_request_context,
 )
 
@@ -143,31 +141,3 @@ class TestResolveSessionKeyFromRequestContext:
 
         assert result is not None
         assert result.group_id == "conv-from-header"
-
-
-class TestCreateCodebuffSessionKey:
-    """Tests for creating Codebuff SessionKey."""
-
-    def test_creates_session_key_with_codebuff_prefix(self) -> None:
-        """Test that SessionKey is created with codebuff: prefix."""
-        result = create_codebuff_session_key("client-session-123")
-
-        assert result.protocol == "codebuff"
-        assert result.primary_id == "codebuff:client-session-123"
-        assert result.group_id is None
-
-    def test_strips_whitespace_from_session_id(self) -> None:
-        """Test that whitespace is stripped from client_session_id."""
-        result = create_codebuff_session_key("  client-session-123  ")
-
-        assert result.primary_id == "codebuff:client-session-123"
-
-    def test_raises_on_empty_session_id(self) -> None:
-        """Test that ValueError is raised for empty session_id."""
-        with pytest.raises(ValueError, match="cannot be empty"):
-            create_codebuff_session_key("")
-
-    def test_raises_on_none_session_id(self) -> None:
-        """Test that ValueError is raised for None session_id."""
-        with pytest.raises(ValueError):
-            create_codebuff_session_key(None)  # type: ignore[arg-type]

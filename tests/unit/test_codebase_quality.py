@@ -211,7 +211,6 @@ def emoji_check_cache() -> dict[str, Any]:
     directories = [
         os.path.join(project_root, "src/core"),
         os.path.join(project_root, "src/connectors"),
-        os.path.join(project_root, "src/codebuff"),
     ]
 
     cache_dir = os.path.join(project_root, ".pytest_cache")

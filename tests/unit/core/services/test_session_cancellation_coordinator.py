@@ -44,9 +44,9 @@ def http_session_key() -> SessionKey:
 
 
 @pytest.fixture
-def codebuff_session_key() -> SessionKey:
-    """Create a Codebuff session key."""
-    return SessionKey(protocol="codebuff", primary_id="codebuff:ws-789")
+def ws_session_key() -> SessionKey:
+    """Create a WebSocket session key."""
+    return SessionKey(protocol="ws", primary_id="ws:conn-789")
 
 
 def test_is_cancelled_returns_false_for_new_session(
@@ -164,12 +164,12 @@ def test_session_isolation_http_sessions(
     assert not coordinator.is_cancelled(session2)
 
 
-def test_session_isolation_codebuff_sessions(
+def test_session_isolation_ws_sessions(
     coordinator: SessionCancellationCoordinator,
 ) -> None:
-    """Test that cancellation is isolated between different Codebuff sessions."""
-    session1 = SessionKey(protocol="codebuff", primary_id="codebuff:ws-1")
-    session2 = SessionKey(protocol="codebuff", primary_id="codebuff:ws-2")
+    """Test that cancellation is isolated between different WebSocket sessions."""
+    session1 = SessionKey(protocol="ws", primary_id="ws:conn-1")
+    session2 = SessionKey(protocol="ws", primary_id="ws:conn-2")
 
     coordinator.cancel_session(session1, ClientTerminationReason.CLIENT_DISCONNECTED)
 
@@ -180,16 +180,16 @@ def test_session_isolation_codebuff_sessions(
 def test_session_isolation_cross_protocol(
     coordinator: SessionCancellationCoordinator,
 ) -> None:
-    """Test that cancellation is isolated between HTTP and Codebuff sessions."""
+    """Test that cancellation is isolated between sessions with different protocols."""
     http_session = SessionKey(protocol="http", primary_id="trace-123")
-    codebuff_session = SessionKey(protocol="codebuff", primary_id="codebuff:ws-123")
+    ws_session = SessionKey(protocol="ws", primary_id="ws:conn-123")
 
     coordinator.cancel_session(
         http_session, ClientTerminationReason.CLIENT_DISCONNECTED
     )
 
     assert coordinator.is_cancelled(http_session)
-    assert not coordinator.is_cancelled(codebuff_session)
+    assert not coordinator.is_cancelled(ws_session)
 
 
 def test_session_isolation_same_primary_id_different_group_id(

@@ -303,8 +303,8 @@ class TestFileSandboxingIntegration:
         assert result.metadata.get("tool_call_swallowed") is not True
 
     @pytest.mark.asyncio
-    async def test_codebuff_str_replace_path_traversal_blocked(self, temp_project_dir):
-        """Test Codebuff's str_replace tool blocks path traversal attempts."""
+    async def test_str_replace_path_traversal_blocked(self, temp_project_dir):
+        """Test that str_replace tool blocks path traversal attempts."""
         config = self.create_config_with_sandboxing(enabled=True)
         provider = self.create_service_provider(config)
 
@@ -312,13 +312,13 @@ class TestFileSandboxingIntegration:
         reactor_middleware = provider.get_required_service(ToolCallReactorMiddleware)
 
         # Create session with project directory
-        session_id = "test_codebuff_session"
+        session_id = "test_str_replace_session"
         session = await session_service.get_or_create_session(session_id)
 
         session.state = session.state.with_project_dir(str(temp_project_dir))
         await session_service.update_session(session)
 
-        # Create Codebuff-style tool call with path traversal
+        # Create str_replace tool call with path traversal
         response = self.create_llm_response_with_tool_call(
             "str_replace",
             {
@@ -334,7 +334,6 @@ class TestFileSandboxingIntegration:
             context={
                 "backend_name": "test-backend",
                 "model_name": "test-model",
-                "calling_agent": "codebuff",
             },
         )
 
@@ -408,11 +407,11 @@ class TestFileSandboxingIntegration:
         # Test various tool names from different agents
         tool_names = [
             "write_to_file",  # Cline
-            "write_file",  # Codebuff
+            "write_file",  # generic write_file variant
             "edit_file",  # Kilocode
             "apply_diff",  # Kilocode
             "apply_patch",  # Codex
-            "str_replace",  # Codebuff
+            "str_replace",  # str_replace variant
             "insert_content",  # Kilocode
             "search_and_replace",  # Kilocode
             "generate_image",  # Kilocode

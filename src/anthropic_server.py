@@ -56,37 +56,6 @@ async def create_anthropic_app_async(
     )
 
     app.state.resolved_app_config = resolve_app_config(app_config)
-
-    # Register Codebuff WebSocket endpoint if enabled
-    if app_config.codebuff.enabled:
-        if logger.isEnabledFor(logging.INFO):
-            logger.info("Codebuff WebSocket server is enabled, registering endpoint")
-        try:
-            from src.codebuff.factory import create_codebuff_server
-
-            if service_provider is None:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Service provider is None, skipping Codebuff WebSocket server registration"
-                    )
-            else:
-                codebuff_server = create_codebuff_server(app_config, service_provider)  # type: ignore[arg-type]
-                codebuff_server.register_endpoint(app)
-                app.state.codebuff_server = codebuff_server
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    f"Codebuff WebSocket endpoint registered at {app_config.codebuff.websocket_path}"
-                )
-        except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Failed to register Codebuff WebSocket endpoint: {e}",
-                    exc_info=True,
-                )
-    else:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Codebuff WebSocket server is disabled")
-
     return app
 
 

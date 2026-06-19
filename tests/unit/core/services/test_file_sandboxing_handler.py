@@ -224,7 +224,6 @@ class TestToolPatternMatching:
             "insert_content",
             "search_and_replace",
             "generate_image",
-            # Codebuff
             "write_file",
             "str_replace",
             # Codex

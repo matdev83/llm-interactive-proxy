@@ -3,7 +3,6 @@ version: 1
 scan_roots:
   - src/core/services
   - src/core/app/controllers
-  - src/codebuff/handlers
   - src/connectors/hybrid_backend/infrastructure
 
 call_surfaces:
@@ -42,12 +41,6 @@ call_surfaces:
     file: src/core/app/controllers/__init__.py
     function: generate_stream
     call: backend_service.call_completion
-
-  - id: codebuff_prompt_handler
-    kind: direct
-    file: src/codebuff/handlers/prompt_handler.py
-    function: _stream_response
-    call: completion_service.call_completion
 
   - id: hybrid_reasoning_phase
     kind: direct

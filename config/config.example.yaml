@@ -704,14 +704,3 @@ responses_api:
     # Maximum concurrent WebSocket connections
     max_connections: 100
 
-# Codebuff WebSocket server settings
-#
-# Enables WebSocket server implementing the Codebuff protocol for coding agents
-# See docs/user_guide/features/codebuff-backend.md for complete documentation
-codebuff:
-  enabled: false  # Set to true to enable Codebuff WebSocket server
-  websocket_path: "/ws"  # WebSocket endpoint path
-  heartbeat_timeout_seconds: 60  # Timeout for client heartbeat (seconds)
-  session_cleanup_hours: 1  # Hours of inactivity before session cleanup
-  max_connections: 1000  # Maximum concurrent WebSocket connections
-  max_message_size_bytes: 1048576  # Maximum message size (1MB)

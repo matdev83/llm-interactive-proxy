@@ -19,9 +19,8 @@ class ISessionMetricsInitializer(ABC):
     before backend work begins, with best-effort behavior and strict timeout
     enforcement to prevent blocking cancellation/EoS handling under DB slowness.
 
-    The service is callable from both HTTP and Codebuff flows without relying
-    on request-scoped state, making it suitable for use in transport-agnostic
-    termination handling.
+    The service is callable from transport-agnostic termination handling without
+    relying on request-scoped state.
     """
 
     @abstractmethod

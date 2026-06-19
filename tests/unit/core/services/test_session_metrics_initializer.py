@@ -324,9 +324,9 @@ class TestSessionKeyMapping:
             primary_id="trace-abc123",
             group_id="conversation-xyz",
         )
-        codebuff_key = SessionKey(
-            protocol="codebuff",
-            primary_id="codebuff:ws-456",
+        ws_key = SessionKey(
+            protocol="ws",
+            primary_id="ws:conn-456",
             group_id=None,
         )
 
@@ -349,12 +349,12 @@ class TestSessionKeyMapping:
         http_call = mock_repo.upsert.call_args_list[0][0][0]
         assert http_call.session_id == "trace-abc123"
 
-        # Execute: Codebuff session
+        # Execute: WebSocket session
         await initializer.ensure_session_metrics(
-            codebuff_key, observed_at=sample_observed_at
+            ws_key, observed_at=sample_observed_at
         )
-        codebuff_call = mock_repo.upsert.call_args_list[1][0][0]
-        assert codebuff_call.session_id == "codebuff:ws-456"
+        ws_call = mock_repo.upsert.call_args_list[1][0][0]
+        assert ws_call.session_id == "ws:conn-456"
 
 
 class TestCachingBehavior:

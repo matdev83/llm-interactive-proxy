@@ -227,7 +227,7 @@ class ChatMessage(DomainModel):
             elif "reasoning_details" in data:
                 data["reasoning_content"] = data["reasoning_details"]
 
-        # Map Codebuff/alternative field names
+        # Map alternative field names
         if "content" not in data:
             if "text" in data:
                 data["content"] = data["text"]

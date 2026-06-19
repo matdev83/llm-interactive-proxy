@@ -35,7 +35,7 @@ class ClientEndOfSessionSignal:
     """Typed signal reported by transports for client termination.
 
     This signal represents a normalized client termination event that can be
-    reported from any transport layer (HTTP, Codebuff, etc.).
+    reported from any transport layer.
 
     Attributes:
         session_key: The lifecycle session identifier for cancellation/EoS scoping.

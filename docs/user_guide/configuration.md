@@ -408,17 +408,6 @@ identity:
     default_value: "llm-interactive-proxy"
 ```
 
-### Codebuff Server (`codebuff`)
-
-```yaml
-codebuff:
-  enabled: false
-  websocket_path: "/ws"
-  heartbeat_timeout_seconds: 60
-  session_cleanup_hours: 1
-  max_connections: 1000
-  max_message_size_bytes: 1048576
-```
 
 ### Model Defaults & Routing
 

@@ -22,17 +22,12 @@ class SessionKey:
     This key represents a lifecycle session that must emit exactly one
     End-of-Session (EoS) event. Cancellation is strictly scoped to this unit.
 
-    See design.md section "Session Identity Mapping" for details on how
-    primary_id and group_id map to HTTP and Codebuff transports.
-
     Attributes:
-        protocol: Transport protocol identifier (e.g., "http", "codebuff").
+        protocol: Transport protocol identifier (e.g., "http").
         primary_id: The lifecycle session identifier for EoS/Cancellation scope.
             For HTTP: Trace ID (unique request ID).
-            For Codebuff: `codebuff:{connection_id}`.
         group_id: Optional grouping key for aggregation (e.g., Conversation ID).
             For HTTP: Conversation ID from headers/body.
-            For Codebuff: None (implicit 1:1 with connection).
 
     Invariants:
         - primary_id must be non-empty (enforces "missing context => no attribution")
@@ -45,12 +40,6 @@ class SessionKey:
                 protocol="http",
                 primary_id="trace-abc123",
                 group_id="conversation-xyz789"
-            )
-
-        Codebuff WebSocket:
-            SessionKey(
-                protocol="codebuff",
-                primary_id="codebuff:ws-connection-456"
             )
     """
 

@@ -24,12 +24,12 @@ class TestSessionKey:
     def test_create_with_minimal_fields(self) -> None:
         """Test creating SessionKey with only required fields."""
         key = SessionKey(
-            protocol="codebuff",
-            primary_id="codebuff:ws-789",
+            protocol="ws",
+            primary_id="ws:conn-789",
         )
 
-        assert key.protocol == "codebuff"
-        assert key.primary_id == "codebuff:ws-789"
+        assert key.protocol == "ws"
+        assert key.primary_id == "ws:conn-789"
         assert key.group_id is None
 
     def test_validation_empty_primary_id_raises_error(self) -> None:
@@ -100,8 +100,8 @@ class TestSessionKey:
             group_id="conversation-456",
         )
         key2 = SessionKey(
-            protocol="codebuff",
-            primary_id="codebuff:ws-789",
+            protocol="ws",
+            primary_id="ws:conn-789",
         )
 
         mapping = {key1: "value1", key2: "value2"}
@@ -125,13 +125,13 @@ class TestSessionKey:
     def test_string_representation_no_group_id(self) -> None:
         """Test that string representation works without group_id."""
         key = SessionKey(
-            protocol="codebuff",
-            primary_id="codebuff:ws-789",
+            protocol="ws",
+            primary_id="ws:conn-789",
         )
 
         repr_str = repr(key)
-        assert "codebuff" in repr_str
-        assert "codebuff:ws-789" in repr_str
+        assert "ws" in repr_str
+        assert "ws:conn-789" in repr_str
 
     def test_immutability(self) -> None:
         """Test that SessionKey is immutable (frozen dataclass)."""
@@ -152,7 +152,7 @@ class TestSessionKey:
             primary_id="trace-123",
         )
         key2 = SessionKey(
-            protocol="codebuff",
+            protocol="ws",
             primary_id="trace-123",
         )
 

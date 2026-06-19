@@ -18,7 +18,6 @@ from src.core.config.models.canonical_request_processing import (
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.config.models.logging import LoggingConfig
 from src.core.config.models.misc import (
-    CodebuffConfig,
     EmptyResponseConfig,
     ModelLimitEnforcementConfig,
     ModelRegistryConfig,
@@ -114,7 +113,6 @@ class AppConfigModel(DomainModel, IConfig):
     model_aliases: list[ModelAliasRule] = Field(default_factory=list)
 
     sandboxing: SandboxingConfiguration = Field(default_factory=SandboxingConfiguration)
-    codebuff: CodebuffConfig = Field(default_factory=CodebuffConfig)
     usage_tracking: UsageTrackingConfig = Field(default_factory=UsageTrackingConfig)
     resilience: ResilienceConfig = Field(default_factory=ResilienceConfig)
     end_of_session: EndOfSessionConfig = Field(default_factory=EndOfSessionConfig)

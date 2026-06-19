@@ -77,25 +77,13 @@ class SessionCancellationCleanupEosSubscriber:
             event: The EoS event containing session information.
         """
         try:
-            # Derive SessionKey from session_id
-            # For HTTP: session_id is the Trace ID (primary_id)
-            # For Codebuff: session_id is codebuff:{id} (primary_id)
-            # We need to infer protocol from session_id format
             session_id = event.session_id
             if not session_id:
                 logger.debug("EoS event missing session_id, skipping cleanup")
                 return
 
-            # Determine transport protocol from session_id format
-            # Note: event.protocol is the backend protocol (e.g., "openai"), not transport protocol
-            # Transport protocol must be inferred from session_id format:
-            # - Codebuff: session_id starts with "codebuff:"
-            # - HTTP: all other cases (most common)
-            if session_id.startswith("codebuff:"):
-                protocol = "codebuff"
-            else:
-                # Assume HTTP (most common case)
-                protocol = "http"
+            # Determine transport protocol (assume HTTP)
+            protocol = "http"
 
             primary_id = session_id
             # group_id is not available in EoS event, use None

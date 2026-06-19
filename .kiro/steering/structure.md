@@ -43,7 +43,6 @@ Connector modules implement provider-specific behavior behind shared backend con
 
 Not all active code sits under `src/core/`. Important packages outside core include:
 
-- `src/codebuff/` (WebSocket/agent-oriented protocol support)
 - `src/loop_detection/` and `src/tool_call_loop/` (loop/tool lifecycle subsystems)
 - `src/services/` (cross-cutting services that are not fully migrated)
 - `src/resources/` (embedded prompt/resource artifacts)

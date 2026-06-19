@@ -32,7 +32,7 @@ Prioritize cases where:
 
 How to pick the best 1-3 fixes (high leverage)
 Choose fixes that:
-- Impact primary onboarding examples (`config/config.example.yaml`, `config/codebuff.example.yaml`, etc.).
+- Impact primary onboarding examples (`config/config.example.yaml`, etc.).
 - Prevent CI failures or user confusion.
 - Can be validated with an automated test that parses/validates the examples.
 

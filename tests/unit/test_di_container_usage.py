@@ -268,7 +268,6 @@ class DIViolationScanner:
             "src/core/services/application_state_service.py",
             "src/core/services/backend_service.py",
             "src/connectors/",
-            "src/codebuff/",
             "src/stubs/",
             "src/core/adapters/",
             "src/core/ports/",
