@@ -32,6 +32,7 @@ KNOWN_OAUTH_CONNECTORS: set[str] = _EXTRACTED_OAUTH_CONNECTORS.union(
     {
         "gemini-cli-acp",  # Uses local gemini-cli personal auth via ACP
         "cursor-cli-acp",  # Uses Cursor CLI (agent acp) with cursor_login
+        "agy-cli-acp",  # Uses local Antigravity CLI auth through ACP wrapper
         "openai-codex",  # Uses OAuth via auth.json (special case)
         "openai-codex-v2",  # Managed OAuth stack shared with openai-codex
         "opencode-zen",  # Extracted plugin; name doesn't follow -oauth convention

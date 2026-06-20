@@ -28,6 +28,13 @@ def reset_backend_discovery_state() -> None:
     """
     global _discovery_completed
     _discovery_completed = False
+    try:
+        connectors = import_module("src.connectors")
+    except Exception:
+        return
+    reset = getattr(connectors, "reset_builtin_connector_discovery_state", None)
+    if callable(reset):
+        reset()
 
 
 def _log_oauth_package_status() -> None:
@@ -76,7 +83,8 @@ def discover_backends(*, force: bool = False) -> None:
     if _discovery_completed and not force:
         return
 
-    import_module("src.connectors")
+    connectors = import_module("src.connectors")
+    connectors.ensure_builtin_connectors_discovered()
     discovered_plugin_backends = discover_plugin_backends()
     if logger.isEnabledFor(logging.INFO):
         _log_oauth_package_status()

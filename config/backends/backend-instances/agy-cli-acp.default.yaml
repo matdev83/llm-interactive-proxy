@@ -1,0 +1,14 @@
+# Optional experimental Antigravity CLI ACP backend instance.
+# Prerequisites: build/install go-agy-acp-wrapper and authenticate `agy` once.
+# Multi User Mode: this connector is OAuth-style and is not loaded in production multi-user.
+connector: agy-cli-acp
+extra:
+  # workspace_path omitted: project root comes from session auto-detection (per-request project_dir).
+  model: "google/gemini-3.5-flash-high"
+  process_timeout: 300
+  idle_timeout: 120
+  skip_permissions: true
+  mcp_servers: []
+  # wrapper_executable: "C:\\path\\to\\go-agy-acp-wrapper.exe"
+  # agy_binary: "agy.exe"
+  # wrapper_extra_args: []

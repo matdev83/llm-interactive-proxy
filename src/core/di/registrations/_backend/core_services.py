@@ -20,10 +20,13 @@ logger = logging.getLogger(__name__)
 
 def register_backend_registry(services: ServiceCollection) -> None:
     """Register backend registry as singleton instance."""
+    from src.connectors import ensure_builtin_connectors_discovered
     from src.core.services.backend_registry import (
         BackendRegistry,
         backend_registry,
     )
+
+    ensure_builtin_connectors_discovered()
 
     # Use the global backend registry instance so that connector auto-registration
     # (performed at import time) is visible to the DI container.

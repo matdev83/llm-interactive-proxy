@@ -50,6 +50,12 @@ _MIXED_OPERATOR_ERROR_MESSAGE = (
 )
 
 
+def _ensure_builtin_backends_registered() -> None:
+    from src.connectors import ensure_builtin_connectors_discovered
+
+    ensure_builtin_connectors_discovered()
+
+
 class ConfigurationValidator:
     """Validates configuration for semantic correctness."""
 
@@ -375,6 +381,7 @@ def validate_static_route(config: AppConfig) -> None:
         )
 
     # Validate backend exists in registered backends
+    _ensure_builtin_backends_registered()
     registered_backends = backend_registry.get_registered_backends()
 
     if backend_name not in registered_backends:
@@ -466,6 +473,7 @@ def validate_extracted_backend_references(config: AppConfig) -> None:
     if not referenced_backends:
         return
 
+    _ensure_builtin_backends_registered()
     normalized_registered_backends = {
         normalize_backend_name(name)
         for name in backend_registry.get_registered_backends()
@@ -751,6 +759,7 @@ def validate_model_aliases(config: AppConfig) -> None:
     if not aliases:
         return
 
+    _ensure_builtin_backends_registered()
     registered_backends = set(backend_registry.get_registered_backends())
     available_backends = sorted(registered_backends)
     parser = CompositeSelectorParser()

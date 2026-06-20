@@ -11,6 +11,7 @@ ACP_BACKEND_TYPES: frozenset[str] = frozenset(
     {
         "gemini-cli-acp",
         "cursor-cli-acp",
+        "agy-cli-acp",
     }
 )
 

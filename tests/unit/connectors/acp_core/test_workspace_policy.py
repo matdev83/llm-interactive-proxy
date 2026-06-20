@@ -15,6 +15,7 @@ from src.connectors.acp_core.workspace_policy import (
 def test_acp_backend_types() -> None:
     assert "gemini-cli-acp" in ACP_BACKEND_TYPES
     assert "cursor-cli-acp" in ACP_BACKEND_TYPES
+    assert "agy-cli-acp" in ACP_BACKEND_TYPES
 
 
 def test_extract_workspace_override_from_mapping_prefers_project_dir() -> None:
