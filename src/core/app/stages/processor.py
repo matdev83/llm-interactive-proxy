@@ -589,6 +589,8 @@ class ProcessorStage(InitializationStage):
                 max_counts_per_session=session_config.tool_progress_loop_max_counts_per_session,
                 max_cached_sessions=session_config.tool_progress_loop_max_cached_sessions,
                 enabled=session_config.tool_progress_loop_guard_enabled,
+                action_mode=session_config.tool_progress_loop_action,
+                steering_message=session_config.tool_progress_loop_steering_message,
             )
 
         services.add_singleton(

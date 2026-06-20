@@ -361,6 +361,11 @@ properties:
       tool_progress_loop_max_repeated_output: { type: integer, minimum: 1 }
       tool_progress_loop_max_counts_per_session: { type: integer, minimum: 1 }
       tool_progress_loop_max_cached_sessions: { type: integer, minimum: 1 }
+      tool_progress_loop_action:
+        type: string
+        enum: [error, steer_then_error]
+        default: error
+      tool_progress_loop_steering_message: { type: ["string", "null"] }
   backends:
     type: object
     additionalProperties: true

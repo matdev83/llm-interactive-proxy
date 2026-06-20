@@ -16,6 +16,17 @@ class ToolProgressLoopAction(str, Enum):
 
     ALLOW = "allow"
     BLOCK = "block"
+    STEER = "steer"
+
+
+ToolProgressLoopGuardActionMode = Literal["error", "steer_then_error"]
+
+DEFAULT_TOOL_PROGRESS_LOOP_STEERING_MESSAGE = (
+    "You appear to be repeating the same tool call without making progress. "
+    "Try a different approach, summarize what you've learned, or ask for guidance. "
+    "If you repeat the exact same tool call with the same arguments again, "
+    "this session will be stopped."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +60,7 @@ class ToolProgressLoopDecision:
     score: int = 0
     repeated_call_count: int = 0
     repeated_output_count: int = 0
+    steering_message: str | None = None
 
     @property
     def allow(self) -> bool:

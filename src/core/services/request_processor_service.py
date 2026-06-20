@@ -13,7 +13,7 @@ import logging
 from collections import OrderedDict
 from typing import Any
 
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.model_utils import (
     has_explicit_backend_selector,
     parse_model_backend,
@@ -27,7 +27,10 @@ from src.core.domain.quality_verifier_turns import (
 )
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.tool_progress_loop import ToolProgressLoopAction
+from src.core.domain.tool_progress_loop import (
+    DEFAULT_TOOL_PROGRESS_LOOP_STEERING_MESSAGE,
+    ToolProgressLoopAction,
+)
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.command_processor_interface import ICommandProcessor
@@ -553,6 +556,27 @@ class RequestProcessor(IRequestProcessor):
                             "tool_progress_loop_detected": True,
                             "reason": loop_decision.reason or "unknown",
                         },
+                    )
+                if loop_decision.action == ToolProgressLoopAction.STEER:
+                    steering_message = (
+                        loop_decision.steering_message
+                        or DEFAULT_TOOL_PROGRESS_LOOP_STEERING_MESSAGE
+                    )
+                    logger.warning(
+                        "Tool progress loop guard steering session %s: reason=%s score=%s repeated_calls=%s repeated_outputs=%s",
+                        quality_verifier_session_id,
+                        loop_decision.reason,
+                        loop_decision.score,
+                        loop_decision.repeated_call_count,
+                        loop_decision.repeated_output_count,
+                    )
+                    request_data = request_data.model_copy(
+                        update={
+                            "messages": [
+                                *request_data.messages,
+                                ChatMessage(role="user", content=steering_message),
+                            ]
+                        }
                     )
 
         quality_verifier_turn_incremented = False

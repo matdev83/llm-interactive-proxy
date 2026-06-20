@@ -170,6 +170,14 @@ session:
   # Default: 300 (5 minutes)
   quality_verifier_cooldown_seconds: 300
 
+  # Tool progress loop guard (cross-request repeated tool call/output detection)
+  tool_progress_loop_guard_enabled: true
+  tool_progress_loop_max_consecutive_followups: 50
+  tool_progress_loop_max_repeated_call_signature: 7
+  tool_progress_loop_max_repeated_output: 7
+  tool_progress_loop_action: error  # error | steer_then_error
+  tool_progress_loop_steering_message: null
+
   # Tool call processing behavior
   # These settings control how tool calls are processed to prevent re-processing of historical messages
   # 

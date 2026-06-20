@@ -134,3 +134,41 @@ async def test_tool_progress_guard_uses_stable_resolved_session_id() -> None:
     )
 
     assert guard.evaluate_request.await_args.kwargs["session_id"] == "stable-session"
+
+
+@pytest.mark.asyncio
+async def test_tool_progress_guard_steers_and_continues_backend_dispatch() -> None:
+    request_data = _tool_followup_request()
+    guard = AsyncMock()
+    guard.evaluate_request.return_value = ToolProgressLoopDecision(
+        action=ToolProgressLoopAction.STEER,
+        reason="repeated_tool_output",
+        steering_message="Try a different tool call.",
+        repeated_output_count=3,
+    )
+    processor, backend_executor = _processor_with_guard(request_data, guard)
+
+    await processor.process_request(MockRequestContext(), request_data)
+
+    guard.evaluate_request.assert_awaited_once()
+    backend_executor.execute.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_tool_progress_guard_steering_appends_user_message() -> None:
+    request_data = _tool_followup_request()
+    steering_message = "Stop repeating the same tool call."
+    guard = AsyncMock()
+    guard.evaluate_request.return_value = ToolProgressLoopDecision(
+        action=ToolProgressLoopAction.STEER,
+        reason="repeated_tool_output",
+        steering_message=steering_message,
+    )
+    processor, backend_executor = _processor_with_guard(request_data, guard)
+
+    await processor.process_request(MockRequestContext(), request_data)
+
+    backend_executor.execute.assert_called_once()
+    prepared_request = processor._backend_preparer.prepare.call_args.args[2]
+    assert prepared_request.messages[-1].role == "user"
+    assert prepared_request.messages[-1].content == steering_message

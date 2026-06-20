@@ -31,3 +31,23 @@ async def test_tool_progress_loop_guard_uses_session_config() -> None:
     assert guard._max_repeated_tool_output == 6
     assert guard._max_counts_per_session == 7
     assert guard._max_cached_sessions == 8
+
+
+@pytest.mark.asyncio
+async def test_tool_progress_loop_guard_wires_action_and_steering_message() -> None:
+    config = AppConfig(
+        session=SessionConfig(
+            tool_progress_loop_action="steer_then_error",
+            tool_progress_loop_steering_message="Custom steer message",
+        )
+    )
+    services = ServiceCollection()
+    services.add_instance(AppConfig, config)
+
+    await ProcessorStage().execute(services, config)
+    provider = services.build_service_provider()
+
+    guard = provider.get_required_service(ToolProgressLoopGuard)
+
+    assert guard._action_mode == "steer_then_error"
+    assert guard._steering_message == "Custom steer message"

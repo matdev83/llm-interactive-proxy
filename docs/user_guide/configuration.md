@@ -137,18 +137,18 @@ backends:
   interleaved_thinking_instructions_file: "config/prompts/interleaved_thinking/thinker_prompt.md"
   interleaved_thinking_stream_to_client: false
   interleaved_thinking_regular_turns_remaining: 2
-  
+
   # Backend-specific configurations
   openai:
     api_key: "sk-..."          # API key string (or None)
     api_url: "https://api.openai.com/v1"
     timeout: 120
     models: []                 # Optional list of supported models
-    
+
   anthropic:
     api_key: "sk-ant-..."
     api_url: "https://api.anthropic.com/v1"
-    
+
   gemini:
     api_key: "..."
     api_url: "https://generativelanguage.googleapis.com"
@@ -168,7 +168,7 @@ backends:
       tool_output_truncate_chars: null  # Optional tool output truncation (disabled by default)
       tool_output_truncate_lines: null  # Optional tool output truncation (disabled by default)
       tool_output_truncation_log_level: null  # "DEBUG", "INFO", or "off" (default: null)
-    
+
   openrouter:
     api_key: "sk-or-..."
     api_url: "https://openrouter.ai/api/v1"
@@ -176,7 +176,7 @@ backends:
   minimax:
     api_key: "..."
     api_url: "https://api.minimax.io/v1"
-    
+
   # Custom/Other backends follow the same structure
 ```
 
@@ -195,7 +195,7 @@ auth:
   api_keys: []                 # List of allowed client API keys
   redact_api_keys_in_prompts: true
   trusted_ips: []              # List of trusted IP addresses
-  
+
   brute_force_protection:
     enabled: true
     max_failed_attempts: 5
@@ -219,7 +219,7 @@ session:
   project_dir_resolution_mode: "hybrid" # deterministic, llm, hybrid
   project_dir_resolution_filesystem_mode: "auto" # auto, enabled, disabled
   disable_default_openrouter_project_dir_resolution_fallback: false
-  
+
   # File Access Sandboxing
   sandboxing:
     enabled: false
@@ -231,17 +231,17 @@ session:
   dangerous_command_steering_message: null
   force_reprocess_tool_calls: false
   log_skipped_tool_calls: false
-  
+
   # Tool Call Repair
   tool_call_repair_enabled: true
   tool_call_repair_buffer_cap_bytes: 65536
-  
+
   # JSON Repair
   json_repair_enabled: true
   json_repair_buffer_cap_bytes: 65536
   json_repair_strict_mode: false
   json_repair_schema: null     # Optional JSON schema
-  
+
   # Pytest Integration
   pytest_full_suite_steering_enabled: false
   pytest_full_suite_steering_message: null
@@ -250,7 +250,7 @@ session:
   pytest_context_saving_enabled: false
   test_execution_reminder_enabled: false
   test_execution_reminder_message: null
-  
+
   # Fixes
   fix_think_tags_enabled: false
   fix_think_tags_streaming_buffer_size: 4096
@@ -259,12 +259,20 @@ session:
   # When the last user message is exactly "continue" or "proceed",
   # tag it as non-forwardable so it is excluded from remote LLM submissions.
   auto_continue_removal_enabled: true
-  
+
   # Quality Verifier
   quality_verifier_model: null            # "backend:model"
   quality_verifier_frequency: 10          # Every N eligible turns (main-model turns)
   quality_verifier_max_history: null      # Optional history truncation (int)
-  
+
+  # Tool Progress Loop Guard
+  tool_progress_loop_guard_enabled: true
+  tool_progress_loop_max_consecutive_followups: 50
+  tool_progress_loop_max_repeated_call_signature: 7
+  tool_progress_loop_max_repeated_output: 7
+  tool_progress_loop_action: error        # error | steer_then_error
+  tool_progress_loop_steering_message: null
+
   # Planning Phase
   planning_phase:
     enabled: false
@@ -274,7 +282,7 @@ session:
     overrides:                 # Optional overrides for strong model
       temperature: 0.7
       top_p: 0.9
-      
+
   # Session Continuity
   session_continuity:
     enabled: true
@@ -282,17 +290,17 @@ session:
     max_session_age_seconds: 604800
     fingerprint_message_count: 5
     client_key_includes_ip: true
-    
+
   # Streaming Sampler (Observability)
   streaming_sampler:
     enabled: true
     sample_rate: 0.01          # 1% sampling
     max_samples: 100
-    
+
   # Tool Call Reactor & Access Control
   tool_call_reactor:
     enabled: true
-    
+
     # Legacy Apply Diff Steering
     apply_diff_steering_enabled: true
     apply_diff_steering_rate_limit_seconds: 60
@@ -301,7 +309,7 @@ session:
     # Opt-in: steer agents away from shell `cat >` / `cat >>` for file edits
     cat_file_edits_steering_enabled: false
     cat_file_edits_steering_message: null
-    
+
     access_policies:           # List of access policies
       - name: "block-dangerous"
         model_pattern: ".*"
@@ -317,7 +325,7 @@ logging:
   request_logging: false       # Log full request bodies
   response_logging: false      # Log full response bodies
   log_file: "./var/logs/proxy.log"
-  
+
   # Wire Capture (JSON)
   capture_file: null           # Path to capture file
   capture_max_bytes: null      # Rotation threshold
@@ -328,7 +336,7 @@ logging:
   capture_buffer_size: 65536
   capture_flush_interval: 1.0
   capture_max_entries_per_flush: 100
-  
+
   # Wire Capture (CBOR)
   cbor_capture_dir: null       # Directory for CBOR captures
   cbor_capture_session_id: null
@@ -490,23 +498,23 @@ See [Health Checks Guide](features/health-checks.md) for complete documentation.
 health_check:
   # Master switch for health check system
   enabled: true
-  
+
   # Circuit breaker - exclude unhealthy backends from routing
   circuit_breaker_enabled: true
-  
+
   # Notify backend instances when their API URL health changes
   notify_backends: true
-  
+
   # Log successful health checks (can be verbose)
   log_healthy_checks: false
-  
+
   # ICMP Ping check configuration
   ping:
     enabled: true
     interval_seconds: 30.0      # Seconds between checks
     timeout_seconds: 5.0        # Ping timeout
     failure_threshold: 3        # Consecutive failures before marking unhealthy
-  
+
   # HTTP probe configuration
   http:
     enabled: true
@@ -578,26 +586,26 @@ memory:
   # Enable the feature
   available: true
   default_enabled: false
-  
+
   # Models for summary and context generation
   summary_model: "openai:gpt-4o-mini"
   context_model: "openai:gpt-4o-mini"
-  
+
   # Database
   database_path: "./var/memory.sqlite3"
   retention_days: 90
-  
+
   # Session behavior
   session_timeout_minutes: 30
   max_context_tokens: 2000
   context_relevance_threshold: 0.5
-  
+
   # Privacy controls
   redaction_patterns:
     - "(?i)(api[_-]?key|password|secret|token)\\s*[=:]\\s*[^\\s]*"
   disabled_users: []
   disabled_clients: []
-  
+
   # Single-user mode (for personal deployments)
   single_user_mode: false
   fixed_user_id: null
@@ -710,16 +718,16 @@ database:
   # SQLite (default): sqlite+aiosqlite:///./var/db/proxy.db
   # PostgreSQL: postgresql+asyncpg://user:pass@host:5432/db
   url: "sqlite+aiosqlite:///./var/db/proxy.db"
-  
+
   # Connection pool settings (PostgreSQL only)
   pool_size: 5
   max_overflow: 10
   pool_timeout: 30
-  
+
   # Debug settings
   echo: false
   echo_pool: false
-  
+
   # Auto-run migrations on startup
   auto_migrate: true
 ```

@@ -7,11 +7,14 @@ Validates: Requirements 7.1
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 # Tests updated for refactored RequestProcessor architecture
 from unittest.mock import AsyncMock, Mock
 
 from hypothesis import given
 from hypothesis import strategies as st
+from src.connectors.base import LLMBackend
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.domain.processed_result import ProcessedResult
@@ -174,8 +177,8 @@ def create_test_replacement_service(
     """Create a test replacement service."""
     registry = BackendRegistry()
 
-    def mock_factory() -> None:
-        pass
+    def mock_factory(*args: Any, **kwargs: Any) -> LLMBackend:
+        return cast(LLMBackend, Mock())
 
     # Register both original and replacement backends
     registry.register_backend("test-backend", mock_factory)
@@ -196,11 +199,13 @@ def create_test_replacement_service(
         min_size=1,
         max_size=30,
         alphabet=st.characters(
-            blacklist_characters=[":"], blacklist_categories=("Cs",)
+            blacklist_characters=[":", "?"], blacklist_categories=cast(Any, ("Cs",))
         ),
     ),
     message_content=st.text(
-        min_size=1, max_size=50, alphabet=st.characters(blacklist_categories=("Cs",))
+        min_size=1,
+        max_size=50,
+        alphabet=st.characters(blacklist_categories=cast(Any, ("Cs",))),
     ),
 )
 @property_test_settings(max_examples=5)
@@ -244,7 +249,7 @@ async def test_property_26_command_processing_order(
             session_id, request_context, original_backend, original_model
         )
 
-    replacement_service.should_replace = track_should_replace
+    replacement_service.should_replace = track_should_replace  # type: ignore[method-assign]
 
     # Create mocks for new required dependencies
     from src.core.interfaces.request_processor_internal import (
@@ -367,11 +372,13 @@ async def test_property_26_command_processing_order(
         min_size=1,
         max_size=50,
         alphabet=st.characters(
-            blacklist_characters=[":"], blacklist_categories=("Cs",)
+            blacklist_characters=[":", "?"], blacklist_categories=cast(Any, ("Cs",))
         ),
     ),
     message_content=st.text(
-        min_size=1, max_size=100, alphabet=st.characters(blacklist_categories=("Cs",))
+        min_size=1,
+        max_size=100,
+        alphabet=st.characters(blacklist_categories=cast(Any, ("Cs",))),
     ),
     turn_count=st.integers(
         min_value=1, max_value=3
@@ -404,8 +411,8 @@ async def test_property_38_streaming_turn_completion(
     # Create replacement service with probability=1.0 and specified turn_count
     registry = BackendRegistry()
 
-    def mock_factory() -> None:
-        pass
+    def mock_factory(*args: Any, **kwargs: Any) -> LLMBackend:
+        return cast(LLMBackend, Mock())
 
     # Register both original and replacement backends
     registry.register_backend("test-backend", mock_factory)
@@ -529,11 +536,13 @@ async def test_property_38_streaming_turn_completion(
         min_size=1,
         max_size=30,
         alphabet=st.characters(
-            blacklist_characters=[":"], blacklist_categories=("Cs",)
+            blacklist_characters=[":", "?"], blacklist_categories=cast(Any, ("Cs",))
         ),
     ),
     message_content=st.text(
-        min_size=1, max_size=50, alphabet=st.characters(blacklist_categories=("Cs",))
+        min_size=1,
+        max_size=50,
+        alphabet=st.characters(blacklist_categories=cast(Any, ("Cs",))),
     ),
 )
 @property_test_settings(max_examples=5)
@@ -560,8 +569,8 @@ async def test_turn_completion_on_error(
     # Create replacement service with probability=1.0 and turn_count=2
     registry = BackendRegistry()
 
-    def mock_factory() -> None:
-        pass
+    def mock_factory(*args: Any, **kwargs: Any) -> LLMBackend:
+        return cast(LLMBackend, Mock())
 
     # Register both original and replacement backends
     registry.register_backend("test-backend", mock_factory)

@@ -334,6 +334,8 @@ class SessionConfig(DomainModel):
     tool_progress_loop_max_repeated_output: int = Field(default=7, ge=1)
     tool_progress_loop_max_counts_per_session: int = Field(default=256, ge=1)
     tool_progress_loop_max_cached_sessions: int = Field(default=1000, ge=1)
+    tool_progress_loop_action: Literal["error", "steer_then_error"] = "error"
+    tool_progress_loop_steering_message: str | None = None
 
     @field_validator("quality_verifier_frequency")
     @classmethod
