@@ -12,6 +12,57 @@ import src.core.wire_capture.inspection as inspector
 SCRIPT_PATH = Path("scripts/inspect_cbor_capture.py")
 
 
+def _run_script(args: list[str]) -> subprocess.CompletedProcess:
+    """Run the script in-process by calling its main function, simulating a subprocess run."""
+    import io
+    from contextlib import redirect_stderr, redirect_stdout
+
+    from src.core.wire_capture.inspection.app import main
+
+    original_argv = sys.argv[:]
+    sys.argv = ["inspect_cbor_capture.py", *args]
+
+    stdout_buf = io.StringIO()
+    stderr_buf = io.StringIO()
+
+    exit_code = 0
+    with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+        try:
+            res = main()
+            if isinstance(res, int):
+                exit_code = res
+            elif hasattr(res, "code"):
+                code = res.code
+                if isinstance(code, int):
+                    exit_code = code
+                elif isinstance(code, str):
+                    try:
+                        exit_code = int(code)
+                    except ValueError:
+                        exit_code = 1
+        except SystemExit as e:
+            code = e.code
+            if isinstance(code, int):
+                exit_code = code
+            elif isinstance(code, str):
+                try:
+                    exit_code = int(code)
+                except ValueError:
+                    exit_code = 1
+        except Exception as e:
+            stderr_buf.write(str(e))
+            exit_code = 1
+        finally:
+            sys.argv = original_argv
+
+    return subprocess.CompletedProcess(
+        args=["inspect_cbor_capture.py", *args],
+        returncode=exit_code if isinstance(exit_code, int) else 0,
+        stdout=stdout_buf.getvalue(),
+        stderr=stderr_buf.getvalue(),
+    )
+
+
 def _write_capture_file(capture_file: Path, entries: list[dict[str, object]]) -> None:
     """Write a minimal V2 CBOR capture file for end-to-end inspector tests."""
     header = {
@@ -35,8 +86,7 @@ def test_script_exists():
 
 def test_script_help():
     """Verify that the script runs and shows help."""
-    cmd = [sys.executable, str(SCRIPT_PATH), "--help"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = _run_script(["--help"])
     assert result.returncode == 0
     assert "Inspect CBOR wire capture files" in result.stdout
 
@@ -95,14 +145,7 @@ def test_script_analysis(tmp_path):
         )
 
     # Run analysis
-    cmd = [
-        sys.executable,
-        str(SCRIPT_PATH),
-        str(capture_file),
-        "--analyze",
-        "--verbose",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = _run_script([str(capture_file), "--analyze", "--verbose"])
 
     assert result.returncode == 0
     output = result.stdout
@@ -659,11 +702,7 @@ def test_cli_analyze_golden_realistic_v2_capture(tmp_path):
         ],
     )
 
-    result = subprocess.run(
-        [sys.executable, str(SCRIPT_PATH), str(capture_file), "--analyze"],
-        capture_output=True,
-        text=True,
-    )
+    result = _run_script([str(capture_file), "--analyze"])
 
     assert result.returncode == 0
     assert "REQUEST/RESPONSE ANALYSIS" in result.stdout
@@ -703,18 +742,7 @@ def test_cli_timeline_golden_realistic_v2_capture(tmp_path):
         ],
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT_PATH),
-            str(capture_file),
-            "--timeline",
-            "--backend",
-            "openai",
-        ],
-        capture_output=True,
-        text=True,
-    )
+    result = _run_script([str(capture_file), "--timeline", "--backend", "openai"])
 
     assert result.returncode == 0
     assert "TIMELINE VIEW" in result.stdout
@@ -768,18 +796,8 @@ def test_cli_track_request_golden_realistic_interleaved_capture(tmp_path):
         ],
     )
 
-    result = subprocess.run(
-        [
-            sys.executable,
-            str(SCRIPT_PATH),
-            str(capture_file),
-            "--track-request",
-            "1",
-            "--backend",
-            "openai",
-        ],
-        capture_output=True,
-        text=True,
+    result = _run_script(
+        [str(capture_file), "--track-request", "1", "--backend", "openai"]
     )
 
     assert result.returncode == 0

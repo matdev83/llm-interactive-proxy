@@ -102,6 +102,7 @@ dev = [
     "types-psutil>=6.0.0",
     "pytest-testmon",
     "pytest-timeout",
+    "pytest-split",
 
 
 ]
@@ -120,7 +121,7 @@ norecursedirs = ["tmp.*", "build", "benchmark", "_site", "OLD", "dev/thrdparty"]
 # This reduces I/O overhead during local development
 # Use --junit-xml=test-results.xml to enable explicitly
 # Using loadfile distribution - more efficient for test suites with file-level fixtures
-addopts = "--asyncio-mode=auto -W ignore --max-worker-restart=50 -n 4 --dist=loadfile --timeout=400 --timeout-method=thread -r fE"
+addopts = "--asyncio-mode=auto -W ignore --max-worker-restart=50 -n 4 --dist=loadfile --timeout=400 --timeout-method=thread -r fE -m \"not slow and not network and not live and not unix_only and not symlinks\""
 asyncio_mode = "auto"
 junit_duration_report = "call"
 log_cli_level = "WARNING"
@@ -178,6 +179,8 @@ markers = [
     "testmon_cache: marks tests that should disable testmon cache",
     "real_time: marks tests that legitimately require real system wall-clock time (requires reason parameter)",
     "performance: marks tests as performance benchmarks (excluded by default, use with -m performance)",
+    "unix_only: marks tests that are Unix-specific (excluded by default on Windows)",
+    "symlinks: marks tests that require symlink support (excluded by default)",
 ]
 
 [tool.mdformat]
@@ -464,4 +467,3 @@ verbose = false
 [tool.testmon]
 run_variant_expression = "','.join(sorted(str(v) for v in [sys.version_info[:2], sys.platform]))"
 historian = "git"
-

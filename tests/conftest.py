@@ -91,6 +91,7 @@ HAS_PYTEST_HTTPX = _module_is_available("pytest_httpx")
 _session_loop: asyncio.AbstractEventLoop | None = None
 _TEST_CLIENTS: weakref.WeakSet[TestClient] = weakref.WeakSet()
 _ORIGINAL_EVENT_LOOP_POLICY = asyncio.get_event_loop_policy()
+_SESSION_PENDING_TASK_CLEANUP_TIMEOUT_SECONDS = 10.0
 
 
 def _ensure_windows_selector_event_loop_policy() -> None:
@@ -366,8 +367,35 @@ def _cleanup_root_artifacts() -> None:
                 os.remove(path)
 
 
+_symlinks_supported: bool | None = None
+
+
+def _supports_symlinks() -> bool:
+    global _symlinks_supported
+    if _symlinks_supported is not None:
+        return _symlinks_supported
+    import tempfile
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            link = Path(tmpdir) / "link"
+            target = Path(tmpdir) / "target"
+            target.touch()
+            link.symlink_to(target)
+            _symlinks_supported = True
+    except (OSError, NotImplementedError):
+        _symlinks_supported = False
+    return _symlinks_supported
+
+
 def pytest_runtest_setup(item) -> None:  # type: ignore[no-untyped-def]
-    """Ensure root-artifact cleanliness before cleanliness gate tests run."""
+    """Ensure root-artifact cleanliness and enforce OS/platform requirements."""
+    if item.get_closest_marker("unix_only") and sys.platform == "win32":
+        pytest.skip("Unix-specific test")
+
+    if item.get_closest_marker("symlinks") and not _supports_symlinks():
+        pytest.skip("Symlinks not supported or not permitted on this system")
+
     if item.nodeid.endswith(
         "tests/test_project_root_cleanliness.py::test_no_txt_files_in_root"
     ):
@@ -399,6 +427,68 @@ def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]
         asyncio.set_event_loop(_session_loop)
 
 
+def _format_task_stack(task: asyncio.Task[Any]) -> str:
+    frames = task.get_stack(limit=25)
+    if not frames:
+        return "<no Python stack available>"
+    chunks: list[str] = []
+    for frame in frames:
+        chunks.extend(traceback.format_list(traceback.extract_stack(frame, limit=25)))
+    return "".join(chunks).rstrip()
+
+
+def _log_session_loop_pending_tasks(
+    pending: list[asyncio.Task[Any]], *, reason: str
+) -> None:
+    for task in pending:
+        logger.warning(
+            "Pending session-loop task at pytest session finish (%s): name=%s done=%s cancelled=%s coro=%r\n%s",
+            reason,
+            task.get_name(),
+            task.done(),
+            task.cancelled(),
+            task.get_coro(),
+            _format_task_stack(task),
+        )
+
+
+def _log_non_daemon_threads(reason: str) -> None:
+    for thread in threading.enumerate():
+        if thread is threading.main_thread() or thread.daemon:
+            continue
+        ident = thread.ident
+        frame = sys._current_frames().get(ident) if ident is not None else None
+        stack = "".join(traceback.format_stack(frame)) if frame else ""
+        logger.warning(
+            "Non-daemon thread still running at pytest session finish (%s): %s\n%s",
+            reason,
+            thread.name,
+            stack,
+        )
+
+
+def _cancel_session_loop_pending_tasks(loop: asyncio.AbstractEventLoop) -> None:
+    pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
+    if not pending:
+        return
+
+    _log_session_loop_pending_tasks(pending, reason="before cancellation")
+    for task in pending:
+        task.cancel()
+
+    done, still_pending = loop.run_until_complete(
+        asyncio.wait(pending, timeout=_SESSION_PENDING_TASK_CLEANUP_TIMEOUT_SECONDS)
+    )
+    for task in done:
+        with contextlib.suppress(asyncio.CancelledError, Exception):
+            task.exception()
+
+    if still_pending:
+        still_pending_list = list(still_pending)
+        _log_session_loop_pending_tasks(still_pending_list, reason="cleanup timeout")
+        _log_non_daemon_threads(reason="session-loop cleanup timeout")
+
+
 def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untyped-def]
     """Cleanup potential artifacts after the test session finishes."""
     _cleanup_root_artifacts()
@@ -408,15 +498,7 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untype
         try:
             asyncio.set_event_loop(None)
             if not _session_loop.is_closed() and not _session_loop.is_running():
-                pending = [
-                    task for task in asyncio.all_tasks(_session_loop) if not task.done()
-                ]
-                for task in pending:
-                    task.cancel()
-                if pending:
-                    _session_loop.run_until_complete(
-                        asyncio.gather(*pending, return_exceptions=True)
-                    )
+                _cancel_session_loop_pending_tasks(_session_loop)
             if not _session_loop.is_closed() and not _session_loop.is_running():
                 _session_loop.close()
         finally:

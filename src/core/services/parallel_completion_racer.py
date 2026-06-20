@@ -521,6 +521,8 @@ class ParallelCompletionRacer:
                     handicap_accelerate=handicap_accelerate,
                     should_stop=_should_stop,
                 )
+                if leg.leg_id == winner_leg_id:
+                    winner_first_chunk_emitted_event.set()
 
         async def _keepalive_loop() -> None:
             while not _should_stop() and not first_token_event.is_set():
@@ -578,16 +580,20 @@ class ParallelCompletionRacer:
                 yield item
         finally:
             _mark_race_stopped()
-            if not finished_normally:
-                if winner_leg_id is not None and not winner_first_chunk_emitted:
-                    await winner_first_chunk_emitted_event.wait()
-                await _stop_all(reason="race_aborted")
-            background_tasks = [*leg_tasks.values(), *auxiliary_tasks]
-            if not orchestrator.done():
-                orchestrator.cancel()
-            for task in background_tasks:
-                if not task.done():
-                    task.cancel()
-            if background_tasks:
-                await asyncio.gather(*background_tasks, return_exceptions=True)
-            await asyncio.gather(orchestrator, return_exceptions=True)
+
+            async def _cleanup() -> None:
+                if not finished_normally:
+                    if winner_leg_id is not None and not winner_first_chunk_emitted:
+                        await winner_first_chunk_emitted_event.wait()
+                    await _stop_all(reason="race_aborted")
+                background_tasks = [*leg_tasks.values(), *auxiliary_tasks]
+                if not orchestrator.done():
+                    orchestrator.cancel()
+                for task in background_tasks:
+                    if not task.done():
+                        task.cancel()
+                if background_tasks:
+                    await asyncio.gather(*background_tasks, return_exceptions=True)
+                await asyncio.gather(orchestrator, return_exceptions=True)
+
+            await asyncio.shield(_cleanup())

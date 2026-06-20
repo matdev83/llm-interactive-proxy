@@ -1,17 +1,20 @@
 """Regression test for ToolCallRepairService 10MB limit scenarios.
 
-This test verifies various payload size scenarios around the 10MB limit:
+This test verifies various payload size scenarios around the limit:
 1. Small payloads (should work)
 2. Medium payloads (should work)
-3. Large payloads over 10MB (should be rejected)
-4. Just under 10MB (should work)
-5. Just over 10MB (should be rejected)
+3. Large payloads over limit (should be rejected)
+4. Just under limit (should work)
+5. Just over limit (should be rejected)
 
-Fixed: MAX_JSON_PARSE_SIZE (10MB) limit prevents DoS attacks while allowing
+Fixed: MAX_JSON_PARSE_SIZE limit prevents DoS attacks while allowing
 legitimate large payloads.
 """
 
+from __future__ import annotations
+
 import json
+import sys
 
 import pytest
 from src.core.services.tool_call_repair_service import (
@@ -23,8 +26,21 @@ from src.core.services.tool_call_repair_service import (
 pytestmark = pytest.mark.timeout(60)
 
 
+@pytest.fixture(autouse=True)
+def override_max_json_parse_size(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Override MAX_JSON_PARSE_SIZE to 10 KB for testing to avoid huge memory/CPU overhead."""
+    import src.core.services.tool_call_repair_service as service
+
+    TEST_LIMIT = 10 * 1024  # 10 KB
+    monkeypatch.setattr(service, "MAX_JSON_PARSE_SIZE", TEST_LIMIT)
+
+    # Correctly monkeypatch the currently executing test module namespace
+    current_mod = sys.modules[__name__]
+    monkeypatch.setattr(current_mod, "MAX_JSON_PARSE_SIZE", TEST_LIMIT)
+
+
 class TestToolCallRepairService10MBScenariosRegression:
-    """Regression tests for ToolCallRepairService 10MB limit scenarios."""
+    """Regression tests for ToolCallRepairService limit scenarios."""
 
     @pytest.fixture
     def repair_service(self) -> ToolCallRepairService:
@@ -47,22 +63,20 @@ class TestToolCallRepairService10MBScenariosRegression:
         self, repair_service: ToolCallRepairService
     ) -> None:
         """Test that medium payloads are processed successfully."""
-        # Use smaller payload for performance while still testing the limit logic
+        # Use 1KB payload (under the 10KB limit)
         medium_data = {
             "function_call": {
                 "name": "test",
-                "arguments": {
-                    "data": "x" * (1 * 1024 * 1024)
-                },  # 1MB (reduced from 5MB)
+                "arguments": {"data": "x" * (1 * 1024)},  # 1KB
             }
         }
         medium_payload = json.dumps(medium_data)
-        medium_size_mb = len(medium_payload.encode("utf-8")) / (1024 * 1024)
+        medium_size_kb = len(medium_payload.encode("utf-8")) / 1024
 
-        # Should be under 10MB
-        assert medium_size_mb < (
-            MAX_JSON_PARSE_SIZE / (1024 * 1024)
-        ), f"Test payload ({medium_size_mb:.2f}MB) should be under 10MB limit"
+        # Should be under the limit
+        assert medium_size_kb < (
+            MAX_JSON_PARSE_SIZE / 1024
+        ), f"Test payload ({medium_size_kb:.2f}KB) should be under limit"
 
         result = repair_service.repair_tool_calls(f"```json\n{medium_payload}\n```")
 
@@ -71,19 +85,16 @@ class TestToolCallRepairService10MBScenariosRegression:
     def test_large_payload_rejected(
         self, repair_service: ToolCallRepairService
     ) -> None:
-        """Test that large payloads over 10MB are rejected."""
-        # Create valid JSON that exceeds 10MB
-        # Use a more efficient approach: create the string directly instead of through dict
-        # This avoids expensive JSON serialization of a huge dict
-        # Reduced target_size to minimize string creation time while still testing rejection
-        target_size = MAX_JSON_PARSE_SIZE + 50  # Reduced from 100 for performance
+        """Test that large payloads over the limit are rejected."""
+        # Create valid JSON that exceeds the limit
+        target_size = MAX_JSON_PARSE_SIZE + 50
         large_payload = f'{{"function_call":{{"name":"test","arguments":{{"data":"{"x" * target_size}"}}}}}}'
-        large_size_mb = len(large_payload.encode("utf-8")) / (1024 * 1024)
+        large_size_kb = len(large_payload.encode("utf-8")) / 1024
 
-        # Should be over 10MB
-        assert large_size_mb > (
-            MAX_JSON_PARSE_SIZE / (1024 * 1024)
-        ), f"Test payload ({large_size_mb:.2f}MB) should exceed 10MB limit"
+        # Should be over the limit
+        assert large_size_kb > (
+            MAX_JSON_PARSE_SIZE / 1024
+        ), f"Test payload ({large_size_kb:.2f}KB) should exceed limit"
 
         result = repair_service.repair_tool_calls(f"```json\n{large_payload}\n```")
 
@@ -92,10 +103,9 @@ class TestToolCallRepairService10MBScenariosRegression:
     def test_just_under_10mb_processed(
         self, repair_service: ToolCallRepairService
     ) -> None:
-        """Test that payloads just under 10MB are processed."""
-        # Use smaller payload for performance while still testing boundary logic
-        # Create payload that's well under the limit but still substantial
-        target_size = 5 * 1024 * 1024  # 5MB (reduced from ~10MB for performance)
+        """Test that payloads just under the limit are processed."""
+        # Create payload that's well under the limit but still substantial (5 KB)
+        target_size = 5 * 1024
 
         under_data = {
             "function_call": {
@@ -116,16 +126,11 @@ class TestToolCallRepairService10MBScenariosRegression:
     def test_just_over_10mb_rejected(
         self, repair_service: ToolCallRepairService
     ) -> None:
-        """Test that payloads just over 10MB are rejected."""
-        # Create payload that's just over 10MB
-        # Calculate string size needed: JSON overhead is ~50 bytes
+        """Test that payloads just over the limit are rejected."""
+        # Create payload that's just over the limit
         json_overhead = 50  # Approximate overhead for JSON structure
-        target_size = (
-            MAX_JSON_PARSE_SIZE - json_overhead + 50
-        )  # Reduced from 100 for performance
+        target_size = MAX_JSON_PARSE_SIZE - json_overhead + 50
 
-        # Create minimal dict structure and serialize efficiently
-        # Using a single large string is faster than many small objects
         over_data = {
             "function_call": {
                 "name": "test",
@@ -144,24 +149,21 @@ class TestToolCallRepairService10MBScenariosRegression:
 
         result = repair_service.repair_tool_calls(f"```json\n{over_payload}\n```")
 
-        assert result is None, "Payload just over 10MB should be rejected"
+        assert result is None, "Payload just over limit should be rejected"
 
     def test_boundary_conditions(self, repair_service: ToolCallRepairService) -> None:
-        """Test boundary conditions around 10MB limit."""
-        # Test with payloads at various sizes around the limit
-        # Using smaller payloads for performance while still testing boundary logic
+        """Test boundary conditions around limit."""
         limit = MAX_JSON_PARSE_SIZE
 
         test_cases = [
             # (size_description, data_length, should_pass)
-            ("small", 10000, True),
-            ("large_under", limit - 100, True),  # Account for JSON overhead (~60 bytes)
-            ("large_over", limit + 50, False),  # Reduced from 100 for performance
+            ("small", 100, True),
+            ("large_under", limit - 100, True),
+            ("large_over", limit + 50, False),
         ]
 
         for size_desc, data_len, should_pass in test_cases:
-            # Use direct string construction for large payloads to avoid expensive dict creation
-            if data_len > 1024 * 1024:  # For large payloads, construct JSON directly
+            if data_len > 1024:
                 test_payload = f'{{"function_call":{{"name":"test","arguments":{{"data":"{"x" * data_len}"}}}}}}'
             else:
                 test_data = {
@@ -171,15 +173,15 @@ class TestToolCallRepairService10MBScenariosRegression:
                     }
                 }
                 test_payload = json.dumps(test_data)
-            test_size_mb = len(test_payload.encode("utf-8")) / (1024 * 1024)
+            test_size_kb = len(test_payload.encode("utf-8")) / 1024
 
             result = repair_service.repair_tool_calls(f"```json\n{test_payload}\n```")
 
             if should_pass:
                 assert (
                     result is not None
-                ), f"{size_desc} payload ({test_size_mb:.2f}MB) should be processed"
+                ), f"{size_desc} payload ({test_size_kb:.2f}KB) should be processed"
             else:
                 assert (
                     result is None
-                ), f"{size_desc} payload ({test_size_mb:.2f}MB) should be rejected"
+                ), f"{size_desc} payload ({test_size_kb:.2f}KB) should be rejected"
