@@ -12,9 +12,21 @@ module under `src.core.cli_v2` that delegates to `src.core.cli`.
 
 from __future__ import annotations
 
-from .config.app_config import AppConfig, LogLevel
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config.app_config import AppConfig, LogLevel
 
 __all__ = ["AppConfig", "LogLevel"]
+
+
+def __getattr__(name: str) -> object:
+    if name in __all__:
+        from .config.app_config import AppConfig, LogLevel
+
+        exports = {"AppConfig": AppConfig, "LogLevel": LogLevel}
+        return exports[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _install_cli_v2_compat() -> None:
@@ -92,7 +104,7 @@ def _install_cli_v2_compat() -> None:
 
     compat_module._cli_module = _CliModuleProxy()
 
-    compat_module.AppConfig = AppConfig
+    compat_module.AppConfig = __getattr__("AppConfig")
 
     class _CliV2CompatLoader(importlib.abc.Loader):
         def create_module(self, spec: importlib.machinery.ModuleSpec) -> Any:
