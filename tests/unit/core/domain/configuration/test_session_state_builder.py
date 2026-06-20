@@ -191,11 +191,6 @@ class TestSessionStateBuilder:
         assert result is builder
         assert builder._loop_config.loop_detection_enabled is False
 
-        # Test with_tool_loop_detection_enabled
-        result = builder.with_tool_loop_detection_enabled(False)
-        assert result is builder
-        assert builder._loop_config.tool_loop_detection_enabled is False
-
     def test_build_method(self) -> None:
         """Test build method creates SessionState correctly."""
         builder = SessionStateBuilder()
@@ -267,7 +262,6 @@ class TestSessionStateBuilder:
         builder.with_thinking_budget(4096)
 
         builder.with_loop_detection_enabled(True)
-        builder.with_tool_loop_detection_enabled(True)
         builder.with_pattern_length_range(200, 10000)
 
         builder.with_project("complex-app")
@@ -290,7 +284,6 @@ class TestSessionStateBuilder:
 
         # Verify loop config
         assert session_state.loop_config.loop_detection_enabled is True
-        assert session_state.loop_config.tool_loop_detection_enabled is True
         assert session_state.loop_config.min_pattern_length == 200
         assert session_state.loop_config.max_pattern_length == 10000
 

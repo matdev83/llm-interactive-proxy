@@ -57,22 +57,5 @@ OPENAI_URL_MUST_START_WITH_HTTP_MESSAGE = (
     "OpenAI URL must start with http:// or https://"
 )
 
-TOOL_LOOP_MAX_REPEATS_MUST_BE_AT_LEAST_TWO_MESSAGE = "Max repeats must be at least 2"
-TOOL_LOOP_MAX_REPEATS_REQUIRED_MESSAGE = "Max repeats value must be specified"
-TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE = (
-    "Invalid max repeats value: {value}. Must be an integer."
-)
-
-TOOL_LOOP_TTL_MUST_BE_AT_LEAST_ONE_MESSAGE = "TTL must be at least 1 second"
-TOOL_LOOP_TTL_REQUIRED_MESSAGE = "TTL value must be specified"
-TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE = (
-    "Invalid TTL value: {value}. Must be an integer."
-)
-
-TOOL_LOOP_MODE_REQUIRED_MESSAGE = "Loop mode must be specified"
-TOOL_LOOP_MODE_INVALID_MESSAGE = (
-    "Invalid loop mode: {value}. Use break or chance_then_break."
-)
-
 # Configuration validation error messages
 API_URL_MUST_START_WITH_HTTP_MESSAGE = "API URL must start with http:// or https://"

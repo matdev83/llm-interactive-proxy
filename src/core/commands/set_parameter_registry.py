@@ -3,10 +3,6 @@ from __future__ import annotations
 from src.core.commands.handlers.base_handler import BaseCommandHandler
 from src.core.commands.handlers.loop_detection_handlers import (
     LoopDetectionHandler,
-    ToolLoopDetectionHandler,
-    ToolLoopMaxRepeatsHandler,
-    ToolLoopModeHandler,
-    ToolLoopTTLHandler,
 )
 from src.core.commands.handlers.project_dir_handler import ProjectDirCommandHandler
 from src.core.commands.handlers.reasoning_handlers import (
@@ -21,10 +17,6 @@ def build_set_parameter_handlers() -> dict[str, BaseCommandHandler]:
     handlers: list[BaseCommandHandler] = [
         ProjectDirCommandHandler(),
         LoopDetectionHandler(),
-        ToolLoopDetectionHandler(),
-        ToolLoopMaxRepeatsHandler(),
-        ToolLoopModeHandler(),
-        ToolLoopTTLHandler(),
         ReasoningEffortHandler(),
         ThinkingBudgetHandler(),
         GeminiGenerationConfigHandler(),

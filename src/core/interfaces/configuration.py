@@ -182,36 +182,9 @@ class ILoopDetectionConfig(abc.ABC):
     def loop_detection_enabled(self) -> bool:
         """Get whether loop detection is enabled."""
 
-    @property
-    @abc.abstractmethod
-    def tool_loop_detection_enabled(self) -> bool:
-        """Get whether tool loop detection is enabled."""
-
     @abc.abstractmethod
     def with_loop_detection_enabled(self, enabled: bool) -> ILoopDetectionConfig:
         """Create a new config with updated loop detection enabled status."""
-
-    @abc.abstractmethod
-    def with_tool_loop_detection_enabled(self, enabled: bool) -> ILoopDetectionConfig:
-        """Create a new config with updated tool loop detection enabled status."""
-
-    @abc.abstractmethod
-    def with_tool_loop_max_repeats(
-        self, max_repeats: int | None
-    ) -> ILoopDetectionConfig:
-        """Create a new config with updated tool loop max repeats."""
-
-    @abc.abstractmethod
-    def with_tool_loop_ttl(self, ttl: int | None) -> ILoopDetectionConfig:
-        """Create a new config with updated tool loop TTL."""
-
-    @abc.abstractmethod
-    def with_tool_loop_ttl_seconds(self, ttl_seconds: int) -> ILoopDetectionConfig:
-        """Create a new config with updated tool loop TTL seconds."""
-
-    @abc.abstractmethod
-    def with_tool_loop_mode(self, mode: str | None) -> ILoopDetectionConfig:
-        """Create a new config with updated tool loop mode."""
 
 
 class IPlanningPhaseConfig(abc.ABC):

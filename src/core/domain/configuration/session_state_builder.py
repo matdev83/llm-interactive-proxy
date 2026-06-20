@@ -266,18 +266,6 @@ class SessionStateBuilder:
         self._loop_config = self._loop_config.with_loop_detection_enabled(enabled)
         return self
 
-    def with_tool_loop_detection_enabled(self, enabled: bool) -> SessionStateBuilder:
-        """Set whether tool loop detection is enabled.
-
-        Args:
-            enabled: Whether tool loop detection is enabled
-
-        Returns:
-            The builder instance for chaining
-        """
-        self._loop_config = self._loop_config.with_tool_loop_detection_enabled(enabled)
-        return self
-
     def with_pattern_length_range(
         self, min_length: int, max_length: int
     ) -> SessionStateBuilder:

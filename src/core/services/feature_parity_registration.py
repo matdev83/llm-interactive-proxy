@@ -98,11 +98,6 @@ def _register_legacy_middleware(registry: FeatureParityRegistry) -> None:
             "Different lifecycle handling per path",
         ),
         (
-            "ToolCallLoopDetectionMiddleware",
-            FeatureCapability.BOTH,
-            "Different lifecycle reset per path",
-        ),
-        (
             "JsonRepairMiddleware",
             FeatureCapability.NON_STREAMING,
             "Uses separate JsonRepairProcessor for streaming",

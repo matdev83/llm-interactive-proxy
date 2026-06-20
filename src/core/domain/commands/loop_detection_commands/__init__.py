@@ -6,17 +6,9 @@ from __future__ import annotations
 from typing import Any
 
 from .loop_detection_command import LoopDetectionCommand
-from .tool_loop_detection_command import ToolLoopDetectionCommand
-from .tool_loop_max_repeats_command import ToolLoopMaxRepeatsCommand
-from .tool_loop_mode_command import ToolLoopModeCommand
-from .tool_loop_ttl_command import ToolLoopTTLCommand
 
 _LOOP_DETECTION_COMMANDS: dict[str, type[Any]] = {
     "LoopDetectionCommand": LoopDetectionCommand,
-    "ToolLoopDetectionCommand": ToolLoopDetectionCommand,
-    "ToolLoopMaxRepeatsCommand": ToolLoopMaxRepeatsCommand,
-    "ToolLoopModeCommand": ToolLoopModeCommand,
-    "ToolLoopTTLCommand": ToolLoopTTLCommand,
 }
 
 

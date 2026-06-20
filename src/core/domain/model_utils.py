@@ -271,27 +271,3 @@ class ModelDefaults(DomainModel):
     loop_detection_enabled: bool | None = Field(
         None, description="Enable/disable loop detection by default for this model"
     )
-
-    # Tool call loop detection default overrides for this model
-    # Spec-preferred names
-    tool_loop_detection_enabled: bool | None = Field(
-        None,
-        description="Enable/disable tool call loop detection by default for this model",
-    )
-    tool_loop_detection_max_repeats: int | None = Field(
-        None,
-        description="Maximum number of consecutive identical tool calls before action is taken",
-    )
-    tool_loop_detection_ttl_seconds: int | None = Field(
-        None,
-        description="Time window in seconds for considering tool calls part of a pattern",
-    )
-    tool_loop_detection_mode: str | None = Field(
-        None,
-        description="How to handle detected tool call loops ('break' or 'chance_then_break')",
-    )
-
-    # Backward-compat aliases (read-only in apply_model_defaults)
-    tool_loop_max_repeats: int | None = None
-    tool_loop_ttl_seconds: int | None = None
-    tool_loop_mode: str | None = None

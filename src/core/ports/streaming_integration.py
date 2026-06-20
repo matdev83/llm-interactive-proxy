@@ -29,9 +29,6 @@ from src.core.ports.streaming_processors import (
     ThinkTagsProcessor,
     ToolCallDeltaStabilizerProcessor,
 )
-from src.core.ports.streaming_processors import (
-    ToolCallRepairProcessor as PortsToolCallRepairProcessor,
-)
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
@@ -279,14 +276,9 @@ async def integrate_streaming_pipeline(
         else:
             logger.warning(
                 "ToolCallRepairService not available in DI container; "
-                "skipping service-based tool call repair processor. "
-                "Ports-based processor will still be used.",
+                "skipping tool call repair processor.",
                 extra={"stream_id": stream_id, "provider": provider},
             )
-
-    # Ports-based tool call repair processor - stateless, can be created directly
-    if enable_tool_call_repair:
-        processors.append(PortsToolCallRepairProcessor())
 
     # Stabilize tool_call deltas (fill missing id/name on continuation chunks)
     if enable_tool_call_repair:

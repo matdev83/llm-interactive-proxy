@@ -12,7 +12,6 @@ This document analyzes all response middleware in the codebase to identify featu
 | ThinkTagsFixMiddleware | Yes | Yes | PARTIAL | Different logic paths |
 | EditPrecisionResponseMiddleware | Yes | Yes | FULL | Same logic for both |
 | ToolCallReactorMiddleware | Yes | Yes | PARTIAL | Different lifecycle handling |
-| ToolCallLoopDetectionMiddleware | Yes | Yes | PARTIAL | Different lifecycle reset |
 | EmptyResponseMiddleware | No | Yes | GAP | Skips streaming entirely |
 | StructuredOutputMiddleware | No | Yes | GAP | Skips streaming entirely |
 | JsonRepairMiddleware | No | Yes | GAP | Skips streaming, uses processor |
@@ -62,14 +61,6 @@ This document analyzes all response middleware in the codebase to identify featu
 - **Streaming**: Uses buffer state, different lifecycle
 - **Non-streaming**: Clears stream state immediately
 - **Gap**: Lines 100-102 clear state for non-streaming only
-- **Migration Priority**: High
-
-#### ToolCallLoopDetectionMiddleware
-- **Location**: `src/core/services/tool_call_loop_middleware.py`
-- **Feature**: Prevents tool call loops
-- **Streaming**: Maintains lifecycle across chunks
-- **Non-streaming**: Clears lifecycle on each call (line 134)
-- **Gap**: Lifecycle handling differs
 - **Migration Priority**: High
 
 ### PARITY GAPS (Missing Streaming Support)
@@ -131,7 +122,6 @@ Added streaming support to middleware that previously lacked it:
 The following middleware have complex streaming state management and are deferred from full migration:
 - `ThinkTagsFixMiddleware` - 700+ lines with sophisticated buffer management
 - `ToolCallReactorMiddleware` - Complex lifecycle state handling
-- `ToolCallLoopDetectionMiddleware` - Session-based lifecycle tracking
 - `EditPrecisionResponseMiddleware` - Already has full parity
 
 These can be wrapped using `MiddlewareToFeatureAdapter` for registry integration.

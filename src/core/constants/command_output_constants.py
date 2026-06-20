@@ -38,35 +38,6 @@ LOOP_DETECTION_DISABLED_MESSAGE = "Loop detection disabled"
 LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE = "Boolean value must be specified"
 LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE = "Invalid boolean value: {value}"
 
-# Tool loop detection handler messages
-TOOL_LOOP_DETECTION_ENABLED_MESSAGE = "Tool call loop detection enabled"
-TOOL_LOOP_DETECTION_DISABLED_MESSAGE = "Tool call loop detection disabled"
-TOOL_LOOP_DETECTION_BOOLEAN_REQUIRED_MESSAGE = "Boolean value must be specified"
-TOOL_LOOP_DETECTION_INVALID_BOOLEAN_MESSAGE = "Invalid boolean value: {value}"
-
-# Tool loop max repeats handler messages
-TOOL_LOOP_MAX_REPEATS_SET_MESSAGE = "Tool call loop max repeats set to {max_repeats}"
-TOOL_LOOP_MAX_REPEATS_REQUIRED_MESSAGE = "Max repeats value must be specified"
-TOOL_LOOP_MAX_REPEATS_MUST_BE_INTEGER_MESSAGE = (
-    "Invalid max repeats value: {value}. Must be an integer."
-)
-TOOL_LOOP_MAX_REPEATS_AT_LEAST_TWO_MESSAGE = "Max repeats must be at least 2"
-
-# Tool loop TTL handler messages
-TOOL_LOOP_TTL_SET_MESSAGE = "Tool call loop TTL set to {ttl} seconds"
-TOOL_LOOP_TTL_REQUIRED_MESSAGE = "TTL value must be specified"
-TOOL_LOOP_TTL_MUST_BE_INTEGER_MESSAGE = (
-    "Invalid TTL value: {value}. Must be an integer."
-)
-TOOL_LOOP_TTL_AT_LEAST_ONE_MESSAGE = "TTL must be at least 1 second"
-
-# Tool loop mode handler messages
-TOOL_LOOP_MODE_SET_MESSAGE = "Tool call loop mode set to {mode}"
-TOOL_LOOP_MODE_REQUIRED_MESSAGE = "Loop mode must be specified"
-TOOL_LOOP_MODE_INVALID_MESSAGE = (
-    "Invalid loop mode: {value}. Use break or chance_then_break."
-)
-
 # Temperature handler messages
 TEMPERATURE_SET_MESSAGE = "Temperature set to {temperature}"
 TEMPERATURE_MUST_BE_NUMBER_MESSAGE = "Temperature must be a valid number"

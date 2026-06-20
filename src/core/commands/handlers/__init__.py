@@ -18,9 +18,6 @@ __all__ = [
     "reasoning_aliases",
     "reasoning_handlers",
     "set_command_handler",
-    "tool_loop_max_repeats_command_handler",
-    "tool_loop_mode_command_handler",
-    "tool_loop_ttl_command_handler",
     "unset_command_handler",
 ]
 

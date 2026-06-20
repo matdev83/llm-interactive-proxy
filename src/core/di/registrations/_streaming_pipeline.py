@@ -13,7 +13,6 @@ Registers:
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any, cast
 
 from src.core.config.app_config import AppConfig
@@ -84,10 +83,6 @@ def _register_middleware_application_manager(services: ServiceCollection) -> Non
         from src.core.services.application_state_service import ApplicationStateService
         from src.core.services.empty_response_middleware import EmptyResponseFeature
         from src.core.services.json_repair_service import JsonRepairService
-        from src.core.services.tool_call_loop_middleware import (
-            ToolCallLoopDetectionFeature,
-        )
-        from src.tool_call_loop.lifecycle_registry import ToolCallLifecycleRegistry
 
         cfg: AppConfig = provider.get_required_service(AppConfig)
         features: list[IResponseFeature | IResponseMiddleware] = []
@@ -135,14 +130,6 @@ def _register_middleware_application_manager(services: ServiceCollection) -> Non
                 json_service = provider.get_service(JsonRepairService)
             if json_service is not None:
                 features.append(JsonRepairFeature(cfg, json_service))
-
-        lifecycle_registry = provider.get_service(ToolCallLifecycleRegistry)
-        if lifecycle_registry is not None:
-            features.append(
-                ToolCallLoopDetectionFeature(
-                    lifecycle_registry=lifecycle_registry,
-                )
-            )
 
         # Add tool call reactor feature (optional - only if services are available)
         from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
@@ -223,16 +210,8 @@ def _register_middleware_application_processor(services: ServiceCollection) -> N
         from src.core.domain.configuration.loop_detection_config import (
             LoopDetectionConfiguration,
         )
-        from src.tool_call_loop.config import ToolCallLoopConfig
 
-        env_config = ToolCallLoopConfig.from_env_vars(dict(os.environ))
-        loop_config = (
-            LoopDetectionConfiguration()
-            .with_tool_loop_detection_enabled(env_config.enabled)
-            .with_tool_loop_max_repeats(env_config.max_repeats)
-            .with_tool_loop_ttl_seconds(env_config.ttl_seconds)
-            .with_tool_loop_mode(env_config.mode)
-        )
+        loop_config = LoopDetectionConfiguration()
 
         return MiddlewareApplicationProcessor(
             manager.middleware,

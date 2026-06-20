@@ -51,6 +51,8 @@ tmp/
 tmp_*.py
 tmp_*.md
 tmp_*.txt
+*.err
+*.out
 
 # OS-specific files
 .DS_Store
