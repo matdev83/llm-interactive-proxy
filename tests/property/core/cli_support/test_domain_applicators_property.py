@@ -237,7 +237,6 @@ class TestDomainApplicatorIsolation:
             "BackendApplicator",
             "SessionApplicator",
             "AuthApplicator",
-            "AssessmentApplicator",
             "MemoryApplicator",
             "FailureHandlingApplicator",
             "EditPrecisionApplicator",

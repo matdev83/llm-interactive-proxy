@@ -35,8 +35,10 @@ class TestBackendAutoDiscovery:
             # Replace with test registry
             registry_module.backend_registry = test_registry
 
-            # Import connectors to trigger auto-discovery
-            import src.connectors  # noqa: F401  # pyright: ignore[reportUnusedImport]
+            # Import connectors and trigger the lazy discovery hook explicitly.
+            import src.connectors as connectors
+
+            connectors.ensure_builtin_connectors_discovered()
 
             # Get all registered backends
             registered = test_registry.get_registered_backends()

@@ -549,6 +549,7 @@ def test_ruff_linting_on_tests() -> None:
 
 
 @pytest.mark.quality
+@pytest.mark.slow
 def test_black_formatting_on_tests(request: pytest.FixtureRequest) -> None:
     """Test that black formatting passes on tests directory with auto-fix.
 
@@ -557,15 +558,7 @@ def test_black_formatting_on_tests(request: pytest.FixtureRequest) -> None:
     This helps maintain consistent code style across all test files by automatically
     applying fixes and only reporting unrecoverable errors.
     Uses session-scoped caching for better performance.
-
-    Note: This test is skipped by default when ruff linting passes, since ruff covers
-    most formatting issues that black would catch. Use pytest --run-black to run it.
     """
-    # Skip if --run-black flag not provided
-    if not request.config.getoption("--run-black", default=False):
-        pytest.skip(
-            "Black formatting skipped: use --run-black flag (black is redundant when ruff passes)"
-        )
 
     # Lazy fixture access - only created if test actually runs
     black_formatting_cache: dict[str, Any] = request.getfixturevalue(
@@ -677,6 +670,7 @@ def _quick_ruff_check() -> bool:
 
 
 @pytest.mark.quality
+@pytest.mark.slow
 def test_black_formatting_on_src(request: pytest.FixtureRequest) -> None:
     """Test that black formatting passes on the src directory with auto-fix.
 
@@ -685,15 +679,7 @@ def test_black_formatting_on_src(request: pytest.FixtureRequest) -> None:
     This helps maintain consistent code style across the source code by automatically
     applying fixes and only reporting unrecoverable errors.
     Uses session-scoped caching for better performance.
-
-    Note: This test is skipped by default when ruff linting passes, since ruff covers
-    most formatting issues that black would catch. Use pytest --run-black to run it.
     """
-    # Skip if --run-black flag not provided
-    if not request.config.getoption("--run-black", default=False):
-        pytest.skip(
-            "Black formatting skipped: use --run-black flag (black is redundant when ruff passes)"
-        )
 
     # Lazy fixture access - only created if test actually runs
     black_formatting_cache: dict[str, Any] = request.getfixturevalue(
@@ -825,15 +811,15 @@ class _VultureItemProxy:
 
     @property
     def name(self) -> str:
-        return self._d["name"]
+        return str(self._d["name"])
 
     @property
     def typ(self) -> str:
-        return self._d["typ"]
+        return str(self._d["typ"])
 
     @property
     def filename(self) -> str:
-        return self._d["filename"]
+        return str(self._d["filename"])
 
 
 @pytest.fixture(scope="session")

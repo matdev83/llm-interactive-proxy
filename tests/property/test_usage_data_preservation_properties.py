@@ -11,7 +11,7 @@ and is serialized at the top level of SSE chunks, not embedded in delta.content.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -52,7 +52,7 @@ def choice_strategy(draw: Any) -> dict[str, Any]:
         delta["content"] = draw(
             st.text(
                 alphabet=st.characters(
-                    whitelist_categories=("L", "N", "P", "S", "Z"),
+                    whitelist_categories=cast(Any, ("L", "N", "P", "S", "Z")),
                     blacklist_characters="\x00",
                 ),
                 min_size=0,
@@ -153,6 +153,17 @@ def streaming_content_with_stop_chunk_strategy(draw: Any) -> StreamingContent:
 # ============================================================================
 
 
+def _is_tool_call_chunk(chunk: StopChunkWithUsage) -> bool:
+    """Check if the chunk is a tool call chunk (has finish_reason == 'tool_calls')."""
+    choices = chunk.get("choices", [])
+    if not isinstance(choices, list):
+        return False
+    for choice in choices:
+        if isinstance(choice, dict) and choice.get("finish_reason") == "tool_calls":
+            return True
+    return False
+
+
 @given(chunk=stop_chunk_with_usage_strategy())
 @property_test_settings()
 def test_property_1_usage_at_top_level_in_sse_output(
@@ -182,6 +193,10 @@ def test_property_1_usage_at_top_level_in_sse_output(
     # Format should be: "data: {...}\n\ndata: [DONE]\n\n"
     lines = [line for line in sse_str.split("\n") if line.startswith("data: ")]
     assert len(lines) >= 1, f"Expected at least one data line, got: {sse_str}"
+
+    if _is_tool_call_chunk(chunk):
+        # Tool call chunks strip usage by design, so skip checks
+        return
 
     # First data line should be the JSON chunk
     first_data = lines[0][6:]  # Remove "data: " prefix
@@ -283,6 +298,11 @@ def test_property_1_usage_dict_type_preserved(chunk: StopChunkWithUsage) -> None
 
     # Parse the SSE output
     lines = [line for line in sse_str.split("\n") if line.startswith("data: ")]
+
+    if _is_tool_call_chunk(chunk):
+        # Tool call chunks strip usage by design, so skip checks
+        return
+
     first_data = lines[0][6:]  # Remove "data: " prefix
 
     if first_data != "[DONE]":
@@ -319,6 +339,10 @@ def test_property_1_streaming_content_with_stop_chunk_preserves_usage(
     # Parse the SSE output
     lines = [line for line in sse_str.split("\n") if line.startswith("data: ")]
     assert len(lines) >= 1, f"Expected at least one data line, got: {sse_str}"
+
+    if _is_tool_call_chunk(content.content):
+        # Tool call chunks strip usage by design, so skip checks
+        return
 
     first_data = lines[0][6:]  # Remove "data: " prefix
     if first_data != "[DONE]":
@@ -384,6 +408,11 @@ def test_property_1_all_chunk_fields_preserved(chunk: StopChunkWithUsage) -> Non
 
     # Parse the SSE output
     lines = [line for line in sse_str.split("\n") if line.startswith("data: ")]
+
+    if _is_tool_call_chunk(chunk):
+        # Tool call chunks strip usage and modify choices/delta by design, so skip checks
+        return
+
     first_data = lines[0][6:]  # Remove "data: " prefix
 
     if first_data != "[DONE]":

@@ -14,25 +14,6 @@ pytestmark = [
 ]  # Requires real network calls
 
 
-@pytest.fixture(scope="session", autouse=True)
-def check_gemini_key():
-    """Check for Gemini API keys using the configuration system."""
-    try:
-        from src.core.config import _collect_api_keys
-
-        gemini_keys = _collect_api_keys("GEMINI_API_KEY")
-        if not gemini_keys:
-            pytest.skip(
-                "Gemini API key not found in environment variables (GEMINI_API_KEY or GEMINI_API_KEY_1)"
-            )
-    except ImportError:
-        # Fallback to direct environment variable check if config system is not available
-        if not (os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY_1")):
-            pytest.skip(
-                "Gemini API key not found in environment variables (GEMINI_API_KEY or GEMINI_API_KEY_1)"
-            )
-
-
 @pytest.fixture(autouse=True)
 def patch_backend_discovery():
     # Override the autouse fixture from tests.conftest - we want real network calls
@@ -143,10 +124,6 @@ def _has_gemini_api_key() -> bool:
 MODEL = "gemini-2.0-flash-lite-preview-02-05"
 
 
-@pytest.mark.skipif(
-    lambda: not _has_gemini_api_key(),
-    reason="Gemini API key not found using configuration resolution mechanism",
-)
 def test_gemini_basic(tmp_path):
     server, port = _start_server()
     try:
@@ -166,10 +143,6 @@ def test_gemini_basic(tmp_path):
         _stop_server(server)
 
 
-@pytest.mark.skipif(
-    lambda: not _has_gemini_api_key(),
-    reason="Gemini API key not found using configuration resolution mechanism",
-)
 def test_gemini_interactive_banner(tmp_path):
     server, port = _start_server()
     try:

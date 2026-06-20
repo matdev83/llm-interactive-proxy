@@ -235,16 +235,3 @@ class TestAnthropicFrontendAccounting:
         # Usage should be 0 for streaming since we can't extract from the stream
         assert billing_info.usage.prompt_tokens == 0
         assert billing_info.usage.completion_tokens == 0
-
-    def test_cost_calculation_placeholder(self):
-        """Test cost calculation (placeholder for future implementation)."""
-        response = {"usage": {"input_tokens": 100, "output_tokens": 50}}
-
-        billing_info = extract_billing_info_from_response(response, "anthropic")
-
-        # Cost should be 0.0 for now (not implemented)
-        assert billing_info.cost == 0.0
-
-        # Future implementation could calculate based on Anthropic pricing:
-        # Claude-3 Sonnet: $3/1M input tokens, $15/1M output tokens
-        # Expected cost for this example: (100 * 3 + 50 * 15) / 1_000_000 = 0.00105

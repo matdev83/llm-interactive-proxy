@@ -16,10 +16,6 @@ def _should_run_real() -> bool:
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.network,
-    pytest.mark.skipif(
-        not _should_run_real(),
-        reason="Set RUN_REAL_ZAI=1 and provide ZAI_API_KEY to run real tests",
-    ),
 ]
 
 
@@ -51,8 +47,12 @@ async def test_zai_real_non_stream_endpoints() -> None:
     # Build app with real backends
     cfg = AppConfig()
     cfg.auth.disable_auth = True
-    cfg.backends.default_backend = "zai-coding-plan"
-    cfg.backends.zai_coding_plan = BackendConfig(api_key=[zai_key])
+    cfg.backends = cfg.backends.model_copy(
+        update={
+            "default_backend": "zai-coding-plan",
+            "zai_coding_plan": BackendConfig(api_key=zai_key),
+        }
+    )
 
     builder = ApplicationTestBuilder()
     builder.add_stage(CoreServicesStage())
@@ -148,8 +148,12 @@ async def test_zai_real_stream_endpoints() -> None:
 
     cfg = AppConfig()
     cfg.auth.disable_auth = True
-    cfg.backends.default_backend = "zai-coding-plan"
-    cfg.backends.zai_coding_plan = BackendConfig(api_key=[zai_key])
+    cfg.backends = cfg.backends.model_copy(
+        update={
+            "default_backend": "zai-coding-plan",
+            "zai_coding_plan": BackendConfig(api_key=zai_key),
+        }
+    )
 
     builder = ApplicationTestBuilder()
     builder.add_stage(CoreServicesStage())

@@ -150,20 +150,6 @@ async def test_chat_controller_error_handling(setup_app: dict[str, Any]) -> None
         assert response.status_code == 500
 
 
-async def test_anthropic_controller(setup_app: dict[str, Any]) -> None:
-    """Test that anthropic controller uses the request processor correctly."""
-    # This test is skipped until we can properly handle the mock response
-    # The issue is that the mock response is being treated as a coroutine
-    # but FastAPI's jsonable_encoder can't handle coroutines properly
-
-
-async def test_anthropic_controller_error_handling(setup_app: dict[str, Any]) -> None:
-    """Test that anthropic controller handles errors properly."""
-    # This test is skipped until we can properly handle the mock response
-    # The issue is that the mock response is being treated as a coroutine
-    # but FastAPI's jsonable_encoder can't handle coroutines properly
-
-
 @pytest.mark.asyncio
 async def test_get_chat_controller_if_available_handles_missing_controller(
     monkeypatch: pytest.MonkeyPatch,

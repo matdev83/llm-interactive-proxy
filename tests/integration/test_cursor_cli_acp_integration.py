@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import subprocess
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -26,18 +25,6 @@ pytestmark = [
 
 _OPT_IN_ENV_VAR = "RUN_CURSOR_CLI_ACP_INTEGRATION"
 _ENABLED_VALUES = {"1", "true", "yes", "on"}
-
-
-def _is_opted_in() -> bool:
-    value = os.getenv(_OPT_IN_ENV_VAR, "")
-    return value.strip().lower() in _ENABLED_VALUES
-
-
-def _ensure_opted_in() -> None:
-    if not _is_opted_in():
-        pytest.skip(
-            f"Set {_OPT_IN_ENV_VAR}=1 to run the live Cursor CLI ACP integration test."
-        )
 
 
 def _ensure_agent_available() -> str:
@@ -87,7 +74,6 @@ def _make_request(
 
 @pytest_asyncio.fixture
 async def live_connector(tmp_path: Path) -> AsyncGenerator[CursorCliAcpConnector, None]:
-    _ensure_opted_in()
     agent_exe = _ensure_agent_available()
 
     workspace = tmp_path / "workspace"

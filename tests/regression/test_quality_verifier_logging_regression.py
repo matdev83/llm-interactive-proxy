@@ -19,7 +19,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
@@ -576,9 +576,6 @@ async def test_quality_verifier_turn_bypasses_active_replacement(
     mock_replacement_service_active.activate_replacement.assert_not_called()
 
 
-@pytest.mark.skip(
-    reason="Test premise is flawed - tool_followup skip log only appears when verifier would otherwise run"
-)
 @pytest.mark.asyncio
 async def test_logs_tool_followup_skip_reason(
     processor_with_quality_verifier_only,
@@ -610,19 +607,32 @@ async def test_logs_tool_followup_skip_reason(
     request_data = ChatRequest(
         model="openai:gpt-4o",
         messages=[
+            ChatMessage(role="user", content="run a tool"),
             ChatMessage(
                 role="assistant",
                 content="",
                 tool_calls=[
-                    {
-                        "id": "call_1",
-                        "type": "function",
-                        "function": {"name": "test_tool", "arguments": "{}"},
-                    }
+                    ToolCall(
+                        id="call_1",
+                        type="function",
+                        function=FunctionCall(name="test_tool", arguments="{}"),
+                    )
                 ],
             ),
             ChatMessage(role="tool", tool_call_id="call_1", content="result"),
         ],
+    )
+
+    session = (
+        processor_with_quality_verifier_only._session_manager.get_session.return_value
+    )
+    session.state.to_dict.return_value = {"quality_verifier_eligible_turn_count": 9}
+    processor_with_quality_verifier_only._session_enricher.enrich.return_value = (
+        session,
+        request_data,
+    )
+    processor_with_quality_verifier_only._request_side_effects.apply = AsyncMock(
+        side_effect=lambda c, s, r: r
     )
 
     await processor_with_quality_verifier_only.process_request(context, request_data)

@@ -143,6 +143,8 @@ class TestConfigInjection:
         self,
     ) -> None:
         """Test that config injection happens after connector import."""
+        import importlib as _real_importlib
+
         builder = ApplicationBuilder()
         builder.add_stage(MockValidationStage())
 
@@ -152,6 +154,7 @@ class TestConfigInjection:
 
         def track_import(*args, **kwargs):
             call_order.append("import")
+            return _real_importlib.import_module(*args, **kwargs)
 
         def track_validate(*args, **kwargs):
             call_order.append("validate_static_route")
@@ -195,6 +198,8 @@ class TestConfigInjection:
         self,
     ) -> None:
         """Plugin discovery must run before semantic validation checks."""
+        import importlib as _real_importlib
+
         builder = ApplicationBuilder()
         builder.add_stage(MockValidationStage())
 
@@ -203,6 +208,7 @@ class TestConfigInjection:
 
         def track_import(*args, **kwargs):
             call_order.append("core_import")
+            return _real_importlib.import_module(*args, **kwargs)
 
         def track_plugin_discovery(*args, **kwargs):
             call_order.append("plugin_discovery")
@@ -251,6 +257,8 @@ class TestConfigInjection:
         self,
     ) -> None:
         """Startup must run merged constrained-family validation before DI registration."""
+        import importlib as _real_importlib
+
         builder = ApplicationBuilder()
         builder.add_stage(MockValidationStage())
         custom_config = AppConfig()
@@ -258,6 +266,7 @@ class TestConfigInjection:
 
         def track_import(*args, **kwargs):
             call_order.append("import")
+            return _real_importlib.import_module(*args, **kwargs)
 
         def track_static_route(*args, **kwargs):
             call_order.append("validate_static_route")
@@ -312,6 +321,8 @@ class TestConfigInjection:
         self,
     ) -> None:
         """Model alias validation must run after backend discovery and before DI registration."""
+        import importlib as _real_importlib
+
         builder = ApplicationBuilder()
         builder.add_stage(MockValidationStage())
         custom_config = AppConfig()
@@ -319,6 +330,7 @@ class TestConfigInjection:
 
         def track_import(*args, **kwargs):
             call_order.append("import")
+            return _real_importlib.import_module(*args, **kwargs)
 
         def track_static_route(*args, **kwargs):
             call_order.append("validate_static_route")

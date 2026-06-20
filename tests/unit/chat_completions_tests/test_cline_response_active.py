@@ -8,15 +8,9 @@ pytestmark = pytest.mark.filterwarnings(
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
-# Ensure no module-level skips are applied - DEBUG TEST
 from starlette.testclient import TestClient
 
 from tests.unit.chat_completions_tests.conftest import get_backend_instance
-
-
-def test_debug_skip_check() -> None:
-    """Simple test to check if module-level skip is still active."""
-    assert True
 
 
 def create_mock_backend() -> Any:
@@ -304,11 +298,7 @@ def test_cline_non_command_message(interactive_client: TestClient) -> None:
     from src.core.interfaces.backend_service_interface import IBackendService
 
     app = cast(Any, interactive_client.app)
-    backend_service = (
-        app.state.service_provider.get_required_service(
-            IBackendService
-        )
-    )
+    backend_service = app.state.service_provider.get_required_service(IBackendService)
     mock_response = ResponseEnvelope(
         content={
             "id": "test-response",

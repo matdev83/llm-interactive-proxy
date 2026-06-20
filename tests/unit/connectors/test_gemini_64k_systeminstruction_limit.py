@@ -378,24 +378,3 @@ class TestGeminiStandardAPINoRegression:
             len(standard_request["systemInstruction"]["parts"][0]["text"])  # type: ignore[index,arg-type]
             > 100_000
         )
-
-
-def test_regression_detection_summary() -> None:
-    """Summary of what these tests detect.
-
-    These tests will FAIL if someone accidentally:
-    1. Reintroduces the `systemInstruction` field in Code Assist API requests
-    2. Puts 'system' role in the contents array (Code Assist doesn't support it)
-    3. Fails to prepend system messages as first user message
-    4. Fails to handle large system messages (>64K tokens)
-    5. Fails to merge multiple system messages correctly
-
-    Protected connectors:
-    - GeminiOAuthBaseConnector (gemini-oauth-plan, gemini-oauth-free)
-    - GeminiCloudProjectConnector (gemini-cloud-project)
-
-    Original issue date: 2025-10-30
-    Error message: "The input token count (233050) exceeds the maximum number of tokens allowed (65536)."
-    Fix commit: de251c3f
-    """
-    assert True  # Living documentation

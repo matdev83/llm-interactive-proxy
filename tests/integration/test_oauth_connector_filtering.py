@@ -97,6 +97,7 @@ _SINGLE_SCRIPT = """
 import os
 os.environ["LLM_PROXY_ACCESS_MODE"] = "single_user"
 import src.connectors  # noqa: F401
+src.connectors.ensure_builtin_connectors_discovered()
 from src.core.services.backend_registry import backend_registry
 
 backends = backend_registry.get_registered_backends()
@@ -118,6 +119,7 @@ logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
 
 import src.connectors  # noqa: F401
+src.connectors.ensure_builtin_connectors_discovered()
 from src.core.services.backend_registry import backend_registry
 
 backends = backend_registry.get_registered_backends()

@@ -301,9 +301,6 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip(
-    reason="Flaky test: Backend stream appears buffered on this environment"
-)
 async def test_gemini_frontend_anthropic_backend_streaming() -> None:
     """Test Gemini API frontend with Anthropic backend streaming."""
     text = "Testing cross-protocol streaming from Anthropic to Gemini format"

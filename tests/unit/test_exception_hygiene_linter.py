@@ -581,19 +581,6 @@ class _SilentExceptionHandlerVisitor(ast.NodeVisitor):
             )
         )
 
-        self.generic_visit(node)
-
-    def _add(self, node: ast.AST, *, rule: str, message: str) -> None:
-        line = getattr(node, "lineno", 1)
-        self.findings.append(
-            ExceptionHygieneFinding(
-                file=str(self._file_path).replace("\\", "/"),
-                line=int(line),
-                rule=rule,
-                message=message,
-            )
-        )
-
 
 class _IncorrectExcInfoUsageVisitor(ast.NodeVisitor):
     """Detect incorrect exc_info usage (exc_info=e instead of exc_info=True)."""
@@ -645,10 +632,7 @@ class _IncorrectExcInfoUsageVisitor(ast.NodeVisitor):
         )
 
 
-@pytest.mark.skip(
-    reason="Exception hygiene linter is active but findings need to be addressed incrementally. "
-    "Run manually with: pytest tests/unit/test_exception_hygiene_linter.py::test_exception_hygiene_linter -v"
-)
+@pytest.mark.slow
 def test_exception_hygiene_linter() -> None:
     """
     Enforce exception hygiene standards across the codebase.

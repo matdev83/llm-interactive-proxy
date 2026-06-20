@@ -7,14 +7,6 @@ import pytest
 
 
 @pytest.mark.asyncio
-async def test_oneoff_command_parsing():
-    """Test that oneoff commands can be parsed correctly."""
-    # This test is now covered by the command execution tests below
-    # and the integration tests in test_integration_oneoff_command.py
-    # The command parsing logic is tested through the actual command execution
-
-
-@pytest.mark.asyncio
 async def test_oneoff_command_execution():
     """Test that oneoff commands execute and modify session state."""
     from src.core.domain.commands.oneoff_command import OneoffCommand

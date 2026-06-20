@@ -167,22 +167,3 @@ class TestGeminiSystemRoleConversion:
         # Verify no systemInstruction if no system message
         assert "systemInstruction" not in code_assist_request
         assert len(code_assist_request["contents"]) == 1
-
-
-def test_gemini_cli_reference_documentation() -> None:
-    """Document the fix based on gemini-cli reference implementation.
-
-    Reference: dev/thrdparty/gemini-cli-new/packages/core/src/code_assist/converter.ts
-
-    The gemini-cli tool shows that Code Assist API:
-    1. Does NOT support 'system' role in contents array
-    2. Requires systemInstruction field instead
-    3. systemInstruction must have role='user' (not 'system')
-    4. Parts from system messages go into systemInstruction.parts
-
-    Our fix implements this same logic in:
-    - src/connectors/gemini_oauth_personal.py
-    - src/connectors/gemini_cloud_project.py
-    """
-    # This test documents the expected behavior
-    assert True

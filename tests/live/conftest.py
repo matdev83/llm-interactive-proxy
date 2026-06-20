@@ -71,8 +71,6 @@ def require_anthropic(live_anthropic_key: str | None) -> str:
 
 @pytest.fixture
 def require_gemini(live_gemini_key: str | None) -> str:
-    # TODO: Re-enable once permission issues with gemini-2.5-flash are resolved
-    pytest.skip("Gemini tests temporarily disabled due to permission issues")
     if not live_gemini_key:
         pytest.skip("GEMINI_API_KEY or GEMINI_API_KEY_1 not set")
     return live_gemini_key

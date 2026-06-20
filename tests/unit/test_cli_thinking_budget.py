@@ -150,27 +150,3 @@ class TestCLIThinkingBudget:
         finally:
             if "THINKING_BUDGET" in os.environ:
                 del os.environ["THINKING_BUDGET"]
-
-
-def test_cli_thinking_budget_documentation() -> None:
-    """Document the --thinking-budget CLI flag usage.
-    
-    Usage:
-    ------
-    ./.venv/Scripts/python.exe -m src.core.cli \
-      --host 127.0.0.1 --port 8000 \
-      --disable-auth \
-      --default-backend gemini-oauth-plan \
-      --static-route gemini-oauth-plan:gemini-2.5-pro \
-      --thinking-budget 32768
-    
-    This sets the thinkingBudget to 32768 tokens for ALL requests,
-    overriding any reasoning_effort values in individual requests.
-    
-    Special values:
-    - -1 = dynamic/unlimited (let model decide)
-    - 0 = disable thinking/reasoning
-    - >0 = max thinking tokens (e.g., 32768)
-    """
-    # This test documents the feature
-    assert True

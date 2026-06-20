@@ -5,7 +5,6 @@ sandboxing feature, including caching effectiveness, path validation speed,
 and overall overhead measurements.
 """
 
-import platform
 import tempfile
 import time
 from pathlib import Path
@@ -136,6 +135,7 @@ class TestCaching:
             result2 = service.normalize_path(str(file_path))
             assert result1 == result2
 
+    @pytest.mark.symlinks
     def test_cache_performance_with_symlinks(self, service):
         """Test cache performance with symlink resolution."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -145,10 +145,7 @@ class TestCaching:
 
             # Create a symlink
             symlink = Path(tmpdir) / "link.txt"
-            try:
-                symlink.symlink_to(real_file)
-            except (OSError, NotImplementedError):
-                pytest.skip("Symlinks not supported on this system")
+            symlink.symlink_to(real_file)
 
             # First call - resolves symlink
             start = time.perf_counter()
@@ -329,7 +326,7 @@ class TestPathValidationPerformance:
                 avg_time < 0.010
             ), f"Average relative path resolution time {avg_time*1000:.2f}ms exceeds 10ms"
 
-    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
+    @pytest.mark.unix_only
     def test_symlink_resolution_time(self, service):
         """Measure performance of symlink resolution."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -344,11 +341,8 @@ class TestPathValidationPerformance:
             symlinks = []
             for i, real_file in enumerate(real_files):
                 symlink = Path(tmpdir) / f"link{i}.txt"
-                try:
-                    symlink.symlink_to(real_file)
-                    symlinks.append(symlink)
-                except (OSError, NotImplementedError):
-                    pytest.skip("Symlinks not supported on this system")
+                symlink.symlink_to(real_file)
+                symlinks.append(symlink)
 
             times = []
             for symlink in symlinks * 10:  # Repeat for better measurement

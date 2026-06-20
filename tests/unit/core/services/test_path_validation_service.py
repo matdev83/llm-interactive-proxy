@@ -68,6 +68,7 @@ class TestPathNormalization:
         assert result.is_absolute()
         assert str(result).startswith(str(Path.home()))
 
+    @pytest.mark.symlinks
     def test_symlink_inside_tree_resolving_outside_not_within_boundary(
         self, service, tmp_path: Path
     ) -> None:
@@ -79,15 +80,13 @@ class TestPathNormalization:
         sandbox = tmp_path / "project"
         sandbox.mkdir()
         link = sandbox / "leak.txt"
-        try:
-            link.symlink_to(target)
-        except (OSError, NotImplementedError):
-            pytest.skip("Symlinks not supported or not permitted on this system")
+        link.symlink_to(target)
 
         resolved = service.normalize_path("leak.txt", base_dir=str(sandbox))
         assert resolved == target.resolve()
         assert service.is_within_boundary(resolved, sandbox.resolve()) is False
 
+    @pytest.mark.symlinks
     def test_symlink_resolution(self, service):
         """Test that symlinks are resolved to their real paths."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -97,10 +96,7 @@ class TestPathNormalization:
 
             # Create a symlink (skip on Windows if not supported)
             symlink = Path(tmpdir) / "link.txt"
-            try:
-                symlink.symlink_to(real_file)
-            except (OSError, NotImplementedError):
-                pytest.skip("Symlinks not supported on this system")
+            symlink.symlink_to(real_file)
 
             result = service.normalize_path(str(symlink))
             assert result == real_file.resolve()
@@ -114,7 +110,7 @@ class TestPathNormalization:
         # All separators should be normalized
         assert "\\" in str(result) or "/" not in str(result)
 
-    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
+    @pytest.mark.unix_only
     def test_mixed_path_separators_unix(self, service):
         """Test normalization of paths with mixed separators on Unix."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -393,7 +389,7 @@ class TestCrossPlatformBehavior:
         # UNC paths should be preserved
         assert str(result).startswith("\\\\")
 
-    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
+    @pytest.mark.unix_only
     def test_unix_root_paths(self, service):
         """Test handling of Unix root paths."""
         path = "/home/user/file.txt"
@@ -413,7 +409,7 @@ class TestCrossPlatformBehavior:
             # On Windows, this should be True due to case-insensitivity
             assert result is True
 
-    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
+    @pytest.mark.unix_only
     def test_unix_case_sensitivity(self, service):
         """Test that Unix paths are case-sensitive."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -442,7 +438,7 @@ class TestCrossPlatformBehavior:
         # On Windows, should be normalized to backslashes
         assert "\\" in str(result) or "/" not in str(result)
 
-    @pytest.mark.skipif(platform.system() == "Windows", reason="Unix-specific test")
+    @pytest.mark.unix_only
     def test_backslash_handling_unix(self, service):
         """Test that backslashes are handled on Unix."""
         with tempfile.TemporaryDirectory() as tmpdir:

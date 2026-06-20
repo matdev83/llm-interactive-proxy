@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import subprocess
-import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -146,12 +144,9 @@ async def test_cmd_reset_blank_target_exits(tmp_path: Path) -> None:
 
 def test_reset_cli_requires_target() -> None:
     """``reset`` with no positional argument must be rejected by argparse."""
-    script = _REPO_ROOT / "scripts" / "manage_openai_codex_accounts.py"
-    proc = subprocess.run(
-        [sys.executable, str(script), "reset"],
-        cwd=str(_REPO_ROOT),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert proc.returncode != 0
+    from unittest.mock import patch
+
+    with patch("sys.argv", ["manage_openai_codex_accounts.py", "reset"]):
+        with pytest.raises(SystemExit) as exc:
+            _manage.main()
+        assert exc.value.code != 0

@@ -68,6 +68,7 @@ import os
 os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
 
 import src.connectors  # noqa: F401
+src.connectors.ensure_builtin_connectors_discovered()
 from src.core.services.backend_registry import backend_registry
 
 for name in ["gemini-oauth-auto", "qwen-oauth", "openai-codex"]:

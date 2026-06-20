@@ -5,14 +5,13 @@
 Requirements:
 - 7.4: main() function signature remains compatible
 - 7.5: Legacy functions retained or delegated correctly
-- 7.6: CLI v2 compatibility layer remains functional
 """
 
 import argparse
 import inspect
 from typing import get_type_hints
 
-from src.core import cli, cli_v2
+from src.core import cli
 from src.core.config.app_config import AppConfig
 
 
@@ -63,22 +62,6 @@ class TestPublicApiProperty:
         assert hasattr(cli, "_handle_application_build_error")
         assert hasattr(cli, "apply_cli_args")
         assert hasattr(cli, "parse_cli_args")
-
-    def test_cli_v2_compatibility(self) -> None:
-        """Test that cli_v2 module exposes expected API.
-
-        **Validates: Requirement 7.6**
-        """
-        assert hasattr(cli_v2, "main")
-        assert hasattr(cli_v2, "parse_cli_args")
-        assert hasattr(cli_v2, "apply_cli_args")
-        assert hasattr(cli_v2, "is_port_in_use")
-        assert hasattr(cli_v2, "AppConfig")
-
-        # cli_v2.main should be a synchronous wrapper or compatible entry point.
-        # The compatibility module calls asyncio.run(), so it is NOT async itself.
-        assert inspect.isfunction(cli_v2.main)
-        assert not inspect.iscoroutinefunction(cli_v2.main)
 
     def test_apply_cli_args_returns_config(self) -> None:
         """Test that apply_cli_args continues to return AppConfig.

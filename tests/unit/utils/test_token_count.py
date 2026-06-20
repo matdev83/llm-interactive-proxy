@@ -74,10 +74,19 @@ def test_extract_prompt_text_with_tool_response():
 def test_count_tokens_uses_model_family_specific_encoding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import sys
+
     import src.core.utils.token_count as token_count_module
 
+    # Save original state
+    original_encoding = token_count_module._tiktoken_encoding
     token_count_module._tiktoken_encoding = None
     token_count_module._model_tokenizer_cache.clear()
+
+    # Save original tiktoken from sys.modules if present
+    original_tiktoken = sys.modules.get("tiktoken")
+    if "tiktoken" in sys.modules:
+        del sys.modules["tiktoken"]
 
     class _Encoding:
         def __init__(self, name: str) -> None:
@@ -108,8 +117,21 @@ def test_count_tokens_uses_model_family_specific_encoding(
 
     monkeypatch.setattr(builtins, "__import__", _import_with_fake_tiktoken)
 
-    high_context_tokens = token_count_module.count_tokens("hello", model="gpt-5.1")
-    generic_tokens = token_count_module.count_tokens("hello", model="claude-3-5-sonnet")
+    try:
+        high_context_tokens = token_count_module.count_tokens("hello", model="gpt-5.1")
+        generic_tokens = token_count_module.count_tokens(
+            "hello", model="claude-3-5-sonnet"
+        )
 
-    assert high_context_tokens == 4
-    assert generic_tokens == 2
+        assert high_context_tokens == 4
+        assert generic_tokens == 2
+    finally:
+        # Restore original encoding
+        token_count_module._tiktoken_encoding = original_encoding
+        token_count_module._model_tokenizer_cache.clear()
+
+        # Restore sys.modules to its original state
+        if original_tiktoken is not None:
+            sys.modules["tiktoken"] = original_tiktoken
+        elif "tiktoken" in sys.modules:
+            del sys.modules["tiktoken"]

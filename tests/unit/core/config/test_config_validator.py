@@ -24,9 +24,9 @@ class TestValidateStaticRoute:
 
     @pytest.fixture(autouse=True)
     def setup_connectors(self):
-        """Import connectors to populate backend registry before each test."""
-        # Import connectors package to trigger auto-discovery and registration
-        importlib.import_module("src.connectors")
+        """Populate backend registry before each test."""
+        connectors = importlib.import_module("src.connectors")
+        connectors.ensure_builtin_connectors_discovered()
         yield
         # No cleanup needed - registry state persists but doesn't affect test isolation
 

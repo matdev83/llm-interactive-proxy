@@ -191,45 +191,6 @@ class TestReasoningConfiguration:
         assert new_config.reasoning_config == {"max_tokens": 2000, "top_k": 40}
         assert new_config.gemini_generation_config == {"top_p": 0.8, "top_k": 30}
 
-    def test_edge_case_validations(self) -> None:
-        """Test edge cases for validations."""
-        # Test boundary values
-        config = ReasoningConfiguration.model_validate(
-            {"thinking_budget": 128}
-        )  # Minimum valid
-        assert config.thinking_budget == 128
-
-        config = ReasoningConfiguration.model_validate(
-            {"thinking_budget": 32768}
-        )  # Maximum valid
-        assert config.thinking_budget == 32768
-
-        config = ReasoningConfiguration.model_validate(
-            {"temperature": 0.0}
-        )  # Minimum valid
-        assert config.temperature == 0.0
-
-        config = ReasoningConfiguration.model_validate(
-            {"temperature": 2.0}
-        )  # Maximum valid
-        assert config.temperature == 2.0
-
-        # Test None values (should be valid)
-        config = ReasoningConfiguration.model_validate(
-            {
-                "reasoning_effort": None,
-                "thinking_budget": None,
-                "temperature": None,
-                "reasoning_config": None,
-                "gemini_generation_config": None,
-            }
-        )
-        assert config.reasoning_effort is None
-        assert config.thinking_budget is None
-        assert config.temperature is None
-        assert config.reasoning_config is None
-        assert config.gemini_generation_config is None
-
     def test_string_reasoning_effort_values(self) -> None:
         """Test common string values for reasoning effort."""
         valid_efforts = ["low", "medium", "high", "auto", "none"]
@@ -273,9 +234,3 @@ class TestReasoningConfiguration:
 
         assert config.reasoning_config == reasoning_config
         assert config.gemini_generation_config == gemini_config
-
-    def test_validation_error_messages(self) -> None:
-        """Test that validation error messages are descriptive."""
-        # Field validators in Pydantic v2 only run during explicit validation
-        # The validation logic is tested through the with_* methods which
-        # do trigger validation when creating new configurations

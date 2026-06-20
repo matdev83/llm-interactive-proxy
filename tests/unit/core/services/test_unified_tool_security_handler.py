@@ -444,6 +444,7 @@ class TestFileSandboxingCheck:
         assert result.blocked is False
 
     @pytest.mark.asyncio
+    @pytest.mark.symlinks
     async def test_blocks_write_via_symlink_escaping_project_root(
         self, command_service: CommandExtractionService, tmp_path: Path
     ) -> None:
@@ -455,10 +456,7 @@ class TestFileSandboxingCheck:
         project = tmp_path / "project"
         project.mkdir()
         link = project / "via_link.txt"
-        try:
-            link.symlink_to(secret)
-        except (OSError, NotImplementedError):
-            pytest.skip("Symlinks not supported or not permitted on this system")
+        link.symlink_to(secret)
 
         config = FileSandboxingConfig(enabled=True, strict_mode=False)
         real_validator = PathValidationService()

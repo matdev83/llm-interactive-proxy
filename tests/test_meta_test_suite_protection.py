@@ -60,7 +60,7 @@ class TestSuiteProtection:
         except (OSError, json.JSONDecodeError) as e:
             print(f"Warning: Could not update state file: {e}")
 
-    @pytest.mark.skip(reason="Skipped by default")
+    @pytest.mark.slow
     def test_test_suite_protection(self):
         """Test that the test suite count has not decreased."""
         # Get current test count by collecting all tests
@@ -132,7 +132,7 @@ class TestSuiteProtection:
 
         if cache_valid and cached_count is not None:
             print(f"Using cached test count: {cached_count}")
-            return cached_count
+            return int(cached_count)
 
         try:
             # Run pytest collection with minimal configuration to avoid circular imports
