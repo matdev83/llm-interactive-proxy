@@ -21,6 +21,10 @@ class ToolProgressLoopAction(str, Enum):
 
 ToolProgressLoopGuardActionMode = Literal["error", "steer_then_error"]
 
+DEFAULT_TOOL_PROGRESS_LOOP_GUARD_ACTION: ToolProgressLoopGuardActionMode = (
+    "steer_then_error"
+)
+
 DEFAULT_TOOL_PROGRESS_LOOP_STEERING_MESSAGE = (
     "You appear to be repeating the same tool call without making progress. "
     "Try a different approach, summarize what you've learned, or ask for guidance. "

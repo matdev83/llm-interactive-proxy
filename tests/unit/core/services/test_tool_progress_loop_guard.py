@@ -30,7 +30,10 @@ def _request_with_tool_result(output: str, *, tool_name: str = "read") -> ChatRe
 
 
 async def test_guard_blocks_repeated_same_tool_output() -> None:
-    guard = ToolProgressLoopGuard(max_repeated_tool_output=3)
+    guard = ToolProgressLoopGuard(
+        max_repeated_tool_output=3,
+        action_mode="error",
+    )
 
     for _ in range(2):
         decision = await guard.evaluate_request(
@@ -49,7 +52,10 @@ async def test_guard_blocks_repeated_same_tool_output() -> None:
 
 
 async def test_guard_blocks_repeated_same_tool_parameters() -> None:
-    guard = ToolProgressLoopGuard(max_repeated_tool_call_signature=3)
+    guard = ToolProgressLoopGuard(
+        max_repeated_tool_call_signature=3,
+        action_mode="error",
+    )
 
     for _ in range(2):
         decision = await guard.evaluate_request(
@@ -74,6 +80,7 @@ async def test_guard_blocks_consecutive_tool_followups_even_when_values_change()
         max_consecutive_tool_followups=3,
         max_repeated_tool_call_signature=99,
         max_repeated_tool_output=99,
+        action_mode="error",
     )
 
     for idx in range(2):
@@ -155,7 +162,10 @@ async def test_guard_finds_assistant_tool_calls_when_last_assistant_has_none() -
 
 
 async def test_guard_counts_only_latest_tool_result_batch() -> None:
-    guard = ToolProgressLoopGuard(max_repeated_tool_output=3)
+    guard = ToolProgressLoopGuard(
+        max_repeated_tool_output=3,
+        action_mode="error",
+    )
     request = ChatRequest(
         model="gpt-4",
         messages=[
@@ -247,7 +257,10 @@ async def test_guard_does_not_block_different_calls_same_output() -> None:
 
 async def test_guard_still_blocks_same_call_same_output() -> None:
     """Same tool call + same output should still block (regression check)."""
-    guard = ToolProgressLoopGuard(max_repeated_tool_output=3)
+    guard = ToolProgressLoopGuard(
+        max_repeated_tool_output=3,
+        action_mode="error",
+    )
 
     for _ in range(2):
         decision = await guard.evaluate_request(
@@ -305,8 +318,30 @@ async def test_guard_falls_back_when_call_output_count_mismatch() -> None:
         assert decision.action == ToolProgressLoopAction.ALLOW
 
 
-async def test_guard_default_action_mode_blocks_on_loop() -> None:
+async def test_guard_default_action_mode_steers_on_first_loop() -> None:
     guard = ToolProgressLoopGuard(max_repeated_tool_output=3)
+
+    for _ in range(2):
+        assert (
+            await guard.evaluate_request(
+                session_id="stable-session",
+                request=_request_with_tool_result("same output"),
+            )
+        ).action == ToolProgressLoopAction.ALLOW
+
+    decision = await guard.evaluate_request(
+        session_id="stable-session",
+        request=_request_with_tool_result("same output"),
+    )
+
+    assert decision.action == ToolProgressLoopAction.STEER
+
+
+async def test_guard_error_action_mode_blocks_on_loop() -> None:
+    guard = ToolProgressLoopGuard(
+        max_repeated_tool_output=3,
+        action_mode="error",
+    )
 
     for _ in range(2):
         assert (

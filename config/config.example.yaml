@@ -171,11 +171,12 @@ session:
   quality_verifier_cooldown_seconds: 300
 
   # Tool progress loop guard (cross-request repeated tool call/output detection)
+  # Set to false to completely disable tool progress loop detection.
   tool_progress_loop_guard_enabled: true
   tool_progress_loop_max_consecutive_followups: 50
   tool_progress_loop_max_repeated_call_signature: 7
   tool_progress_loop_max_repeated_output: 7
-  tool_progress_loop_action: error  # error | steer_then_error
+  tool_progress_loop_action: steer_then_error  # error | steer_then_error
   tool_progress_loop_steering_message: null
 
   # Tool call processing behavior
@@ -711,4 +712,3 @@ responses_api:
     connection_timeout: 3600
     # Maximum concurrent WebSocket connections
     max_connections: 100
-

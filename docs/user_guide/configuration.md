@@ -266,11 +266,11 @@ session:
   quality_verifier_max_history: null      # Optional history truncation (int)
 
   # Tool Progress Loop Guard
-  tool_progress_loop_guard_enabled: true
+tool_progress_loop_guard_enabled: true       # false disables this guard completely
   tool_progress_loop_max_consecutive_followups: 50
   tool_progress_loop_max_repeated_call_signature: 7
   tool_progress_loop_max_repeated_output: 7
-  tool_progress_loop_action: error        # error | steer_then_error
+tool_progress_loop_action: steer_then_error  # error | steer_then_error
   tool_progress_loop_steering_message: null
 
   # Planning Phase

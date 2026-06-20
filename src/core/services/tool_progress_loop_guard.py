@@ -8,6 +8,7 @@ from typing import Any
 
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.tool_progress_loop import (
+    DEFAULT_TOOL_PROGRESS_LOOP_GUARD_ACTION,
     DEFAULT_TOOL_PROGRESS_LOOP_STEERING_MESSAGE,
     ToolProgressLoopAction,
     ToolProgressLoopDecision,
@@ -44,7 +45,7 @@ class ToolProgressLoopGuard(IToolProgressLoopGuard):
         max_counts_per_session: int = 256,
         max_cached_sessions: int = 1000,
         enabled: bool = True,
-        action_mode: ToolProgressLoopGuardActionMode = "error",
+        action_mode: ToolProgressLoopGuardActionMode = DEFAULT_TOOL_PROGRESS_LOOP_GUARD_ACTION,
         steering_message: str | None = None,
     ) -> None:
         self._max_consecutive_tool_followups = max(1, max_consecutive_tool_followups)

@@ -364,7 +364,7 @@ properties:
       tool_progress_loop_action:
         type: string
         enum: [error, steer_then_error]
-        default: error
+        default: steer_then_error
       tool_progress_loop_steering_message: { type: ["string", "null"] }
   backends:
     type: object
