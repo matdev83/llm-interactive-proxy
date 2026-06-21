@@ -566,7 +566,20 @@ pytestmark = pytest.mark.filterwarnings(
 def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
     """Install warning filters in each worker process (xdist) and configure PID-based logging."""
     import sys
+    import time
     from contextlib import suppress
+
+    # Clean up old pytest log files (older than 7 days)
+    log_dir = Path("./var/logs")
+    if log_dir.exists():
+        now = time.time()
+        seven_days_ago = now - (7 * 24 * 3600)
+        for log_file_path in log_dir.glob("pytest-*.log"):
+            try:
+                if log_file_path.stat().st_mtime < seven_days_ago:
+                    log_file_path.unlink()
+            except Exception:
+                pass
 
     import src.connectors
 
@@ -650,8 +663,8 @@ def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
         log_dir = Path("./var/logs")
         log_dir.mkdir(parents=True, exist_ok=True)
 
-        # Generate log filename with timestamp (HHMM)
-        timestamp = datetime.now().strftime("%H%M")
+        # Generate log filename with timestamp (YYYYMMDD_HHMMSS)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_path = log_dir / f"pytest-{timestamp}.log"
 
         # Update pytest configuration with timestamp-based log file

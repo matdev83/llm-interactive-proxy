@@ -62,30 +62,3 @@ I'm now examining tests/unit/test_cli_di.py to understand how it uses the --disa
     assert (
         "Long pattern" in detection_event.pattern
     ), "Expected long-pattern path to trigger"
-
-
-def test_pattern_characteristics():
-    """Analyze the actual pattern to understand detection requirements."""
-    repeated_block = """Examining the Test File
-
-I'm now examining tests/unit/test_cli_di.py to understand how it uses the --disable-interactive-commands flag. I'm looking for any code that might generate a large number of commands, which would explain the "16 proxy command(s) detected" log message.
-
-"""
-
-    print("\nPattern Analysis:")
-    print(f"  Pattern length: {len(repeated_block)} characters")
-    print(f"  Lines in pattern: {repeated_block.count(chr(10))}")
-    print(f"  First 100 chars: {repeated_block[:100]!r}")
-    print("\nWith 13 repetitions:")
-    print(f"  Total length: {len(repeated_block * 13)} characters")
-    print("\nDetection requirements:")
-    print(
-        f"  - content_chunk_size should be <= {len(repeated_block)} to detect as repeating chunks"
-    )
-    print(
-        f"  - With chunk_size=50: pattern is {len(repeated_block)/50:.1f}x larger than chunk"
-    )
-    print(
-        f"  - With chunk_size=100: pattern is {len(repeated_block)/100:.1f}x larger than chunk"
-    )
-    print("  - chunk_size=100 is better aligned for detection")
