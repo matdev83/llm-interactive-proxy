@@ -3,7 +3,7 @@ name = "llm-interactive-proxy"
 version = "0.1.0"
 description = "The swiss-army knife for LLM-powered applications. A universal proxy that seamlessly translates between OpenAI, Anthropic, and Gemini APIs while routing to any provider you choose. Override hardcoded models, prevent infinite loops, rotate API keys, capture and debug traffic, and automatically steer conversations away from trouble. Perfect for making any AI client work with any model, anywhere."
 authors = [
-    { name = "Mateusz B.", email = "llm.interactive.proxy@matdev83.anonaddy.com" },
+    { name = "matdev83", email = "llm.interactive.proxy@matdev83.anonaddy.com" },
 ]
 dependencies = [
     "fastapi",
@@ -71,7 +71,7 @@ oauth = [
 
 dev = [
     # Test stack (pin to match local green runs)
-    "pytest==8.3.2",
+    "pytest==9.0.3",
     "pytest-asyncio==0.23.7",
     "pytest-cov==5.0.0",
     "pytest-xdist==3.6.1",
@@ -80,7 +80,7 @@ dev = [
     "freezegun==1.5.1",
     # Linters/formatters
     "ruff==0.5.6",
-    "black==24.8.0",
+    "black==26.3.1",
     "requests",
     "bandit",
     "mdformat",

@@ -401,6 +401,42 @@ def pytest_runtest_setup(item) -> None:  # type: ignore[no-untyped-def]
     ):
         _cleanup_root_artifacts()
 
+    # Restore/bind src.connectors attributes to prevent AttributeErrors in subsequent tests
+    # on shared pytest-xdist worker processes.
+    if (
+        "test_lazy_package_exports" not in item.nodeid
+        and "test_backend_autodiscovery" not in item.nodeid
+    ):
+        import src.connectors
+
+        if sys.modules.get("src.connectors") is not src.connectors:
+            sys.modules["src.connectors"] = src.connectors
+
+        import contextlib
+
+        for name in [
+            "openai_codex",
+            "openai",
+            "gemini",
+            "anthropic",
+            "openrouter",
+        ]:
+            full_name = f"src.connectors.{name}"
+            if full_name not in sys.modules:
+                with contextlib.suppress(ImportError):
+                    __import__(full_name)
+
+        for key, mod in list(sys.modules.items()):
+            if key.startswith("src.connectors."):
+                parts = key.split(".")
+                if len(parts) == 3:
+                    name = parts[2]
+                    if (
+                        not hasattr(src.connectors, name)
+                        or getattr(src.connectors, name) is not mod
+                    ):
+                        setattr(src.connectors, name, mod)
+
 
 def pytest_runtest_teardown(item, nextitem) -> None:  # type: ignore[no-untyped-def]
     """Restore stdlib ``time.monotonic`` if a test left a mock installed on the module."""
@@ -529,6 +565,65 @@ pytestmark = pytest.mark.filterwarnings(
 
 def pytest_configure(config) -> None:  # type: ignore[no-untyped-def]
     """Install warning filters in each worker process (xdist) and configure PID-based logging."""
+    import sys
+    from contextlib import suppress
+
+    import src.connectors
+
+    for name in [
+        "openai_codex",
+        "openai",
+        "gemini",
+        "anthropic",
+        "_openai_codex_connector",
+    ]:
+        full_name = f"src.connectors.{name}"
+        try:
+            __import__(full_name)
+        except ImportError as e:
+            print(f"IMPORT ERROR for {full_name}: {e}")
+            import traceback
+
+            traceback.print_exc()
+        if full_name in sys.modules:
+            setattr(src.connectors, name, sys.modules[full_name])
+
+    # Optimize resilience RetryPolicy defaults for all test runs to avoid real backoff delays
+    with suppress(ImportError):
+        from src.core.services.resilience.retry_policy import RetryPolicy
+
+        original_init = RetryPolicy.__init__
+
+        def patched_init(self, *args, **kwargs):
+            if "wait_initial" not in kwargs and len(args) < 3:
+                kwargs["wait_initial"] = 0.0001
+            if "wait_jitter" not in kwargs and len(args) < 5:
+                kwargs["wait_jitter"] = 0.0
+            original_init(self, *args, **kwargs)
+
+        RetryPolicy.__init__ = patched_init  # type: ignore[method-assign]
+
+    # Optimize Codex ResponseExecutor retry backoff defaults for tests
+    with suppress(ImportError):
+        from src.connectors.openai_codex.executor import ResponseExecutor
+
+        original_exec_init = ResponseExecutor.__init__
+
+        def patched_exec_init(self, *args, **kwargs):
+            backoff = kwargs.get("retry_backoff_seconds")
+            if backoff == (0.5, 1.5, 3.0):
+                kwargs["retry_backoff_seconds"] = (0.0001, 0.0002, 0.0003)
+            elif "retry_backoff_seconds" not in kwargs:
+                if len(args) >= 5 and args[4] == (0.5, 1.5, 3.0):
+                    args = list(args)
+                    args[4] = (0.0001, 0.0002, 0.0003)
+                    args = tuple(args)
+                elif len(args) < 5:
+                    kwargs["retry_backoff_seconds"] = (0.0001, 0.0002, 0.0003)
+            original_exec_init(self, *args, **kwargs)
+
+        ResponseExecutor.__init__ = patched_exec_init  # type: ignore[method-assign]
+
     _install_global_warning_filters()
     config.addinivalue_line(
         "markers", "httpx_mock: mark tests that require pytest_httpx"

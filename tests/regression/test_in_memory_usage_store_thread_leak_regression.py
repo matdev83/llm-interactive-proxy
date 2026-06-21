@@ -8,6 +8,7 @@ Fixed: stop_persistence_thread() properly signals shutdown and joins the thread.
 """
 
 import threading
+from collections.abc import Generator
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Event
@@ -20,7 +21,7 @@ class TestInMemoryUsageStoreThreadLeakRegression:
     """Regression tests for InMemoryUsageStore thread leak fix."""
 
     @pytest.fixture
-    def temp_dir(self) -> Path:
+    def temp_dir(self) -> Generator[Path, None, None]:
         """Create a temporary directory for persistence files."""
         with TemporaryDirectory() as tmpdir:
             yield Path(tmpdir)
@@ -141,12 +142,6 @@ class TestInMemoryUsageStoreThreadLeakRegression:
             store.start_persistence_thread()
             # No explicit delay needed - thread startup is fast enough
             store.stop_persistence_thread()
-
-        # Wait for all threads to stop - use threading.Event
-        event = Event()
-        # Wait up to 0.05s for threads to stop
-        for _ in range(50):  # 50 iterations * 0.001s = 0.05s max
-            event.wait(timeout=0.001)
 
         threads_after = threading.active_count()
         # Allow margin for other threads

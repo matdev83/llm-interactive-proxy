@@ -55,13 +55,15 @@ async def test_chat_completions_http_error_streaming(
     from src.core.ports.streaming_processors import (
         LoopDetectionProcessor,
         ThinkTagsProcessor,
-        ToolCallRepairProcessor,
     )
     from src.core.services.streaming.stream_context_registry import (
         StreamingContextRegistry,
     )
     from src.core.services.streaming.tool_call_repair_processor import (
         ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
+    )
+    from src.core.services.streaming_tool_call_repair_processor import (
+        StreamingToolCallRepairProcessor as ToolCallRepairProcessor,
     )
     from src.core.services.tool_call_repair_service import ToolCallRepairService
 

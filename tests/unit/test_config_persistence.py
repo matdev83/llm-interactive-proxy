@@ -10,7 +10,6 @@ def functional_backend() -> str:
 
 
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_minimal_test_app
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.common.exceptions import ConfigurationError, JSONParsingError
@@ -130,20 +129,18 @@ def test_save_and_load_persistent_config(
 
     caplog.clear()
 
-    with TestClient(app2) as client2:
-        app2_state = client2.app.state  # type: ignore[attr-defined]
-        assert app2_state.app_config.backends.default_backend == functional_backend
-        assert app2_state.app_config.session.default_interactive_mode is True
+    app2_state = app2.state  # type: ignore[attr-defined]
+    assert app2_state.app_config.backends.default_backend == functional_backend
+    assert app2_state.app_config.session.default_interactive_mode is True
 
-        expected_elements = ["openrouter:model-a"]
+    expected_elements = ["openrouter:model-a"]
 
-        if "r1" in app2_state.app_config.failover_routes:
-            assert (
-                app2_state.app_config.failover_routes["r1"]["elements"]
-                == expected_elements
-            )
-        else:
-            assert not expected_elements
+    if "r1" in app2_state.app_config.failover_routes:
+        assert (
+            app2_state.app_config.failover_routes["r1"]["elements"] == expected_elements
+        )
+    else:
+        assert not expected_elements
 
 
 def test_invalid_persisted_backend(
@@ -176,11 +173,10 @@ def test_invalid_persisted_backend(
     app = build_app(config=app_config)
 
     # The app should build successfully even with an invalid default backend
-    with TestClient(app) as client:
-        assert (
-            client.app.state.app_config.backends.default_backend  # type: ignore
-            == "non_existent_backend"
-        )
+    assert (
+        app.state.app_config.backends.default_backend  # type: ignore
+        == "non_existent_backend"
+    )
 
     monkeypatch.delenv("OPENROUTER_API_KEY_1", raising=False)  # Clean up
     monkeypatch.delenv("DEFAULT_BACKEND", raising=False)
@@ -322,10 +318,16 @@ def test_apply_failover_routes_uses_validator_and_skips_invalid(monkeypatch) -> 
     assert "backend rejection" in " ".join(warnings)
     routes = application_state.get_failover_routes()
     assert routes is not None
+    from typing import Any, cast
+
     assert any(
         route
         for route in routes
-        if (route.elements if hasattr(route, "elements") else route.get("elements"))
+        if (
+            route.elements
+            if hasattr(route, "elements")
+            else cast(Any, route).get("elements")
+        )
         == ["gemini:model-a"]
     )
 

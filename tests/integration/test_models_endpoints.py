@@ -8,6 +8,7 @@ with both mocked and real backend configurations.
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -69,23 +70,24 @@ class TestModelsEndpoints:
         "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
     )
 
-    @pytest.fixture
-    def app_with_auth_disabled(self, monkeypatch):
+    @pytest.fixture(scope="class")
+    def app_with_auth_disabled(self):
         """Create app with authentication disabled."""
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        app = build_app()
-        yield app
+        from src.core.app.test_builder import create_test_config
 
-    @pytest.fixture
-    def app_with_auth_enabled(self, monkeypatch):
+        return build_app(config=create_test_config())
+
+    @pytest.fixture(scope="class")
+    def app_with_auth_enabled(self):
         """Create app with authentication enabled."""
-        monkeypatch.setenv("API_KEYS", "test-key-123")
-        monkeypatch.setenv("DISABLE_AUTH", "false")  # Explicitly enable auth
-        monkeypatch.delenv(
-            "AUTH_TOKEN", raising=False
-        )  # Remove auth token to prevent AuthMiddleware interference
-        app = build_app()
-        yield app
+        from src.core.app.test_builder import create_test_config
+
+        config = create_test_config()
+        new_auth = config.auth.model_copy(
+            update={"disable_auth": False, "api_keys": ["test-key-123"]}
+        )
+        config = config.model_copy(update={"auth": new_auth})
+        return build_app(config=config)
 
     def test_models_endpoint_no_auth(self, app_with_auth_disabled):
         """Test /models endpoint without authentication."""
@@ -164,17 +166,9 @@ class TestModelsEndpoints:
             app, expected_order
         ), f"Middleware not configured in expected order. Expected: {expected_order}"
 
-    def test_models_with_configured_backends(self, monkeypatch):
+    def test_models_with_configured_backends(self, app_with_auth_disabled):
         """Test models discovery with configured backends."""
-        # Set up environment with multiple backends
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        monkeypatch.setenv("OPENAI_API_KEY", "test-openai-key")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
-
-        app = build_app()
-
-        # Don't mock the backend service itself - let the real DI work.
-        with TestClient(app) as client:
+        with TestClient(app_with_auth_disabled) as client:
             response = client.get("/models")
 
             assert response.status_code == 200
@@ -208,44 +202,16 @@ class TestModelsEndpoints:
                 assert isinstance(model["id"], str)
                 assert isinstance(model["owned_by"], str)
 
-    def test_models_endpoint_error_handling(self, monkeypatch):
+    def test_models_endpoint_error_handling(self, app_with_auth_disabled):
         """Test error handling in models endpoint."""
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        app = build_app()
-
-        # Patch the backend service's internal method to simulate an error
-        with TestClient(app) as client:
-            # Ensure the service provider is available
-            from src.core.di.services import set_service_provider
+        with TestClient(app_with_auth_disabled) as client:
             from src.core.interfaces.backend_service_interface import IBackendService
 
-            # Initialize services if needed using the modern staged approach
-            if (
-                not hasattr(app.state, "service_provider")
-                or app.state.service_provider is None
-            ):
-                import asyncio
-
-                from src.core.app.test_builder import build_test_app_async
-
-                # Get or create a basic config
-                config = getattr(app.state, "app_config", None)
-                if config is None:
-                    from src.core.config.app_config import AppConfig
-
-                    config = AppConfig()
-                    app.state.app_config = config
-
-                # Use the modern staged initialization approach instead of deprecated methods
-                test_app = asyncio.run(build_test_app_async(config))
-
-                # Copy the service provider from the properly initialized test app
-                set_service_provider(test_app.state.service_provider)
-                app.state.service_provider = test_app.state.service_provider
-
             # Get the backend service from DI
-            backend_service = app.state.service_provider.get_required_service(
-                IBackendService
+            backend_service = (
+                app_with_auth_disabled.state.service_provider.get_required_service(
+                    IBackendService
+                )
             )
 
             # Patch the internal method to raise an exception
@@ -504,16 +470,16 @@ class TestModelsDiscovery:
 class TestModelsEndpointIntegration:
     """Full integration tests with real app instances."""
 
+    @pytest.fixture(scope="class")
+    def app(self) -> FastAPI:
+        """Create app with authentication disabled and default backend as openai."""
+        from src.core.app.test_builder import create_test_config
+
+        return build_app(config=create_test_config())
+
     @pytest.mark.integration
-    def test_full_models_discovery_flow(self, monkeypatch):
+    def test_full_models_discovery_flow(self, app):
         """Test complete flow of model discovery."""
-        # Setup environment
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        monkeypatch.setenv("DEFAULT_BACKEND", "openai")
-
-        # Build app
-        app = build_app()
-
         with TestClient(app) as client:
             # First request to models endpoint
             response = client.get("/models")
@@ -540,11 +506,8 @@ class TestModelsEndpointIntegration:
                 assert chat_response.status_code in [200, 401, 403, 500]
 
     @pytest.mark.integration
-    def test_models_caching_behavior(self, monkeypatch):
+    def test_models_caching_behavior(self, app):
         """Test that models endpoint implements proper caching."""
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        app = build_app()
-
         with TestClient(app) as client:
             # First request
             response1 = client.get("/models")
@@ -565,12 +528,9 @@ class TestModelsEndpointIntegration:
     @real_time(
         reason="Measures actual endpoint response time to ensure performance requirements are met."
     )
-    def test_models_endpoint_performance(self, monkeypatch):
+    def test_models_endpoint_performance(self, app):
         """Test models endpoint performance."""
         import time
-
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        app = build_app()
 
         with TestClient(app) as client:
             # Warm up
@@ -586,11 +546,8 @@ class TestModelsEndpointIntegration:
             assert duration < 1.0
 
     @pytest.mark.parametrize("endpoint", ["/models", "/v1/models"])
-    def test_both_endpoints_return_same_data(self, endpoint, monkeypatch):
+    def test_both_endpoints_return_same_data(self, endpoint, app):
         """Test that both model endpoints return identical data."""
-        monkeypatch.setenv("DISABLE_AUTH", "true")
-        app = build_app()
-
         with TestClient(app) as client:
             response = client.get(endpoint)
             assert response.status_code == 200

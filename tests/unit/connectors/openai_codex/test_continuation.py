@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import time
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
@@ -69,10 +69,10 @@ async def test_in_memory_continuation_expires_and_evicts_oldest() -> None:
     assert await coordinator.resolve_previous_response_id(second) == "resp-2"
 
     expiring = InMemoryCodexContinuationCoordinator(ttl_seconds=1, max_entries=2)
-    await expiring.record_response_id(first, "resp-expire")
-    time.sleep(1.05)
-
-    assert await expiring.resolve_previous_response_id(first) is None
+    start_time = 100.0
+    with patch("time.monotonic", side_effect=[start_time, start_time + 1.05]):
+        await expiring.record_response_id(first, "resp-expire")
+        assert await expiring.resolve_previous_response_id(first) is None
 
 
 @pytest.mark.asyncio
@@ -125,6 +125,7 @@ async def test_continuation_key_uses_extra_body_agent_family_signal() -> None:
 
     # Cline-like should find it
     cline = _context("s1")
+    assert cline.metadata is not None
     cline.metadata["agent"] = "cline"
     assert await coordinator.resolve_previous_response_id(cline) == "id1"
 
@@ -133,12 +134,14 @@ async def test_continuation_key_uses_extra_body_agent_family_signal() -> None:
 async def test_continuation_key_uses_user_agent_header_family_signal() -> None:
     coordinator = InMemoryCodexContinuationCoordinator()
     context = _context("s1")
+    assert context.metadata is not None
     context.metadata["headers"] = {"User-Agent": "factory_cli/v1"}
 
     await coordinator.record_response_id(context, "id1")
 
     # Droid should find it
     droid = _context("s1")
+    assert droid.metadata is not None
     droid.metadata["headers"] = {"user-agent": "factorydroid"}
     assert await coordinator.resolve_previous_response_id(droid) == "id1"
 
@@ -147,6 +150,7 @@ async def test_continuation_key_uses_user_agent_header_family_signal() -> None:
 async def test_continuation_key_does_not_treat_android_user_agent_as_droid() -> None:
     coordinator = InMemoryCodexContinuationCoordinator()
     context = _context("s1")
+    assert context.metadata is not None
     context.metadata["headers"] = {"User-Agent": "Mozilla/5.0 (Android 10)"}
 
     await coordinator.record_response_id(context, "id1")
@@ -157,6 +161,7 @@ async def test_continuation_key_does_not_treat_android_user_agent_as_droid() -> 
 
     # Droid should NOT
     droid = _context("s1")
+    assert droid.metadata is not None
     droid.metadata["headers"] = {"User-Agent": "factorydroid"}
     assert await coordinator.resolve_previous_response_id(droid) is None
 
@@ -177,6 +182,7 @@ async def test_continuation_key_separates_different_client_families_in_same_sess
     await coordinator.record_response_id(opencode, "id-opencode")
 
     droid = _context(s1, prompt_cache_key="a")
+    assert droid.metadata is not None
     droid.metadata["headers"] = {"user-agent": "factory-cli"}
     await coordinator.record_response_id(droid, "id-droid")
 

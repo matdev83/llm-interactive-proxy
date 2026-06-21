@@ -25,13 +25,15 @@ async def gemini_backend_fixture():
     from src.core.ports.streaming_processors import (
         LoopDetectionProcessor,
         ThinkTagsProcessor,
-        ToolCallRepairProcessor,
     )
     from src.core.services.streaming.stream_context_registry import (
         StreamingContextRegistry,
     )
     from src.core.services.streaming.tool_call_repair_processor import (
         ToolCallRepairProcessor as ServiceToolCallRepairProcessor,
+    )
+    from src.core.services.streaming_tool_call_repair_processor import (
+        StreamingToolCallRepairProcessor as ToolCallRepairProcessor,
     )
     from src.core.services.tool_call_repair_service import ToolCallRepairService
 
@@ -189,8 +191,8 @@ async def test_chat_completions_streaming_usage_chunk(
     assert saw_usage, "Expected terminal usage chunk to be forwarded to client"
 
     # Ensure the stream is closed to avoid pending tasks in tests
-    if hasattr(envelope.content, "aclose"):
-        await envelope.content.aclose()  # type: ignore[func-returns-value]
+    if envelope.content is not None and hasattr(envelope.content, "aclose"):
+        await envelope.content.aclose()  # type: ignore[func-returns-value,union-attr]
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ from collections import deque
 from typing import Any
 from unittest.mock import AsyncMock
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 from src.core.app.test_builder import build_test_app
@@ -13,10 +14,28 @@ from src.core.interfaces.application_state_interface import IApplicationState
 
 
 class TestContextWindowLimits:
-    def _setup_app_with_defaults(
-        self, model_key: str, limits: ModelLimits
-    ) -> TestClient:
+    @pytest.fixture(scope="class")
+    def app(self) -> FastAPI:
         app = build_test_app()
+        sp = app.state.service_provider
+        app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
+        app.state.original_app_config = app_state.get_setting("app_config")
+        return app
+
+    @pytest.fixture(autouse=True)
+    def reset_app_state(self, app: FastAPI) -> None:
+        sp = app.state.service_provider
+        app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
+        app_state.set_model_defaults({})
+        app_state.set_setting(
+            "app_config", getattr(app.state, "original_app_config", None)
+        )
+        app_state.set_setting("disable_auth", True)
+        app.state.disable_auth = True
+
+    def _configure_app_with_defaults(
+        self, app: FastAPI, model_key: str, limits: ModelLimits
+    ) -> TestClient:
         sp = app.state.service_provider
         app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
         # Set model defaults
@@ -24,17 +43,14 @@ class TestContextWindowLimits:
         md = ModelDefaults.model_validate({"limits": limits})
         app_state.set_model_defaults({model_key: md, model_key.split(":", 1)[-1]: md})
         app_state.set_backend_type("openai")
-        # Disable auth for tests (both DI and app.state fallbacks)
-        app_state.set_setting("disable_auth", True)
-        app.state.disable_auth = True
         return TestClient(app)
 
     def test_output_limit_no_longer_enforced(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, app: FastAPI, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Test that max_output_tokens is no longer enforced (removed as redundant)."""
-        client = self._setup_app_with_defaults(
-            "openai:gpt-4", ModelLimits(max_output_tokens=50)
+        client = self._configure_app_with_defaults(
+            app, "openai:gpt-4", ModelLimits(max_output_tokens=50)
         )
 
         captured: deque[dict[str, Any]] = deque(maxlen=1)
@@ -66,9 +82,9 @@ class TestContextWindowLimits:
         # max_tokens should no longer be capped since max_output_tokens enforcement was removed
         assert getattr(called_req, "max_tokens", None) == 100
 
-    def test_input_limit_hard_error(self) -> None:
-        client = self._setup_app_with_defaults(
-            "openai:gpt-4", ModelLimits(max_input_tokens=1)
+    def test_input_limit_hard_error(self, app: FastAPI) -> None:
+        client = self._configure_app_with_defaults(
+            app, "openai:gpt-4", ModelLimits(max_input_tokens=1)
         )
 
         payload = {
@@ -86,10 +102,12 @@ class TestContextWindowLimits:
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
 
-    def test_context_window_aliases_to_input_limit_hard_error(self) -> None:
+    def test_context_window_aliases_to_input_limit_hard_error(
+        self, app: FastAPI
+    ) -> None:
         """Ensure context_window acts as an input limit without duplicating logic."""
-        client = self._setup_app_with_defaults(
-            "openai:gpt-4", ModelLimits(context_window=1)
+        client = self._configure_app_with_defaults(
+            app, "openai:gpt-4", ModelLimits(context_window=1)
         )
 
         payload = {
@@ -109,9 +127,8 @@ class TestContextWindowLimits:
         assert isinstance(details.get("measured"), int)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
 
-    def test_cli_context_window_override(self) -> None:
+    def test_cli_context_window_override(self, app: FastAPI) -> None:
         """Test that CLI context window override takes precedence over config file settings."""
-        app = build_test_app()
         sp = app.state.service_provider
         app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
 
@@ -126,10 +143,6 @@ class TestContextWindowLimits:
             "app_config", type("MockConfig", (), {"context_window_override": 5000})()
         )
 
-        # Disable auth for tests
-        app_state.set_setting("disable_auth", True)
-        app.state.disable_auth = True
-
         client = TestClient(app)
 
         payload = {
@@ -140,9 +153,8 @@ class TestContextWindowLimits:
         # Should succeed since the message is under the CLI override limit
         assert resp.status_code == 200
 
-    def test_cli_context_window_override_enforced(self) -> None:
+    def test_cli_context_window_override_enforced(self, app: FastAPI) -> None:
         """Test that CLI context window override is actually enforced when exceeded."""
-        app = build_test_app()
         sp = app.state.service_provider
         app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
 
@@ -156,10 +168,6 @@ class TestContextWindowLimits:
         app_state.set_setting(
             "app_config", type("MockConfig", (), {"context_window_override": 1})()
         )
-
-        # Disable auth for tests
-        app_state.set_setting("disable_auth", True)
-        app.state.disable_auth = True
 
         client = TestClient(app)
 
@@ -181,9 +189,10 @@ class TestContextWindowLimits:
         # The limit should be the CLI override value (1), not the config file value (100000)
         assert isinstance(details.get("limit"), int) and details["limit"] == 1
 
-    def test_cli_context_window_override_with_no_existing_limits(self) -> None:
+    def test_cli_context_window_override_with_no_existing_limits(
+        self, app: FastAPI
+    ) -> None:
         """Test CLI context window override when model has no existing limits configured."""
-        app = build_test_app()
         sp = app.state.service_provider
         app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
 
@@ -195,10 +204,6 @@ class TestContextWindowLimits:
         app_state.set_setting(
             "app_config", type("MockConfig", (), {"context_window_override": 10})()
         )
-
-        # Disable auth for tests
-        app_state.set_setting("disable_auth", True)
-        app.state.disable_auth = True
 
         client = TestClient(app)
 
@@ -222,9 +227,8 @@ class TestContextWindowLimits:
         assert isinstance(details.get("limit"), int) and details["limit"] == 10
 
     def test_openai_codex_configured_limit_blocks_before_backend_dispatch(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, app: FastAPI, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        app = build_test_app()
         sp = app.state.service_provider
         app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
         md = ModelDefaults.model_validate(
@@ -237,8 +241,6 @@ class TestContextWindowLimits:
             }
         )
         app_state.set_backend_type("openai-codex")
-        app_state.set_setting("disable_auth", True)
-        app.state.disable_auth = True
 
         import src.core.services.backend_preparer as backend_preparer
         import src.core.services.backend_request_manager_service as brm
