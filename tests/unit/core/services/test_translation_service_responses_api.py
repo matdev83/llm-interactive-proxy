@@ -247,9 +247,7 @@ class TestResponsesApiTranslation:
         with patch(
             "src.core.domain.translators.responses.streaming.render_tool_call"
         ) as mock_render:
-            mock_render.return_value = (
-                '<do_work><path>README.md</path></do_work>'
-            )
+            mock_render.return_value = "<do_work><path>README.md</path></do_work>"
 
             # response.function_call_arguments.done returns empty chunk
             # (tool_calls come from response.output_item.done instead)
@@ -350,7 +348,7 @@ class TestResponsesApiTranslation:
         parsed = json.loads(tc.function.arguments)
         assert "git" in parsed["command"] and "log" in parsed["command"]
         assert "Show last commit subject" in parsed["description"]
-        assert "/repo" in parsed["description"]
+        assert parsed["workdir"] == "/repo"
 
     def test_responses_tool_call_deltas_without_chunk_ids_use_created_response_id(self):
         """Deltas may omit response/top-level id; correlate via prior response.created."""

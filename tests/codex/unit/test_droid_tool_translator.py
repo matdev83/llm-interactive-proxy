@@ -192,6 +192,75 @@ class TestDroidToolTranslatorExecute:
         assert args["command"] == ["npm", "install"]
         assert args["workdir"] == "/project"
 
+    def test_translate_execute_with_timeout_and_cwd(self):
+        """Execute should preserve timeout and cwd for backend shell execution."""
+        from src.connectors._openai_codex_droid_tool_translator import (
+            DroidToolTranslator,
+        )
+
+        translator = DroidToolTranslator()
+        result = translator.translate_tool_call(
+            "Execute",
+            {
+                "command": "pytest tests/ -v",
+                "timeout": 900,
+                "cwd": "/project",
+            },
+        )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
+        assert tool_name == "shell"
+        assert args == {
+            "command": ["pytest", "tests/", "-v"],
+            "timeout": 900,
+            "workdir": "/project",
+        }
+
+    def test_reverse_translate_shell_preserves_timeout_and_workdir(self):
+        """Codex shell should become Droid Execute without losing timeout/cwd."""
+        from src.connectors._openai_codex_droid_tool_translator import (
+            DroidToolTranslator,
+        )
+
+        translator = DroidToolTranslator()
+        result = translator.translate_codex_to_droid(
+            "shell",
+            {
+                "command": ["pytest", "tests/", "-v"],
+                "timeout": 900,
+                "workdir": "/project",
+            },
+        )
+
+        assert result.droid_tool_name == "Execute"
+        assert result.droid_arguments == {
+            "command": "pytest tests/ -v",
+            "timeout": 900,
+            "cwd": "/project",
+        }
+
+    def test_reverse_translate_bash_preserves_timeout_and_workdir(self):
+        """OpenAI-compatible bash output should map to Droid Execute arguments."""
+        from src.connectors._openai_codex_droid_tool_translator import (
+            DroidToolTranslator,
+        )
+
+        translator = DroidToolTranslator()
+        result = translator.translate_codex_to_droid(
+            "bash",
+            {
+                "command": "pytest tests/ -v",
+                "timeout": 900,
+                "workdir": "/project",
+            },
+        )
+
+        assert result.droid_tool_name == "Execute"
+        assert result.droid_arguments == {
+            "command": "pytest tests/ -v",
+            "timeout": 900,
+            "cwd": "/project",
+        }
+
     def test_translate_execute_single_command(self):
         """Execute with single command should work."""
         from src.connectors._openai_codex_droid_tool_translator import (

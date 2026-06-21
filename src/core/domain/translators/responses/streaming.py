@@ -84,10 +84,13 @@ def _local_shell_item_to_arguments_json(item: dict[str, Any]) -> str:
             "command": command_str,
             "description": desc_val.strip() if isinstance(desc_val, str) else "",
         }
+        timeout = item.get("timeout")
+        if isinstance(timeout, int | float) and not isinstance(timeout, bool):
+            payload["timeout"] = timeout
         for src_key, dest_key in (
-            ("working_directory", "working_directory"),
-            ("workdir", "working_directory"),
-            ("cwd", "working_directory"),
+            ("workdir", "workdir"),
+            ("working_directory", "workdir"),
+            ("cwd", "workdir"),
         ):
             v = item.get(src_key)
             if v is not None and v != "":
@@ -130,7 +133,9 @@ def _normalize_shell_like_tool_arguments_json(
     Codex native tools use ``command`` as a string array. Clients such as OpenCode
     validate a ``bash`` tool with **string** ``command`` and **string**
     ``description``; array-shaped ``command`` or a missing ``description`` yields
-    ``undefined`` field errors even when JSON parses successfully.
+    ``undefined`` field errors even when JSON parses successfully. Preserve
+    OpenCode's optional ``timeout`` and ``workdir`` fields so timeout control is
+    not silently replaced by the client's default.
     """
     lname = (tool_name or "").strip().lower()
     if lname not in ("shell", "bash"):
@@ -161,13 +166,17 @@ def _normalize_shell_like_tool_arguments_json(
     if not isinstance(desc, str):
         desc = str(desc)
 
+    normalized: dict[str, Any] = {"command": cmd_str, "description": desc}
+
+    timeout = obj.get("timeout")
+    if isinstance(timeout, int | float) and not isinstance(timeout, bool):
+        normalized["timeout"] = timeout
+
     wd = obj.get("workdir") or obj.get("working_directory") or obj.get("cwd")
     if wd is not None and str(wd).strip():
-        wd_s = str(wd).strip()
-        base = desc.strip()
-        desc = f"{base} [cwd: {wd_s}]" if base else f"[cwd: {wd_s}]"
+        normalized["workdir"] = str(wd).strip()
 
-    return json.dumps({"command": cmd_str, "description": desc}, ensure_ascii=False)
+    return json.dumps(normalized, ensure_ascii=False)
 
 
 # Correlates Responses SSE events that omit `response.id` / top-level `id` with the

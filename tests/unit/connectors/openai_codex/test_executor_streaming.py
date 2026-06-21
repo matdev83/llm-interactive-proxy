@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator
 from typing import Any, cast
@@ -2553,7 +2554,12 @@ class TestResponseExecutor:
                     "id": "fc_ws_tool",
                     "type": "function_call",
                     "name": "shell",
-                    "arguments": '{"command":["bash","-lc","git status --short"]}',
+                    "arguments": (
+                        '{"command":["bash","-lc","git status --short"],'
+                        '"description":"Check repository status",'
+                        '"timeout":900000,'
+                        '"workdir":"C:/Users/Mateusz/source/repos/llm-interactive-proxy"}'
+                    ),
                 },
             },
             metadata={"event_type": "response.output_item.done"},
@@ -2565,6 +2571,14 @@ class TestResponseExecutor:
         assert normalized.metadata.get("finish_reason") == "tool_calls"
         content = cast(dict[str, Any], normalized.content)
         assert content["choices"][0]["finish_reason"] == "tool_calls"
+        tool_call = content["choices"][0]["delta"]["tool_calls"][0]
+        arguments = json.loads(tool_call["function"]["arguments"])
+        assert arguments == {
+            "command": "bash -lc 'git status --short'",
+            "description": "Check repository status",
+            "timeout": 900000,
+            "workdir": "C:/Users/Mateusz/source/repos/llm-interactive-proxy",
+        }
 
     @pytest.mark.asyncio
     async def test_normalize_processed_stream_chunk_marks_function_call_done_as_tool_output(
@@ -2593,6 +2607,47 @@ class TestResponseExecutor:
         assert normalized.metadata.get("finish_reason") == "tool_calls"
         content = cast(dict[str, Any], normalized.content)
         assert content["choices"][0]["delta"] == {}
+
+    @pytest.mark.asyncio
+    async def test_normalize_processed_stream_chunk_preserves_non_shell_timeout_arguments(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+    ) -> None:
+        mock_base_connector.translation_service = TranslationService()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+        )
+
+        chunk = ProcessedResponse(
+            content={
+                "type": "response.output_item.done",
+                "output_index": 1,
+                "item": {
+                    "id": "fc_webfetch",
+                    "type": "function_call",
+                    "name": "webfetch",
+                    "arguments": (
+                        '{"url":"https://example.com","format":"markdown",'
+                        '"timeout":90}'
+                    ),
+                },
+            },
+            metadata={"event_type": "response.output_item.done"},
+        )
+
+        normalized = executor._normalize_processed_stream_chunk(chunk)
+
+        assert normalized.metadata.get("tool_call_emitted") is True
+        content = cast(dict[str, Any], normalized.content)
+        tool_call = content["choices"][0]["delta"]["tool_calls"][0]
+        assert tool_call["function"]["name"] == "webfetch"
+        assert json.loads(tool_call["function"]["arguments"]) == {
+            "url": "https://example.com",
+            "format": "markdown",
+            "timeout": 90,
+        }
 
     @pytest.mark.asyncio
     async def test_normalize_processed_stream_chunk_overrides_falsey_tool_markers(
@@ -2643,7 +2698,14 @@ class TestResponseExecutor:
                     "type": "local_shell_call",
                     "id": "shell_1",
                     "call_id": "call_1",
-                    "action": {"command": ["bash", "-lc", "git status --short"]},
+                    "action": {
+                        "command": ["bash", "-lc", "git status --short"],
+                        "description": "Check repository status",
+                        "timeout": 900000,
+                        "working_directory": (
+                            "C:/Users/Mateusz/source/repos/llm-interactive-proxy"
+                        ),
+                    },
                 },
             },
             metadata={"event_type": "response.output_item.done"},
@@ -2656,6 +2718,13 @@ class TestResponseExecutor:
         content = cast(dict[str, Any], normalized.content)
         tool_call = content["choices"][0]["delta"]["tool_calls"][0]
         assert tool_call["function"]["name"] == "bash"
+        arguments = json.loads(tool_call["function"]["arguments"])
+        assert arguments == {
+            "command": "bash -lc 'git status --short'",
+            "description": "Check repository status",
+            "timeout": 900000,
+            "workdir": "C:/Users/Mateusz/source/repos/llm-interactive-proxy",
+        }
 
     @pytest.mark.asyncio
     async def test_execute_streaming_websocket_does_not_persist_provisional_lineage_on_tool_call_only_turn(

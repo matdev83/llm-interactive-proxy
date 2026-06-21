@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, cast
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
@@ -10,7 +11,10 @@ from src.connectors.openai_codex.contracts import (
     CodexRequestContext,
     ProcessedMessage,
 )
+from src.connectors.openai_codex.executor import ResponseExecutor
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.translation_service import TranslationService
 
 _PI_PROMPT = (
     "You are an expert coding assistant operating inside pi, a coding agent harness.\n"
@@ -77,6 +81,7 @@ def test_pi_bridge_prompt_includes_critical_shell_and_file_rules() -> None:
     assert "CRITICAL INSTRUCTION:" in instructions
     assert "NEVER run cat inside a bash command" in instructions
     assert "DO NOT use bash commands like ls for listing" in instructions
+    assert "optional numeric `timeout` in seconds" in instructions
     assert "pi agent" in instructions
 
 
@@ -191,3 +196,44 @@ def test_pi_detection_requires_multiple_prompt_markers() -> None:
     adapted = adapter.adapt_payload_dict(payload, context)
 
     assert adapted == payload
+
+
+def test_pi_shell_fallback_preserves_timeout_when_normalized_to_bash(
+    mock_base_connector,
+    mock_credential_manager,
+) -> None:
+    """Pi expects bash timeout values in seconds; normalization must not drop them."""
+    mock_base_connector.translation_service = TranslationService()
+    executor = ResponseExecutor(
+        mock_base_connector,
+        mock_credential_manager,
+    )
+
+    chunk = ProcessedResponse(
+        content={
+            "type": "response.output_item.done",
+            "output_index": 1,
+            "item": {
+                "id": "fc_pi_shell",
+                "type": "function_call",
+                "name": "shell",
+                "arguments": (
+                    '{"command":["pytest","tests/","-v"],'
+                    '"description":"Run focused tests",'
+                    '"timeout":900}'
+                ),
+            },
+        },
+        metadata={"event_type": "response.output_item.done"},
+    )
+
+    normalized = executor._normalize_processed_stream_chunk(chunk)
+
+    content = cast(dict[str, Any], normalized.content)
+    tool_call = content["choices"][0]["delta"]["tool_calls"][0]
+    assert tool_call["function"]["name"] == "bash"
+    assert json.loads(tool_call["function"]["arguments"]) == {
+        "command": "pytest tests/ -v",
+        "description": "Run focused tests",
+        "timeout": 900,
+    }

@@ -225,9 +225,13 @@ class DroidToolTranslator:
 
         Codex shell:
             - command: Array of command parts
+            - timeout: Optional timeout
+            - workdir: Optional working directory
 
         Droid Execute:
             - command: Full command string
+            - timeout: Optional timeout
+            - cwd: Optional working directory
         """
         command = codex_args.get("command", [])
         if isinstance(command, list):
@@ -236,9 +240,22 @@ class DroidToolTranslator:
         else:
             command_str = str(command)
 
+        droid_args: dict[str, Any] = {"command": command_str}
+        timeout = codex_args.get("timeout")
+        if isinstance(timeout, int | float) and not isinstance(timeout, bool):
+            droid_args["timeout"] = timeout
+
+        cwd = (
+            codex_args.get("cwd")
+            or codex_args.get("workdir")
+            or codex_args.get("working_directory")
+        )
+        if cwd is not None and str(cwd).strip():
+            droid_args["cwd"] = str(cwd).strip()
+
         return ReverseTranslationResult(
             droid_tool_name="Execute",
-            droid_arguments={"command": command_str},
+            droid_arguments=droid_args,
         )
 
     def _reverse_translate_bash(
@@ -404,6 +421,7 @@ class DroidToolTranslator:
         Codex shell:
             - command: Command as array
             - workdir: Optional working directory
+            - timeout: Optional timeout
         """
         command_str = arguments.get("command", "")
 
@@ -421,8 +439,9 @@ class DroidToolTranslator:
         if "cwd" in arguments:
             codex_args["workdir"] = arguments["cwd"]
 
-        # Note: timeout is not directly supported by Codex shell
-        # It should be handled by the executor
+        timeout = arguments.get("timeout")
+        if isinstance(timeout, int | float) and not isinstance(timeout, bool):
+            codex_args["timeout"] = timeout
 
         return TranslationResult(
             codex_tool_name="shell",
