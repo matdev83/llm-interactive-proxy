@@ -188,6 +188,10 @@ markers = [
 # Disable automatic line wrapping for Markdown files to match CI expectations
 wrap = 0
 
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
 [tool.pylint.messages_control]
 disable = ["C0301", "C0303", "C0114", "C0116"]
 

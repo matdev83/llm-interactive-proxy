@@ -108,7 +108,15 @@ class TestMypyValidation:
         # Run mypy on the src directory with incremental mode for caching
         try:
             result = subprocess.run(
-                [str(python_exe), "-m", "mypy", str(src_path), "--incremental"],
+                [
+                    str(python_exe),
+                    "-m",
+                    "mypy",
+                    str(src_path),
+                    "--incremental",
+                    "--platform",
+                    "win32",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
