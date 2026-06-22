@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import math
+import secrets
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -26,6 +27,29 @@ from src.core.constants import (
 from src.core.interfaces.application_state_interface import IApplicationState
 
 logger = logging.getLogger(__name__)
+
+
+def _constant_time_equals(candidate: str | None, expected: str) -> bool:
+    """Compare secrets without leaking matching-prefix timing."""
+
+    return bool(
+        candidate
+        and isinstance(expected, str)
+        and secrets.compare_digest(candidate, expected)
+    )
+
+
+def _constant_time_member(candidate: str | None, expected_values: set[str]) -> bool:
+    """Check membership using constant-time comparisons for each expected value."""
+
+    if not candidate:
+        return False
+
+    matched = False
+    for expected in expected_values:
+        if isinstance(expected, str) and secrets.compare_digest(candidate, expected):
+            matched = True
+    return matched
 
 
 @dataclass
@@ -219,7 +243,7 @@ class APIKeyMiddleware:
         all_valid_keys: set[str] = self.valid_keys | app_state_keys
 
         method = request.method
-        if not api_key or api_key not in all_valid_keys:
+        if not _constant_time_member(api_key, all_valid_keys):
             logger.warning(
                 "Invalid or missing API key for %s %s from client %s",
                 method,
@@ -525,7 +549,7 @@ class APIKeyMiddleware:
             f"API Key authentication is enabled key_count={len(all_valid_keys)}"
         )
         method = scope.get("method", "UNKNOWN")
-        if not api_key or api_key not in all_valid_keys:
+        if not _constant_time_member(api_key, all_valid_keys):
             logger.warning(
                 "Invalid or missing API key for %s %s from client %s",
                 method,
@@ -659,7 +683,7 @@ class AuthMiddleware:
         method = request.method
 
         # Validate the token
-        if not token or token != self.valid_token:
+        if not _constant_time_equals(token, self.valid_token):
             logger.warning(
                 "Invalid or missing auth token for %s %s from client %s",
                 method,
@@ -763,7 +787,7 @@ class AuthMiddleware:
         method = scope.get("method", "UNKNOWN")
 
         # Validate the token
-        if not token or token != self.valid_token:
+        if not _constant_time_equals(token, self.valid_token):
             logger.warning(
                 "Invalid or missing auth token for %s %s from client %s",
                 method,

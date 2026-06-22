@@ -7,6 +7,7 @@ refactored to use proper dependency injection instead of direct app.state access
 
 import json
 import os
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -150,6 +151,28 @@ class TestAPIKeyMiddleware:
             response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
         )
 
+    async def test_valid_bearer_key_uses_constant_time_comparison(
+        self, api_key_middleware, mock_request, monkeypatch
+    ):
+        """API key validation should avoid short-circuit string membership."""
+
+        compared_values: list[tuple[str, str]] = []
+
+        def compare_digest(candidate: str, expected: str) -> bool:
+            compared_values.append((candidate, expected))
+            return candidate == expected
+
+        monkeypatch.setattr(
+            "src.core.security.middleware.secrets.compare_digest", compare_digest
+        )
+        mock_request.headers = {"Authorization": "Bearer test-key"}
+        call_next = AsyncMock(return_value="next_response")
+
+        response = await api_key_middleware.dispatch(mock_request, call_next)
+
+        assert response == "next_response"
+        assert ("test-key", "test-key") in compared_values
+
     async def test_missing_key(self, api_key_middleware, mock_request):
         """Test that a missing API key is rejected."""
         # Setup
@@ -278,7 +301,7 @@ class TestAPIKeyMiddleware:
         blocked = await _attempt("bad-3")
         assert blocked.status_code == 429
         assert blocked.headers.get("Retry-After") == "10"
-        payload = json.loads(blocked.body.decode())
+        payload = json.loads(bytes(blocked.body).decode())
         assert payload["retry_after_seconds"] == 10
 
         # After the wait expires, another invalid attempt is allowed
@@ -289,7 +312,7 @@ class TestAPIKeyMiddleware:
         blocked_again = await _attempt("bad-5")
         assert blocked_again.status_code == 429
         assert blocked_again.headers.get("Retry-After") == "20"
-        payload = json.loads(blocked_again.body.decode())
+        payload = json.loads(bytes(blocked_again.body).decode())
         assert payload["retry_after_seconds"] == 20
 
         # Provide a valid key to reset the tracker
@@ -340,7 +363,7 @@ class TestAPIKeyMiddleware:
 
         disable_flag = {"value": False}
 
-        def get_setting(key: str, default=None):
+        def get_setting(key: str, default: Any = None) -> Any:
             if key == "disable_auth":
                 return disable_flag["value"]
             if key == "client_api_key":
@@ -355,7 +378,7 @@ class TestAPIKeyMiddleware:
 
         app_state_service = MagicMock(spec=IApplicationState)
         app_state_service.get_setting.side_effect = get_setting
-        middleware.app_state_service = app_state_service
+        cast(Any, middleware).app_state_service = app_state_service
         mock_request.app.state.service_provider.get_service.return_value = (
             app_state_service
         )
@@ -420,6 +443,28 @@ class TestAuthMiddleware:
         assert (
             response.body == f'{{"detail":"{HTTP_401_UNAUTHORIZED_MESSAGE}"}}'.encode()
         )
+
+    async def test_valid_token_uses_constant_time_comparison(
+        self, auth_token_middleware, mock_request, monkeypatch
+    ):
+        """Auth token validation should avoid short-circuit string equality."""
+
+        compared_values: list[tuple[str, str]] = []
+
+        def compare_digest(candidate: str, expected: str) -> bool:
+            compared_values.append((candidate, expected))
+            return candidate == expected
+
+        monkeypatch.setattr(
+            "src.core.security.middleware.secrets.compare_digest", compare_digest
+        )
+        mock_request.headers = {"X-Auth-Token": "test-token"}
+        call_next = AsyncMock(return_value="next_response")
+
+        response = await auth_token_middleware.dispatch(mock_request, call_next)
+
+        assert response == "next_response"
+        assert compared_values == [("test-token", "test-token")]
 
     async def test_missing_token(self, auth_token_middleware, mock_request):
         """Test that a missing auth token is rejected."""
