@@ -380,6 +380,24 @@ def _map_finish_reason_to_gemini(finish_reason: str | None) -> str:
     return mapping.get(finish_reason_lower, finish_reason.upper())
 
 
+def _canonical_error_to_gemini_error(error_payload: Any) -> dict[str, Any]:
+    if isinstance(error_payload, dict):
+        code = error_payload.get("code")
+        message = error_payload.get("message") or "Upstream request failed."
+    else:
+        code = None
+        message = str(error_payload)
+
+    status = "INVALID_ARGUMENT" if code == "context_length_exceeded" else "UNKNOWN"
+    return {
+        "error": {
+            "code": 400 if code == "context_length_exceeded" else 500,
+            "message": str(message),
+            "status": status,
+        }
+    }
+
+
 def canonical_response_to_gemini_response(
     response: dict[str, Any], is_streaming: bool = False
 ) -> dict[str, Any]:
@@ -393,6 +411,9 @@ def canonical_response_to_gemini_response(
     Returns:
         Response in Gemini API format
     """
+    if "error" in response:
+        return _canonical_error_to_gemini_error(response["error"])
+
     if not is_streaming:
         # Non-streaming response
         candidates = []

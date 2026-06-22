@@ -14,6 +14,7 @@ from src.core.domain.chat import (
     MessageContentPartText,
     ToolCall,
 )
+from src.core.domain.gemini_translation import canonical_response_to_gemini_response
 from src.core.domain.translation import Translation
 from src.core.services.translation_service import TranslationService
 
@@ -353,6 +354,31 @@ class TestTranslationResponses(unittest.TestCase):
         self.assertTrue(result.id.startswith("chatcmpl-"))
         self.assertEqual(result.choices[0].delta.content, " from Gemini.")
         self.assertEqual(result.choices[0].finish_reason, "stop")
+
+    def test_canonical_context_length_error_to_gemini_error(self):
+        result = canonical_response_to_gemini_response(
+            {
+                "id": "chatcmpl-context-length",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "gpt-5.5",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                "error": {
+                    "type": "invalid_request_error",
+                    "code": "context_length_exceeded",
+                    "message": "Your input exceeds the context window.",
+                    "param": "input",
+                },
+            },
+            is_streaming=True,
+        )
+
+        self.assertEqual(result["error"]["code"], 400)
+        self.assertEqual(result["error"]["status"], "INVALID_ARGUMENT")
+        self.assertEqual(
+            result["error"]["message"], "Your input exceeds the context window."
+        )
+        self.assertNotIn("candidates", result)
 
     def test_gemini_to_domain_stream_chunk_tool_call(self):
         gemini_chunk = {

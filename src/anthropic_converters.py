@@ -888,6 +888,19 @@ def _flatten_tool_result_content(content: Any) -> str:
     return "" if content is None else str(content)
 
 
+def _openai_error_to_anthropic_error(error_payload: Any) -> dict[str, Any]:
+    if isinstance(error_payload, dict):
+        message = error_payload.get("message") or "Upstream request failed."
+        error_type = error_payload.get("type") or error_payload.get("code")
+    else:
+        message = str(error_payload)
+        error_type = None
+    return {
+        "type": str(error_type or "api_error"),
+        "message": str(message),
+    }
+
+
 async def openai_stream_to_anthropic_stream(
     chunk_generator: AsyncGenerator[bytes, None],
     request: AnthropicMessagesRequest,
@@ -982,6 +995,15 @@ async def openai_stream_to_anthropic_stream(
         choices = openai_chunk.get("choices", [])
         if logger.isEnabledFor(TRACE_LEVEL):
             logger.log(TRACE_LEVEL, f"PARSED_CHUNK: {openai_chunk}")
+
+        if isinstance(openai_chunk.get("error"), dict):
+            error_payload = {
+                "type": "error",
+                "error": _openai_error_to_anthropic_error(openai_chunk["error"]),
+            }
+            error_event = f"event: error\ndata: {json.dumps(error_payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+            events.append(error_event)
+            return PayloadTranslationResult(is_done_marker=True, events=events)
 
         if not choices:
             usage = openai_chunk.get("usage")

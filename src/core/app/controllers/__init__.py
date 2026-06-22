@@ -1160,13 +1160,15 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
             # Get backend service
             backend_service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
 
+            backend_result = await backend_service.call_completion(
+                domain_request, stream=True, context=ctx
+            )
+            stream_status_code = getattr(backend_result, "status_code", 200)
+
             async def generate_stream() -> AsyncGenerator[bytes, None]:
 
                 try:
-                    # Call the backend service
-                    result = await backend_service.call_completion(
-                        domain_request, stream=True, context=ctx
-                    )
+                    result = backend_result
 
                     if hasattr(result, "content") and hasattr(
                         result.content, "__aiter__"
@@ -1329,7 +1331,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                         e,
                         exc_info=True,
                     )
-            return StreamingResponse(stream_iter, media_type="text/event-stream")
+            return StreamingResponse(
+                stream_iter,
+                media_type="text/event-stream",
+                status_code=stream_status_code,
+            )
         except Exception as e:
             logger.exception(
                 f"Error in Gemini stream generate content: {e}", exc_info=True
@@ -1384,7 +1390,6 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
             from src.core.services.backend_routing_service import (
                 BackendRoutingService,
             )
-
 
             dummy_response = DummyResponse()
             routing_service = service_provider.get_required_service(

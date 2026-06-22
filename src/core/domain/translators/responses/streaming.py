@@ -299,6 +299,17 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             ],
         }
 
+    def _build_error_chunk(error_payload: Any) -> dict[str, Any]:
+        if isinstance(error_payload, dict):
+            error_dict = dict(error_payload)
+        else:
+            error_dict = {"message": str(error_payload), "type": "api_error"}
+        error_dict.setdefault("message", "Responses stream reported failure")
+        error_dict.setdefault("type", "api_error")
+        result = _build_chunk({}, "error")
+        result["error"] = error_dict
+        return result
+
     if event_type == "response.output_text.delta":
         delta_payload = chunk.get("delta")
         text = _extract_text(delta_payload)
@@ -575,12 +586,12 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         created_delta["role"] = "assistant"
         return _build_chunk(created_delta or None)
 
-    if event_type == "response.failed":
+    if event_type in ("error", "response.failed"):
         response_info = chunk.get("response") or {}
         error_payload = response_info.get("error") or chunk.get("error") or {}
         reset_tool_call_state(response_info.get("id") or chunk_id)
         _active_responses_stream_id.set(None)
-        return {"error": "Responses stream reported failure", "details": error_payload}
+        return _build_error_chunk(error_payload)
 
     if event_type == "response.output_item.added":
         item = chunk.get("item") or {}

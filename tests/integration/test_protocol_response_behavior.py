@@ -565,6 +565,53 @@ class TestProtocolResponseShapes:
             # Gemini streaming uses SSE format
             assert "text/event-stream" in response.headers.get("content-type", "")
 
+    @pytest.mark.asyncio
+    async def test_gemini_v1beta_streaming_context_length_error_shape(
+        self, client, test_app_with_capture
+    ):
+        """Canonical context overflow stream errors stay Gemini-shaped and HTTP 400."""
+        app, capture_file, _ = test_app_with_capture
+
+        async def mock_stream():
+            yield ProcessedResponse(
+                content={
+                    "id": "chatcmpl-context-length",
+                    "object": "chat.completion.chunk",
+                    "created": 123,
+                    "model": "gpt-5.5",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                    "error": {
+                        "type": "invalid_request_error",
+                        "code": "context_length_exceeded",
+                        "message": "Your input exceeds the context window.",
+                        "param": "input",
+                    },
+                },
+                metadata={},
+            )
+
+        with patch(
+            "src.core.services.backend_service.BackendService.call_completion"
+        ) as mock_call:
+            mock_call.return_value = StreamingResponseEnvelope(
+                content=mock_stream(),
+                media_type="text/event-stream",
+                status_code=400,
+            )
+
+            response = client.post(
+                "/v1beta/models/test-model:streamGenerateContent",
+                json={
+                    "contents": [{"parts": [{"text": "Hello"}]}],
+                },
+            )
+
+            assert response.status_code == 400
+            assert "text/event-stream" in response.headers.get("content-type", "")
+            assert '"status": "INVALID_ARGUMENT"' in response.text
+            assert '"Your input exceeds the context window."' in response.text
+            assert '"candidates"' not in response.text
+
 
 class TestUsageMetadataPropagation:
     """Test usage and metadata propagation through typed contracts."""

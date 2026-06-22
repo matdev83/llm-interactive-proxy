@@ -1940,6 +1940,8 @@ class ResponseExecutor(IResponseExecutor):
 
         if event_type in ("response.done", "response.completed"):
             content_dict = {"type": "response.completed", "response": content_dict}
+        elif event_type == "error":
+            content_dict = {"type": "error", **content_dict}
         elif "choices" in content_dict or not str(
             content_dict.get("type") or ""
         ).startswith("response."):

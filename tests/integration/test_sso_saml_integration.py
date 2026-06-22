@@ -138,7 +138,9 @@ async def test_saml_flow_redirects_to_confirm(tmp_path):
             respx.get("https://idp.example.com/metadata").mock(
                 return_value=httpx.Response(200, text=metadata_xml)
             )
-            async with httpx.AsyncClient(app=app, base_url="http://testserver") as client:
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+            ) as client:
                 login_resp = await client.get(
                     f"/auth/login?token={login_token}", follow_redirects=False
                 )

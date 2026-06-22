@@ -2609,6 +2609,86 @@ class TestResponseExecutor:
         assert content["choices"][0]["delta"] == {}
 
     @pytest.mark.asyncio
+    async def test_normalize_processed_stream_chunk_translates_codex_error_event(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+    ) -> None:
+        """Codex SSE ``event: error`` chunks must stay visible as terminal errors."""
+        mock_base_connector.translation_service = TranslationService()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+        )
+
+        chunk = ProcessedResponse(
+            content={
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "code": "context_length_exceeded",
+                    "message": (
+                        "Your input exceeds the context window of this model. "
+                        "Please adjust your input and try again."
+                    ),
+                    "param": "input",
+                },
+                "sequence_number": 2,
+            },
+            metadata={"event_type": "error"},
+        )
+
+        normalized = executor._normalize_processed_stream_chunk(chunk)
+
+        content = cast(dict[str, Any], normalized.content)
+        assert content["choices"][0]["finish_reason"] == "error"
+        assert content["choices"][0]["delta"] == {}
+        assert content["error"]["code"] == "context_length_exceeded"
+
+    @pytest.mark.asyncio
+    async def test_normalized_codex_error_event_serializes_as_terminal_error_frame(
+        self,
+        mock_base_connector,
+        mock_credential_manager,
+    ) -> None:
+        """The context overflow error must not be sent as assistant text content."""
+        mock_base_connector.translation_service = TranslationService()
+        executor = ResponseExecutor(
+            mock_base_connector,
+            mock_credential_manager,
+        )
+
+        normalized = executor._normalize_processed_stream_chunk(
+            ProcessedResponse(
+                content={
+                    "type": "error",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "code": "context_length_exceeded",
+                        "message": "Your input exceeds the context window.",
+                        "param": "input",
+                    },
+                    "sequence_number": 2,
+                },
+                metadata={"event_type": "error"},
+            )
+        )
+
+        async def stream() -> AsyncIterator[ProcessedResponse]:
+            yield normalized
+
+        envelope = StreamingResponseEnvelope(content=stream(), status_code=400)
+        body = b"".join([chunk async for chunk in envelope.body_iterator]).decode(
+            "utf-8"
+        )
+        payload = json.loads(body.strip().removeprefix("data: "))
+
+        assert payload["choices"][0]["finish_reason"] == "error"
+        assert payload["choices"][0]["delta"] == {}
+        assert payload["error"]["code"] == "context_length_exceeded"
+        assert "content" not in payload["choices"][0]["delta"]
+
+    @pytest.mark.asyncio
     async def test_normalize_processed_stream_chunk_preserves_non_shell_timeout_arguments(
         self,
         mock_base_connector,

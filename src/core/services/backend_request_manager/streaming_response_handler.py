@@ -248,6 +248,14 @@ class BackendStreamingResponseHandler:
                         default_unknown_error_status=502,
                     )
                 )
+            payload_details = content.get("details")
+            if payload_error and isinstance(payload_details, dict):
+                return (
+                    BackendStreamingResponseHandler._status_from_stream_error_payload(
+                        payload_details,
+                        default_unknown_error_status=502,
+                    )
+                )
 
             choices = content.get("choices")
             if isinstance(choices, list):

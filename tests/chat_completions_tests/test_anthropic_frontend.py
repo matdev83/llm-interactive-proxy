@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
 
@@ -7,6 +8,8 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 from fastapi.testclient import TestClient
+from src.anthropic_converters import openai_stream_to_anthropic_stream
+from src.anthropic_models import AnthropicMessagesRequest
 from src.core.app.test_builder import build_test_app as build_app
 from src.core.config.app_config import (
     AppConfig,
@@ -253,6 +256,45 @@ def test_anthropic_messages_streaming_frontend(anthropic_client):
             assert "content_block_delta" in text or "delta" in text
             assert "event: message_stop" in text
             mock_process.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_anthropic_stream_converts_openai_terminal_error_to_error_event():
+    async def source() -> AsyncGenerator[bytes, None]:
+        payload = {
+            "id": "chatcmpl-context-length",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "gpt-5.5",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+            "error": {
+                "type": "invalid_request_error",
+                "code": "context_length_exceeded",
+                "message": "Your input exceeds the context window.",
+                "param": "input",
+            },
+        }
+        yield f"data: {json.dumps(payload)}\n\n".encode()
+
+    request = AnthropicMessagesRequest(
+        model="claude-3-haiku-20240229",
+        max_tokens=128,
+        messages=[{"role": "user", "content": "Hello"}],
+        stream=True,
+    )
+
+    events = [
+        event
+        async for event in openai_stream_to_anthropic_stream(
+            source(), request, request.model, "session-error"
+        )
+    ]
+    body = "".join(events)
+
+    assert "event: error" in body
+    assert "context_length_exceeded" not in body
+    assert "Your input exceeds the context window." in body
+    assert "event: message_delta" not in body
 
 
 # ------------------------------------------------------------

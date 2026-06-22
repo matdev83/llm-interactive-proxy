@@ -305,6 +305,9 @@ class TranslationService:
                 for c in choices_val
             ]
 
+        if "error" in result:
+            return result
+
         if logger.isEnabledFor(TRACE_LEVEL):
             result_type = type(result).__name__
             result_keys = list(result.keys())

@@ -1314,6 +1314,30 @@ def test_context_length_sse_error_extracts_canonical_bad_request_status() -> Non
     assert BackendStreamingResponseHandler._extract_terminal_error_status(chunk) == 400
 
 
+def test_translated_context_length_error_extracts_canonical_bad_request_status() -> (
+    None
+):
+    """Translated Responses stream errors carry the provider payload as top-level error."""
+    chunk = ProcessedResponse(
+        content={
+            "id": "chatcmpl-context-length",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "gpt-5.5",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+            "error": {
+                "type": "invalid_request_error",
+                "code": "context_length_exceeded",
+                "message": "Your input exceeds the context window of this model.",
+                "param": "input",
+            },
+        },
+        metadata={},
+    )
+
+    assert BackendStreamingResponseHandler._extract_terminal_error_status(chunk) == 400
+
+
 def test_metadata_error_without_terminal_finish_does_not_force_bad_gateway() -> None:
     """Metadata diagnostics alone must not rewrite a successful stream to HTTP 502."""
     chunk = ProcessedResponse(
