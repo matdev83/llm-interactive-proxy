@@ -222,14 +222,6 @@ async def test_chat_completions_streaming_cancel_request(
         },
     )
 
-    cancel_url = f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:cancel"
-    httpx_mock.add_response(
-        method="POST",
-        url=cancel_url,
-        status_code=200,
-        json={"status": "cancelled"},
-    )
-
     envelope = await gemini_backend.chat_completions(
         gemini_connector_request(
             sample_chat_request_data,

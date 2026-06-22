@@ -43,6 +43,7 @@ dependencies = [
     "desktop-notifier",
     "websockets>=12.0",
     "stamina>=25.2.0",
+    "numpy",
 ]
 requires-python = ">=3.10"
 readme = "README.md"
@@ -321,6 +322,7 @@ skip-magic-trailing-comma = true
 [tool.mypy]
 mypy_path = "src"
 python_version = "3.10"
+platform = "win32"
 warn_return_any = true
 warn_unused_configs = true
 exclude = ["dev/"]

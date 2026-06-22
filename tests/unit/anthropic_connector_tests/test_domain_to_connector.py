@@ -249,13 +249,6 @@ async def test_streaming_disconnect_triggers_anthropic_cancel(
         headers={"Content-Type": "text/event-stream"},
     )
 
-    httpx_mock.add_response(
-        url=f"{TEST_ANTHROPIC_API_BASE_URL}/messages/msg_123/cancel",
-        method="POST",
-        status_code=200,
-        headers={"Content-Type": "application/json"},
-    )
-
     request = ChatRequest(
         model="anthropic:claude-3-haiku-20240307",
         messages=[ChatMessage(role="user", content="Hello")],

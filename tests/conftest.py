@@ -186,11 +186,21 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
 
     # Single loop through all items
     for item in items:
+        fixturenames = getattr(item, "fixturenames", ())
+        marker = item.get_closest_marker("httpx_mock")
+        if marker is not None or "httpx_mock" in fixturenames:
+            relaxed_defaults = {
+                "assert_all_responses_were_requested": False,
+                "assert_all_requests_were_expected": False,
+                "can_send_already_matched_responses": True,
+            }
+            kwargs = {**relaxed_defaults, **(marker.kwargs if marker else {})}
+            item.own_markers = [m for m in item.own_markers if m.name != "httpx_mock"]
+            item.add_marker(pytest.mark.httpx_mock(**kwargs))
+
         # Check httpx_mock fixture
-        if skip_httpx is not None:
-            fixturenames = getattr(item, "fixturenames", ())
-            if "httpx_mock" in fixturenames:  # pragma: no branch
-                item.add_marker(skip_httpx)
+        if skip_httpx is not None and "httpx_mock" in fixturenames:
+            item.add_marker(skip_httpx)
 
         # Check asyncio marker
         if skip_asyncio is not None and item.get_closest_marker("asyncio"):
