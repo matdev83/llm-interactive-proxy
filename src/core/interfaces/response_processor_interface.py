@@ -195,12 +195,12 @@ class IResponseFeature(ABC):
     @abstractmethod
     async def process_chunk(
         self,
-        payload: Any,
+        payload: ProcessedChunkContent,
         session_id: str,
         context: dict[str, object],
         *,
         is_streaming: bool,
-    ) -> Any:
+    ) -> ProcessedChunkContent:
         """Process one response unit (full non-streaming response or streaming chunk).
 
         Sole required implementation path. Use ``is_streaming`` and lifecycle

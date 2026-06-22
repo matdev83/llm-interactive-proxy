@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic.types import JsonValue
 
 from src.core.domain.chat import StreamingToolCall, ToolCall
 
@@ -40,7 +41,7 @@ class StreamingUsage(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _map_anthropic_style_usage_keys(cls, data: Any) -> Any:
+    def _map_anthropic_style_usage_keys(cls, data: JsonValue) -> JsonValue:
         """Anthropic/Messages API streams use input_tokens/output_tokens naming."""
 
         if not isinstance(data, dict):
