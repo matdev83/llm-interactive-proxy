@@ -5,15 +5,15 @@ from __future__ import annotations
 import os
 import shutil
 from collections.abc import Sequence
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 _WINDOWS_BATCH_SUFFIXES = {".bat", ".cmd"}
 _WINDOWS_GEMINI_CANDIDATES = ("gemini.cmd", "gemini.exe", "gemini.bat", "gemini")
 
 
 def _is_path_like(candidate: str) -> bool:
-    path = Path(candidate)
-    return bool(path.anchor) or any(
+    windows_path = PureWindowsPath(candidate)
+    return bool(windows_path.anchor) or any(
         separator and separator in candidate for separator in (os.sep, os.altsep)
     )
 
@@ -48,7 +48,9 @@ def resolve_gemini_cli_executable(
 
         # Preserve explicit overrides unless the caller is using the default bare
         # "gemini" command, which should also fall back to common Windows shims.
-        if Path(candidate).name.lower() == "gemini" and not _is_path_like(candidate):
+        if PureWindowsPath(candidate).name.lower() == "gemini" and not _is_path_like(
+            candidate
+        ):
             for fallback in _WINDOWS_GEMINI_CANDIDATES:
                 resolved = _resolve_specific_executable(fallback)
                 if resolved:
@@ -74,7 +76,10 @@ def build_gemini_cli_command(command: Sequence[str]) -> list[str]:
         raise FileNotFoundError(f"gemini CLI executable not found: {command[0]}")
 
     resolved_command = [executable, *command[1:]]
-    if os.name == "nt" and Path(executable).suffix.lower() in _WINDOWS_BATCH_SUFFIXES:
+    if (
+        os.name == "nt"
+        and PureWindowsPath(executable).suffix.lower() in _WINDOWS_BATCH_SUFFIXES
+    ):
         comspec = os.environ.get("COMSPEC", "cmd.exe")
         return [comspec, "/d", "/s", "/c", *resolved_command]
     return resolved_command
