@@ -9,6 +9,7 @@ from pathlib import Path, PureWindowsPath
 
 _WINDOWS_BATCH_SUFFIXES = {".bat", ".cmd"}
 _WINDOWS_GEMINI_CANDIDATES = ("gemini.cmd", "gemini.exe", "gemini.bat", "gemini")
+_HOST_PATH_CLASS = type(Path())
 
 
 def _is_path_like(candidate: str) -> bool:
@@ -24,7 +25,7 @@ def _resolve_specific_executable(candidate: str) -> str | None:
         return None
 
     if _is_path_like(normalized):
-        path = Path(normalized).expanduser()
+        path = _HOST_PATH_CLASS(normalized).expanduser()
         if path.is_file():
             return str(path.resolve())
         return None
