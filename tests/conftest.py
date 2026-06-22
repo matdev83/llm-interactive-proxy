@@ -825,5 +825,12 @@ def _clear_backend_cooldown_state() -> Generator[None, None, None]:
         pass
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_cmdline_main(config) -> None:  # type: ignore[no-untyped-def]
-    """No-op: do not rewrite pytest CLI args in tests."""
+    """If running a single test file/method, bypass xdist workers to avoid overhead."""
+    if (
+        getattr(config.option, "numprocesses", None) not in (0, None)
+        and len(config.args) == 1
+        and (".py" in config.args[0] or "::" in config.args[0])
+    ):
+        config.option.numprocesses = None
