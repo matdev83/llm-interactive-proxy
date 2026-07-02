@@ -237,6 +237,33 @@ python -m src.core.cli \
 - Output limits are handled by backend providers
 - Enforcement happens before backend API calls to save costs
 
+### Backend-Reported Context Overflow
+
+When a model is not present in the limits registry (e.g. a freshly added
+`openai-codex` model without configured limits), front-end enforcement is
+skipped (fail-open) and the request is forwarded to the backend. If the backend
+itself rejects the request for exceeding the context window — including
+streaming Responses-API sessions that terminate with a `context_length_exceeded`
+error event — the proxy surfaces that upstream error in the **same canonical
+shape** as the front-end enforcement path:
+
+```json
+{
+  "detail": {
+    "type": "invalid_request_error",
+    "code": "context_length_exceeded",
+    "param": "input",
+    "message": "Your input exceeds the context window of this model. Please adjust your input and try again.",
+    "details": { "...": "upstream error payload" }
+  }
+}
+```
+
+Coding agents (e.g. OpenCode, Cline) key automated history compaction on this
+canonical `context_length_exceeded` marker, so preserving the upstream error
+shape — instead of collapsing it to a generic `BackendError` body — keeps the
+agent loop running instead of breaking it.
+
 ## Troubleshooting
 
 **Limits not being enforced:**

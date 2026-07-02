@@ -293,6 +293,46 @@ class BackendStreamingResponseHandler:
         return None
 
     @staticmethod
+    def _extract_terminal_error_payload(chunk: Any) -> dict[str, Any] | None:
+        """Return the structured ``error`` object carried by a terminal stream chunk.
+
+        Mirrors :meth:`_extract_terminal_error_status` but yields the full error
+        payload (``code``/``type``/``message``/``param``) so the envelope metadata
+        can preserve the upstream error shape. Coding agents key automated
+        compaction on canonical markers such as OpenAI's
+        ``context_length_exceeded``; without this, a streamed backend error
+        collapses to a generic ``BackendError`` body that agents cannot recognize.
+        """
+        metadata = getattr(chunk, "metadata", {}) or {}
+        error_payload = metadata.get("error")
+        if isinstance(error_payload, dict):
+            return error_payload
+
+        content = getattr(chunk, "content", None)
+        if isinstance(content, dict):
+            payload_error = content.get("error")
+            if isinstance(payload_error, dict):
+                return payload_error
+            payload_details = content.get("details")
+            if payload_error and isinstance(payload_details, dict):
+                return payload_details
+
+        if isinstance(content, str | bytes):
+            text = (
+                content.decode("utf-8", errors="replace")
+                if isinstance(content, bytes)
+                else content
+            )
+            for (
+                payload
+            ) in BackendStreamingResponseHandler._try_parse_openai_sse_payloads(text):
+                payload_error = payload.get("error")
+                if isinstance(payload_error, dict):
+                    return payload_error
+
+        return None
+
+    @staticmethod
     def _is_sse_done_only(text: str) -> bool:
         """Return True if the payload is only an SSE done marker."""
         if not text:
@@ -2089,6 +2129,7 @@ class BackendStreamingResponseHandler:
 
         prefetched_chunk: ProcessedResponse | None = None
         effective_status_code = stream.status_code
+        effective_metadata = stream.metadata
         try:
             prefetched_chunk = await anext(content_stream)
         except StopAsyncIteration:
@@ -2100,6 +2141,26 @@ class BackendStreamingResponseHandler:
             )
             if terminal_error_status is not None:
                 effective_status_code = terminal_error_status
+                # Preserve the upstream error shape (code/type/message/param) on
+                # the envelope metadata so the request processor can surface a
+                # canonical, agent-recognizable error (e.g. OpenAI
+                # ``context_length_exceeded``) instead of a generic
+                # ``Backend returned N error`` body that breaks agent loops.
+                terminal_error_payload = (
+                    BackendStreamingResponseHandler._extract_terminal_error_payload(
+                        prefetched_chunk
+                    )
+                )
+                if isinstance(terminal_error_payload, dict):
+                    base_metadata = dict(stream.metadata or {})
+                    base_metadata["error_message"] = terminal_error_payload.get(
+                        "message"
+                    )
+                    base_metadata["error_type"] = terminal_error_payload.get("type")
+                    base_metadata["error_code"] = terminal_error_payload.get("code")
+                    base_metadata["error_param"] = terminal_error_payload.get("param")
+                    base_metadata["error_details"] = terminal_error_payload
+                    effective_metadata = base_metadata
 
         async def _with_prefetched_chunk() -> AsyncIterator[ProcessedResponse]:
             if prefetched_chunk is not None:
@@ -2113,5 +2174,5 @@ class BackendStreamingResponseHandler:
             headers=stream.headers,
             status_code=effective_status_code,
             cancel_callback=stream.cancel_callback,
-            metadata=stream.metadata,
+            metadata=effective_metadata,
         )

@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ElementTree
+from html import unescape
 from typing import Any
 from uuid import uuid4
 
@@ -38,6 +39,21 @@ class ToolCallRepairService(IToolCallRepairService):
     # <ClientControls:run_terminal_command> used by Factory Droid
     _XML_SNIPPET_PATTERN = re.compile(
         r"<([A-Za-z0-9_\-:]+)(?:\s[^>]*)?>.*?</\1>", re.DOTALL
+    )
+    _DSML_TOOL_CALLS_PATTERN = re.compile(
+        r"<\uff5c\uff5cDSML\uff5c\uff5ctool_calls\b[^>]*>.*?</\uff5c\uff5cDSML\uff5c\uff5ctool_calls>",
+        re.DOTALL | re.IGNORECASE,
+    )
+    _DSML_INVOKE_PATTERN = re.compile(
+        r"<\uff5c\uff5cDSML\uff5c\uff5cinvoke\b(?P<attrs>[^>]*)>(?P<body>.*?)</\uff5c\uff5cDSML\uff5c\uff5cinvoke>",
+        re.DOTALL | re.IGNORECASE,
+    )
+    _DSML_PARAMETER_PATTERN = re.compile(
+        r"<\uff5c\uff5cDSML\uff5c\uff5cparameter\b(?P<attrs>[^>]*)>(?P<value>.*?)</\uff5c\uff5cDSML\uff5c\uff5cparameter>",
+        re.DOTALL | re.IGNORECASE,
+    )
+    _ATTRIBUTE_PATTERN = re.compile(
+        r"([A-Za-z_][A-Za-z0-9_\-]*)\s*=\s*(?:\"([^\"]*)\"|'([^']*)')"
     )
 
     def __init__(self, max_buffer_bytes: int | None = None) -> None:
@@ -104,6 +120,11 @@ class ToolCallRepairService(IToolCallRepairService):
 
         # Attempt to detect using XML patterns (Kilo MCP tool format)
         # Only if the content contains obvious XML markers
+        if "DSML" in content and "invoke" in content:
+            dsml_tool_call = self._extract_dsml_tool_call(content, allowed_tools)
+            if dsml_tool_call:
+                return dsml_tool_call
+
         if "<" in content and "</" in content:
             xml_tool_call = self._extract_xml_tool_call(content, allowed_tools)
             if xml_tool_call:
@@ -487,6 +508,63 @@ class ToolCallRepairService(IToolCallRepairService):
             },
         }
         return ToolCallRepairResult(tool_call=tool_call, snippet=snippet)
+
+    def _extract_dsml_tool_call(
+        self, content: str, allowed_tools: list[str] | None = None
+    ) -> ToolCallRepairResult | None:
+        """Repair DSML tool calls emitted with typed parameter wrappers."""
+        block_match = self._DSML_TOOL_CALLS_PATTERN.search(content)
+        snippet = block_match.group(0) if block_match else content
+
+        invoke_match = self._DSML_INVOKE_PATTERN.search(snippet)
+        if not invoke_match:
+            return None
+
+        invoke_attrs = self._parse_xmlish_attributes(invoke_match.group("attrs"))
+        tool_name = invoke_attrs.get("name", "").strip()
+        if not tool_name:
+            return None
+
+        if allowed_tools:
+            allowed_set = {tool.lower() for tool in allowed_tools}
+            allowed_set.update(tool.split(":")[-1].lower() for tool in allowed_tools)
+            if tool_name.lower() not in allowed_set:
+                return None
+
+        arguments: dict[str, Any] = {}
+        for parameter_match in self._DSML_PARAMETER_PATTERN.finditer(
+            invoke_match.group("body")
+        ):
+            parameter_attrs = self._parse_xmlish_attributes(
+                parameter_match.group("attrs")
+            )
+            parameter_name = parameter_attrs.get("name", "").strip()
+            if not parameter_name:
+                continue
+
+            raw_value = unescape(parameter_match.group("value").strip())
+            is_string = parameter_attrs.get("string", "").lower() == "true"
+            arguments[parameter_name] = (
+                raw_value if is_string else self._parse_dsml_typed_value(raw_value)
+            )
+
+        return self._format_openai_tool_call(tool_name, arguments, snippet)
+
+    def _parse_xmlish_attributes(self, attrs: str) -> dict[str, str]:
+        return {
+            match.group(1): (
+                match.group(2) if match.group(2) is not None else match.group(3)
+            )
+            for match in self._ATTRIBUTE_PATTERN.finditer(attrs)
+        }
+
+    def _parse_dsml_typed_value(self, value: str) -> Any:
+        if value == "":
+            return ""
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
 
     def _extract_xml_tool_call(
         self, content: str, allowed_tools: list[str] | None = None

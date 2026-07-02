@@ -902,3 +902,29 @@ class TestRealWorldScenarios:
         assert "pytest" in arguments["command"]
         assert "test_file.py" in arguments["command"]
         assert "-v" in arguments["command"]
+
+    def test_dsml_tool_call_with_parameter_wrappers(
+        self, repair_service: ToolCallRepairService
+    ) -> None:
+        """Repair upstream DSML tool calls with typed parameter wrappers."""
+        dsml = "\uff5c\uff5cDSML\uff5c\uff5c"
+        content = f"""<{dsml}tool_calls>
+<{dsml}invoke name="bash">
+<{dsml}parameter name="command" string="true">git status --short</{dsml}parameter>
+<{dsml}parameter name="description" string="true"></{dsml}parameter>
+<{dsml}parameter name="timeout" string="false">120000</{dsml}parameter>
+<{dsml}parameter name="workdir" string="true">C:\\Users\\Mateusz\\source\\repos\\go-llm-interactive-proxy</{dsml}parameter>
+</{dsml}invoke>
+</{dsml}tool_calls>"""
+
+        repaired = repair_service.repair_tool_calls(content)
+
+        assert repaired is not None
+        assert repaired.tool_call["function"]["name"] == "bash"
+        arguments = json.loads(repaired.tool_call["function"]["arguments"])
+        assert arguments == {
+            "command": "git status --short",
+            "description": "",
+            "timeout": 120000,
+            "workdir": "C:\\Users\\Mateusz\\source\\repos\\go-llm-interactive-proxy",
+        }

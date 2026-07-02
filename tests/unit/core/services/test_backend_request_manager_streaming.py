@@ -1405,6 +1405,84 @@ async def test_context_length_sse_error_bypasses_empty_stream_retry() -> None:
     assert "empty_stream_after_retries" not in str(chunks[0].content)
 
 
+@pytest.mark.asyncio
+async def test_context_length_terminal_error_propagates_canonical_metadata() -> None:
+    """The handler must stamp the upstream error shape onto the envelope metadata
+    so the request processor can raise a canonical, agent-recognizable error
+    instead of a generic ``Backend returned 400 error`` body."""
+    backend_processor = AsyncMock()
+    response_processor = MagicMock()
+    response_processor.process_streaming_response = (
+        lambda stream, _session_id, context=None: stream
+    )
+    manager = create_backend_request_manager(
+        backend_processor=backend_processor,
+        response_processor=response_processor,
+    )
+
+    original_request = ChatRequest(
+        model="openai-codex:gpt-5.5",
+        messages=[ChatMessage(role="user", content="large request")],
+        stream=True,
+    )
+
+    async def context_overflow_stream() -> AsyncIterator[ProcessedResponse]:
+        yield ProcessedResponse(
+            content={
+                "id": "resp-context-overflow",
+                "object": "response.chunk",
+                "created": 123,
+                "model": "gpt-5.5",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                "error": {
+                    "type": "invalid_request_error",
+                    "code": "context_length_exceeded",
+                    "message": "Your input exceeds the context window of this model.",
+                    "param": "input",
+                },
+            },
+            metadata={},
+        )
+
+    backend_processor.process_backend_request.return_value = StreamingResponseEnvelope(
+        content=context_overflow_stream(),
+    )
+
+    result = await manager.process_backend_request(
+        original_request,
+        "session-context-overflow-metadata",
+        _make_context(),
+    )
+
+    assert isinstance(result, StreamingResponseEnvelope)
+    assert result.status_code == 400
+    metadata = result.metadata or {}
+    assert metadata.get("error_code") == "context_length_exceeded"
+    assert metadata.get("error_type") == "invalid_request_error"
+    assert metadata.get("error_param") == "input"
+    assert "context window" in str(metadata.get("error_message") or "").lower()
+    error_details = metadata.get("error_details")
+    assert isinstance(error_details, dict)
+    assert error_details.get("code") == "context_length_exceeded"
+
+
+def test_extract_terminal_error_payload_returns_none_for_non_error_chunk() -> None:
+    """Non-terminal chunks must not be misread as error payloads."""
+    chunk = ProcessedResponse(
+        content={
+            "id": "resp-created",
+            "object": "response.chunk",
+            "choices": [
+                {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
+            ],
+        },
+        metadata={},
+    )
+    assert (
+        BackendStreamingResponseHandler._extract_terminal_error_payload(chunk) is None
+    )
+
+
 def test_chunk_has_meaningful_output_reasoning_only_dict_with_fallback() -> None:
     """Reasoning-only OpenAI-shaped dict chunks count when fallback flag is on."""
     handler = BackendStreamingResponseHandler(

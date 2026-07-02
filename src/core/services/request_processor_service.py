@@ -100,6 +100,43 @@ def _canonicalize_routing_error_details(
     return normalized
 
 
+_CONTEXT_WINDOW_ERROR_CODES = frozenset(
+    {
+        "context_length_exceeded",
+        "context_window_exceeded",
+        "prompt_too_long",
+        "input_too_long",
+        "maximum_context_length",
+    }
+)
+
+_CONTEXT_WINDOW_MESSAGE_MARKERS = (
+    "context window",
+    "context length",
+    "prompt is too long",
+    "input exceeds the context",
+)
+
+
+def _is_context_window_exceeded_error(
+    code: str | None,
+    message: str | None,
+) -> bool:
+    """Detect upstream errors that signal an oversized prompt.
+
+    Coding agents (e.g. OpenCode, Cline) trigger automated history compaction
+    when they recognize a context-overflow error. Detection covers the canonical
+    OpenAI ``context_length_exceeded`` code plus common provider message phrasings.
+    """
+    normalized_code = (code or "").strip().lower()
+    if normalized_code in _CONTEXT_WINDOW_ERROR_CODES:
+        return True
+    normalized_message = (message or "").strip().lower()
+    return any(
+        marker in normalized_message for marker in _CONTEXT_WINDOW_MESSAGE_MARKERS
+    )
+
+
 class RequestProcessor(IRequestProcessor):
     """Implementation of the request processor using decomposed services."""
 
@@ -931,6 +968,7 @@ class RequestProcessor(IRequestProcessor):
                 orig_message: str | None = None
                 orig_type: str | None = None
                 orig_code: str | None = None
+                orig_param: str | None = None
 
                 orig_details: dict[str, Any] | None = None
 
@@ -939,6 +977,7 @@ class RequestProcessor(IRequestProcessor):
                     orig_message = str(metadata.get("error_message") or "")
                     orig_type = str(metadata.get("error_type") or "")
                     orig_code = str(metadata.get("error_code") or "")
+                    orig_param = str(metadata.get("error_param") or "")
                     orig_details = metadata.get("error_details")  # type: ignore[assignment]
 
                 # ALWAYS raise for error status codes to satisfy Requirements 10.4 (errors propagate)
@@ -946,6 +985,7 @@ class RequestProcessor(IRequestProcessor):
                 from src.core.common.exceptions import (
                     AuthenticationError,
                     BackendError,
+                    InvalidRequestError,
                     RoutingError,
                 )
 
@@ -956,6 +996,20 @@ class RequestProcessor(IRequestProcessor):
                 error_details = orig_details or {}
                 if orig_code and "code" not in error_details:
                     error_details["code"] = orig_code
+
+                # Context-overflow errors must surface in the canonical OpenAI shape
+                # (``invalid_request_error`` + ``context_length_exceeded`` + ``param=input``)
+                # so coding agents recognize them and trigger automated compaction.
+                # A generic ``BackendError`` body breaks the agent loop on overflow.
+                if _is_context_window_exceeded_error(orig_code, error_message):
+                    raise InvalidRequestError(
+                        message=error_message,
+                        code=orig_code or "context_length_exceeded",
+                        param=orig_param or "input",
+                        type="invalid_request_error",
+                        status_code=400,
+                        details=error_details,
+                    )
 
                 if result.status_code == 401:
                     raise AuthenticationError(
@@ -1079,12 +1133,14 @@ class RequestProcessor(IRequestProcessor):
                             from src.core.common.exceptions import (
                                 AuthenticationError,
                                 BackendError,
+                                InvalidRequestError,
                                 RoutingError,
                             )
 
                             fallback_message: str | None = None
                             fallback_type: str | None = None
                             fallback_code: str | None = None
+                            fallback_param: str | None = None
                             fallback_details: dict[str, Any] | None = None
 
                             metadata = getattr(fallback_result, "metadata", None)
@@ -1094,6 +1150,7 @@ class RequestProcessor(IRequestProcessor):
                                 )
                                 fallback_type = str(metadata.get("error_type") or "")
                                 fallback_code = str(metadata.get("error_code") or "")
+                                fallback_param = str(metadata.get("error_param") or "")
                                 fallback_details = metadata.get("error_details")
 
                             error_message = (
@@ -1108,6 +1165,20 @@ class RequestProcessor(IRequestProcessor):
                                 logger.warning(
                                     f"Fallback attempt failed: replacement and original models both returned errors "
                                     f"(status: {fallback_result.status_code}, session: {session_id})"
+                                )
+
+                            # Context-overflow must stay canonical so agents can
+                            # trigger compaction even when reached via fallback.
+                            if _is_context_window_exceeded_error(
+                                fallback_code, error_message
+                            ):
+                                raise InvalidRequestError(
+                                    message=error_message,
+                                    code=fallback_code or "context_length_exceeded",
+                                    param=fallback_param or "input",
+                                    type="invalid_request_error",
+                                    status_code=400,
+                                    details=error_details,
                                 )
 
                             if fallback_result.status_code == 401:

@@ -275,6 +275,86 @@ class TestContextWindowLimits:
         assert detail.get("details", {}).get("limit") == 260000
         process_backend_request.assert_not_called()
 
+    def test_streamed_backend_context_overflow_surfaces_canonical_error(
+        self, app: FastAPI, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A backend stream that terminates with ``context_length_exceeded`` must
+        reach the client as a canonical OpenAI-shaped 400 error so coding agents
+        recognize it and trigger automated compaction (regression for the
+        openai-codex http_full_replay path where the model is not in the limits
+        registry and the overflow is detected by the upstream itself)."""
+        sp = app.state.service_provider
+        app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
+        app_state.set_setting("disable_auth", True)
+        app.state.disable_auth = True
+        app_state.set_backend_type("openai")
+
+        import src.core.services.backend_processor as bp_module
+        from src.core.domain.responses import StreamingResponseEnvelope
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        async def fake_process_backend_request(self, request, session_id, context=None):
+            async def stream():
+                yield ProcessedResponse(
+                    content={
+                        "id": "resp-context-overflow",
+                        "object": "response.chunk",
+                        "created": 123,
+                        "model": "gpt-5.5",
+                        "choices": [
+                            {"index": 0, "delta": {}, "finish_reason": "error"}
+                        ],
+                        "error": {
+                            "type": "invalid_request_error",
+                            "code": "context_length_exceeded",
+                            "message": "Your input exceeds the context window of "
+                            "this model. Please adjust your input and try again.",
+                            "param": "input",
+                        },
+                    },
+                    metadata={
+                        "error": {
+                            "type": "invalid_request_error",
+                            "code": "context_length_exceeded",
+                            "message": "Your input exceeds the context window of "
+                            "this model. Please adjust your input and try again.",
+                            "param": "input",
+                        },
+                        "finish_reason": "error",
+                    },
+                )
+
+            return StreamingResponseEnvelope(
+                content=stream(),
+                media_type="text/event-stream",
+            )
+
+        monkeypatch.setattr(
+            bp_module.BackendProcessor,
+            "process_backend_request",
+            fake_process_backend_request,
+            raising=True,
+        )
+
+        client = TestClient(app)
+        payload = {
+            "model": "openai-codex:gpt-5.5",
+            "messages": [{"role": "user", "content": "large request"}],
+            "stream": True,
+        }
+        resp = client.post("/v1/chat/completions", json=payload)
+
+        assert resp.status_code == 400
+        body = resp.json()
+        detail = body.get("detail", {})
+        assert detail.get("type") == "invalid_request_error"
+        assert detail.get("code") == "context_length_exceeded"
+        assert detail.get("param") == "input"
+        assert "context window" in str(detail.get("message") or "").lower()
+        # The generic, agent-breaking body must no longer be produced.
+        assert detail.get("message") != "Backend returned 400 error"
+        assert detail.get("type") != "BackendError"
+
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
