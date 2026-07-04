@@ -180,21 +180,46 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
             # such a wrapper fails the app-server probe, so the loop falls
             # through to the next candidate instead of failing initialization.
             tried: list[str] = []
+            callable_candidates: list[str] = []
             chosen: str | None = None
             for candidate in candidates:
                 tried.append(candidate)
                 if not await self._check_codex_available(candidate):
                     continue
+                callable_candidates.append(candidate)
                 if await self._probe_app_server(candidate):
                     chosen = candidate
                     break
 
             if chosen is None:
+                if not callable_candidates:
+                    # No candidate was even callable via ``--version`` -- the
+                    # Codex CLI is missing or broken, not a wrapper collision.
+                    # The app-server probe was never run for any candidate, so
+                    # surface the "not callable" error rather than the probe
+                    # error.
+                    raise ConfigurationError(
+                        message=(
+                            "Codex CLI (codex) not callable: none of the "
+                            f"candidate executables responded to `--version` "
+                            f"({tried})."
+                        ),
+                        details={
+                            "configured": configured_exe,
+                            "tried_candidates": tried,
+                            "hint": "Install Codex CLI and ensure `codex` is on "
+                            "PATH, or set CODEX_BIN to the full path to the "
+                            "codex binary.",
+                        },
+                    )
+                # At least one candidate ran ``--version`` but none spoke the
+                # app-server protocol -- a wrapper collision (e.g. a codex.cmd
+                # that already injects --dangerously-bypass-approvals-and-sandbox).
                 raise ConfigurationError(
                     message=(
-                        "Codex app-server probe failed: none of the candidate "
-                        "executables started a JSON-RPC app-server with the "
-                        "configured launch flags "
+                        "Codex app-server probe failed: none of the callable "
+                        "candidate executables started a JSON-RPC app-server "
+                        "with the configured launch flags "
                         "(--dangerously-bypass-approvals-and-sandbox --search "
                         "app-server --stdio). If `codex` on PATH is a wrapper "
                         "that already injects these flags, set CODEX_BIN or "
@@ -203,6 +228,7 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
                     details={
                         "configured": configured_exe,
                         "tried_candidates": tried,
+                        "callable_candidates": callable_candidates,
                         "hint": "Set CODEX_BIN to the raw Codex binary, or "
                         "install codex on PATH without wrapper flag injection.",
                     },

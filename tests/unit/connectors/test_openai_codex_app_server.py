@@ -1635,6 +1635,40 @@ class TestInitializeProbeAndPick:
         tried = exc_info.value.details.get("tried_candidates")
         assert tried == [first_resolved, second_resolved]
 
+    async def test_initialize_raises_not_callable_when_no_candidate_runs_version(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Every candidate fails the --version check (CLI missing/broken), so
+        # the app-server probe must NEVER run and the error must be "not
+        # callable", not the misleading "app-server probe failed".
+        first, second = self._two_candidates(temp_workspace, monkeypatch)
+        first_resolved = str(Path(first).resolve())
+        second_resolved = str(Path(second).resolve())
+        monkeypatch.setattr(
+            connector,
+            "_check_codex_available",
+            AsyncMock(return_value=False),
+        )
+        probe_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(connector, "_probe_app_server", probe_mock)
+
+        with pytest.raises(ConfigurationError, match="not callable") as exc_info:
+            await connector.initialize(
+                project_dir=str(temp_workspace),
+                codex_executable=first,
+            )
+        assert connector.is_backend_functional() is False
+        assert connector._initialization_failed is True
+        tried = exc_info.value.details.get("tried_candidates")
+        assert tried == [first_resolved, second_resolved]
+        # The app-server probe was never run for any candidate.
+        probe_mock.assert_not_called()
+        # Distinct from the wrapper-collision error.
+        assert "app-server probe failed" not in str(exc_info.value)
+
     async def test_initialize_picks_first_candidate_when_it_passes(
         self,
         connector: OpenAICodexAppServerConnector,
