@@ -1,12 +1,25 @@
-"""Codex app-server notification -> stream-piece mapper.
+"""Codex app-server notification -> stream-piece mapper (ACP-style rendering).
 
 Maps Codex JSON-RPC notifications (``item/agentMessage/delta``,
-``item/reasoning/*``, ``turn/started``, ``turn/plan/updated``, ``item/started``,
+``item/reasoning/*``, ``turn/plan/updated``, ``item/started``,
 ``item/completed``, ``turn/completed``) to :class:`CodexStreamPiece` sequences
-that the shared base-connector streaming/SSE scaffolding consumes. Maintains
-internal state for open thinking blocks and the once-per-turn ``turn/started``
-marker. Never streams raw diffs, command output, env or secrets; only short
-progress summaries.
+that the shared base-connector streaming/SSE scaffolding consumes.
+
+Rendering intentionally mirrors the ACP base connector
+(:meth:`BaseAcpConnector._session_update_to_stream_pieces`) so users of the
+proxy see the same formatted agent output regardless of which local-agent
+backend they target:
+
+* Reasoning is surfaced as **visible ``Thinking:\\n…`` blocks in ``content``**
+  (inline with the assistant message, not a separate ``reasoning_content``
+  channel) and closed with a blank line before the next non-reasoning piece.
+* Command / file activity is emitted as **fenced ``\\`\\`\\`text`` /
+  ``Tool: …`` completion blocks** via
+  :func:`format_acp_tool_completion_summary` -- on completion only, never on
+  start, and never with raw command stdout, full diffs, env, or secrets.
+* ``[turn started]`` / ``[turn completed: …]`` markers are NOT emitted; the
+  terminal ``turn/completed`` notification only produces the ``done`` piece
+  that drives ``finish_reason`` and the deferred history-state commit.
 """
 
 from __future__ import annotations
@@ -14,14 +27,20 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from src.connectors.acp_core.tool_markdown import format_acp_tool_completion_summary
 from src.connectors.acp_core.types import ACPNotification, AcpStreamPiece
-from src.connectors.codex_helpers import _command_basename, _cwd_basename
+from src.connectors.codex_helpers import _command_basename
 
 logger = logging.getLogger(__name__)
 
 CODEX_TURN_COMPLETED_METHOD = "turn/completed"
+
+# Codex item types that map to an ACP-style tool-completion summary.
+_COMMAND_EXECUTION_TYPE = "commandExecution"
+_FILE_CHANGE_TYPE = "fileChange"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,29 +68,16 @@ def accumulate_pieces(pieces: Sequence[CodexStreamPiece]) -> tuple[str, str | No
 
 
 class CodexEventMapper:
-    """Map Codex JSON-RPC notifications to :class:`CodexStreamPiece` sequences.
+    """Map Codex JSON-RPC notifications to ACP-style :class:`CodexStreamPiece` sequences.
 
-    Maintains internal state for open thinking blocks and in-progress
-    command/file items so completions can emit compact summaries. Never streams
-    raw diffs, command output, env or secrets; only short progress summaries.
+    See the module docstring for the rendering contract. Maintains internal
+    state for the open thinking block so it can be closed before the next
+    agent message, tool-completion summary, or terminal turn piece.
     """
 
     def __init__(self, progress_mode: str = "text_plus_summaries") -> None:
         self._progress_mode = progress_mode or "text_plus_summaries"
         self._thinking_block_open = False
-        self._turn_started_emitted = False
-
-    @staticmethod
-    def _open_thinking_block(text: str) -> str:
-        return f"Thinking:\n{text}"
-
-    @staticmethod
-    def _append_thinking_block(text: str) -> str:
-        return text
-
-    @staticmethod
-    def _close_thinking_block() -> str:
-        return "\n\n"
 
     def _summaries_enabled(self) -> bool:
         return "summaries" in self._progress_mode
@@ -85,6 +91,12 @@ class CodexEventMapper:
             return item
         return params
 
+    def _close_thinking_if_open(self) -> list[CodexStreamPiece]:
+        if self._thinking_block_open:
+            self._thinking_block_open = False
+            return [CodexStreamPiece(content="\n\n")]
+        return []
+
     def handle(self, msg: ACPNotification) -> list[CodexStreamPiece]:
         method = msg.method or ""
         params = msg.params if isinstance(msg.params, dict) else {}
@@ -92,7 +104,10 @@ class CodexEventMapper:
         if method == "item/agentMessage/delta":
             delta = params.get("delta")
             if isinstance(delta, str) and delta:
-                return [CodexStreamPiece(content=delta)]
+                return [
+                    *self._close_thinking_if_open(),
+                    CodexStreamPiece(content=delta),
+                ]
             return []
 
         if method in ("item/reasoning/summaryTextDelta", "item/reasoning/textDelta"):
@@ -100,29 +115,18 @@ class CodexEventMapper:
             if not isinstance(delta, str) or not delta:
                 return []
             if self._thinking_block_open:
-                return [
-                    CodexStreamPiece(
-                        reasoning_content=self._append_thinking_block(delta)
-                    )
-                ]
+                return [CodexStreamPiece(content=delta)]
             self._thinking_block_open = True
-            return [
-                CodexStreamPiece(reasoning_content=self._open_thinking_block(delta))
-            ]
-
-        if method == "turn/started":
-            if not self._summaries_enabled() or self._turn_started_emitted:
-                return []
-            self._turn_started_emitted = True
-            return [CodexStreamPiece(content="\n[turn started]\n")]
+            return [CodexStreamPiece(content=f"Thinking:\n{delta}")]
 
         if method == "turn/plan/updated":
             if not self._summaries_enabled():
                 return []
-            return [self._plan_summary_piece(params)]
+            return [*self._close_thinking_if_open(), self._plan_summary_piece(params)]
 
         if method == "item/started":
-            return self._item_started_pieces(params)
+            # ACP emits tool summaries only on completion; nothing to stream at start.
+            return []
 
         if method == "item/completed":
             return self._item_completed_pieces(params)
@@ -130,19 +134,11 @@ class CodexEventMapper:
         if method == CODEX_TURN_COMPLETED_METHOD:
             return self._turn_completed_pieces(params)
 
-        # Explicitly suppressed raw streams / informational notifications.
-        if method in (
-            "item/commandExecution/outputDelta",
-            "item/fileChange/outputDelta",
-            "item/plan/delta",
-            "turn/diff/updated",
-            "thread/started",
-            "thread/tokenUsage/updated",
-            "serverRequest/resolved",
-            "item/reasoning/summaryPartAdded",
-        ):
-            return []
-
+        # Explicitly suppressed raw streams / informational notifications:
+        # item/commandExecution/outputDelta, item/fileChange/outputDelta,
+        # item/plan/delta, turn/diff/updated, thread/started,
+        # thread/tokenUsage/updated, serverRequest/resolved,
+        # item/reasoning/summaryPartAdded, turn/started.
         return []
 
     def _plan_summary_piece(self, params: dict[str, Any]) -> CodexStreamPiece:
@@ -162,92 +158,66 @@ class CodexEventMapper:
             text = text[:117] + "..."
         return CodexStreamPiece(content=text)
 
-    def _item_started_pieces(self, params: dict[str, Any]) -> list[CodexStreamPiece]:
-        item = self._item_from_params(params)
-        item_type = item.get("type")
-        if item_type == "commandExecution":
-            command = item.get("command")
-            cwd = item.get("cwd")
-            if self._summaries_enabled():
-                return [
-                    CodexStreamPiece(
-                        content=(
-                            f"[command] start: {_command_basename(command)} "
-                            f"(cwd: {_cwd_basename(cwd)})"
-                        )
-                    )
-                ]
-            return []
-        if item_type == "fileChange":
-            if self._summaries_enabled():
-                summary = self._file_change_summary(item)
-                return [CodexStreamPiece(content=summary)]
-            return []
-        return []
-
     def _item_completed_pieces(self, params: dict[str, Any]) -> list[CodexStreamPiece]:
+        if not self._summaries_enabled():
+            return []
         item = self._item_from_params(params)
         item_type = item.get("type")
-        if item_type == "commandExecution":
-            # Gate command-completion summaries behind the same summaries flag
-            # used by ``_item_started_pieces`` so ``progress_mode="text_only"``
-            # suppresses both start and done summaries (only agentMessage deltas
-            # and reasoning are emitted).
-            if not self._summaries_enabled():
-                return []
-            command = item.get("command")
-            exit_code = item.get("exitCode")
-            duration_ms = item.get("durationMs")
-            exit_text = f" exit={exit_code}" if exit_code is not None else ""
-            dur_text = f" dur={duration_ms}ms" if duration_ms is not None else ""
+        if item_type == _COMMAND_EXECUTION_TYPE:
+            return [*self._close_thinking_if_open(), self._command_summary_piece(item)]
+        if item_type == _FILE_CHANGE_TYPE:
             return [
-                CodexStreamPiece(
-                    content=(
-                        f"[command] done: {_command_basename(command)}{exit_text}{dur_text}"
-                    )
-                )
+                *self._close_thinking_if_open(),
+                self._file_change_summary_piece(item),
             ]
-        if item_type == "fileChange":
-            if not self._summaries_enabled():
-                return []
-            summary = self._file_change_summary(item)
-            return [CodexStreamPiece(content=summary)]
-        if item_type == "agentMessage":
-            return []
         return []
 
     @staticmethod
-    def _file_change_summary(item: dict[str, Any]) -> str:
+    def _command_summary_piece(item: dict[str, Any]) -> CodexStreamPiece:
+        """Fenced ``Tool:`` block for a completed Codex shell command (no raw stdout)."""
+        command = item.get("command")
+        duration_ms = item.get("durationMs")
+        elapsed_s = (
+            float(duration_ms) / 1000.0 if isinstance(duration_ms, int | float) else 0.0
+        )
+        ended_dt = datetime.now(timezone.utc)
+        started_dt = ended_dt - timedelta(seconds=elapsed_s)
+        text = format_acp_tool_completion_summary(
+            _command_basename(command) or "command",
+            input_bytes=len((command or "").encode("utf-8")),
+            # Codex suppresses raw command stdout; output size is not surfaced.
+            output_bytes=0,
+            started_iso=started_dt.isoformat(),
+            ended_iso=ended_dt.isoformat(),
+            elapsed_s=elapsed_s,
+        )
+        return CodexStreamPiece(content=text)
+
+    @staticmethod
+    def _file_change_summary_piece(item: dict[str, Any]) -> CodexStreamPiece:
+        """Fenced ``Tool:`` block for a completed Codex file change (no raw diff)."""
         changes = item.get("changes")
         paths: list[str] = []
-        kind = ""
         if isinstance(changes, list):
             for change in changes:
-                if not isinstance(change, dict):
-                    continue
-                path = change.get("path")
-                if isinstance(path, str) and path:
-                    paths.append(path)
-                change_kind = change.get("kind")
-                if isinstance(change_kind, str) and change_kind and not kind:
-                    kind = change_kind
-        paths_text = ", ".join(paths) if paths else "<no paths>"
-        summary = (
-            f"[file] changed: {paths_text} ({kind})"
-            if kind
-            else f"[file] changed: {paths_text}"
+                if isinstance(change, dict):
+                    path = change.get("path")
+                    if isinstance(path, str) and path:
+                        paths.append(path)
+        ended_dt = datetime.now(timezone.utc)
+        text = format_acp_tool_completion_summary(
+            _FILE_CHANGE_TYPE,
+            input_bytes=len(", ".join(paths).encode("utf-8")) if paths else 0,
+            # The diff body is never streamed; output size stays 0.
+            output_bytes=0,
+            started_iso=ended_dt.isoformat(),
+            ended_iso=ended_dt.isoformat(),
+            elapsed_s=0.0,
         )
-        if len(summary) > 120:
-            summary = summary[:117] + "..."
-        return summary
+        return CodexStreamPiece(content=text)
 
     def _turn_completed_pieces(self, params: dict[str, Any]) -> list[CodexStreamPiece]:
-        pieces: list[CodexStreamPiece] = []
-        if self._thinking_block_open:
-            pieces.append(
-                CodexStreamPiece(reasoning_content=self._close_thinking_block())
-            )
-            self._thinking_block_open = False
+        pieces = self._close_thinking_if_open()
         turn_obj = params.get("turn")
         status = (
             turn_obj.get("status")
@@ -255,10 +225,6 @@ class CodexEventMapper:
             else params.get("status")
         )
         status_str = status if isinstance(status, str) else ""
-        if self._summaries_enabled():
-            pieces.append(
-                CodexStreamPiece(content=f"\n[turn completed: {status_str}]\n")
-            )
         if status_str == "completed":
             finish_reason = "stop"
         elif status_str == "interrupted":

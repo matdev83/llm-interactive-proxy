@@ -511,17 +511,13 @@ class TestCodexEventMapper:
                 params={"turn": {"status": "completed"}},
             )
         )
-        assert open_piece == [
-            CodexStreamPiece(reasoning_content="Thinking:\nThinking step")
-        ]
-        assert append_piece == [CodexStreamPiece(reasoning_content=" more")]
+        assert open_piece == [CodexStreamPiece(content="Thinking:\nThinking step")]
+        assert append_piece == [CodexStreamPiece(content=" more")]
         # Close piece precedes the terminal done piece.
-        assert done_pieces[0] == CodexStreamPiece(reasoning_content="\n\n")
+        assert done_pieces[0] == CodexStreamPiece(content="\n\n")
         assert done_pieces[-1] == CodexStreamPiece(done=True, finish_reason="stop")
         reasoning = "".join(
-            p.reasoning_content
-            for p in (open_piece + append_piece + done_pieces)
-            if p.reasoning_content
+            p.content for p in (open_piece + append_piece + done_pieces) if p.content
         )
         assert reasoning == "Thinking:\nThinking step more\n\n"
 
@@ -555,15 +551,19 @@ class TestCodexEventMapper:
                 },
             )
         )
-        joined = "".join(p.content or "" for p in started + completed)
-        assert "[command] start: npm (cwd: proj)" in joined
-        assert "[command] done: npm exit=0 dur=1200ms" in joined
+        # ACP-style: nothing on start; a fenced Tool block on completion (no raw output).
+        assert started == []
+        joined = "".join(p.content or "" for p in completed)
+        assert "Tool: npm" in joined
+        assert "```text" in joined
+        assert "Input size: 8 bytes" in joined
+        assert "Output size: 0 bytes" in joined
         assert "SECRET" not in joined
         assert "secret output" not in joined
 
-    def test_file_change_summary_mentions_paths_no_diff(self) -> None:
+    def test_file_change_completed_emits_fenced_block_no_diff(self) -> None:
         mapper = CodexEventMapper()
-        pieces = mapper.handle(
+        started = mapper.handle(
             ACPNotification(
                 method="item/started",
                 params={
@@ -576,10 +576,27 @@ class TestCodexEventMapper:
                 },
             )
         )
-        assert len(pieces) == 1
-        content = pieces[0].content or ""
-        assert "a.py" in content
-        assert "edit" in content
+        # ACP-style: nothing on start; the fenced Tool block lands on completion.
+        assert started == []
+        completed = mapper.handle(
+            ACPNotification(
+                method="item/completed",
+                params={
+                    "type": "fileChange",
+                    "id": "f1",
+                    "changes": [
+                        {"path": "a.py", "kind": "edit", "diff": "SECRET DIFF"},
+                    ],
+                    "status": "completed",
+                },
+            )
+        )
+        assert len(completed) == 1
+        content = completed[0].content or ""
+        assert "Tool: fileChange" in content
+        assert "```text" in content
+        # Paths and diff bodies are not streamed (ACP generic Tool block).
+        assert "a.py" not in content
         assert "SECRET DIFF" not in content
 
     def test_turn_completed_finish_reason_variants(self) -> None:
@@ -1238,8 +1255,8 @@ class TestIterCodexStreamPieces:
         async for piece in connector._iter_codex_stream_pieces(runtime, 7, "auto"):
             pieces.append(piece)
 
-        reasoning = "".join(p.reasoning_content for p in pieces if p.reasoning_content)
-        assert reasoning == "Thinking:\nThinking step more\n\n"
+        content = "".join(p.content or "" for p in pieces if p.content)
+        assert content == "Thinking:\nThinking step more\n\n"
         done_pieces = [p for p in pieces if p.done]
         assert len(done_pieces) == 1
         assert done_pieces[0].finish_reason == "stop"
@@ -2254,11 +2271,6 @@ class TestPrepareTurnRequestNoAwait:
         )
 
 
-# ---------------------------------------------------------------------------
-# FIX 4: _item_completed_pieces must honor progress_mode
-# ---------------------------------------------------------------------------
-
-
 class TestEventMapperProgressMode:
     def test_text_only_suppresses_completed_summaries(self) -> None:
         mapper = CodexEventMapper(progress_mode="text_only")
@@ -2313,8 +2325,8 @@ class TestEventMapperProgressMode:
         )
         assert len(pieces) == 1
         content = pieces[0].content or ""
-        assert "[command] done: npm" in content
-        assert "exit=0" in content
+        assert "Tool: npm" in content
+        assert "```text" in content
 
 
 # ---------------------------------------------------------------------------
