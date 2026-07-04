@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from collections.abc import AsyncGenerator, Sequence
 from pathlib import Path
 from typing import Any, cast
@@ -24,6 +25,7 @@ from src.connectors.acp_core.base_connector import _hash_chat_messages_prefix_st
 from src.connectors.acp_core.transcript import ACPTranscriptSerializer
 from src.connectors.acp_core.types import ACPNotification, HistoryState
 from src.connectors.acp_core.workspace_policy import ACP_MISSING_PROJECT_WORKSPACE_CODE
+from src.connectors.codex_helpers import candidate_codex_executables
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
@@ -326,11 +328,210 @@ class TestResolveCodexExecutable:
         assert resolved == "/fake/bin/codex"
 
     def test_missing_entirely_returns_none(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("CODEX_BIN", raising=False)
+        monkeypatch.delenv("APPDATA", raising=False)
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.setattr("src.connectors.codex_helpers.shutil.which", lambda _: None)
+        # Point Path.home() at the empty tmp_path so the POSIX candidates
+        # (~/.local/bin/codex, ~/.npm-global/bin/codex) cannot resolve to a
+        # real user home that happens to contain a codex binary.
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
         assert resolve_codex_executable(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Cross-platform candidate enumeration
+# ---------------------------------------------------------------------------
+
+
+class TestCandidateCodexExecutables:
+    """candidate_codex_executables: ordered, de-duplicated, cross-platform."""
+
+    def test_returns_configured_first_then_env_then_which(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        configured = tmp_path / "configured-codex"
+        configured.write_text("#!/bin/sh\n", encoding="utf-8")
+        env_exe = tmp_path / "env-codex"
+        env_exe.write_text("#!/bin/sh\n", encoding="utf-8")
+        which_exe = tmp_path / "which-codex"
+        which_exe.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        monkeypatch.setenv("CODEX_BIN", str(env_exe))
+        monkeypatch.delenv("APPDATA", raising=False)
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        monkeypatch.setattr(
+            "src.connectors.codex_helpers.shutil.which",
+            lambda name: str(which_exe) if name == "codex" else None,
+        )
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        candidates = candidate_codex_executables(str(configured))
+
+        # Configured is first, then CODEX_BIN, then which("codex").
+        assert candidates[0] == str(configured.resolve())
+        assert candidates[1] == str(env_exe.resolve())
+        assert candidates[2] == str(which_exe)
+
+    def test_deduplicates_by_resolved_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The same file reachable via two sources must appear only once.
+        exe = tmp_path / "codex"
+        exe.write_text("#!/bin/sh\n", encoding="utf-8")
+        monkeypatch.setenv("CODEX_BIN", str(exe))
+        monkeypatch.delenv("APPDATA", raising=False)
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        # which("codex") returns the same absolute path as configured.
+        monkeypatch.setattr(
+            "src.connectors.codex_helpers.shutil.which",
+            lambda name: str(exe) if name == "codex" else None,
+        )
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+        candidates = candidate_codex_executables(str(exe))
+
+        # The configured, CODEX_BIN, and which hits all resolve to the same
+        # real path -> exactly one entry.
+        assert candidates == [str(exe.resolve())]
+
+    def test_no_hardcoded_personal_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Every returned candidate must be sourced from the inputs we control
+        # (configured, CODEX_BIN, shutil.which, APPDATA, LOCALAPPDATA,
+        # Path.home) -- never a literal like C:\Users\<name>\... or
+        # /Users/<name>/... . We set every input to a path under tmp_path and
+        # then assert every candidate's real path is in the allowed set. A
+        # hardcoded personal path would not be in the allowed set and would
+        # fail the assertion. (We cannot assert "no <name> substring" because
+        # tmp_path itself may contain the user name on the dev machine.)
+        configured = tmp_path / "configured-codex"
+        configured.write_text("#!/bin/sh\n", encoding="utf-8")
+        env_exe = tmp_path / "env-codex"
+        env_exe.write_text("#!/bin/sh\n", encoding="utf-8")
+        which_codex = tmp_path / "which-codex"
+        which_codex.write_text("#!/bin/sh\n", encoding="utf-8")
+        (tmp_path / "npm-appdata").mkdir()
+        (tmp_path / "npm-localappdata").mkdir()
+        appdata_codex = tmp_path / "npm-appdata" / "codex.cmd"
+        appdata_codex.write_text("@echo off\n", encoding="utf-8")
+        localappdata_codex = tmp_path / "npm-localappdata" / "codex.cmd"
+        localappdata_codex.write_text("@echo off\n", encoding="utf-8")
+        home = tmp_path / "home"
+        (home / ".local" / "bin").mkdir(parents=True)
+        (home / ".npm-global" / "bin").mkdir(parents=True)
+        home_local = home / ".local" / "bin" / "codex"
+        home_local.write_text("#!/bin/sh\n", encoding="utf-8")
+        home_npm = home / ".npm-global" / "bin" / "codex"
+        home_npm.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        monkeypatch.setenv("CODEX_BIN", str(env_exe))
+        monkeypatch.setenv("APPDATA", str(tmp_path / "npm-appdata"))
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "npm-localappdata"))
+        monkeypatch.setattr(
+            "src.connectors.codex_helpers.shutil.which",
+            lambda name: str(which_codex),
+        )
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+        candidates = candidate_codex_executables(str(configured))
+
+        allowed = {
+            os.path.realpath(str(configured)),
+            os.path.realpath(str(env_exe)),
+            os.path.realpath(str(which_codex)),
+            os.path.realpath(str(appdata_codex)),
+            os.path.realpath(str(localappdata_codex)),
+            os.path.realpath(str(home_local)),
+            os.path.realpath(str(home_npm)),
+        }
+        assert candidates, "expected at least one candidate"
+        for c in candidates:
+            assert (
+                os.path.realpath(c) in allowed
+            ), f"candidate not derived from env/which/home inputs: {c!r}"
+
+    def test_windows_adds_appdata_and_localappdata_npm_candidates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        appdata = tmp_path / "AppData"
+        localappdata = tmp_path / "LocalAppData"
+        (appdata / "npm").mkdir(parents=True)
+        (localappdata / "npm").mkdir(parents=True)
+        appdata_codex = appdata / "npm" / "codex.cmd"
+        appdata_codex.write_text("@echo off\n", encoding="utf-8")
+        localappdata_codex = localappdata / "npm" / "codex.cmd"
+        localappdata_codex.write_text("@echo off\n", encoding="utf-8")
+
+        monkeypatch.setenv("APPDATA", str(appdata))
+        monkeypatch.setenv("LOCALAPPDATA", str(localappdata))
+        monkeypatch.delenv("CODEX_BIN", raising=False)
+        monkeypatch.setattr(
+            "src.connectors.codex_helpers.shutil.which", lambda name: None
+        )
+        monkeypatch.setattr("src.connectors.codex_helpers.os.name", "nt")
+
+        candidates = candidate_codex_executables(None)
+
+        # Compare via os.path.realpath (bound to the real OS's path module at
+        # import time) so the assertion does not re-dispatch Path() under the
+        # mocked os.name and raise NotImplementedError on a mismatched OS.
+        resolved_candidates = {os.path.realpath(c) for c in candidates}
+        assert os.path.realpath(str(appdata_codex)) in resolved_candidates
+        assert os.path.realpath(str(localappdata_codex)) in resolved_candidates
+
+    def test_windows_adds_codex_cmd_and_exe_via_which(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("CODEX_BIN", raising=False)
+        monkeypatch.delenv("APPDATA", raising=False)
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        which_results = {
+            "codex": str(tmp_path / "codex"),
+            "codex.cmd": str(tmp_path / "codex.cmd"),
+            "codex.exe": str(tmp_path / "codex.exe"),
+        }
+
+        def fake_which(name: str) -> str | None:
+            return which_results.get(name)
+
+        monkeypatch.setattr("src.connectors.codex_helpers.shutil.which", fake_which)
+        monkeypatch.setattr("src.connectors.codex_helpers.os.name", "nt")
+
+        candidates = candidate_codex_executables(None)
+
+        assert which_results["codex"] in candidates
+        assert which_results["codex.cmd"] in candidates
+        assert which_results["codex.exe"] in candidates
+
+    def test_posix_adds_home_local_and_npm_global_candidates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        home = tmp_path / "home"
+        (home / ".local" / "bin").mkdir(parents=True)
+        (home / ".npm-global" / "bin").mkdir(parents=True)
+        local_codex = home / ".local" / "bin" / "codex"
+        local_codex.write_text("#!/bin/sh\n", encoding="utf-8")
+        npm_codex = home / ".npm-global" / "bin" / "codex"
+        npm_codex.write_text("#!/bin/sh\n", encoding="utf-8")
+
+        monkeypatch.delenv("CODEX_BIN", raising=False)
+        monkeypatch.setattr(
+            "src.connectors.codex_helpers.shutil.which", lambda name: None
+        )
+        monkeypatch.setattr("src.connectors.codex_helpers.os.name", "posix")
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+
+        candidates = candidate_codex_executables(None)
+
+        # Compare via os.path.realpath so the assertion does not re-dispatch
+        # Path() under the mocked os.name (PosixPath on Windows would raise).
+        resolved_candidates = {os.path.realpath(c) for c in candidates}
+        assert os.path.realpath(str(local_codex)) in resolved_candidates
+        assert os.path.realpath(str(npm_codex)) in resolved_candidates
 
 
 # ---------------------------------------------------------------------------
@@ -1092,7 +1293,13 @@ class TestInitialize:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.delenv("CODEX_BIN", raising=False)
+        monkeypatch.delenv("APPDATA", raising=False)
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
         monkeypatch.setattr("src.connectors.codex_helpers.shutil.which", lambda _: None)
+        # Point Path.home() at the temp workspace so the POSIX candidates
+        # (~/.local/bin/codex, ~/.npm-global/bin/codex) cannot resolve to a real
+        # user home that happens to contain a codex binary on a dev machine.
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: temp_workspace))
 
         from src.core.common.exceptions import ConfigurationError
 
@@ -1187,7 +1394,7 @@ class TestProbeAppServer:
         fake_proc._poll = None
         _install_probe_popen(monkeypatch, fake_proc)
 
-        result = await connector._probe_app_server()
+        result = await connector._probe_app_server("codex")
 
         assert result is True
         # The finally must have terminated the probe process (no orphan).
@@ -1206,7 +1413,7 @@ class TestProbeAppServer:
         fake_proc._poll = 1
         _install_probe_popen(monkeypatch, fake_proc)
 
-        result = await connector._probe_app_server()
+        result = await connector._probe_app_server("codex")
 
         assert result is False
 
@@ -1225,7 +1432,7 @@ class TestProbeAppServer:
         fake_proc._poll = None
         _install_probe_popen(monkeypatch, fake_proc)
 
-        result = await connector._probe_app_server()
+        result = await connector._probe_app_server("codex")
 
         assert result is False
 
@@ -1243,7 +1450,7 @@ class TestProbeAppServer:
         fake_proc._poll = None
         _install_probe_popen(monkeypatch, fake_proc)
 
-        result = await connector._probe_app_server()
+        result = await connector._probe_app_server("codex")
 
         assert result is False
         # The finally must still terminate the probe process (no orphan).
@@ -1293,6 +1500,179 @@ class TestProbeAppServer:
             model="openai/gpt-5.4",
         )
         assert connector.is_backend_functional() is True
+
+
+# ---------------------------------------------------------------------------
+# initialize probe-and-pick across multiple candidates
+# ---------------------------------------------------------------------------
+
+
+class TestInitializeProbeAndPick:
+    """initialize() probes each candidate and picks the first working one."""
+
+    @staticmethod
+    def _two_candidates(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> tuple[str, str]:
+        """Build two distinct candidate executables and return (first, second).
+
+        The first is the configured executable; the second is surfaced via
+        ``shutil.which("codex")``. All other sources (CODEX_BIN, APPDATA,
+        LOCALAPPDATA, Path.home) are neutralized so the candidate list is
+        deterministic and exactly two entries. Both returned paths are
+        resolved absolute paths so assertions can compare them directly
+        against the connector's chosen executable.
+        """
+
+        first = tmp_path / "codex-wrapper"
+        first.write_text("#!/bin/sh\n", encoding="utf-8")
+        second = tmp_path / "codex-raw"
+        second.write_text("#!/bin/sh\n", encoding="utf-8")
+        first_resolved = str(first.resolve())
+        second_resolved = str(second.resolve())
+        monkeypatch.delenv("CODEX_BIN", raising=False)
+        monkeypatch.delenv("APPDATA", raising=False)
+        monkeypatch.delenv("LOCALAPPDATA", raising=False)
+        # which() returns the resolved second path so the stored candidate
+        # matches the resolved value the connector keeps.
+        monkeypatch.setattr(
+            "src.connectors.codex_helpers.shutil.which",
+            lambda name: second_resolved if name == "codex" else None,
+        )
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+        return (first_resolved, second_resolved)
+
+    async def test_initialize_picks_second_candidate_when_first_probe_fails(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        first, second = self._two_candidates(temp_workspace, monkeypatch)
+        first_resolved = str(Path(first).resolve())
+        second_resolved = str(Path(second).resolve())
+
+        # --version passes for both; the app-server probe fails only for the
+        # first (wrapper collision) and passes for the second.
+        monkeypatch.setattr(
+            connector,
+            "_check_codex_available",
+            AsyncMock(return_value=True),
+        )
+
+        async def _probe(executable: str) -> bool:
+            return executable != first_resolved
+
+        monkeypatch.setattr(
+            connector, "_probe_app_server", AsyncMock(side_effect=_probe)
+        )
+
+        await connector.initialize(
+            project_dir=str(temp_workspace),
+            codex_executable=first,
+        )
+        assert connector.is_backend_functional() is True
+        assert connector._codex_executable == second_resolved
+
+    async def test_initialize_skips_candidate_that_fails_version_check(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        first, second = self._two_candidates(temp_workspace, monkeypatch)
+        first_resolved = str(Path(first).resolve())
+        second_resolved = str(Path(second).resolve())
+
+        # The first candidate fails --version (so the probe is never run for
+        # it); the second passes both checks.
+        async def _check(executable: str | None = None) -> bool:
+            return executable != first_resolved
+
+        monkeypatch.setattr(
+            connector, "_check_codex_available", AsyncMock(side_effect=_check)
+        )
+        monkeypatch.setattr(
+            connector, "_probe_app_server", AsyncMock(return_value=True)
+        )
+
+        await connector.initialize(
+            project_dir=str(temp_workspace),
+            codex_executable=first,
+        )
+        assert connector.is_backend_functional() is True
+        assert connector._codex_executable == second_resolved
+
+    async def test_initialize_raises_when_all_candidates_fail(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        first, second = self._two_candidates(temp_workspace, monkeypatch)
+        first_resolved = str(Path(first).resolve())
+        second_resolved = str(Path(second).resolve())
+
+        monkeypatch.setattr(
+            connector,
+            "_check_codex_available",
+            AsyncMock(return_value=True),
+        )
+        monkeypatch.setattr(
+            connector, "_probe_app_server", AsyncMock(return_value=False)
+        )
+
+        with pytest.raises(
+            ConfigurationError, match="app-server probe failed"
+        ) as exc_info:
+            await connector.initialize(
+                project_dir=str(temp_workspace),
+                codex_executable=first,
+            )
+        assert connector.is_backend_functional() is False
+        assert connector._initialization_failed is True
+        # The error details must list every candidate that was tried.
+        tried = exc_info.value.details.get("tried_candidates")
+        assert tried == [first_resolved, second_resolved]
+
+    async def test_initialize_picks_first_candidate_when_it_passes(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Common case: the first candidate (configured) passes both checks and
+        # is selected; no later candidate is probed.
+        first, _second = self._two_candidates(temp_workspace, monkeypatch)
+        first_resolved = str(Path(first).resolve())
+
+        check_calls: list[str | None] = []
+        probe_calls: list[str] = []
+
+        async def _check(executable: str | None = None) -> bool:
+            check_calls.append(executable)
+            return True
+
+        async def _probe(executable: str) -> bool:
+            probe_calls.append(executable)
+            return True
+
+        monkeypatch.setattr(
+            connector, "_check_codex_available", AsyncMock(side_effect=_check)
+        )
+        monkeypatch.setattr(
+            connector, "_probe_app_server", AsyncMock(side_effect=_probe)
+        )
+
+        await connector.initialize(
+            project_dir=str(temp_workspace),
+            codex_executable=first,
+        )
+        assert connector.is_backend_functional() is True
+        assert connector._codex_executable == first_resolved
+        # Only the first candidate is probed.
+        assert probe_calls == [first_resolved]
+        assert check_calls == [first_resolved]
 
 
 # ---------------------------------------------------------------------------

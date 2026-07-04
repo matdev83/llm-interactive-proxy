@@ -50,12 +50,15 @@ from src.connectors.codex_event_mapper import (
 from src.connectors.codex_helpers import (
     build_codex_app_server_command,
     build_turn_interrupt_payload,
+    candidate_codex_executables,
     decide_codex_server_request,
     is_auto_model,
     map_reasoning_effort_to_codex_effort,
-    resolve_codex_executable,
     sanitize_approval_summary,
     strip_openai_model_prefix,
+)
+from src.connectors.codex_helpers import (
+    resolve_codex_executable as resolve_codex_executable,
 )
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.core.common.exceptions import (
@@ -135,8 +138,8 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
 
             exe_kw = kwargs.get("codex_executable")
             configured_exe = str(exe_kw) if exe_kw else self._codex_executable
-            resolved = resolve_codex_executable(configured_exe if exe_kw else None)
-            if resolved is None:
+            candidates = candidate_codex_executables(configured_exe if exe_kw else None)
+            if not candidates:
                 raise ConfigurationError(
                     message="Codex CLI (codex) executable not found",
                     details={
@@ -145,7 +148,6 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
                         "or set CODEX_BIN to the full path to the codex binary.",
                     },
                 )
-            self._codex_executable = resolved
 
             configured_model = str(kwargs.get("model") or self._model)
             self._model = strip_openai_model_prefix(configured_model)
@@ -171,25 +173,42 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
             else:
                 self._app_server_extra_args = []
 
-            if not await self._check_codex_available():
-                raise ConfigurationError(
-                    message=f"Codex CLI not callable: {self._codex_executable}",
-                    details={"executable": self._codex_executable},
-                )
+            # Probe-and-pick: try each candidate; the first that passes BOTH
+            # the ``--version`` check and the app-server JSON-RPC probe wins.
+            # This catches wrapper collisions (e.g. a ``codex.cmd`` shim that
+            # already injects ``--dangerously-bypass-approvals-and-sandbox``):
+            # such a wrapper fails the app-server probe, so the loop falls
+            # through to the next candidate instead of failing initialization.
+            tried: list[str] = []
+            chosen: str | None = None
+            for candidate in candidates:
+                tried.append(candidate)
+                if not await self._check_codex_available(candidate):
+                    continue
+                if await self._probe_app_server(candidate):
+                    chosen = candidate
+                    break
 
-            if not await self._probe_app_server():
+            if chosen is None:
                 raise ConfigurationError(
                     message=(
-                        "Codex app-server probe failed: the resolved executable "
-                        "did not start a JSON-RPC app-server with the configured "
-                        "launch flags (--dangerously-bypass-approvals-and-sandbox "
-                        "--search app-server --stdio). If `codex` on PATH is a "
-                        "wrapper that already injects these flags, set CODEX_BIN "
-                        "or `codex_executable` to the raw Codex binary."
+                        "Codex app-server probe failed: none of the candidate "
+                        "executables started a JSON-RPC app-server with the "
+                        "configured launch flags "
+                        "(--dangerously-bypass-approvals-and-sandbox --search "
+                        "app-server --stdio). If `codex` on PATH is a wrapper "
+                        "that already injects these flags, set CODEX_BIN or "
+                        "`codex_executable` to the raw Codex binary."
                     ),
-                    details={"executable": self._codex_executable},
+                    details={
+                        "configured": configured_exe,
+                        "tried_candidates": tried,
+                        "hint": "Set CODEX_BIN to the raw Codex binary, or "
+                        "install codex on PATH without wrapper flag injection.",
+                    },
                 )
 
+            self._codex_executable = chosen
             self._validation_errors = []
             self._initialization_failed = False
             self.is_functional = True
@@ -199,11 +218,12 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
             self._validation_errors = ["openai-codex-app-server initialization failed"]
             raise
 
-    async def _check_codex_available(self) -> bool:
+    async def _check_codex_available(self, executable: str | None = None) -> bool:
+        exe = executable if executable is not None else self._codex_executable
         try:
             result = await asyncio.to_thread(
                 subprocess.run,
-                [self._codex_executable, "--version"],
+                [exe, "--version"],
                 capture_output=True,
                 timeout=15,
                 check=False,
@@ -213,18 +233,18 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
-    async def _probe_app_server(self) -> bool:
+    async def _probe_app_server(self, executable: str) -> bool:
         """Spawn the real app-server command and confirm it speaks JSON-RPC.
 
         Catches wrapper collisions (e.g. a ``codex.cmd`` shim that already
         injects the global flags): a colliding wrapper exits at CLI parse time,
-        so the probe returns False and ``initialize`` raises a clear
-        ``ConfigurationError`` instead of failing on every later chat request.
-        The probe process is always terminated in the ``finally`` (no orphan).
+        so the probe returns False and the caller falls through to the next
+        candidate instead of failing on every later chat request. The probe
+        process is always terminated in the ``finally`` (no orphan).
         """
 
         cmd = build_codex_app_server_command(
-            self._codex_executable,
+            executable,
             codex_config_overrides=self._codex_config_overrides,
             app_server_extra_args=self._app_server_extra_args,
         )

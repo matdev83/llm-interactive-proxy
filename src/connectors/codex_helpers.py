@@ -52,47 +52,111 @@ def _cwd_basename(cwd: str | None) -> str:
     return name or cwd
 
 
-def resolve_codex_executable(configured: str | None) -> str | None:
-    """Resolve the Codex CLI executable for ``subprocess.Popen``.
+def _resolve_candidate(raw: str) -> str | None:
+    """Resolve a single candidate executable.
 
-    Order: ``configured`` (file -> resolved, else ``which``), ``CODEX_BIN``,
-    ``shutil.which("codex")``, and on Windows ``codex.exe``. Returns ``None``
-    when no usable executable is found.
+    A path that points to an existing file is returned as its resolved absolute
+    path; any other non-empty string is resolved via ``shutil.which``. Returns
+    ``None`` for empty input or when nothing usable is found.
     """
 
-    def _resolve_candidate(raw: str) -> str | None:
-        s = raw.strip()
-        if not s:
+    s = raw.strip()
+    if not s:
+        return None
+    p = Path(s)
+    if p.is_file():
+        try:
+            return str(p.resolve())
+        except (OSError, RuntimeError):
             return None
-        p = Path(s)
-        if p.is_file():
-            try:
-                return str(p.resolve())
-            except (OSError, RuntimeError):
-                return None
-        return shutil.which(s)
+    return shutil.which(s)
+
+
+def candidate_codex_executables(configured: str | None) -> list[str]:
+    """Ordered, de-duplicated codex executable candidates (cross-platform).
+
+    Order: ``configured`` (instance config), ``CODEX_BIN`` env, then PATH
+    lookups (``codex``, ``codex.cmd``, ``codex.exe``) and standard npm-global
+    locations derived from env vars / ``Path.home()``. No hardcoded personal
+    paths: every entry is sourced from the ``configured`` argument, an
+    environment variable, ``shutil.which``, or ``Path.home()``.
+
+    De-duplicated by resolved real path (case-insensitive) so the same binary
+    surfaced through multiple sources (e.g. ``configured`` and ``which``) only
+    appears once and is probed once.
+    """
+
+    raw: list[str] = []
 
     if configured:
         resolved = _resolve_candidate(configured)
         if resolved:
-            return resolved
+            raw.append(resolved)
 
-    env_bin = os.environ.get("CODEX_BIN", "")
+    env_bin = os.environ.get("CODEX_BIN", "").strip()
     if env_bin:
         resolved = _resolve_candidate(env_bin)
         if resolved:
-            return resolved
+            raw.append(resolved)
 
-    resolved = shutil.which("codex")
-    if resolved:
-        return resolved
+    for name in ("codex", "codex.cmd", "codex.exe"):
+        which = shutil.which(name)
+        if which:
+            raw.append(which)
 
     if os.name == "nt":
-        resolved = shutil.which("codex.exe")
-        if resolved:
-            return resolved
+        appdata = os.environ.get("APPDATA", "").strip()
+        if appdata:
+            npm_cmd = os.path.join(appdata, "npm", "codex.cmd")
+            if os.path.isfile(npm_cmd):
+                raw.append(npm_cmd)
+        localappdata = os.environ.get("LOCALAPPDATA", "").strip()
+        if localappdata:
+            npm_cmd_local = os.path.join(localappdata, "npm", "codex.cmd")
+            if os.path.isfile(npm_cmd_local):
+                raw.append(npm_cmd_local)
+    else:
+        home = Path.home()
+        for rel in (".local/bin/codex", ".npm-global/bin/codex"):
+            candidate = home / rel
+            if candidate.is_file():
+                try:
+                    raw.append(str(candidate.resolve()))
+                except (OSError, RuntimeError):
+                    raw.append(str(candidate))
 
-    return None
+    seen: set[str] = set()
+    unique: list[str] = []
+    for entry in raw:
+        # Dedup by real path with OS-appropriate case normalization. Use
+        # ``os.path`` (bound to the real OS's path module at import time)
+        # instead of ``Path(entry)`` so this loop is robust to ``os.name``
+        # being monkeypatched in tests -- ``Path(entry)`` re-dispatches to
+        # PosixPath/WindowsPath based on the *current* ``os.name`` and raises
+        # NotImplementedError when the two do not match.
+        try:
+            key = os.path.normcase(os.path.realpath(entry))
+        except (OSError, ValueError, RuntimeError):
+            key = os.path.normcase(str(entry))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    return unique
+
+
+def resolve_codex_executable(configured: str | None) -> str | None:
+    """Resolve the Codex CLI executable for ``subprocess.Popen`` (back-compat).
+
+    Returns the FIRST candidate from :func:`candidate_codex_executables`, or
+    ``None`` when no usable executable is found. Kept for existing callers and
+    tests; new code should iterate :func:`candidate_codex_executables` and probe
+    each candidate to pick a working one (a single ``shutil.which`` hit may be a
+    wrapper that already injects the app-server flags).
+    """
+
+    candidates = candidate_codex_executables(configured)
+    return candidates[0] if candidates else None
 
 
 def build_codex_app_server_command(
