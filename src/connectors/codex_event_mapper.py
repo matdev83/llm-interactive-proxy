@@ -174,19 +174,38 @@ class CodexEventMapper:
 
     @staticmethod
     def _command_summary_piece(item: dict[str, Any]) -> CodexStreamPiece:
-        """Fenced ``Tool:`` block for a completed Codex shell command (no raw stdout)."""
-        command = item.get("command")
+        """Fenced ``Tool:`` block for a completed Codex shell command (no raw I/O)."""
+        # Prefer the user-facing command from ``commandActions`` (the actual
+        # invoked command) over the wrapped ``command`` field, which on Windows
+        # is a quoted shell path like '"C:\Program Files\PowerShell\7\pwsh.exe"
+        # -Command ...' whose first-token basename mis-resolves to "Program".
+        actual_command = ""
+        actions = item.get("commandActions")
+        if isinstance(actions, list) and actions and isinstance(actions[0], dict):
+            first_action = actions[0].get("command")
+            if isinstance(first_action, str) and first_action.strip():
+                actual_command = first_action
+        if not actual_command:
+            raw_command = item.get("command")
+            if isinstance(raw_command, str):
+                actual_command = raw_command
         duration_ms = item.get("durationMs")
         elapsed_s = (
             float(duration_ms) / 1000.0 if isinstance(duration_ms, int | float) else 0.0
         )
         ended_dt = datetime.now(timezone.utc)
         started_dt = ended_dt - timedelta(seconds=elapsed_s)
+        aggregated_output = item.get("aggregatedOutput")
+        output_bytes = (
+            len(aggregated_output.encode("utf-8"))
+            if isinstance(aggregated_output, str)
+            else 0
+        )
         text = format_acp_tool_completion_summary(
-            _command_basename(command) or "command",
-            input_bytes=len((command or "").encode("utf-8")),
-            # Codex suppresses raw command stdout; output size is not surfaced.
-            output_bytes=0,
+            _command_basename(actual_command) or "command",
+            input_bytes=len(actual_command.encode("utf-8")),
+            # Only the output SIZE is surfaced (ACP-style); raw stdout is never streamed.
+            output_bytes=output_bytes,
             started_iso=started_dt.isoformat(),
             ended_iso=ended_dt.isoformat(),
             elapsed_s=elapsed_s,

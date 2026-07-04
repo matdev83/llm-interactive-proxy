@@ -557,9 +557,37 @@ class TestCodexEventMapper:
         assert "Tool: npm" in joined
         assert "```text" in joined
         assert "Input size: 8 bytes" in joined
-        assert "Output size: 0 bytes" in joined
+        assert "Output size: 18 bytes" in joined  # len("more secret output")
         assert "SECRET" not in joined
         assert "secret output" not in joined
+
+    def test_command_summary_prefers_command_actions_over_wrapped_command(self) -> None:
+        # Real Codex wraps shell commands in a quoted pwsh path whose
+        # first-token basename mis-resolves to "Program"; the user-facing
+        # command lives in commandActions[0].command.
+        mapper = CodexEventMapper()
+        pieces = mapper.handle(
+            ACPNotification(
+                method="item/completed",
+                params={
+                    "type": "commandExecution",
+                    "id": "c1",
+                    "command": "\"C:\\Program Files\\PowerShell\\7\\pwsh.exe\" -Command 'echo hello'",
+                    "commandActions": [{"type": "unknown", "command": "echo hello"}],
+                    "exitCode": 0,
+                    "durationMs": 186,
+                    "aggregatedOutput": "hello\r\n",
+                },
+            )
+        )
+        assert len(pieces) == 1
+        content = pieces[0].content or ""
+        assert "Tool: echo" in content
+        assert "Program" not in content
+        assert "Input size: 10 bytes" in content  # len("echo hello")
+        assert "Output size: 7 bytes" in content  # len("hello\r\n")
+        # Raw output is not streamed, only its size.
+        assert "hello\r\n" not in content
 
     def test_file_change_completed_emits_fenced_block_no_diff(self) -> None:
         mapper = CodexEventMapper()
