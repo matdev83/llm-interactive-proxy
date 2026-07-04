@@ -148,6 +148,10 @@ class TestIsOAuthConnectorKnownList:
         """Test cursor-cli-acp is detected via known list."""
         assert is_oauth_connector("cursor_cli_acp") is True
 
+    def test_openai_codex_app_server_detected_via_known_list(self) -> None:
+        """Test openai-codex-app-server is detected via known list."""
+        assert is_oauth_connector("openai_codex_app_server") is True
+
 
 class TestIsOAuthConnectorPropertyBased:
     """Tests for OAuth connector detection via has_static_credentials property."""

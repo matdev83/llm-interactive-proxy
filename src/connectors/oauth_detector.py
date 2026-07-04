@@ -35,6 +35,7 @@ KNOWN_OAUTH_CONNECTORS: set[str] = _EXTRACTED_OAUTH_CONNECTORS.union(
         "agy-cli-acp",  # Uses local Antigravity CLI auth through ACP wrapper
         "openai-codex",  # Uses OAuth via auth.json (special case)
         "openai-codex-v2",  # Managed OAuth stack shared with openai-codex
+        "openai-codex-app-server",  # Local Codex CLI app-server (personal login, stdio)
         "opencode-zen",  # Extracted plugin; name doesn't follow -oauth convention
         "cline",  # Extracted plugin; uses OAuth-style token management
         "kiro-oauth-auto",  # Extracted OAuth backend; logical name uses dashes

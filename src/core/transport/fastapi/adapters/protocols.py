@@ -14,6 +14,7 @@ from pydantic.types import JsonValue
 if TYPE_CHECKING:
     from src.core.domain.openrouter_usage import OpenRouterUsage
     from src.core.domain.request_context import RequestContext
+    from src.core.domain.usage_canonical_record import CanonicalUsageRecord
     from src.core.transport.fastapi.adapters.sse.models import DecodedSSE
 
 
@@ -103,7 +104,7 @@ class IUsageNormalizer(Protocol):
     """Normalize usage dictionaries."""
 
     def normalize(
-        self, usage: dict[str, Any] | OpenRouterUsage | None
+        self, usage: dict[str, JsonValue] | OpenRouterUsage | None
     ) -> dict[str, int]:
         """Normalize usage to standard format.
 
@@ -116,7 +117,7 @@ class IUsageNormalizer(Protocol):
         ...
 
     def merge_streaming_usage(
-        self, existing: dict[str, int], new: dict[str, Any]
+        self, existing: dict[str, int], new: dict[str, JsonValue]
     ) -> dict[str, int]:
         """Merge usage keeping highest values.
 
@@ -137,7 +138,7 @@ class IUsageHeaderInjector(Protocol):
         self,
         headers: dict[str, str],
         usage: dict[str, JsonValue],
-        canonical_usage: Any | None = None,
+        canonical_usage: CanonicalUsageRecord | None = None,
     ) -> dict[str, str]:
         """Add usage headers to response headers.
 
@@ -200,14 +201,15 @@ class IWireCaptureCoordinator(Protocol):
     def schedule_capture(
         self,
         envelope: ResponseEnvelope,
-        response_content: Any,
-        context: Any | None = None,
+        response_content: dict[str, JsonValue] | bytes | None,
+        context: RequestContext | None = None,
     ) -> None:
         """Schedule async capture for non-streaming response.
 
         Args:
             envelope: Response envelope
-            response_content: Response content to capture
+            response_content: Response content to capture (JSON-serializable dict,
+                bytes, or None)
             context: Optional request context
         """
         ...

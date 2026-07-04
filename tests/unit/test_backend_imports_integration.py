@@ -104,6 +104,7 @@ class TestBackendImportsIntegration:
             "openai",
             "openai-codex",
             "openai-codex-v2",
+            "openai-codex-app-server",
             "openrouter",
             "zai",
             "zai-coding-plan",

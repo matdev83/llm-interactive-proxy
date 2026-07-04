@@ -165,7 +165,7 @@ class TestAgyCliAcpProtocol:
             ),
         ):
             prompt_request_id, requested_model = (
-                await connector._prepare_prompt_request_locked(
+                await connector._prepare_turn_request_locked(
                     runtime,
                     _make_request(model="google/gemini-3.5-flash-medium"),
                 )

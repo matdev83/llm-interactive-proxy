@@ -21,12 +21,25 @@ from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope
 
 
-class DummyAcpConnector(BaseAcpConnector):
+class DummyAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
     backend_type = "dummy-acp"
     VENDOR_PREFIX = "dummy"
 
-    async def _build_acp_command(self, runtime: ACPProcessRuntime) -> list[str]:
+    async def _build_subprocess_command(self, runtime: ACPProcessRuntime) -> list[str]:
         return ["dummy", "acp"]
+
+    def _create_runtime(
+        self, project_dir: Path, model: str, client_session_id: str = "default"
+    ) -> ACPProcessRuntime:
+        return ACPProcessRuntime(
+            project_dir=project_dir,
+            model=model,
+            client_session_id=client_session_id,
+            process_lock=asyncio.Lock(),
+            request_lock=asyncio.Lock(),
+            cancellation_lock=asyncio.Lock(),
+            cancellation_event=asyncio.Event(),
+        )
 
     async def _perform_handshake(self, runtime: ACPProcessRuntime) -> None:
         runtime.session_id = "dummy-session"
@@ -526,7 +539,7 @@ async def test_prepare_prompt_first_turn_serializes_full_transcript(
             connector, "_send_jsonrpc_message", AsyncMock(return_value=1)
         ) as send_mock,
     ):
-        await connector._prepare_prompt_request_locked(
+        await connector._prepare_turn_request_locked(
             runtime, _make_request(with_history=True)
         )
 
@@ -563,13 +576,13 @@ async def test_prepare_prompt_incremental_tail_after_non_acp_turns(
             connector, "_send_jsonrpc_message", AsyncMock(return_value=1)
         ) as send_mock,
     ):
-        await connector._prepare_prompt_request_locked(
+        await connector._prepare_turn_request_locked(
             runtime, _make_request(messages=base)
         )
         assert runtime.history_state is not None
         assert runtime.history_state.message_count == 2
 
-        await connector._prepare_prompt_request_locked(
+        await connector._prepare_turn_request_locked(
             runtime, _make_request(messages=extended)
         )
 
@@ -608,10 +621,10 @@ async def test_prepare_prompt_diverged_prefix_resets_and_reserializes_full(
         ) as send_mock,
         patch.object(connector, "_kill_runtime", AsyncMock()) as kill_mock,
     ):
-        await connector._prepare_prompt_request_locked(
+        await connector._prepare_turn_request_locked(
             runtime, _make_request(messages=messages_v1)
         )
-        await connector._prepare_prompt_request_locked(
+        await connector._prepare_turn_request_locked(
             runtime, _make_request(messages=messages_v2)
         )
 
@@ -638,12 +651,12 @@ async def test_prepare_prompt_same_length_retry_uses_last_user_only(
             connector, "_send_jsonrpc_message", AsyncMock(return_value=1)
         ) as send_mock,
     ):
-        await connector._prepare_prompt_request_locked(
+        await connector._prepare_turn_request_locked(
             runtime, _make_request(messages=msgs)
         )
         hc = runtime.history_state.message_count if runtime.history_state else 0
         assert hc == 1
-        await connector._prepare_prompt_request_locked(
+        await connector._prepare_turn_request_locked(
             runtime, _make_request(messages=msgs)
         )
 
@@ -739,7 +752,7 @@ async def test_non_streaming_chat_completions_include_visible_thinking_blocks(
         patch.object(connector, "_acquire_runtime", AsyncMock(return_value=runtime)),
         patch.object(
             connector,
-            "_prepare_prompt_request_locked",
+            "_prepare_turn_request_locked",
             AsyncMock(return_value=(5, "dummy/model")),
         ),
         patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),

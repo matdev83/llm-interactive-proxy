@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 ACP_PROTOCOL_VERSION = 1
 
 
-class GeminiCliAcpConnector(BaseAcpConnector):
+class GeminiCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
     """Gemini CLI backend using Agent Control Protocol over stdio."""
 
     backend_type: str = "gemini-cli-acp"
@@ -106,7 +107,7 @@ class GeminiCliAcpConnector(BaseAcpConnector):
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
-    async def _build_acp_command(self, runtime: ACPProcessRuntime) -> list[str]:
+    async def _build_subprocess_command(self, runtime: ACPProcessRuntime) -> list[str]:
         cmd = build_gemini_cli_command(
             [
                 self._gemini_cli_executable,
@@ -118,6 +119,19 @@ class GeminiCliAcpConnector(BaseAcpConnector):
         if self._auto_accept:
             cmd.append("-y")
         return cmd
+
+    def _create_runtime(
+        self, project_dir: Path, model: str, client_session_id: str = "default"
+    ) -> ACPProcessRuntime:
+        return ACPProcessRuntime(
+            project_dir=project_dir,
+            model=model,
+            client_session_id=client_session_id,
+            process_lock=asyncio.Lock(),
+            request_lock=asyncio.Lock(),
+            cancellation_lock=asyncio.Lock(),
+            cancellation_event=asyncio.Event(),
+        )
 
     async def _perform_handshake(self, runtime: ACPProcessRuntime) -> None:
         initialize_id = await self._send_jsonrpc_message(

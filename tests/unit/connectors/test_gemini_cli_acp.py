@@ -198,7 +198,7 @@ class TestGeminiCliAcpProtocol:
             ),
         ):
             prompt_request_id, requested_model = (
-                await connector._prepare_prompt_request_locked(runtime, _make_request())
+                await connector._prepare_turn_request_locked(runtime, _make_request())
             )
 
         assert prompt_request_id == 3
@@ -309,7 +309,7 @@ class TestGeminiCliAcpChatCompletions:
             ),
             patch.object(
                 connector,
-                "_prepare_prompt_request_locked",
+                "_prepare_turn_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
             patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
@@ -345,7 +345,7 @@ class TestGeminiCliAcpChatCompletions:
             ),
             patch.object(
                 connector,
-                "_prepare_prompt_request_locked",
+                "_prepare_turn_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
             patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
@@ -377,7 +377,7 @@ class TestGeminiCliAcpChatCompletions:
             ),
             patch.object(
                 connector,
-                "_prepare_prompt_request_locked",
+                "_prepare_turn_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
             patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
@@ -431,7 +431,7 @@ class TestGeminiCliAcpChatCompletions:
             ),
             patch.object(
                 connector,
-                "_prepare_prompt_request_locked",
+                "_prepare_turn_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
             patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
@@ -502,7 +502,7 @@ class TestGeminiCliAcpChatCompletions:
             patch.object(connector, "_acquire_runtime", side_effect=_acquire_runtime),
             patch.object(
                 connector,
-                "_prepare_prompt_request_locked",
+                "_prepare_turn_request_locked",
                 side_effect=_prepare_prompt,
             ),
             patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
@@ -774,7 +774,7 @@ class TestGeminiCliAcpCancellation:
             ),
             patch.object(
                 connector,
-                "_prepare_prompt_request_locked",
+                "_prepare_turn_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
             patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
@@ -814,7 +814,7 @@ class TestGeminiCliAcpCancellation:
             ),
             patch.object(
                 connector,
-                "_prepare_prompt_request_locked",
+                "_prepare_turn_request_locked",
                 AsyncMock(return_value=(5, "google/gemini-2.5-flash")),
             ),
             patch.object(connector, "_iter_acp_stream_pieces", side_effect=_mock_iter),
@@ -859,7 +859,7 @@ class TestGeminiCliAcpCancellation:
             ),
             patch.object(connector, "_wait_for_process_exit", side_effect=_mock_wait),
         ):
-            result = await connector._attempt_graceful_acp_cancel(
+            result = await connector._attempt_graceful_cancel(
                 runtime, request_id=5, total_timeout_s=2.0
             )
 

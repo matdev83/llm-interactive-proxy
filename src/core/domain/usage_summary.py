@@ -6,7 +6,7 @@ a canonical usage summary with token counts and provider-specific extensions.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
 
 from pydantic.types import JsonValue
 
@@ -34,7 +34,7 @@ class UsageSummary(ValueObject):
     extensions: dict[str, JsonValue] = {}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> UsageSummary:
+    def from_dict(cls, data: Mapping[str, JsonValue]) -> UsageSummary:
         """Create UsageSummary from a dictionary (e.g., from API response).
 
         Handles common formats:
@@ -43,7 +43,7 @@ class UsageSummary(ValueObject):
         - Generic format with extensions
 
         Args:
-            data: Dictionary with usage data
+            data: Dictionary with usage data (JSON-safe values)
 
         Returns:
             UsageSummary instance
@@ -56,7 +56,11 @@ class UsageSummary(ValueObject):
             completion_tokens = data.get("output_tokens")
         total_tokens = data.get("total_tokens")
         if not isinstance(total_tokens, int):
-            computed = (prompt_tokens or 0) + (completion_tokens or 0)
+            prompt_int = prompt_tokens if isinstance(prompt_tokens, int) else 0
+            completion_int = (
+                completion_tokens if isinstance(completion_tokens, int) else 0
+            )
+            computed = prompt_int + completion_int
             total_tokens = computed if computed > 0 else None
 
         # Extract extensions
@@ -77,7 +81,7 @@ class UsageSummary(ValueObject):
             extensions=extensions,
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, JsonValue]:
         """Convert to a canonical dictionary form.
 
         This preserves the explicit `extensions` container for provider-specific
@@ -90,14 +94,14 @@ class UsageSummary(ValueObject):
             "extensions": dict(self.extensions),
         }
 
-    def to_legacy_dict(self) -> dict[str, Any]:
+    def to_legacy_dict(self) -> dict[str, JsonValue]:
         """Convert to a legacy-compatible dictionary form.
 
         - Standard keys are emitted at top-level when present.
         - Provider-specific extensions are flattened into the same dict.
         - The `extensions` key itself is not emitted.
         """
-        result: dict[str, Any] = {}
+        result: dict[str, JsonValue] = {}
         if self.prompt_tokens is not None:
             result["prompt_tokens"] = self.prompt_tokens
         if self.completion_tokens is not None:

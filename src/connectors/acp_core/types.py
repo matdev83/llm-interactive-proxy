@@ -148,3 +148,21 @@ class ACPProcessRuntime:
     stale_kill_task: Any = field(default=None)  # asyncio.Task | None
     #: Captured when the child starts; used before idle-kill to detect PID reuse.
     acp_subprocess_identity: AcpSubprocessIdentity | None = None
+
+
+@dataclass(slots=True)
+class CodexAppServerRuntime(ACPProcessRuntime):
+    """Live Codex app-server runtime; extends ACPProcessRuntime with Codex ids
+    and a deferred history commit.
+
+    ``thread_id``/``turn_id`` replace ACP's ``session_id`` for the Codex
+    app-server protocol. ``pending_history_state`` stages the next history state
+    and is committed only when a turn completes successfully
+    (``turn/completed`` status ``completed``); a failed/interrupted turn
+    discards it so ``runtime.history_state`` keeps its prior value and a client
+    retry hits the correct branch.
+    """
+
+    thread_id: str | None = None
+    turn_id: str | None = None
+    pending_history_state: HistoryState | None = None

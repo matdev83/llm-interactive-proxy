@@ -130,6 +130,68 @@ class TestUsageSummary:
         assert data["total_tokens"] == 150
         assert data["extensions"] == {"cost": 0.002}
 
+    def test_usage_summary_to_legacy_dict(self) -> None:
+        """Test converting UsageSummary to legacy-flattened dictionary."""
+        summary = UsageSummary(
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            extensions={"cost": 0.002, "provider": "openai"},
+        )
+        legacy = summary.to_legacy_dict()
+        # Standard keys emitted at top level
+        assert legacy["prompt_tokens"] == 100
+        assert legacy["completion_tokens"] == 50
+        assert legacy["total_tokens"] == 150
+        # Extensions flattened into same dict
+        assert legacy["cost"] == 0.002
+        assert legacy["provider"] == "openai"
+        # The 'extensions' key itself is NOT emitted
+        assert "extensions" not in legacy
+
+    def test_usage_summary_to_legacy_dict_with_empty_extensions(self) -> None:
+        """Test to_legacy_dict with no extensions produces only standard keys."""
+        summary = UsageSummary(
+            prompt_tokens=100,
+            completion_tokens=50,
+            total_tokens=150,
+            extensions={},
+        )
+        legacy = summary.to_legacy_dict()
+        assert legacy == {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        }
+
+    def test_usage_summary_to_legacy_dict_with_none_fields(self) -> None:
+        """Test to_legacy_dict omits None standard fields."""
+        summary = UsageSummary(
+            prompt_tokens=None,
+            completion_tokens=None,
+            total_tokens=None,
+            extensions={"extra": "value"},
+        )
+        legacy = summary.to_legacy_dict()
+        # None standard fields are omitted
+        assert "prompt_tokens" not in legacy
+        assert "completion_tokens" not in legacy
+        assert "total_tokens" not in legacy
+        # Extensions are still flattened
+        assert legacy["extra"] == "value"
+
+    def test_usage_summary_from_dict_accepts_typed_dict(self) -> None:
+        """Test from_dict accepts dict[str, int] (Mapping covariance)."""
+        data: dict[str, int] = {
+            "prompt_tokens": 100,
+            "completion_tokens": 50,
+            "total_tokens": 150,
+        }
+        summary = UsageSummary.from_dict(data)
+        assert summary.prompt_tokens == 100
+        assert summary.completion_tokens == 50
+        assert summary.total_tokens == 150
+
     def test_usage_summary_merge(self) -> None:
         """Test merging two UsageSummary instances."""
         summary1 = UsageSummary(

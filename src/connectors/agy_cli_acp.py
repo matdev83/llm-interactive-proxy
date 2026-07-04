@@ -78,7 +78,7 @@ def build_agy_acp_wrapper_command(
     return cmd
 
 
-class AgyCliAcpConnector(BaseAcpConnector):
+class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
     """Experimental Antigravity CLI backend through go-agy-acp-wrapper."""
 
     backend_type: str = "agy-cli-acp"
@@ -186,7 +186,7 @@ class AgyCliAcpConnector(BaseAcpConnector):
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
-    async def _build_acp_command(self, runtime: ACPProcessRuntime) -> list[str]:
+    async def _build_subprocess_command(self, runtime: ACPProcessRuntime) -> list[str]:
         timeout = int(self._process_timeout) if self._process_timeout > 0 else None
         return build_agy_acp_wrapper_command(
             self._wrapper_executable,
@@ -195,6 +195,19 @@ class AgyCliAcpConnector(BaseAcpConnector):
             timeout_seconds=timeout,
             skip_permissions=self._skip_permissions,
             extra_args=self._extra_wrapper_args,
+        )
+
+    def _create_runtime(
+        self, project_dir: Path, model: str, client_session_id: str = "default"
+    ) -> ACPProcessRuntime:
+        return ACPProcessRuntime(
+            project_dir=project_dir,
+            model=model,
+            client_session_id=client_session_id,
+            process_lock=asyncio.Lock(),
+            request_lock=asyncio.Lock(),
+            cancellation_lock=asyncio.Lock(),
+            cancellation_event=asyncio.Event(),
         )
 
     async def _perform_handshake(self, runtime: ACPProcessRuntime) -> None:

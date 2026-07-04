@@ -1,0 +1,208 @@
+"""Pure helpers for the OpenAI Codex App Server backend.
+
+Log-safe label helpers, executable resolution, the ``codex app-server --stdio``
+command builder, model-prefix / reasoning-effort mappers, the approval-decision
+function, and the approval-summary sanitizer. Stateless and free of any
+subprocess or runtime state so they can be unit-tested in isolation.
+"""
+
+from __future__ import annotations
+
+import os
+import shutil
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+# Codex ``effort`` values accepted by ``turn/start`` (see official app-server
+# docs, ``supportedReasoningEfforts``: low / medium / high).
+_CODEX_EFFORT_VALUES: frozenset[str] = frozenset({"low", "medium", "high"})
+
+# Server-initiated JSON-RPC request methods that this headless proxy auto-accepts.
+# ``item/permissions/requestApproval`` is folded in here but builds a different
+# (echoed permissions) result; every other method fails closed via ``decline``.
+_CODEX_AUTO_ACCEPT_APPROVAL_METHODS: frozenset[str] = frozenset(
+    {
+        "execCommandApproval",
+        "applyPatchApproval",
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+        "item/permissions/requestApproval",
+    }
+)
+
+
+def _command_basename(command: str | None) -> str:
+    """Return a short, log-safe command label (first token's basename)."""
+
+    if not command:
+        return "<command>"
+    stripped = command.strip()
+    if not stripped:
+        return "<command>"
+    first = stripped.split()[0]
+    if not first:
+        return "<command>"
+    base = os.path.basename(first)
+    return base or first
+
+
+def _cwd_basename(cwd: str | None) -> str:
+    """Return a short, log-safe label for a workspace directory."""
+
+    if not cwd:
+        return "<cwd>"
+    name = Path(cwd).name
+    return name or cwd
+
+
+def resolve_codex_executable(configured: str | None) -> str | None:
+    """Resolve the Codex CLI executable for ``subprocess.Popen``.
+
+    Order: ``configured`` (file -> resolved, else ``which``), ``CODEX_BIN``,
+    ``shutil.which("codex")``, and on Windows ``codex.exe``. Returns ``None``
+    when no usable executable is found.
+    """
+
+    def _resolve_candidate(raw: str) -> str | None:
+        s = raw.strip()
+        if not s:
+            return None
+        p = Path(s)
+        if p.is_file():
+            try:
+                return str(p.resolve())
+            except (OSError, RuntimeError):
+                return None
+        return shutil.which(s)
+
+    if configured:
+        resolved = _resolve_candidate(configured)
+        if resolved:
+            return resolved
+
+    env_bin = os.environ.get("CODEX_BIN", "")
+    if env_bin:
+        resolved = _resolve_candidate(env_bin)
+        if resolved:
+            return resolved
+
+    resolved = shutil.which("codex")
+    if resolved:
+        return resolved
+
+    if os.name == "nt":
+        resolved = shutil.which("codex.exe")
+        if resolved:
+            return resolved
+
+    return None
+
+
+def build_codex_app_server_command(
+    executable: str,
+    *,
+    codex_config_overrides: Sequence[str] | None = None,
+    app_server_extra_args: Sequence[str] | None = None,
+) -> list[str]:
+    """Build the ``codex app-server --stdio`` launch command.
+
+    Global flags precede ``app-server``; ``-c k=v`` overrides sit between
+    ``app-server`` and ``--stdio``; extra args are appended last. The model is
+    passed via ``thread/start``, not a CLI flag.
+    """
+
+    cmd: list[str] = [
+        executable,
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--search",
+        "app-server",
+    ]
+    for override in codex_config_overrides or ():
+        cmd.extend(["-c", str(override)])
+    cmd.append("--stdio")
+    for extra in app_server_extra_args or ():
+        cmd.append(str(extra))
+    return cmd
+
+
+def strip_openai_model_prefix(model: str) -> str:
+    """Strip a leading ``openai/`` vendor prefix; empty/None -> ``""``."""
+
+    if not model:
+        return ""
+    prefix = "openai/"
+    if model.startswith(prefix):
+        return model[len(prefix) :]
+    return model
+
+
+def is_auto_model(model: str) -> bool:
+    """True when the normalized model is empty or ``auto`` (case-insensitive)."""
+
+    normalized = (model or "").strip().lower()
+    return normalized in ("", "auto")
+
+
+def map_reasoning_effort_to_codex_effort(value: str | None) -> str | None:
+    """Map an OpenAI ``reasoning_effort`` to a Codex ``turn/start.effort`` value.
+
+    ``low``/``medium``/``high`` pass through. ``None`` or any unrecognized
+    value returns ``None`` (effort omitted from ``turn/start``).
+    """
+
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in _CODEX_EFFORT_VALUES:
+        return normalized
+    return None
+
+
+def sanitize_approval_summary(params: Mapping[str, Any]) -> str:
+    """Build a short, secret-free summary of an approval request for logging.
+
+    Includes only the command basename, cwd basename, changed-paths count and
+    exit code (when present). Never includes full command args, env, diffs or
+    output. Truncated to ~120 chars.
+    """
+
+    cmd = _command_basename(params.get("command"))
+    cwd = _cwd_basename(params.get("cwd"))
+    changes = params.get("changes")
+    paths_count = len(changes) if isinstance(changes, list) else 0
+    parts: list[str] = [f"cmd={cmd}", f"cwd={cwd}", f"paths={paths_count}"]
+    exit_code = params.get("exitCode")
+    if exit_code is not None:
+        parts.append(f"exit={exit_code}")
+    summary = " ".join(parts)
+    if len(summary) > 120:
+        summary = summary[:117] + "..."
+    return summary
+
+
+def build_turn_interrupt_payload(thread_id: str, turn_id: str) -> dict[str, Any]:
+    """Build ``turn/interrupt`` request params for an in-flight turn."""
+
+    return {"threadId": thread_id, "turnId": turn_id}
+
+
+def decide_codex_server_request(
+    method: str, params: Mapping[str, Any]
+) -> tuple[dict[str, Any], bool]:
+    """Decide the JSON-RPC result for a server-initiated Codex request.
+
+    Returns ``(result_payload, accepted)``. Approval methods return ``accept``
+    (or an echoed permissions grant for ``item/permissions/requestApproval``);
+    every other method -- known-unsafe or unrecognized -- returns ``decline``
+    (fail closed). Does NOT write to the process.
+    """
+
+    if method in _CODEX_AUTO_ACCEPT_APPROVAL_METHODS:
+        if method == "item/permissions/requestApproval":
+            perms = params.get("permissions")
+            if not isinstance(perms, dict):
+                perms = {}
+            return ({"permissions": perms}, True)
+        return ({"decision": "accept"}, True)
+    return ({"decision": "decline"}, False)

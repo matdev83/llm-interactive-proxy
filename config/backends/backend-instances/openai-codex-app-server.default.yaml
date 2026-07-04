@@ -1,0 +1,14 @@
+# Optional local Codex App Server backend instance (Codex CLI app-server over stdio).
+# Prerequisites: install Codex CLI so `codex` is on PATH and run `codex login` once.
+# Launches: codex --dangerously-bypass-approvals-and-sandbox --search app-server --stdio
+# Multi User Mode: this connector is OAuth-style (local personal auth) and is not loaded
+# in production multi-user.
+connector: openai-codex-app-server
+extra:
+  model: "auto"
+  codex_executable: "codex"
+  process_timeout: 300
+  idle_timeout: 120
+  progress_mode: "text_plus_summaries"
+  codex_config_overrides: []
+  codex_app_server_extra_args: []

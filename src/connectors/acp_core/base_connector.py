@@ -12,7 +12,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from src.connectors.acp_core.acp_subprocess_identity import (
     capture_acp_subprocess_identity,
@@ -89,6 +89,12 @@ _STALE_ACP_KILL_DELAY_MAX_SECONDS = 604800.0  # 7 days
 # Increment when the canonicalization used for ACP history prefix hashes changes.
 HISTORY_PREFIX_HASH_VERSION = 2
 
+#: The runtime type a connector manages. Bound to :class:`ACPProcessRuntime` so
+#: base-class code only touches common fields, while subclasses parameterize it
+#: with a protocol-specific runtime (e.g. :class:`CodexAppServerRuntime`) and
+#: get type-safe access to the extra fields inside their overrides.
+RuntimeT = TypeVar("RuntimeT", bound=ACPProcessRuntime)
+
 
 def _canonical_chat_message_for_history_hash(message: ChatMessage) -> dict[str, Any]:
     """Return stable identity fields for divergence detection.
@@ -118,13 +124,13 @@ def _hash_chat_messages_prefix_stable(
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-class _RuntimeCancellable:
+class _RuntimeCancellable(Generic[RuntimeT]):
     __slots__ = ("_connector", "_runtime", "_prompt_request_id")
 
     def __init__(
         self,
-        connector: BaseAcpConnector,
-        runtime: ACPProcessRuntime,
+        connector: BaseAcpConnector[RuntimeT],
+        runtime: RuntimeT,
         prompt_request_id: int,
     ) -> None:
         self._connector = connector
@@ -149,7 +155,7 @@ class _RuntimeCancellable:
         task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
 
-class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
+class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]):
     """Base class for ACP-based connectors."""
 
     VENDOR_PREFIX: str
@@ -168,7 +174,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         self._process_timeout = DEFAULT_PROCESS_TIMEOUT
         self._idle_timeout = DEFAULT_IDLE_TIMEOUT
         self._runtime_pool_lock = asyncio.Lock()
-        self._runtimes: dict[tuple[str, str, str], ACPProcessRuntime] = {}
+        self._runtimes: dict[tuple[str, str, str], RuntimeT] = {}
 
     @property
     def has_static_credentials(self) -> bool:
@@ -212,7 +218,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             return DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS
         return max(1.0, min(v, _STALE_ACP_KILL_DELAY_MAX_SECONDS))
 
-    async def _cancel_stale_kill_timer(self, runtime: ACPProcessRuntime) -> None:
+    async def _cancel_stale_kill_timer(self, runtime: RuntimeT) -> None:
         task = runtime.stale_kill_task
         if task is None:
             return
@@ -226,7 +232,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 await task
         runtime.stale_kill_task = None
 
-    async def _schedule_stale_kill_after_turn(self, runtime: ACPProcessRuntime) -> None:
+    async def _schedule_stale_kill_after_turn(self, runtime: RuntimeT) -> None:
         await self._cancel_stale_kill_timer(runtime)
         if not self._stale_acp_kill_enabled():
             return
@@ -311,18 +317,37 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         runtime.stale_kill_task = asyncio.create_task(_run())
 
     @abstractmethod
-    async def _build_acp_command(self, runtime: ACPProcessRuntime) -> list[str]:
-        """Build the command to spawn the ACP process."""
+    async def _build_subprocess_command(self, runtime: RuntimeT) -> list[str]:
+        """Build the command to spawn the backend subprocess."""
 
     @abstractmethod
-    async def _perform_handshake(self, runtime: ACPProcessRuntime) -> None:
-        """Perform the ACP handshake (initialize, authenticate, session/new)."""
+    async def _perform_handshake(self, runtime: RuntimeT) -> None:
+        """Perform the protocol handshake (initialize, authenticate, session/new)."""
 
     @abstractmethod
     async def _handle_server_request(
-        self, runtime: ACPProcessRuntime, msg: ACPNotification
+        self, runtime: RuntimeT, msg: ACPNotification
     ) -> None:
         """Handle server-initiated JSON-RPC requests (e.g., permissions)."""
+
+    @abstractmethod
+    def _create_runtime(
+        self, project_dir: Path, model: str, client_session_id: str = "default"
+    ) -> RuntimeT:
+        """Construct a fresh runtime instance with its own locks."""
+
+    def _reset_protocol_runtime_state(self, runtime: RuntimeT) -> None:
+        """Reset protocol-specific runtime state before a (re)spawn/teardown.
+
+        Called from :meth:`_spawn_process` and :meth:`_cleanup_runtime_state`
+        instead of inline resets. The default clears the ACP ``session_id``;
+        Codex overrides to clear ``thread_id`` / ``turn_id`` /
+        ``pending_history_state`` (and must NOT touch ``session_id``). Common
+        resets (``process``, ``initialized``, ``message_id``, ``last_activity``,
+        ``history_state``, ``acp_subprocess_identity``) stay inline in the base.
+        """
+
+        runtime.session_id = None
 
     @staticmethod
     def _is_usable_directory(path: Path) -> bool:
@@ -332,19 +357,6 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         self, project_dir: Path, model: str, client_session_id: str
     ) -> tuple[str, str, str]:
         return (str(project_dir), model, client_session_id)
-
-    def _create_runtime(
-        self, project_dir: Path, model: str, client_session_id: str = "default"
-    ) -> ACPProcessRuntime:
-        return ACPProcessRuntime(
-            project_dir=project_dir,
-            model=model,
-            client_session_id=client_session_id,
-            process_lock=asyncio.Lock(),
-            request_lock=asyncio.Lock(),
-            cancellation_lock=asyncio.Lock(),
-            cancellation_event=asyncio.Event(),
-        )
 
     @staticmethod
     def _resolve_client_session_id(request: ConnectorChatCompletionsRequest) -> str:
@@ -376,7 +388,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     async def _acquire_runtime(
         self, request: ConnectorChatCompletionsRequest
-    ) -> ACPProcessRuntime:
+    ) -> RuntimeT:
         project_dir = self._resolve_project_dir_for_request(request)
         requested_model = strip_vendor_prefix(
             request.effective_model or self._model,
@@ -447,8 +459,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
     async def _reap_idle_runtime(
         self,
         runtime_key: tuple[str, str, str],
-        runtime: ACPProcessRuntime,
-    ) -> ACPProcessRuntime:
+        runtime: RuntimeT,
+    ) -> RuntimeT:
         """Drop idle subprocesses and swap in a fresh :class:`ACPProcessRuntime` slot.
 
         Replacing the pool entry (instead of only clearing ``runtime.process``)
@@ -462,6 +474,15 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         if runtime.request_lock is None or runtime.request_lock.locked():
             return runtime
         if runtime.process is None:
+            # Another concurrent acquirer may have already idle-reaped this
+            # key and swapped in a fresh runtime. Re-read the pool to return
+            # the canonical instance; otherwise we would spawn a duplicate
+            # child on a detached runtime (duplicate agents + divergent
+            # history for one workspace/session/model tuple).
+            async with self._runtime_pool_lock:
+                canonical = self._runtimes.get(runtime_key)
+            if canonical is not None and canonical is not runtime:
+                return canonical
             return runtime
         if runtime.last_activity <= 0:
             return runtime
@@ -484,14 +505,14 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 return current
         return runtime
 
-    async def _spawn_process(self, runtime: ACPProcessRuntime) -> None:
+    async def _spawn_process(self, runtime: RuntimeT) -> None:
         assert runtime.process_lock is not None
         async with runtime.process_lock:
             process = runtime.process
             if process is not None and process.poll() is None:
                 return
 
-            cmd = await self._build_acp_command(runtime)
+            cmd = await self._build_subprocess_command(runtime)
 
             new_process: subprocess.Popen[bytes] | None = None
             try:
@@ -522,7 +543,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                     )
                 runtime.last_activity = time.monotonic()
                 runtime.initialized = False
-                runtime.session_id = None
+                self._reset_protocol_runtime_state(runtime)
                 runtime.message_id = 0
                 runtime.history_state = None
                 runtime.acp_subprocess_identity = capture_acp_subprocess_identity(
@@ -533,7 +554,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                     self._cleanup_process(new_process)
                 runtime.process = None
                 runtime.initialized = False
-                runtime.session_id = None
+                self._reset_protocol_runtime_state(runtime)
                 runtime.history_state = None
                 runtime.acp_subprocess_identity = None
                 raise APIConnectionError(
@@ -544,7 +565,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                     },
                 ) from exc
 
-    async def _kill_runtime(self, runtime: ACPProcessRuntime) -> None:
+    async def _kill_runtime(self, runtime: RuntimeT) -> None:
         await self._cancel_stale_kill_timer(runtime)
         assert runtime.process_lock is not None
         async with runtime.process_lock:
@@ -567,13 +588,13 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     def _cleanup_runtime_state(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         process: subprocess.Popen[bytes] | None = None,
     ) -> None:
         self._cleanup_process(process or runtime.process)
         runtime.process = None
         runtime.initialized = False
-        runtime.session_id = None
+        self._reset_protocol_runtime_state(runtime)
         runtime.message_id = 0
         runtime.last_activity = 0.0
         runtime.history_state = None
@@ -624,12 +645,12 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             with contextlib.suppress(subprocess.TimeoutExpired):
                 await asyncio.to_thread(lambda: process.wait(timeout=5))
 
-    def _get_next_message_id(self, runtime: ACPProcessRuntime) -> int:
+    def _get_next_message_id(self, runtime: RuntimeT) -> int:
         runtime.message_id += 1
         return runtime.message_id
 
     async def _write_json_line(
-        self, runtime: ACPProcessRuntime, payload: dict[str, Any]
+        self, runtime: RuntimeT, payload: dict[str, Any]
     ) -> None:
         process = runtime.process
         if process is None or process.stdin is None:
@@ -646,7 +667,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     async def _send_jsonrpc_message(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         method: str,
         params: dict[str, Any],
     ) -> int:
@@ -666,16 +687,14 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             ) from exc
 
     async def _send_jsonrpc_result(
-        self, runtime: ACPProcessRuntime, request_id: int, result: dict[str, Any]
+        self, runtime: RuntimeT, request_id: int, result: dict[str, Any]
     ) -> None:
         await self._write_json_line(
             runtime,
             {"jsonrpc": "2.0", "id": request_id, "result": result},
         )
 
-    async def _read_jsonrpc_message(
-        self, runtime: ACPProcessRuntime
-    ) -> ACPNotification | None:
+    async def _read_jsonrpc_message(self, runtime: RuntimeT) -> ACPNotification | None:
         process = runtime.process
         if process is None or process.stdout is None:
             raise BackendError(message="ACP process not running")
@@ -720,7 +739,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     async def _await_response(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         request_id: int,
     ) -> ACPNotification:
         deadline = time.monotonic() + self._process_timeout
@@ -745,7 +764,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 continue
             return response
 
-    async def _initialize_runtime(self, runtime: ACPProcessRuntime) -> None:
+    async def _initialize_runtime(self, runtime: RuntimeT) -> None:
         if runtime.initialized and runtime.session_id:
             return
         await self._perform_handshake(runtime)
@@ -843,16 +862,14 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
         return "\n\n"
 
-    def _thinking_content_piece(
-        self, runtime: ACPProcessRuntime, text: str
-    ) -> AcpStreamPiece:
+    def _thinking_content_piece(self, runtime: RuntimeT, text: str) -> AcpStreamPiece:
         if runtime.acp_thinking_block_open:
             return AcpStreamPiece(content=self._append_thinking_block(text))
         runtime.acp_thinking_block_open = True
         return AcpStreamPiece(content=self._open_thinking_block(text))
 
     def _prepend_thinking_close_if_needed(
-        self, runtime: ACPProcessRuntime, pieces: list[AcpStreamPiece]
+        self, runtime: RuntimeT, pieces: list[AcpStreamPiece]
     ) -> list[AcpStreamPiece]:
         if not runtime.acp_thinking_block_open:
             return pieces
@@ -885,7 +902,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     def _resolve_tool_stream_key(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         tc: dict[str, Any],
         *,
         for_new_invocation: bool,
@@ -918,7 +935,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             )
 
     def _ensure_acp_tool_accum(
-        self, runtime: ACPProcessRuntime, key: str, tool_name: str
+        self, runtime: RuntimeT, key: str, tool_name: str
     ) -> AcpToolStreamAccum:
         acc = runtime.acp_tool_stream_accum.get(key)
         if acc is None:
@@ -1000,7 +1017,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         return sum(1 for x in nested if isinstance(x, dict)) > 1
 
     def _acp_pieces_for_tool_call(
-        self, runtime: ACPProcessRuntime, upd: dict[str, Any]
+        self, runtime: RuntimeT, upd: dict[str, Any]
     ) -> list[AcpStreamPiece]:
         out: list[AcpStreamPiece] = []
         batch_multi = self._acp_tool_call_payload_is_multi_dict_list(upd)
@@ -1027,7 +1044,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         return out
 
     def _acp_pieces_for_tool_call_update(
-        self, runtime: ACPProcessRuntime, upd: dict[str, Any]
+        self, runtime: RuntimeT, upd: dict[str, Any]
     ) -> list[AcpStreamPiece]:
         merged = coalesce_acp_tool_call_update_session_dict(upd)
         if not merged:
@@ -1048,7 +1065,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         )
 
     def _flush_incomplete_acp_tool_streams(
-        self, runtime: ACPProcessRuntime
+        self, runtime: RuntimeT
     ) -> list[AcpStreamPiece]:
         """Emit summaries for tools still missing a final summary (incl. deferred terminal)."""
         out: list[AcpStreamPiece] = []
@@ -1060,7 +1077,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         return out
 
     def _session_update_to_stream_pieces(
-        self, response: ACPNotification, runtime: ACPProcessRuntime
+        self, response: ACPNotification, runtime: RuntimeT
     ) -> list[AcpStreamPiece]:
         """Map a ``session/update`` JSON-RPC notification to zero or more stream pieces."""
         if response.method != ACP_UPDATE_METHOD or response.params is None:
@@ -1109,7 +1126,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         return []
 
     def _session_update_to_stream_piece(
-        self, response: ACPNotification, runtime: ACPProcessRuntime
+        self, response: ACPNotification, runtime: RuntimeT
     ) -> AcpStreamPiece | None:
         """Back-compat helper merging multiple ``content`` / ``reasoning`` pieces."""
         pieces = self._session_update_to_stream_pieces(response, runtime)
@@ -1128,7 +1145,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     async def _iter_acp_stream_pieces(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         prompt_request_id: int,
         response_model: str,
     ) -> AsyncGenerator[AcpStreamPiece, None]:
@@ -1205,6 +1222,78 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 details={"timeout": self._process_timeout, "model": response_model},
             ) from exc
 
+    async def _iter_stream_pieces(
+        self,
+        runtime: RuntimeT,
+        request_id: int,
+        response_model: str,
+    ) -> AsyncGenerator[AcpStreamPiece, None]:
+        """Dispatch to the protocol-specific stream-piece iterator.
+
+        The default delegates to the ACP loop (:meth:`_iter_acp_stream_pieces`).
+        Codex overrides to feed :meth:`_iter_codex_stream_pieces` so the shared
+        streaming/non-streaming scaffolding (``_stream_response`` /
+        ``_collect_non_streaming_response``) works for both protocols without
+        re-implementing either.
+        """
+
+        async for piece in self._iter_acp_stream_pieces(
+            runtime, request_id, response_model
+        ):
+            yield piece
+
+    async def _collect_non_streaming_response(
+        self,
+        runtime: RuntimeT,
+        requested_model: str,
+        turn_request_id: int,
+        request: ConnectorChatCompletionsRequest,
+    ) -> ResponseEnvelope:
+        """Accumulate a non-streaming turn into a :class:`ResponseEnvelope`.
+
+        ACP default: iterate :meth:`_iter_stream_pieces`, join ``content`` /
+        ``reasoning_content`` fragments, build a :class:`CanonicalChatResponse`
+        with ``finish_reason="stop"``, and attach usage. Codex overrides to map
+        the Codex turn ``finish_reason`` (raising on a failed turn).
+        """
+
+        fragments: list[str] = []
+        reasoning_fragments: list[str] = []
+        async for piece in self._iter_stream_pieces(
+            runtime, turn_request_id, requested_model
+        ):
+            if piece.content:
+                fragments.append(piece.content)
+            if piece.reasoning_content:
+                reasoning_fragments.append(piece.reasoning_content)
+        full_response = "".join(fragments)
+        full_reasoning = "".join(reasoning_fragments) if reasoning_fragments else None
+        response = CanonicalChatResponse(
+            id=str(uuid.uuid4()),
+            object="chat.completion",
+            created=int(time.time()),
+            model=requested_model,
+            choices=[
+                ChatCompletionChoice(
+                    index=0,
+                    message=ChatCompletionChoiceMessage(
+                        role="assistant",
+                        content=full_response,
+                        reasoning_content=full_reasoning,
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+        )
+        envelope = ResponseEnvelope(
+            content=response.model_dump(exclude_none=True),
+            headers={},
+            status_code=200,
+        )
+        return self.ensure_usage_in_response(
+            envelope, list(request.processed_messages), requested_model
+        )
+
     def _create_sse_chunk_from_piece(
         self, piece: AcpStreamPiece, model: str, chunk_id: str
     ) -> str | None:
@@ -1236,13 +1325,13 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     async def _stream_response(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         requested_model: str,
         prompt_request_id: int,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         chunk_id = str(uuid.uuid4())
         try:
-            async for piece in self._iter_acp_stream_pieces(
+            async for piece in self._iter_stream_pieces(
                 runtime, prompt_request_id, requested_model
             ):
                 sse = self._create_sse_chunk_from_piece(
@@ -1253,16 +1342,94 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         finally:
             yield ProcessedResponse(content=self._create_sse_done_chunk())
 
-    async def _prepare_prompt_request_locked(
+    async def _compute_history_and_user_message(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
+        messages: Sequence[ChatMessage],
+    ) -> tuple[str, HistoryState]:
+        """Compute the user-message text and resulting history state for a turn.
+
+        Shared divergence-detection body used by both ACP (``session/prompt``)
+        and Codex (``turn/start``). On the first turn (``history_state is
+        None``) the full Markdown transcript is sent. On detected prefix
+        divergence (edit, branch switch, or truncated history) the agent
+        subprocess is killed, respawned, and re-handshaked before resending the
+        full transcript. On an idempotent retry (same message list as the last
+        successful turn) only the last user line is sent. Otherwise an
+        append-only tail is shipped. A failed post-respawn handshake kills the
+        runtime so the next request respawns a fresh child instead of reusing a
+        half-initialized stdio session.
+        """
+
+        state = runtime.history_state
+        if state is None:
+            user_message = ACPTranscriptSerializer.serialize(messages)
+            new_history_state = HistoryState(
+                message_count=len(messages),
+                prefix_hash=self._hash_messages_prefix(messages, len(messages)),
+            )
+            return user_message, new_history_state
+
+        n = state.message_count
+        prefix_hash = state.prefix_hash
+        diverged = (
+            len(messages) < n or self._hash_messages_prefix(messages, n) != prefix_hash
+        )
+
+        # Prefix edit, branch switch, or truncated history vs. what the agent saw.
+        if diverged:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "History diverged or shrank; resetting agent process "
+                    "(project=%s model=%s client_session=%s)",
+                    runtime.project_dir,
+                    runtime.model,
+                    runtime.client_session_id,
+                )
+            await self._kill_runtime(runtime)
+            await self._spawn_process(runtime)
+            try:
+                await self._initialize_runtime(runtime)
+            except Exception:
+                # A failed post-respawn handshake leaves a broken child; kill
+                # it so the next request respawns a fresh process instead of
+                # reusing the half-initialized stdio session.
+                await self._kill_runtime(runtime)
+                raise
+            user_message = ACPTranscriptSerializer.serialize(messages)
+            new_history_state = HistoryState(
+                message_count=len(messages),
+                prefix_hash=self._hash_messages_prefix(messages, len(messages)),
+            )
+            return user_message, new_history_state
+
+        # Same message list as the last successful turn (e.g. client retry).
+        if len(messages) == n:
+            user_message = self._extract_user_message_as_string(messages)
+            return user_message, state
+
+        # Append-only: the agent already saw messages[:n]; ship incremental context.
+        user_message = ACPTranscriptSerializer.serialize_tail(messages, n)
+        if not user_message.strip():
+            user_message = self._extract_user_message_as_string(messages)
+        new_history_state = HistoryState(
+            message_count=len(messages),
+            prefix_hash=self._hash_messages_prefix(messages, len(messages)),
+        )
+        return user_message, new_history_state
+
+    async def _prepare_turn_request_locked(
+        self,
+        runtime: RuntimeT,
         request: ConnectorChatCompletionsRequest,
     ) -> tuple[int, str]:
         """Build ``session/prompt`` text and JSON-RPC id under ``runtime.request_lock``.
 
-        History is tracked with :class:`HistoryState` so we can send a compact
-        tail transcript on append-only turns, resend the full transcript after
-        detected divergence, or send only the last user line on idempotent retries.
+        ACP default: spawn + handshake, compute the user message and new history
+        state via :meth:`_compute_history_and_user_message`, send
+        ``session/prompt``, and commit ``history_state`` immediately. Codex
+        overrides to send ``turn/start`` and stage ``pending_history_state``
+        instead (committed only on a successful ``turn/completed``).
         """
 
         await self._cancel_stale_kill_timer(runtime)
@@ -1273,57 +1440,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         if not messages:
             raise BackendError(message="No messages found in request")
 
-        state = runtime.history_state
-        new_history_state: HistoryState
-        user_message: str
-
-        # First prompt for this subprocess: full Markdown transcript + state seed.
-        if state is None:
-            user_message = ACPTranscriptSerializer.serialize(messages)
-            new_history_state = HistoryState(
-                message_count=len(messages),
-                prefix_hash=self._hash_messages_prefix(messages, len(messages)),
-            )
-        else:
-            n = state.message_count
-            prefix_hash = state.prefix_hash
-            diverged = (
-                len(messages) < n
-                or self._hash_messages_prefix(messages, n) != prefix_hash
-            )
-
-            # Prefix edit, branch switch, or truncated history vs. what ACP saw.
-            if diverged:
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "ACP history diverged or shrank; resetting agent process "
-                        "(project=%s model=%s client_session=%s)",
-                        runtime.project_dir,
-                        runtime.model,
-                        runtime.client_session_id,
-                    )
-                await self._kill_runtime(runtime)
-                await self._spawn_process(runtime)
-                await self._initialize_runtime(runtime)
-                user_message = ACPTranscriptSerializer.serialize(messages)
-                new_history_state = HistoryState(
-                    message_count=len(messages),
-                    prefix_hash=self._hash_messages_prefix(messages, len(messages)),
-                )
-            # Same message list as last successful prompt (e.g. client retry).
-            elif len(messages) == n:
-                user_message = self._extract_user_message_as_string(messages)
-                new_history_state = state
-            # Append-only: agent already saw messages[:n]; ship incremental context.
-            else:
-                user_message = ACPTranscriptSerializer.serialize_tail(messages, n)
-                if not user_message.strip():
-                    user_message = self._extract_user_message_as_string(messages)
-                new_history_state = HistoryState(
-                    message_count=len(messages),
-                    prefix_hash=self._hash_messages_prefix(messages, len(messages)),
-                )
-
+        user_message, new_history_state = await self._compute_history_and_user_message(
+            runtime, messages
+        )
         if not user_message:
             raise BackendError(message="No user message found in request")
 
@@ -1346,7 +1465,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     async def _stream_response_with_lock(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         requested_model: str,
         prompt_request_id: int,
     ) -> AsyncGenerator[ProcessedResponse, None]:
@@ -1356,12 +1475,23 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             ):
                 yield chunk
         finally:
-            if runtime.cancellation_event is not None:
-                runtime.cancellation_event.clear()
-            await self._schedule_stale_kill_after_turn(runtime)
-            await self._release_runtime_request_lock(runtime)
+            # When cancellation is in progress, ``_cancel_active_request`` owns
+            # teardown and releases the lock in its ``finally`` AFTER the
+            # subprocess is fully torn down. Releasing here would let a
+            # follow-up request acquire the lock against a half-torn-down child.
+            cancellation_in_progress = (
+                runtime.cancellation_event is not None
+                and runtime.cancellation_event.is_set()
+            )
+            if not cancellation_in_progress:
+                # Natural stream end: clear the event, schedule idle stale-kill,
+                # and release the request lock so the next turn can acquire it.
+                if runtime.cancellation_event is not None:
+                    runtime.cancellation_event.clear()
+                await self._schedule_stale_kill_after_turn(runtime)
+                await self._release_runtime_request_lock(runtime)
 
-    async def _release_runtime_request_lock(self, runtime: ACPProcessRuntime) -> None:
+    async def _release_runtime_request_lock(self, runtime: RuntimeT) -> None:
         if runtime.request_lock is not None and runtime.request_lock.locked():
             runtime.request_lock.release()
 
@@ -1383,9 +1513,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         except Exception:
             return process.poll() is not None
 
-    async def _attempt_graceful_acp_cancel(
+    async def _attempt_graceful_cancel(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         request_id: int,
         total_timeout_s: float,
     ) -> bool:
@@ -1434,7 +1564,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
 
     async def _cancel_active_request(
         self,
-        runtime: ACPProcessRuntime,
+        runtime: RuntimeT,
         prompt_request_id: int,
     ) -> None:
         if runtime.cancellation_event is not None:
@@ -1443,26 +1573,24 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
         try:
             if runtime.cancellation_lock is None:
                 await self._kill_runtime(runtime)
-                await self._release_runtime_request_lock(runtime)
                 return
 
             async with runtime.cancellation_lock:
                 process = runtime.process
                 if process is None or process.poll() is not None:
-                    await self._release_runtime_request_lock(runtime)
                     return
 
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
                         "Cancelling active ACP request (pid=%s), "
-                        "attempting graceful ACP cancellation then process kill",
+                        "attempting graceful cancellation then process kill",
                         process.pid,
                     )
 
-                graceful_cancelled = await self._attempt_graceful_acp_cancel(
+                graceful_cancelled = await self._attempt_graceful_cancel(
                     runtime,
-                    request_id=prompt_request_id,
-                    total_timeout_s=ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS,
+                    prompt_request_id,
+                    ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS,
                 )
 
                 if graceful_cancelled:
@@ -1479,9 +1607,15 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                             process.pid,
                         )
                     await self._kill_runtime(runtime)
-
-                await self._release_runtime_request_lock(runtime)
         finally:
+            # Always release the request lock after teardown (idempotent). This
+            # owns the release in the cancellation path so the streaming/non-
+            # streaming finally blocks can SKIP their release while cancellation
+            # is in progress, preventing a follow-up request from acquiring the
+            # lock against a half-torn-down subprocess. Releasing here in the
+            # finally also guarantees the lock is released even when teardown
+            # raises mid-way (no deadlock).
+            await self._release_runtime_request_lock(runtime)
             if runtime.cancellation_event is not None:
                 runtime.cancellation_event.clear()
 
@@ -1512,7 +1646,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             await runtime.request_lock.acquire()
             try:
                 prompt_request_id, requested_model = (
-                    await self._prepare_prompt_request_locked(runtime, request)
+                    await self._prepare_turn_request_locked(runtime, request)
                 )
             except Exception:
                 runtime.request_lock.release()
@@ -1546,9 +1680,16 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 cancel_callback=_cancel_streaming_request,
             )
 
-        async with runtime.request_lock:
+        # Non-streaming: manual acquire + try/finally so the outer finally can
+        # gate the lock release on cancellation NOT being in progress. When a
+        # cancel callback fires mid-turn, ``_cancel_active_request`` owns
+        # teardown and releases the lock in its ``finally`` after the subprocess
+        # is fully torn down; releasing here too would let a follow-up request
+        # acquire the lock against a half-torn-down child.
+        await runtime.request_lock.acquire()
+        try:
             prompt_request_id, requested_model = (
-                await self._prepare_prompt_request_locked(runtime, request)
+                await self._prepare_turn_request_locked(runtime, request)
             )
             cancellable_registered = False
             if (
@@ -1561,44 +1702,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 )
                 cancellable_registered = True
             try:
-                fragments: list[str] = []
-                reasoning_fragments: list[str] = []
-                async for piece in self._iter_acp_stream_pieces(
-                    runtime, prompt_request_id, requested_model
-                ):
-                    if piece.content:
-                        fragments.append(piece.content)
-                    if piece.reasoning_content:
-                        reasoning_fragments.append(piece.reasoning_content)
-                full_response = "".join(fragments)
-                full_reasoning = (
-                    "".join(reasoning_fragments) if reasoning_fragments else None
-                )
-
-                response = CanonicalChatResponse(
-                    id=str(uuid.uuid4()),
-                    object="chat.completion",
-                    created=int(time.time()),
-                    model=requested_model,
-                    choices=[
-                        ChatCompletionChoice(
-                            index=0,
-                            message=ChatCompletionChoiceMessage(
-                                role="assistant",
-                                content=full_response,
-                                reasoning_content=full_reasoning,
-                            ),
-                            finish_reason="stop",
-                        )
-                    ],
-                )
-                envelope = ResponseEnvelope(
-                    content=response.model_dump(exclude_none=True),
-                    headers={},
-                    status_code=200,
-                )
-                return self.ensure_usage_in_response(
-                    envelope, list(request.processed_messages), requested_model
+                return await self._collect_non_streaming_response(
+                    runtime, requested_model, prompt_request_id, request
                 )
             finally:
                 if (
@@ -1608,6 +1713,16 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
                 ):
                     request.cancellation_coordinator.cleanup(request.cancellation_token)
                 await self._schedule_stale_kill_after_turn(runtime)
+        finally:
+            cancellation_in_progress = (
+                runtime.cancellation_event is not None
+                and runtime.cancellation_event.is_set()
+            )
+            if not cancellation_in_progress:
+                # Idempotent: no-op if a cancel callback already released and
+                # cleared the event before this finally observed it.
+                await self._release_runtime_request_lock(runtime)
+            # else: ``_cancel_active_request`` releases after teardown.
 
     async def shutdown(self) -> None:
         await self._kill_all_runtimes()
@@ -1638,7 +1753,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC):
             finally:
                 self._cleanup_process(process)
 
-    async def __aenter__(self) -> BaseAcpConnector:
+    async def __aenter__(self) -> BaseAcpConnector[RuntimeT]:
         return self
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:

@@ -39,7 +39,7 @@ call_surfaces:
   - id: gemini_stream_generate_content
     kind: direct
     file: src/core/app/controllers/__init__.py
-    function: generate_stream
+    function: gemini_stream_generate_content
     call: backend_service.call_completion
 
   - id: hybrid_reasoning_phase

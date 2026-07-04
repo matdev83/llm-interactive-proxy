@@ -110,7 +110,7 @@ def build_cursor_agent_acp_command(
     return cmd
 
 
-class CursorCliAcpConnector(BaseAcpConnector):
+class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
     """Cursor CLI backend using Agent Client Protocol over stdio."""
 
     backend_type: str = "cursor-cli-acp"
@@ -315,13 +315,26 @@ class CursorCliAcpConnector(BaseAcpConnector):
             add_vendor_prefix(m, self.VENDOR_PREFIX) for m in _DEFAULT_CURSOR_MODEL_IDS
         ]
 
-    async def _build_acp_command(self, runtime: ACPProcessRuntime) -> list[str]:
+    async def _build_subprocess_command(self, runtime: ACPProcessRuntime) -> list[str]:
         return build_cursor_agent_acp_command(
             self._cursor_cli_executable,
             model=runtime.model,
             trust_workspace=self._trust_workspace,
             extra_args=self._extra_cli_args,
             cursor_api_endpoint=self._cursor_api_endpoint,
+        )
+
+    def _create_runtime(
+        self, project_dir: Path, model: str, client_session_id: str = "default"
+    ) -> ACPProcessRuntime:
+        return ACPProcessRuntime(
+            project_dir=project_dir,
+            model=model,
+            client_session_id=client_session_id,
+            process_lock=asyncio.Lock(),
+            request_lock=asyncio.Lock(),
+            cancellation_lock=asyncio.Lock(),
+            cancellation_event=asyncio.Event(),
         )
 
     async def _perform_handshake(self, runtime: ACPProcessRuntime) -> None:

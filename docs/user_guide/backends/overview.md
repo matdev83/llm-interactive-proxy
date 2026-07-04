@@ -13,6 +13,7 @@ Backend IDs are the `type:` values in YAML and the `backend_type` carried on req
 | `openai` | OpenAI | API Key | Production applications, standard OpenAI models |
 | `openai-responses` | OpenAI | API Key | Same credentials as OpenAI; targets `/v1/responses` for structured outputs (see [OpenAI backend](openai.md#openai-responses-backend)) |
 | `openai-codex` | OpenAI (ChatGPT / Codex CLI) | Local OAuth token | ChatGPT login instead of an API key |
+| `openai-codex-app-server` | OpenAI (Codex CLI `app-server --stdio`) | Local OAuth token | Local Codex agent over stdio (native app-server JSON-RPC, not ACP); requires `codex` on PATH or `CODEX_BIN`; local/single-user only |
 | `anthropic` | Anthropic | API Key | Claude via the standard Anthropic API |
 | `gemini` | Google Gemini | API Key | Metered API usage, production apps |
 | `gemini-cli-acp` | Google Gemini (ACP via Gemini CLI) | Local OAuth token | Sub-agents and tooling via Gemini CLI |
@@ -48,6 +49,18 @@ These entry points are defined in the sibling repo’s `pyproject.toml` under `[
 ## Agent Client Protocol (ACP) backends
 
 The `gemini-cli-acp` and `cursor-cli-acp` backends spawn a local agent subprocess for each pooled workspace/session key (see connector implementation for pooling). After each **completed chat turn** (assistant response finished), the proxy schedules termination of that subprocess if it stays **idle** for `stale_acp_agent_kill_idle_seconds` (default **3600** seconds = 60 minutes). When you send another message or reuse the same pooled agent, the pending timer is **cancelled**; after the next completed turn, a **new** idle timer is scheduled.
+
+### `openai-codex-app-server` (Codex native app-server, not ACP)
+
+`openai-codex-app-server` is a sibling local-agent backend that reuses the same pooling / request-lock / cancellation / idle-reap / stale-kill / shutdown lifecycle as the ACP backends, but speaks Codex's **native app-server JSON-RPC 2.0 protocol** over stdio (not ACP). It launches Codex equivalent to:
+
+```
+codex --dangerously-bypass-approvals-and-sandbox --search app-server --stdio
+```
+
+and performs the strict handshake (`initialize` -> `initialized` -> `thread/start` -> `turn/start`), streams `item/agentMessage/delta` into OpenAI SSE `delta.content`, surfaces reasoning as visible `Thinking:` blocks, emits compact progress summaries for plan/command/file activity (never raw command stdout, full diffs, or secrets), and ends each stream with `data: [DONE]` on `turn/completed`. URI params map as: `reasoning_effort` -> `turn/start.effort`, and the model selector -> `thread/start.model` / `turn/start.model` (the optional `openai/` prefix is stripped; `model: "auto"` omits the model fields so Codex uses its configured default).
+
+**Safety posture (local/single-user only — not suitable for production multi-user exposure):** the primary posture is Codex's bypass mode (no sandbox, no approval prompts). If approval server-requests still arrive, the connector auto-accepts known approval methods (`execCommandApproval`, `applyPatchApproval`, `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval`) and **fails closed** for interactive user-input requests that cannot be answered headlessly (`item/tool/requestUserInput`, `mcpServer/elicitation/request`, and any unknown server-request method). Every auto-approval is logged at INFO with method, workspace, model, and a sanitized summary. Because it uses local personal Codex auth, it is treated as an OAuth connector and is **not loaded in Multi User Mode**. Like the other local-agent backends, it requires a usable workspace directory (session `project_dir` or request `project_dir`/`workspace_path`/`cwd`/`project`).
 
 This idle cleanup is **enabled by default**. To disable it:
 

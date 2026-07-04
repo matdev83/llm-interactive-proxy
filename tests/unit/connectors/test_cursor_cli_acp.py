@@ -245,7 +245,7 @@ class TestCursorCliAcpProtocol:
             ),
         ):
             prompt_request_id, requested_model = (
-                await connector._prepare_prompt_request_locked(runtime, _make_request())
+                await connector._prepare_turn_request_locked(runtime, _make_request())
             )
 
         assert prompt_request_id == 4
@@ -350,7 +350,7 @@ class TestCursorCliAcpChatCompletions:
             ),
             patch.object(
                 connector,
-                "_prepare_prompt_request_locked",
+                "_prepare_turn_request_locked",
                 new=fake_prepare,
             ),
             patch.object(

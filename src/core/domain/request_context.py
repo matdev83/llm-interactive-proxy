@@ -111,11 +111,11 @@ class ContentModificationTracker:
         """Check if usage should be recalculated due to modifications."""
         return self.inbound_modified or self.outbound_modified
 
-    def get_modification_summary(self) -> dict[str, Any]:
+    def get_modification_summary(self) -> dict[str, JsonValue]:
         """Get a summary of all modifications for logging/debugging."""
         return {
             "inbound_modified": self.inbound_modified,
-            "inbound_reasons": self.inbound_modification_reasons,
+            "inbound_reasons": list[JsonValue](self.inbound_modification_reasons),
             "inbound_token_delta": (
                 (self.inbound_modified_tokens - self.inbound_original_tokens)
                 if self.inbound_original_tokens is not None
@@ -123,7 +123,7 @@ class ContentModificationTracker:
                 else None
             ),
             "outbound_modified": self.outbound_modified,
-            "outbound_reasons": self.outbound_modification_reasons,
+            "outbound_reasons": list[JsonValue](self.outbound_modification_reasons),
             "outbound_token_delta": (
                 (self.outbound_modified_tokens - self.outbound_original_tokens)
                 if self.outbound_original_tokens is not None

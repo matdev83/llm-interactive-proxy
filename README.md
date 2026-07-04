@@ -151,6 +151,7 @@ The backend catalog keeps growing. Current documented backends include:
 
 - [OpenAI](docs/user_guide/backends/openai.md)
 - [OpenAI Codex](docs/user_guide/backends/openai-codex.md)
+- [OpenAI Codex App Server](docs/user_guide/backends/overview.md#openai-codex-app-server-codex-native-app-server-not-acp) — local Codex CLI `app-server --stdio` (native JSON-RPC, not ACP; local/single-user only)
 - [Anthropic](docs/user_guide/backends/anthropic.md)
 - [Google Gemini](docs/user_guide/backends/gemini.md)
 - [OpenRouter](docs/user_guide/backends/openrouter.md)
