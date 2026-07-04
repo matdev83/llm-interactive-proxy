@@ -179,12 +179,14 @@ def _make_request(
     processed_messages: list[ChatMessage] | None = None,
     model: str = "openai/auto",
     session_id: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> ConnectorChatCompletionsRequest:
     request = CanonicalChatRequest(
         model=model,
         stream=stream,
         messages=[ChatMessage(role="user", content="hello")],
         extra_body=extra_body,
+        reasoning_effort=reasoning_effort,
     )
     context: ConnectorRequestContext | None = None
     if session_id is not None:
@@ -370,11 +372,88 @@ class TestMapReasoningEffort:
     def test_none_returns_none(self) -> None:
         assert map_reasoning_effort_to_codex_effort(None) is None
 
-    def test_garbage_returns_none(self) -> None:
-        assert map_reasoning_effort_to_codex_effort("ultra") is None
+    def test_unknown_values_pass_through_to_codex(self) -> None:
+        # The connector does not maintain an allowlist; any non-empty value is
+        # forwarded so codex can validate (e.g. "xhigh" used by some models).
+        assert map_reasoning_effort_to_codex_effort("xhigh") == "xhigh"
+        assert map_reasoning_effort_to_codex_effort("ultra") == "ultra"
+
+    def test_empty_returns_none(self) -> None:
+        assert map_reasoning_effort_to_codex_effort("") is None
 
     def test_case_insensitive(self) -> None:
         assert map_reasoning_effort_to_codex_effort("HIGH") == "high"
+        assert map_reasoning_effort_to_codex_effort("XHigh") == "xhigh"
+
+
+class TestReasoningEffortForwardedToTurnStart:
+    """reasoning_effort (e.g. from ``?reasoning_effort=...`` URI params) must be
+    forwarded to ``turn/start.effort``, including non-standard values like xhigh.
+    """
+
+    @staticmethod
+    def _turn_start_params(runtime: CodexAppServerRuntime) -> dict[str, Any]:
+        turn_starts = [
+            w for w in _decode_writes(runtime) if w.get("method") == "turn/start"
+        ]
+        assert turn_starts, f"no turn/start write; writes={_decode_writes(runtime)!r}"
+        return dict(turn_starts[-1]["params"])
+
+    async def _run(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+        reasoning_effort: str | None,
+    ) -> dict[str, Any]:
+        runtime = _make_runtime(
+            temp_workspace,
+            model="auto",
+            stdout_lines=[
+                b'{"jsonrpc":"2.0","id":1,"result":{"turn":{"id":"turn_1"}}}\n',
+            ],
+            thread_id="thr_1",
+        )
+        runtime.initialized = True
+        runtime.history_state = None
+        connector._process_timeout = 5.0
+        with (
+            patch.object(connector, "_cancel_stale_kill_timer", AsyncMock()),
+            patch.object(connector, "_spawn_process", AsyncMock()),
+            patch.object(connector, "_perform_handshake", AsyncMock()),
+        ):
+            await connector._prepare_turn_request_locked(
+                runtime,
+                _make_request(
+                    processed_messages=[ChatMessage(role="user", content="hi")],
+                    model="openai/auto",
+                    reasoning_effort=reasoning_effort,
+                ),
+            )
+        return self._turn_start_params(runtime)
+
+    async def test_xhigh_forwarded_to_turn_start_effort(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+    ) -> None:
+        params = await self._run(connector, temp_workspace, reasoning_effort="xhigh")
+        assert params.get("effort") == "xhigh"
+
+    async def test_high_forwarded_to_turn_start_effort(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+    ) -> None:
+        params = await self._run(connector, temp_workspace, reasoning_effort="high")
+        assert params.get("effort") == "high"
+
+    async def test_no_reasoning_effort_omits_effort(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+    ) -> None:
+        params = await self._run(connector, temp_workspace, reasoning_effort=None)
+        assert "effort" not in params
 
 
 # ---------------------------------------------------------------------------

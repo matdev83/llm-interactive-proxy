@@ -14,10 +14,6 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-# Codex ``effort`` values accepted by ``turn/start`` (see official app-server
-# docs, ``supportedReasoningEfforts``: low / medium / high).
-_CODEX_EFFORT_VALUES: frozenset[str] = frozenset({"low", "medium", "high"})
-
 # Server-initiated JSON-RPC request methods that this headless proxy auto-accepts.
 # ``item/permissions/requestApproval`` is folded in here but builds a different
 # (echoed permissions) result; every other method fails closed via ``decline``.
@@ -145,18 +141,20 @@ def is_auto_model(model: str) -> bool:
 
 
 def map_reasoning_effort_to_codex_effort(value: str | None) -> str | None:
-    """Map an OpenAI ``reasoning_effort`` to a Codex ``turn/start.effort`` value.
+    """Normalize an OpenAI ``reasoning_effort`` for Codex ``turn/start.effort``.
 
-    ``low``/``medium``/``high`` pass through. ``None`` or any unrecognized
-    value returns ``None`` (effort omitted from ``turn/start``).
+    Any non-empty value is forwarded lowercased (e.g. ``low`` / ``medium`` /
+    ``high``, and newer values like ``xhigh``); the Codex app-server validates
+    it and rejects unsupported values with a ``turn/start`` error. ``None`` or an
+    empty string returns ``None`` (effort omitted from ``turn/start``).
     """
 
     if value is None:
         return None
     normalized = str(value).strip().lower()
-    if normalized in _CODEX_EFFORT_VALUES:
-        return normalized
-    return None
+    if not normalized:
+        return None
+    return normalized
 
 
 def sanitize_approval_summary(params: Mapping[str, Any]) -> str:
