@@ -9,7 +9,7 @@ def openai_dict_has_reasoning_output(payload: dict[str, Any]) -> bool:
     """Return True when an OpenAI-shaped payload carries non-empty reasoning text.
 
     Checks delta/message fields used across providers (reasoning_content, reasoning,
-    thinking, thought).
+    thinking, thought, reasoning_summary).
     """
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
@@ -27,6 +27,7 @@ def openai_dict_has_reasoning_output(payload: dict[str, Any]) -> bool:
             or delta.get("reasoning")
             or delta.get("thinking")
             or delta.get("thought")
+            or delta.get("reasoning_summary")
         )
         if isinstance(reasoning_val, str) and reasoning_val.strip():
             return True

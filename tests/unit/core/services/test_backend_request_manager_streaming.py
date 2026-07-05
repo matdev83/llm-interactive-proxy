@@ -1519,6 +1519,52 @@ def test_chunk_has_meaningful_output_reasoning_only_dict_with_fallback() -> None
     )
 
 
+def test_chunk_has_meaningful_output_reasoning_summary_only_dict() -> None:
+    """reasoning_summary-only chunks count as reasoning output for the empty-stream check."""
+    handler = BackendStreamingResponseHandler(
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        MagicMock(),
+        AsyncMock(),
+    )
+    payload: dict[str, Any] = {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "content": None,
+                    "reasoning_content": None,
+                    "reasoning_summary": "Planning design updates",
+                },
+            }
+        ]
+    }
+    reasoning_summary_chunk = ProcessedResponse(content=payload, metadata={})
+    assert (
+        handler._chunk_has_meaningful_output(
+            reasoning_summary_chunk, count_reasoning_for_empty_stream=True
+        )
+        is True
+    )
+    assert (
+        handler._chunk_has_meaningful_output(
+            reasoning_summary_chunk, count_reasoning_for_empty_stream=False
+        )
+        is False
+    )
+    supported_chunk = ProcessedResponse(
+        content=payload,
+        metadata=_meta({"_client_supports_reasoning_fields": True}),
+    )
+    assert (
+        handler._chunk_has_meaningful_output(
+            supported_chunk, count_reasoning_for_empty_stream=False
+        )
+        is True
+    )
+
+
 def test_resolve_count_reasoning_for_empty_stream_defaults_true_without_app_state() -> (
     None
 ):
