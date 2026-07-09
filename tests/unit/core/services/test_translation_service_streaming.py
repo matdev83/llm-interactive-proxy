@@ -89,6 +89,56 @@ class TestDictToCanonicalStreamChunkReasoningSummary(unittest.TestCase):
         delta = result.choices[0].delta
         self.assertIsNone(delta.reasoning_content)
 
+    def test_reasoning_summary_empty_html_comment_marker_is_removed(self):
+        chunk_dict = {
+            "id": "resp_html_comment_summary",
+            "object": "response.chunk",
+            "created": 1783200524,
+            "model": "unknown",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "content": None,
+                        "reasoning_content": None,
+                        "reasoning_summary": "**Planning Phase 1**\n\n<!-- -->",
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+        result = dict_to_canonical_stream_chunk(chunk_dict)
+
+        delta = result.choices[0].delta
+        self.assertEqual(delta.reasoning_content, "**Planning Phase 1**\n\n")
+        self.assertEqual(delta.reasoning_summary, "**Planning Phase 1**\n\n")
+
+    def test_reasoning_summary_split_comment_close_is_not_surfaced(self):
+        chunk_dict = {
+            "id": "resp_html_comment_close",
+            "object": "response.chunk",
+            "created": 1783200524,
+            "model": "unknown",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "content": None,
+                        "reasoning_content": None,
+                        "reasoning_summary": " -->",
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+        result = dict_to_canonical_stream_chunk(chunk_dict)
+
+        delta = result.choices[0].delta
+        self.assertIsNone(delta.reasoning_content)
+        self.assertIsNone(delta.reasoning_summary)
+
     def test_content_chunk_is_unaffected(self):
         chunk_dict = {
             "id": "resp_content",

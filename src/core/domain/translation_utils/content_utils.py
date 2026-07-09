@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import re
 from typing import Any
+
+_EMPTY_HTML_COMMENT_RE = re.compile(r"<!--\s*-->")
+_TRAILING_HTML_COMMENT_OPEN_RE = re.compile(r"<!--\s*$")
+_LEADING_HTML_COMMENT_CLOSE_RE = re.compile(r"^\s*-->\s*")
 
 
 def collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
@@ -46,20 +51,27 @@ def coerce_reasoning_text(value: Any) -> str | None:
     parts = collect_reasoning_lines(value)
     if not parts:
         return None
-    
+
     # Filter out empty strings but keep whitespace-only strings (tokens)
     parts = [p for p in parts if p != ""]
     if not parts:
         return None
-        
+
     # If we have a single part, return it as-is to preserve streaming tokens
     if len(parts) == 1:
         return parts[0]
-        
-    # For multiple parts, join them with newlines as they likely represent 
+
+    # For multiple parts, join them with newlines as they likely represent
     # different sources or blocks of reasoning.
     return "\n".join(parts)
 
+
+def strip_empty_html_comment_markers(text: str) -> str:
+    """Remove private empty HTML comment markers from visible reasoning text."""
+    text = _EMPTY_HTML_COMMENT_RE.sub("", text)
+    text = _TRAILING_HTML_COMMENT_OPEN_RE.sub("", text)
+    text = _LEADING_HTML_COMMENT_CLOSE_RE.sub("", text)
+    return text
 
 
 def safe_string(value: Any) -> str:

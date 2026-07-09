@@ -7,7 +7,10 @@ from src.core.domain.chat import (
     StreamingChatCompletionChoice,
     StreamingChatCompletionChoiceDelta,
 )
-from src.core.domain.translation_utils.content_utils import coerce_reasoning_text
+from src.core.domain.translation_utils.content_utils import (
+    coerce_reasoning_text,
+    strip_empty_html_comment_markers,
+)
 
 
 def _normalize_reasoning_summary(delta_dict: dict[str, Any]) -> dict[str, Any]:
@@ -28,7 +31,13 @@ def _normalize_reasoning_summary(delta_dict: dict[str, Any]) -> dict[str, Any]:
     normalized = coerce_reasoning_text(summary)
     if not normalized:
         return delta_dict
+    normalized = strip_empty_html_comment_markers(normalized)
+    if not normalized:
+        delta_dict = dict(delta_dict)
+        delta_dict["reasoning_summary"] = None
+        return delta_dict
     delta_dict = dict(delta_dict)
+    delta_dict["reasoning_summary"] = normalized
     delta_dict["reasoning_content"] = normalized
     delta_dict.setdefault("reasoning", normalized)
     return delta_dict

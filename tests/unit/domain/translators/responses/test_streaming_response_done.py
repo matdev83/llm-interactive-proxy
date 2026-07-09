@@ -56,6 +56,32 @@ def test_response_completed_usage_unchanged() -> None:
     assert out["choices"][0].get("finish_reason") == "stop"
 
 
+def test_reasoning_summary_delta_strips_empty_html_comment_marker() -> None:
+    """Codex may stream empty HTML comments in summaries; do not show them."""
+    out = responses_to_domain_stream_chunk(
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "**Planning Phase 1 subagent dispatch**\n\n<!--",
+        }
+    )
+
+    assert out["choices"][0]["delta"]["reasoning_summary"] == (
+        "**Planning Phase 1 subagent dispatch**\n\n"
+    )
+
+
+def test_reasoning_summary_delta_suppresses_split_comment_close() -> None:
+    """The closing half of a split empty comment should not become visible text."""
+    out = responses_to_domain_stream_chunk(
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": " -->",
+        }
+    )
+
+    assert out["choices"][0]["delta"] == {}
+
+
 def test_partial_tool_call_events_are_buffered_until_output_item_done() -> None:
     """Responses partial tool-call chunks should not surface before the final done event."""
     response_id = "resp_tool_delta_buffer_1"

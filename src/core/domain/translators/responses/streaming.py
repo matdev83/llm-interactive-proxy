@@ -9,6 +9,9 @@ from typing import Any, cast
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.chat import FunctionCall, ToolCall
 from src.core.domain.tool_text_renderer import render_tool_call
+from src.core.domain.translation_utils.content_utils import (
+    strip_empty_html_comment_markers,
+)
 from src.core.domain.translation_utils.tool_call_state import (
     accumulate_tool_call_arguments,
     assign_tool_call_index,
@@ -325,6 +328,9 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
 
     if event_type == "response.reasoning_summary_text.delta":
         summary_text = _extract_text(chunk.get("delta"))
+        summary_text = strip_empty_html_comment_markers(summary_text)
+        if not summary_text:
+            return _build_chunk()
         return _build_chunk({"reasoning_summary": summary_text})
 
     if event_type == "response.reasoning_text.delta":
