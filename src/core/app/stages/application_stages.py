@@ -6,6 +6,7 @@ from collections.abc import Iterable, Sequence
 
 from .backend import BackendStage
 from .base import InitializationStage
+from .codex_model_catalog import CodexModelCatalogStage
 from .command import CommandStage
 from .controller import ControllerStage
 from .core_services import CoreServicesStage
@@ -22,6 +23,7 @@ class DefaultApplicationStages:
         self._stages: tuple[InitializationStage, ...] = (
             InfrastructureStage(),
             CoreServicesStage(),
+            CodexModelCatalogStage(),  # After core services, before backends
             SteeringStage(),  # After core services, before backends
             BackendStage(),
             HealthCheckStage(),  # After backends so we can monitor their URLs

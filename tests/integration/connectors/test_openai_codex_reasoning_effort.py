@@ -255,6 +255,106 @@ class TestOpenAICodexResolveReasoningEffort:
 
         assert result == "medium"  # Should fall back to default
 
+    @pytest.mark.asyncio
+    async def test_resolve_reasoning_effort_max_supported_on_gpt56_sol(
+        self,
+        openai_codex_backend: OpenAICodexConnector,
+    ) -> None:
+        """``max`` is accepted as-is for models that support it (gpt-5.6-sol)."""
+        uri_params = {"reasoning_effort": "max"}
+        request_data = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="gpt-5.6-sol",
+        )
+
+        result = openai_codex_backend._resolve_reasoning_effort(
+            model="gpt-5.6-sol",
+            uri_params=uri_params,
+            request_data=request_data,
+        )
+
+        assert result == "max"
+
+    @pytest.mark.asyncio
+    async def test_resolve_reasoning_effort_ultra_supported_on_gpt56_terra(
+        self,
+        openai_codex_backend: OpenAICodexConnector,
+    ) -> None:
+        """``ultra`` is accepted as-is for models that support it (gpt-5.6-terra)."""
+        uri_params = {"reasoning_effort": "ultra"}
+        request_data = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="gpt-5.6-terra",
+        )
+
+        result = openai_codex_backend._resolve_reasoning_effort(
+            model="gpt-5.6-terra",
+            uri_params=uri_params,
+            request_data=request_data,
+        )
+
+        assert result == "ultra"
+
+    @pytest.mark.asyncio
+    async def test_resolve_reasoning_effort_ultra_downgrades_to_max_on_luna(
+        self,
+        openai_codex_backend: OpenAICodexConnector,
+    ) -> None:
+        """``ultra`` downgrades to ``max`` on gpt-5.6-luna (supports max, not ultra)."""
+        uri_params = {"reasoning_effort": "ultra"}
+        request_data = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="gpt-5.6-luna",
+        )
+
+        result = openai_codex_backend._resolve_reasoning_effort(
+            model="gpt-5.6-luna",
+            uri_params=uri_params,
+            request_data=request_data,
+        )
+
+        assert result == "max"
+
+    @pytest.mark.asyncio
+    async def test_resolve_reasoning_effort_max_downgrades_to_xhigh_on_gpt55(
+        self,
+        openai_codex_backend: OpenAICodexConnector,
+    ) -> None:
+        """``max`` downgrades to ``xhigh`` on models that top out at xhigh."""
+        uri_params = {"reasoning_effort": "max"}
+        request_data = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="gpt-5.5",
+        )
+
+        result = openai_codex_backend._resolve_reasoning_effort(
+            model="gpt-5.5",
+            uri_params=uri_params,
+            request_data=request_data,
+        )
+
+        assert result == "xhigh"
+
+    @pytest.mark.asyncio
+    async def test_resolve_reasoning_effort_ultra_downgrades_to_xhigh_on_xhigh_only_model(
+        self,
+        openai_codex_backend: OpenAICodexConnector,
+    ) -> None:
+        """``ultra`` downgrades to ``xhigh`` on models that top out at xhigh."""
+        uri_params = {"reasoning_effort": "ultra"}
+        request_data = ChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="gpt-5.5",
+        )
+
+        result = openai_codex_backend._resolve_reasoning_effort(
+            model="gpt-5.5",
+            uri_params=uri_params,
+            request_data=request_data,
+        )
+
+        assert result == "xhigh"
+
 
 class TestOpenAICodexURIReasoningEffortIntegration:
     """Integration tests for complete URI reasoning_effort flow to payload."""
@@ -379,7 +479,7 @@ class TestOpenAICodexURIReasoningEffortIntegration:
             connector_req = ConnectorChatCompletionsRequest(
                 request=domain,
                 processed_messages=list(domain.messages),
-                effective_model="gpt-5.1-codex",
+                effective_model="gpt-5.5",
                 identity=None,
                 cancellation_token=None,
                 cancellation_coordinator=None,

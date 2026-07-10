@@ -21,7 +21,12 @@ from src.core.services.translation_service import TranslationService
 
 
 class OpenAICodexV2Connector(OpenAICodexConnector):
-    """Codex connector using managed OAuth with websocket v2 + strict delta lineage."""
+    """Codex connector using managed OAuth with websocket v2 + strict delta lineage.
+
+    Inherits the auto-discovered Codex model catalog and reasoning-effort
+    behavior from :class:`OpenAICodexConnector` (resolved per-instance via DI,
+    else the shipped fallback snapshot). No model slugs are hardcoded here.
+    """
 
     backend_type: str = "openai-codex-v2"
 

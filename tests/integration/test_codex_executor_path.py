@@ -67,7 +67,7 @@ async def test_executor_called_for_codex_model_requests(auth_dir: Path):
 
             # Create Codex model request
             request = CanonicalChatRequest(
-                model="openai-codex:gpt-5.1-codex",
+                model="openai-codex:gpt-5.5",
                 messages=[ChatMessage(role="user", content="Hello")],
                 stream=False,
             )
@@ -84,7 +84,7 @@ async def test_executor_called_for_codex_model_requests(auth_dir: Path):
                 ConnectorChatCompletionsRequest(
                     request=request,
                     processed_messages=[],
-                    effective_model="openai-codex:gpt-5.1-codex",
+                    effective_model="openai-codex:gpt-5.5",
                     identity=None,
                     cancellation_token=None,
                     cancellation_coordinator=None,
@@ -102,10 +102,10 @@ async def test_executor_called_for_codex_model_requests(auth_dir: Path):
             assert call_args is not None
             # First arg should be CodexPayload
             payload = call_args[0][0]
-            assert payload.model == "gpt-5.1-codex"
+            assert payload.model == "gpt-5.5"
             # Second arg should be CodexRequestContext
             context = call_args[0][1]
-            assert context.effective_model == "gpt-5.1-codex"
+            assert context.effective_model == "gpt-5.5"
 
 
 @pytest.mark.integration
@@ -144,7 +144,7 @@ async def test_executor_called_for_streaming_codex_requests(auth_dir: Path):
 
             # Create streaming Codex model request
             request = CanonicalChatRequest(
-                model="openai-codex:gpt-5.1-codex",
+                model="openai-codex:gpt-5.5",
                 messages=[ChatMessage(role="user", content="Hello")],
                 stream=True,
             )
@@ -169,7 +169,7 @@ async def test_executor_called_for_streaming_codex_requests(auth_dir: Path):
                 ConnectorChatCompletionsRequest(
                     request=request,
                     processed_messages=[],
-                    effective_model="openai-codex:gpt-5.1-codex",
+                    effective_model="openai-codex:gpt-5.5",
                     identity=None,
                     cancellation_token=None,
                     cancellation_coordinator=None,

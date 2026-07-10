@@ -27,6 +27,7 @@ def register_codex_services(services: ServiceCollection) -> None:
     Args:
         services: The service collection to register into
     """
+    from src.connectors.openai_codex.catalog.interfaces import ICodexModelCatalog
     from src.connectors.openai_codex.contracts import CodexConnectorDependencies
     from src.connectors.openai_codex.credentials import CredentialManager
     from src.connectors.openai_codex.interfaces import (
@@ -106,6 +107,10 @@ def register_codex_services(services: ServiceCollection) -> None:
             IToolExecutionService | None,
             provider.get_service(cast(type[Any], IToolExecutionService)),
         )
+        model_catalog = cast(
+            "ICodexModelCatalog | None",
+            provider.get_service(cast(type[Any], ICodexModelCatalog)),
+        )
 
         return CodexConnectorDependencies(
             settings_loader=settings_loader,
@@ -114,6 +119,7 @@ def register_codex_services(services: ServiceCollection) -> None:
             response_executor=None,  # Created by connector instance
             compatibility_layer=None,  # Created by connector instance
             tool_execution_service=tool_execution_service,
+            model_catalog=model_catalog,
         )
 
     register_singleton_if_absent(

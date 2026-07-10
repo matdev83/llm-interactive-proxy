@@ -87,10 +87,12 @@ class RequestTranslator(IRequestTranslator):
                 msg_dict["metadata"] = msg.metadata
             processed_messages.append(msg_dict)
 
-        # Use context if provided, otherwise use defaults
+        # Use context if provided, otherwise use defaults. The no-context branch
+        # is a defensive fallback (production callers always pass a context);
+        # ``auto`` is a routing sentinel, not a hardcoded model slug.
         request_data = context.request if context else {}
         capabilities = context.capabilities if context else CodexClientCapabilities()
-        effective_model = context.effective_model if context else "gpt-5.1-codex"
+        effective_model = context.effective_model if context else "auto"
 
         # Call build_input_items with full context to include environment context
         # Note: build_input_items does more than just message translation,

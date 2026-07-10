@@ -1,15 +1,32 @@
 """OpenAI Codex connector module.
 
 This module contains the refactored OpenAI Codex connector with separated
-responsibilities and clear interfaces.
+responsibilities and clear interfaces. The model catalog is auto-discovered at
+startup (``codex debug models``) with a shipped fallback snapshot — see
+:mod:`src.connectors.openai_codex.catalog`.
 """
 
 from src.connectors._openai_codex_connector import (
     OPENAI_VENDOR_PREFIX,
     OpenAICodexConnector,
 )
+from src.connectors.openai_codex.catalog import (
+    CodexModelCatalog,
+    CodexModelCatalogConfig,
+    CodexModelCatalogProvider,
+    CodexModelReasoningProfile,
+    ICodexModelCatalog,
+)
 
-__all__ = ["OpenAICodexConnector", "OPENAI_VENDOR_PREFIX"]
+__all__ = [
+    "OPENAI_VENDOR_PREFIX",
+    "OpenAICodexConnector",
+    "CodexModelCatalog",
+    "CodexModelCatalogConfig",
+    "CodexModelCatalogProvider",
+    "CodexModelReasoningProfile",
+    "ICodexModelCatalog",
+]
 
 # Also export OpenAICredentialsFileHandler from credentials module
 try:

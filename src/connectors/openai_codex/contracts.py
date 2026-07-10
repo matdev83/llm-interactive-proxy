@@ -152,6 +152,7 @@ class CodexConnectorSettings(BaseModel):
             "free_plan_types": ["free"],
         }
     )
+    model_catalog: dict[str, Any] = Field(default_factory=dict)
 
 
 class CodexInitOptions(BaseModel):
@@ -255,3 +256,4 @@ class CodexConnectorDependencies:
     response_executor: Any | None = None
     compatibility_layer: Any | None = None
     tool_execution_service: Any | None = None
+    model_catalog: Any | None = None

@@ -1,6 +1,7 @@
 from .application_stages import DefaultApplicationStages
 from .backend import BackendStage
 from .base import InitializationStage
+from .codex_model_catalog import CodexModelCatalogStage
 from .command import CommandStage
 from .controller import ControllerStage
 from .core_services import CoreServicesStage
@@ -12,6 +13,7 @@ from .test_stages import RealBackendTestStage
 
 __all__ = [
     "BackendStage",
+    "CodexModelCatalogStage",
     "CommandStage",
     "ControllerStage",
     "CoreServicesStage",

@@ -13,6 +13,8 @@ from pytest_mock import MockerFixture
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.openai_codex import OpenAICodexConnector
+from src.connectors.openai_codex.catalog.interfaces import ICodexModelCatalog
+from src.connectors.openai_codex.catalog.parser import CodexCatalogParser
 from src.connectors.openai_codex.contracts import (
     CodexPayload,
 )
@@ -36,6 +38,8 @@ from src.core.services.tool_text_renderer import (
     render_tool_call,
     reset_renderer_registry,
 )
+
+from tests.unit.connectors.openai_codex.catalog.conftest import make_raw_catalog
 
 
 def _connector_chat_request(
@@ -98,6 +102,12 @@ async def connector() -> AsyncIterator[OpenAICodexConnector]:
 
     services = ServiceCollection()
     backend.register(services, config)
+    # Register a fake discovered catalog (mirrors CodexModelCatalogStage) so the
+    # connector resolves a catalog from DI instead of the shipped fallback file.
+    services.add_instance(
+        cast(type, ICodexModelCatalog),
+        CodexCatalogParser().parse(make_raw_catalog()),
+    )
     provider = services.build_service_provider()
     set_service_provider(provider)
 
@@ -109,44 +119,66 @@ async def connector() -> AsyncIterator[OpenAICodexConnector]:
 
 
 def test_is_codex_model_detection(connector: OpenAICodexConnector) -> None:
-    """Test that _is_codex_model only recognizes supported Codex models.
+    """_is_codex_model recognizes catalog-routable slugs (auto-discovered).
 
-    Supported models are explicitly listed in SUPPORTED_CODEX_MODELS:
-    - gpt-5.5
-    - gpt-5.4
-    - gpt-5.4-mini
-    - gpt-5.3-codex
-    - gpt-5.2-codex
-    - gpt-5.2
-    - gpt-5.1-codex-max
-    - gpt-5.1-codex
-    - gpt-5.1-codex-mini
-    - gpt-5.1
-    - gpt-5-codex
-    - gpt-5-codex-mini
-    - gpt-5
-    - gpt-oss-120b
-    - gpt-oss-20b
+    The injected catalog mirrors ``codex debug models`` (Codex CLI 0.144.0):
+    routable slugs gpt-5.6-sol, gpt-5.6-luna, gpt-5.5; CLI-only
+    gpt-5.3-codex-spark and hidden codex-auto-review are NOT routable. Legacy
+    slugs absent from the discovered catalog are no longer routable.
     """
-    # Valid models (with and without vendor prefix)
-    assert "gpt-5.5" in OpenAICodexConnector.XHIGH_SUPPORTED_MODELS
-    assert connector._is_codex_model("gpt-5.5") is True
-    assert connector._is_codex_model("gpt-5.4") is True
-    assert connector._is_codex_model("gpt-5.3-codex") is True
-    assert connector._is_codex_model("gpt-5.2-codex") is True
-    assert connector._is_codex_model("gpt-5.2") is True
-    assert connector._is_codex_model("gpt-5.1-codex-max") is True
-    assert connector._is_codex_model("gpt-5.1-codex") is True
-    assert connector._is_codex_model("gpt-5.1-codex-mini") is True
-    assert connector._is_codex_model("gpt-5-codex-mini") is True
-    assert connector._is_codex_model("gpt-5.1") is True
-    assert connector._is_codex_model("openai/gpt-5.1-codex-max") is True
-    assert connector._is_codex_model("openai/gpt-5.1") is True
+    catalog = connector._catalog
+    # Routable slugs come from the discovered catalog (no hardcoded list).
+    assert catalog.routable_slugs() == ("gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5")
 
-    # Invalid models
+    # Reasoning effort hierarchy is data-driven (derived from the widest model).
+    assert catalog.reasoning_effort_order == (
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra",
+    )
+    assert catalog.reasoning_effort_order == connector.REASONING_EFFORT_LEVELS
+    assert connector.DEFAULT_REASONING_EFFORT == "medium"
+
+    # Extended tier support sets are derived from the catalog.
+    assert catalog.models_supporting("ultra") == ("gpt-5.6-sol",)
+    assert catalog.models_supporting("max") == ("gpt-5.6-sol", "gpt-5.6-luna")
+    assert catalog.models_supporting("xhigh") == (
+        "gpt-5.6-sol",
+        "gpt-5.6-luna",
+        "gpt-5.5",
+    )
+
+    # _is_codex_model recognizes routable slugs (with/without vendor prefix,
+    # case-insensitive).
+    assert connector._is_codex_model("gpt-5.6-sol") is True
+    assert connector._is_codex_model("gpt-5.6-luna") is True
+    assert connector._is_codex_model("gpt-5.5") is True
+    assert connector._is_codex_model("openai/gpt-5.6-sol") is True
+    assert connector._is_codex_model("GPT-5.6-SOL") is True
+
+    # CLI-only / hidden catalog entries are NOT routable.
+    assert connector._is_codex_model("gpt-5.3-codex-spark") is False
+    assert connector._is_codex_model("codex-auto-review") is False
+
+    # Legacy slugs absent from the discovered catalog are no longer routable.
+    assert connector._is_codex_model("gpt-5.1-codex") is False
+    assert connector._is_codex_model("gpt-5.3-codex") is False
+    assert connector._is_codex_model("gpt-5-codex") is False
+
+    # Unknown / non-Codex models.
     assert connector._is_codex_model("gpt-4.1") is False
     assert connector._is_codex_model("gpt-4") is False
     assert connector._is_codex_model("claude-3") is False
+
+    # get_available_models advertises the routable slugs (vendor-prefixed).
+    assert connector.get_available_models() == [
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.5",
+    ]
 
 
 @pytest.mark.asyncio
@@ -987,12 +1019,12 @@ async def test_chat_completions_routes_to_codex_api(
 
     chat_request = ChatRequest(
         messages=[ChatMessage(role="user", content="Hello Codex!")],
-        model="gpt-5.1-codex",
+        model="gpt-5.6-sol",
         stream=True,
     )
 
     result = await connector.chat_completions(
-        _connector_chat_request(chat_request, effective_model="gpt-5.1-codex")
+        _connector_chat_request(chat_request, effective_model="gpt-5.6-sol")
     )
 
     assert result == "codex-result"
@@ -1459,7 +1491,7 @@ async def test_codex_api_http_error_propagation(
     ) as connector:
         chat_request = ChatRequest(
             messages=[ChatMessage(role="user", content="hello")],
-            model="gpt-5.1-codex",
+            model="gpt-5.6-sol",
             stream=False,
         )
         mocker.patch.object(
@@ -1486,7 +1518,7 @@ async def test_codex_api_http_error_propagation(
         )
 
         result = await connector.chat_completions(
-            _connector_chat_request(chat_request, effective_model="gpt-5.1-codex")
+            _connector_chat_request(chat_request, effective_model="gpt-5.6-sol")
         )
 
         assert isinstance(result, ResponseEnvelope)

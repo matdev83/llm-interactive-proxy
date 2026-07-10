@@ -326,7 +326,7 @@ async def test_compatibility_isolation_from_base_path(
 
     # Create a non-compatibility client request
     request = CanonicalChatRequest(
-        model="gpt-5.1-codex",
+        model="gpt-5.5",
         messages=[ChatMessage(role="user", content="Hello")],
         stream=False,
     )
@@ -348,7 +348,7 @@ async def test_compatibility_isolation_from_base_path(
         ConnectorChatCompletionsRequest(
             request=request,
             processed_messages=[],
-            effective_model="gpt-5.1-codex",
+            effective_model="gpt-5.5",
             identity=None,
             cancellation_token=None,
             cancellation_coordinator=None,

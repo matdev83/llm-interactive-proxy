@@ -53,6 +53,10 @@ from src.connectors.contracts import (
     ConnectorRequestContext,
 )
 from src.connectors.openai import OpenAIConnector
+from src.connectors.openai_codex.catalog.fallback_loader import (
+    CodexCatalogFallbackLoader,
+)
+from src.connectors.openai_codex.catalog.interfaces import ICodexModelCatalog
 from src.connectors.openai_codex.compat import CompatibilityLayer
 from src.connectors.openai_codex.continuation import (
     InMemoryCodexContinuationCoordinator,
@@ -116,54 +120,21 @@ class OpenAICodexConnector(OpenAIConnector):
     def has_static_credentials(self) -> bool:
         return False
 
-    # Supported Codex models - sourced from official Codex CLI models.json
-    SUPPORTED_CODEX_MODELS: tuple[str, ...] = (
-        "gpt-5.5",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.3-codex",
-        "gpt-5.2-codex",
-        "gpt-5.2",
-        "gpt-5.1-codex-max",
-        "gpt-5.1-codex",
-        "gpt-5.1-codex-mini",
-        "gpt-5.1",
-        "gpt-5-codex",
-        "gpt-5-codex-mini",
-        "gpt-5",
-        "gpt-oss-120b",
-        "gpt-oss-20b",
-    )
-    # Pre-computed lowercased set for O(1) lookup
-    _SUPPORTED_CODEX_MODELS_LOWER: frozenset[str] = frozenset(
-        m.lower() for m in SUPPORTED_CODEX_MODELS
-    )
+    # The model catalog is resolved at instance construction (from DI, else the
+    # shipped fallback snapshot) — see ``self._catalog``. The read-only
+    # properties below expose the legacy class-attribute surface so existing
+    # call sites (and ``payload.py``) keep working without hardcoded slugs.
+    @property
+    def SUPPORTED_CODEX_MODELS(self) -> tuple[str, ...]:  # noqa: N802
+        return self._catalog.routable_slugs()
 
-    # Reasoning effort levels supported by Codex backend
-    REASONING_EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
-    DEFAULT_REASONING_EFFORT: str = "medium"
-    # All current models support xhigh reasoning effort
-    XHIGH_SUPPORTED_MODELS: tuple[str, ...] = (
-        "gpt-5.5",
-        "gpt-5.4",
-        "gpt-5.4-mini",
-        "gpt-5.3-codex",
-        "gpt-5.2-codex",
-        "gpt-5.2",
-        "gpt-5.1-codex-max",
-        "gpt-5.1-codex",
-        "gpt-5.1-codex-mini",
-        "gpt-5.1",
-        "gpt-5-codex",
-        "gpt-5-codex-mini",
-        "gpt-5",
-        "gpt-oss-120b",
-        "gpt-oss-20b",
-    )
-    # Pre-computed lowercased set for O(1) lookup
-    _XHIGH_SUPPORTED_MODELS_LOWER: frozenset[str] = frozenset(
-        m.lower() for m in XHIGH_SUPPORTED_MODELS
-    )
+    @property
+    def REASONING_EFFORT_LEVELS(self) -> tuple[str, ...]:  # noqa: N802
+        return self._catalog.reasoning_effort_order
+
+    @property
+    def DEFAULT_REASONING_EFFORT(self) -> str:  # noqa: N802
+        return self._catalog.default_reasoning_effort
 
     CODEX_PROMPT_RESOURCE_PACKAGE = "src.resources.codex"
     CODEX_PROMPT_RESOURCE_NAME = "gpt_5_codex_prompt.md"
@@ -217,6 +188,9 @@ class OpenAICodexConnector(OpenAIConnector):
         # Validate dependency overrides before use
         if self._dependencies:
             self._validate_dependencies(self._dependencies)
+
+        # Resolve the model catalog (DI discovery result, else shipped fallback).
+        self._catalog: ICodexModelCatalog = self._resolve_model_catalog()
 
         self._settings_loader = (
             self._dependencies.settings_loader
@@ -565,6 +539,34 @@ class OpenAICodexConnector(OpenAIConnector):
                 )
             return None
 
+    def _resolve_model_catalog(self) -> ICodexModelCatalog:
+        """Resolve the Codex model catalog.
+
+        Priority:
+        1. Injected via ``CodexConnectorDependencies.model_catalog`` (tests / DI).
+        2. Resolved from the DI provider (registered by ``CodexModelCatalogStage``
+           at startup with the discovered catalog).
+        3. Shipped fallback snapshot (``src/resources/codex/...``).
+        """
+        if self._dependencies and self._dependencies.model_catalog is not None:
+            catalog = self._dependencies.model_catalog
+            if "mock" not in type(catalog).__name__.lower():
+                return cast(ICodexModelCatalog, catalog)
+        try:
+            from src.core.di.services import get_or_build_service_provider
+
+            provider = get_or_build_service_provider()
+            catalog = provider.get_service(cast(type[Any], ICodexModelCatalog))
+            if catalog is not None and "mock" not in type(catalog).__name__.lower():
+                return cast(ICodexModelCatalog, catalog)
+        except (ImportError, AttributeError, ServiceResolutionError) as err:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Codex model catalog not in DI; loading shipped fallback: %s",
+                    err,
+                )
+        return CodexCatalogFallbackLoader().load()
+
     def _refresh_settings_from_overrides(self) -> None:
         try:
             self._connector_settings_model = CodexConnectorSettings(
@@ -885,11 +887,10 @@ class OpenAICodexConnector(OpenAIConnector):
     def _file_observer(self, value: BaseObserver | None) -> None:
         self._file_observer_ref = value
 
-    @classmethod
-    def _is_codex_model(cls, model_name: str) -> bool:
+    def _is_codex_model(self, model_name: str) -> bool:
         """Return True when the model is a supported Codex model."""
         clean_model = strip_vendor_prefix(model_name.lower(), OPENAI_VENDOR_PREFIX)
-        return clean_model in cls._SUPPORTED_CODEX_MODELS_LOWER
+        return self._catalog.is_supported(clean_model)
 
     @classmethod
     def _codex_system_prompt(cls) -> str:
@@ -1456,28 +1457,33 @@ class OpenAICodexConnector(OpenAIConnector):
         if not effort:
             effort = self.DEFAULT_REASONING_EFFORT
 
-        if effort not in self.REASONING_EFFORT_LEVELS:
+        if not self._catalog.is_valid_effort(effort):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Invalid reasoning_effort '%s', falling back to '%s'. Supported levels: %s",
                     effort,
-                    self.DEFAULT_REASONING_EFFORT,
-                    ", ".join(self.REASONING_EFFORT_LEVELS),
+                    self._catalog.default_reasoning_effort,
+                    ", ".join(self._catalog.reasoning_effort_order),
                 )
-            effort = self.DEFAULT_REASONING_EFFORT
+            effort = self._catalog.default_reasoning_effort
 
-        if (
-            effort == "xhigh"
-            and model.lower() not in self._XHIGH_SUPPORTED_MODELS_LOWER
-        ):
+        # Clamp the requested effort to a level the model actually supports.
+        # Extended tiers (xhigh/max/ultra) are only available on newer models;
+        # unsupported tiers are downgraded to the highest supported level at or
+        # below the requested depth (e.g. ultra -> max -> xhigh -> high).
+        supported_levels = self._catalog.supported_reasoning_levels(model)
+        if effort not in supported_levels:
+            downgraded = self._catalog.clamp_reasoning_effort(model, effort)
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    "Model '%s' does not support 'xhigh' reasoning effort. "
-                    "Downgrading to 'high'. Only %s support 'xhigh'.",
+                    "Model '%s' does not support '%s' reasoning effort. "
+                    "Downgrading to '%s'. Supported levels for this model: %s.",
                     model,
-                    ", ".join(self.XHIGH_SUPPORTED_MODELS),
+                    effort,
+                    downgraded,
+                    ", ".join(supported_levels),
                 )
-            effort = "high"
+            effort = downgraded
 
         return effort
 

@@ -150,7 +150,7 @@ See [Frontend API documentation](docs/user_guide/frontends/overview.md) for prot
 The backend catalog keeps growing. Current documented backends include:
 
 - [OpenAI](docs/user_guide/backends/openai.md)
-- [OpenAI Codex](docs/user_guide/backends/openai-codex.md)
+- [OpenAI Codex](docs/user_guide/backends/openai-codex.md) — the `openai-codex`, `openai-codex-v2` and `openai-codex-app-server` variants share an **auto-discovered model catalog**: at startup the proxy runs `codex debug models` and falls back to a shipped snapshot (`src/resources/codex/codex_model_catalog.json`) on failure. No model slugs are hardcoded in the connectors. **Note (backward-incompatible):** legacy Codex slugs the CLI no longer advertises (e.g. `gpt-5.1-codex`, `gpt-5-codex`, `gpt-oss-120b`) are no longer routable — see the backend doc for the `model_catalog` override.
 - [OpenAI Codex App Server](docs/user_guide/backends/overview.md#openai-codex-app-server-codex-native-app-server-not-acp) — local Codex CLI `app-server --stdio` (native JSON-RPC, not ACP; local/single-user only)
 - [Anthropic](docs/user_guide/backends/anthropic.md)
 - [Google Gemini](docs/user_guide/backends/gemini.md)

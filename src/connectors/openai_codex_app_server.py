@@ -29,7 +29,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -61,11 +61,16 @@ from src.connectors.codex_helpers import (
     resolve_codex_executable as resolve_codex_executable,
 )
 from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.openai_codex.catalog.fallback_loader import (
+    CodexCatalogFallbackLoader,
+)
+from src.connectors.openai_codex.catalog.interfaces import ICodexModelCatalog
 from src.core.common.exceptions import (
     APIConnectionError,
     APITimeoutError,
     BackendError,
     ConfigurationError,
+    ServiceResolutionError,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import (
@@ -81,14 +86,10 @@ logger = logging.getLogger(__name__)
 CODEX_TURN_INTERRUPT_METHOD = "turn/interrupt"
 CODEX_HANDSHAKE_CLIENT_NAME = "llm-interactive-proxy"
 
-# Default model list advertised by this backend (model is "auto" by default and
-# resolved server-side by the Codex app-server).
-_DEFAULT_CODEX_MODEL_IDS: tuple[str, ...] = (
-    "auto",
-    "gpt-5.4",
-    "gpt-5.3-codex",
-    "gpt-5.2",
-)
+# ``auto`` is a routing sentinel (the Codex app-server resolves the actual model
+# server-side); it is not a catalog slug. The routable model slugs advertised by
+# this backend come from the auto-discovered ``ICodexModelCatalog``.
+_CODEX_AUTO_MODEL_SENTINEL: str = "auto"
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +118,26 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
         self._progress_mode: str = "text_plus_summaries"
         self._codex_config_overrides: list[str] = []
         self._app_server_extra_args: list[str] = []
+        # Auto-discovered catalog (DI discovery result, else shipped fallback).
+        self._catalog: ICodexModelCatalog = self._resolve_model_catalog()
+
+    def _resolve_model_catalog(self) -> ICodexModelCatalog:
+        """Resolve the Codex model catalog from DI, else the shipped fallback."""
+        try:
+            from src.core.di.services import get_or_build_service_provider
+
+            provider = get_or_build_service_provider()
+            catalog = provider.get_service(cast(type[Any], ICodexModelCatalog))
+            if catalog is not None and "mock" not in type(catalog).__name__.lower():
+                return cast(ICodexModelCatalog, catalog)
+        except (ImportError, AttributeError, ServiceResolutionError) as err:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Codex app-server model catalog not in DI; "
+                    "loading shipped fallback: %s",
+                    err,
+                )
+        return CodexCatalogFallbackLoader().load()
 
     # -- lifecycle / health --------------------------------------------------
 
@@ -349,7 +370,8 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
 
     def get_available_models(self) -> list[str]:
         return [
-            add_vendor_prefix(m, self.VENDOR_PREFIX) for m in _DEFAULT_CODEX_MODEL_IDS
+            add_vendor_prefix(m, self.VENDOR_PREFIX)
+            for m in (_CODEX_AUTO_MODEL_SENTINEL, *self._catalog.routable_slugs())
         ]
 
     # -- command / runtime / protocol-state overrides -----------------------
@@ -555,6 +577,14 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
         reasoning_effort = self._resolve_reasoning_effort(request)
         effort = map_reasoning_effort_to_codex_effort(reasoning_effort)
         if effort is not None:
+            # Validate against the discovered effort hierarchy; clamp to a level
+            # the effective model supports. For the ``auto`` sentinel the
+            # app-server picks the model, so the (validated) effort is passed
+            # through without per-model clamping.
+            if not self._catalog.is_valid_effort(effort):
+                effort = self._catalog.default_reasoning_effort
+            if not is_auto_model(runtime.model):
+                effort = self._catalog.clamp_reasoning_effort(runtime.model, effort)
             turn_params["effort"] = effort
 
         # ``runtime.model`` stays stripped for the Codex protocol.

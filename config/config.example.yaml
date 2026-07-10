@@ -490,6 +490,18 @@ backends:
         websocket:
           enabled: false  # Set to true to enable WebSocket transport for Codex
 
+        # Model catalog auto-discovery + fallback. By default the proxy runs
+        # `codex debug models` at startup to learn supported model slugs and
+        # per-model reasoning-effort settings; on any failure it falls back to
+        # the shipped snapshot (src/resources/codex/codex_model_catalog.json).
+        # Set discovery_enabled: false to skip discovery and always use the
+        # fallback file. Override fallback_path to use a custom snapshot.
+        model_catalog:
+          discovery_enabled: true
+          # fallback_path: /etc/llm-proxy/codex_model_catalog.json
+          # codex_binary_path: /usr/local/bin/codex
+          discovery_timeout_seconds: 10.0
+
         # When ChatGPT-account Codex rejects gpt-5.5 (e.g. free plan), downgrade to target.
         gpt55_unsupported_free_plan_downgrade:
           enabled: true
@@ -553,6 +565,11 @@ backends:
         websocket:
           enabled: true
           beta_mode: v2
+        # Model catalog auto-discovery + fallback (same keys as openai_codex).
+        # See openai_codex.extra.codex.model_catalog for details.
+        model_catalog:
+          discovery_enabled: true
+          discovery_timeout_seconds: 10.0
         # Same keys as ``openai_codex.extra.codex`` (shared SettingsLoader).
         gpt55_unsupported_free_plan_downgrade:
           enabled: true

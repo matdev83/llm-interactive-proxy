@@ -10,9 +10,13 @@ import json
 import logging
 import os
 from collections.abc import Mapping
+from dataclasses import asdict
 from typing import Any
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+from src.connectors.openai_codex.catalog.config import (
+    codex_model_catalog_config_from_mapping,
+)
 from src.connectors.openai_codex.contracts import CodexConnectorSettings
 from src.connectors.openai_codex.interfaces import ISettingsLoader
 from src.connectors.openai_codex.managed_oauth_constants import (
@@ -698,6 +702,29 @@ class SettingsLoader(ISettingsLoader):
             to_mapping(codex_cfg.get("gpt55_unsupported_free_plan_downgrade")) or {}
         )
         settings["gpt55_unsupported_free_plan_downgrade"] = {**gpt55_base, **gpt55_yaml}
+
+        # Model catalog auto-discovery + fallback settings
+        # (extra.codex.model_catalog; ENV overrides per-key).
+        model_catalog_yaml = to_mapping(codex_cfg.get("model_catalog")) or {}
+        model_catalog_merged: dict[str, Any] = dict(model_catalog_yaml)
+        env_discovery_enabled = os.getenv(
+            "OPENAI_CODEX_MODEL_CATALOG_DISCOVERY_ENABLED"
+        )
+        if env_discovery_enabled is not None:
+            model_catalog_merged["discovery_enabled"] = env_discovery_enabled
+        env_fallback_path = os.getenv("OPENAI_CODEX_MODEL_CATALOG_FALLBACK_PATH")
+        if env_fallback_path is not None and env_fallback_path.strip():
+            model_catalog_merged["fallback_path"] = env_fallback_path.strip()
+        env_binary_path = os.getenv("OPENAI_CODEX_MODEL_CATALOG_BINARY_PATH")
+        if env_binary_path is not None and env_binary_path.strip():
+            model_catalog_merged["codex_binary_path"] = env_binary_path.strip()
+        env_timeout = os.getenv("OPENAI_CODEX_MODEL_CATALOG_DISCOVERY_TIMEOUT_SECONDS")
+        if env_timeout is not None and env_timeout.strip():
+            model_catalog_merged["discovery_timeout_seconds"] = env_timeout.strip()
+        model_catalog_config = codex_model_catalog_config_from_mapping(
+            model_catalog_merged
+        )
+        settings["model_catalog"] = asdict(model_catalog_config)
 
         if logger.isEnabledFor(TRACE_LEVEL):
             logger.log(

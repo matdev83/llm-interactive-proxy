@@ -30,6 +30,8 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.connectors.openai_codex.catalog.interfaces import ICodexModelCatalog
+from src.connectors.openai_codex.catalog.parser import CodexCatalogParser
 from src.connectors.openai_codex_app_server import (
     CodexAppServerRuntime,
     CodexEventMapper,
@@ -55,6 +57,8 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.translation_service import TranslationService
+
+from tests.unit.connectors.openai_codex.catalog.conftest import make_raw_catalog
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -213,6 +217,17 @@ def _make_request(
 
 @pytest.fixture
 def connector() -> OpenAICodexAppServerConnector:
+    from src.core.di.container import ServiceCollection
+    from src.core.di.services import set_service_provider
+
+    services = ServiceCollection()
+    # Register a fake discovered catalog (mirrors CodexModelCatalogStage) so the
+    # connector resolves a deterministic catalog from DI.
+    services.add_instance(
+        cast(type, ICodexModelCatalog),
+        CodexCatalogParser().parse(make_raw_catalog()),
+    )
+    set_service_provider(services.build_service_provider())
     client = AsyncMock(spec=httpx.AsyncClient)
     return OpenAICodexAppServerConnector(client, AppConfig(), TranslationService())
 
@@ -605,10 +620,11 @@ class TestReasoningEffortForwardedToTurnStart:
         connector: OpenAICodexAppServerConnector,
         temp_workspace: Path,
         reasoning_effort: str | None,
+        model: str = "auto",
     ) -> dict[str, Any]:
         runtime = _make_runtime(
             temp_workspace,
-            model="auto",
+            model=model,
             stdout_lines=[
                 b'{"jsonrpc":"2.0","id":1,"result":{"turn":{"id":"turn_1"}}}\n',
             ],
@@ -626,7 +642,7 @@ class TestReasoningEffortForwardedToTurnStart:
                 runtime,
                 _make_request(
                     processed_messages=[ChatMessage(role="user", content="hi")],
-                    model="openai/auto",
+                    model=f"openai/{model}",
                     reasoning_effort=reasoning_effort,
                 ),
             )
@@ -655,6 +671,36 @@ class TestReasoningEffortForwardedToTurnStart:
     ) -> None:
         params = await self._run(connector, temp_workspace, reasoning_effort=None)
         assert "effort" not in params
+
+    async def test_ultra_kept_for_ultra_capable_model(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+    ) -> None:
+        params = await self._run(
+            connector, temp_workspace, reasoning_effort="ultra", model="gpt-5.6-sol"
+        )
+        assert params.get("effort") == "ultra"
+
+    async def test_ultra_clamped_to_xhigh_for_xhigh_only_model(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+    ) -> None:
+        params = await self._run(
+            connector, temp_workspace, reasoning_effort="ultra", model="gpt-5.5"
+        )
+        assert params.get("effort") == "xhigh"
+
+    async def test_invalid_effort_falls_back_to_default_for_non_auto(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+    ) -> None:
+        params = await self._run(
+            connector, temp_workspace, reasoning_effort="bogus", model="gpt-5.5"
+        )
+        assert params.get("effort") == "medium"
 
 
 # ---------------------------------------------------------------------------
@@ -1234,11 +1280,12 @@ class TestConnectorBasics:
         self, connector: OpenAICodexAppServerConnector
     ) -> None:
         models = connector.get_available_models()
+        # ``auto`` sentinel first, then the discovered catalog's routable slugs.
         assert models == [
             "openai/auto",
-            "openai/gpt-5.4",
-            "openai/gpt-5.3-codex",
-            "openai/gpt-5.2",
+            "openai/gpt-5.6-sol",
+            "openai/gpt-5.6-luna",
+            "openai/gpt-5.5",
         ]
         assert all(m.startswith("openai/") for m in models)
 

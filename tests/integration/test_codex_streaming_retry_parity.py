@@ -170,7 +170,7 @@ async def test_streaming_handshake_auth_failure_retry_success(
 
             # Create request
             request = CanonicalChatRequest(
-                model="openai-codex:gpt-5.1-codex",
+                model="openai-codex:gpt-5.5",
                 messages=[{"role": "user", "content": "Hello"}],
                 stream=True,
             )
@@ -223,7 +223,7 @@ async def test_streaming_handshake_auth_failure_retry_success(
             ):
                 result = await codex_connector.chat_completions(
                     _codex_conn_req(
-                        request, effective_model="openai-codex:gpt-5.1-codex"
+                        request, effective_model="openai-codex:gpt-5.5"
                     )
                 )
 
@@ -295,7 +295,7 @@ async def test_streaming_handshake_auth_failure_retry_exhausted(
 
             # Create request
             request = CanonicalChatRequest(
-                model="openai-codex:gpt-5.1-codex",
+                model="openai-codex:gpt-5.5",
                 messages=[{"role": "user", "content": "Hello"}],
                 stream=True,
             )
@@ -315,7 +315,7 @@ async def test_streaming_handshake_auth_failure_retry_exhausted(
                 with pytest.raises(HTTPException) as exc_info:
                     result = await codex_connector.chat_completions(
                         _codex_conn_req(
-                            request, effective_model="openai-codex:gpt-5.1-codex"
+                            request, effective_model="openai-codex:gpt-5.5"
                         )
                     )
                     # If we get here, consume the stream to trigger the error
@@ -396,7 +396,7 @@ async def test_streaming_chunk_level_auth_failure_retry(
 
             # Create request
             request = CanonicalChatRequest(
-                model="openai-codex:gpt-5.1-codex",
+                model="openai-codex:gpt-5.5",
                 messages=[{"role": "user", "content": "Hello"}],
                 stream=True,
             )
@@ -447,7 +447,7 @@ async def test_streaming_chunk_level_auth_failure_retry(
             ):
                 result = await codex_connector.chat_completions(
                     _codex_conn_req(
-                        request, effective_model="openai-codex:gpt-5.1-codex"
+                        request, effective_model="openai-codex:gpt-5.5"
                     )
                 )
 
@@ -531,7 +531,7 @@ async def test_streaming_retry_backoff_behavior(
 
             # Create request
             request = CanonicalChatRequest(
-                model="openai-codex:gpt-5.1-codex",
+                model="openai-codex:gpt-5.5",
                 messages=[{"role": "user", "content": "Hello"}],
                 stream=True,
             )
@@ -572,7 +572,7 @@ async def test_streaming_retry_backoff_behavior(
                 start_time = time.time()
                 result = await codex_connector.chat_completions(
                     _codex_conn_req(
-                        request, effective_model="openai-codex:gpt-5.1-codex"
+                        request, effective_model="openai-codex:gpt-5.5"
                     )
                 )
 
@@ -632,7 +632,7 @@ async def test_streaming_refresh_failure_returns_error(
 
     # Create request
     request = CanonicalChatRequest(
-        model="openai-codex:gpt-5.1-codex",
+        model="openai-codex:gpt-5.5",
         messages=[{"role": "user", "content": "Hello"}],
         stream=True,
     )
@@ -647,7 +647,7 @@ async def test_streaming_refresh_failure_returns_error(
         side_effect=mock_streaming_response,
     ):
         result = await codex_connector.chat_completions(
-            _codex_conn_req(request, effective_model="openai-codex:gpt-5.1-codex")
+            _codex_conn_req(request, effective_model="openai-codex:gpt-5.5")
         )
 
         assert isinstance(result, StreamingResponseEnvelope)
@@ -674,7 +674,7 @@ async def test_streaming_ordering_and_termination_parity(
     """Test that streaming chunks arrive in correct order and stream terminates properly (Req 1.2)."""
     # Create request
     request = CanonicalChatRequest(
-        model="openai-codex:gpt-5.1-codex",
+        model="openai-codex:gpt-5.5",
         messages=[{"role": "user", "content": "Count to 3"}],
         stream=True,
     )
@@ -699,7 +699,7 @@ async def test_streaming_ordering_and_termination_parity(
         side_effect=mock_streaming_response,
     ):
         result = await codex_connector.chat_completions(
-            _codex_conn_req(request, effective_model="openai-codex:gpt-5.1-codex")
+            _codex_conn_req(request, effective_model="openai-codex:gpt-5.5")
         )
 
         assert isinstance(result, StreamingResponseEnvelope)
@@ -739,7 +739,7 @@ async def test_streaming_translation_ordering_with_compatibility(
 
     # Create request with Droid-style headers
     request = CanonicalChatRequest(
-        model="openai-codex:gpt-5.1-codex",
+        model="openai-codex:gpt-5.5",
         messages=[ChatMessage(role="user", content="Test")],
         stream=True,
     )
@@ -808,7 +808,7 @@ async def test_streaming_translation_ordering_with_compatibility(
             ConnectorChatCompletionsRequest(
                 request=request,
                 processed_messages=[],
-                effective_model="openai-codex:gpt-5.1-codex",
+                effective_model="openai-codex:gpt-5.5",
                 identity=None,
                 cancellation_token=None,
                 cancellation_coordinator=None,
@@ -877,7 +877,7 @@ async def test_streaming_translation_ordering_preserved_during_retry(
 
     # Create request
     request = CanonicalChatRequest(
-        model="openai-codex:gpt-5.1-codex",
+        model="openai-codex:gpt-5.5",
         messages=[ChatMessage(role="user", content="Test")],
         stream=True,
     )
@@ -918,7 +918,7 @@ async def test_streaming_translation_ordering_preserved_during_retry(
         side_effect=mock_streaming_response,
     ):
         result = await codex_connector.chat_completions(
-            _codex_conn_req(request, effective_model="openai-codex:gpt-5.1-codex")
+            _codex_conn_req(request, effective_model="openai-codex:gpt-5.5")
         )
 
         assert isinstance(result, StreamingResponseEnvelope)
@@ -990,7 +990,7 @@ async def test_compatibility_state_preserved_across_retries(
 
     # Create request
     request = CanonicalChatRequest(
-        model="openai-codex:gpt-5.1-codex",
+        model="openai-codex:gpt-5.5",
         messages=[ChatMessage(role="user", content="Test")],
         stream=True,
     )
@@ -1077,7 +1077,7 @@ async def test_compatibility_state_preserved_across_retries(
         context = CodexRequestContext(
             request=request,
             processed_messages=[ProcessedMessage(role="user", content="Test")],
-            effective_model="gpt-5.1-codex",
+            effective_model="gpt-5.5",
             session_id="test_session",
             capabilities=CodexClientCapabilities(),
             metadata={"compatibility_state": state},
@@ -1087,7 +1087,7 @@ async def test_compatibility_state_preserved_across_retries(
         from src.connectors.openai_codex.contracts import CodexPayload
 
         payload = CodexPayload(
-            model="gpt-5.1-codex",
+            model="gpt-5.5",
             input=[],
             tools=[],
             tool_choice="auto",

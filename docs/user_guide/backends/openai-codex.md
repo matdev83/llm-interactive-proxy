@@ -34,6 +34,71 @@ backends:
 - `OPENAI_CODEX_MANAGED_OAUTH_ALLOW_LEGACY_FALLBACK`: Allow fallback to `auth.json` when no managed accounts are configured.
 - `OPENAI_CODEX_PATH`: Optional legacy fallback directory containing `auth.json`.
 
+### Supported models and reasoning effort
+
+The `openai-codex`, `openai-codex-v2` and `openai-codex-app-server` connectors
+share **one auto-discovered model catalog** — no model slugs are hardcoded in
+the connector code.
+
+**Auto-discovery at startup.** On proxy startup the `CodexModelCatalogStage`
+runs `codex debug models` (via the resolved Codex CLI binary) and parses the
+result into the catalog used by all three Codex variants. If discovery fails
+(binary missing, timeout, non-zero exit, malformed output) or is disabled, the
+proxy falls back to a **shipped snapshot** at
+`src/resources/codex/codex_model_catalog.json` (the verbatim `codex debug
+models` output). Operators can override the fallback file via
+`extra.codex.model_catalog.fallback_path`.
+
+The catalog is the verbatim `codex debug models` output, so it contains exactly
+the models the installed Codex CLI advertises (e.g. Codex CLI `0.144.0` reports
+`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5`, `gpt-5.4`,
+`gpt-5.4-mini` as routable, plus CLI-only `gpt-5.3-codex-spark` and hidden
+`codex-auto-review` which are **not** routable). The app-server variant
+additionally advertises the `auto` routing sentinel (the app-server resolves
+the actual model server-side).
+
+> **Backward-incompatible:** legacy Codex slugs that the Codex CLI no longer
+> advertises (e.g. `gpt-5.1-codex`, `gpt-5-codex`, `gpt-5.3-codex`,
+> `gpt-oss-120b`, ...) are **no longer routable**. To keep routing them, ship a
+> custom fallback JSON (same `codex debug models` format) and point
+> `extra.codex.model_catalog.fallback_path` at it.
+
+**Reasoning effort hierarchy** (lowest → highest depth, derived from the
+discovered catalog):
+
+`low` < `medium` < `high` < `xhigh` < `max` < `ultra`
+
+Requesting an effort level a model does not support automatically downgrades to
+the highest supported level at or below the request (e.g. `ultra` → `max` on
+`gpt-5.6-luna`, `max`/`ultra` → `xhigh` on `gpt-5.5`, `xhigh` → `high` on
+unknown models). The app-server applies the same per-model clamping for non-
+`auto` models; `auto` passes the validated effort through to the app-server.
+
+**Configuration** (`extra.codex.model_catalog`):
+
+```yaml
+backends:
+  openai_codex:
+    extra:
+      codex:
+        model_catalog:
+          discovery_enabled: true            # run `codex debug models` at startup
+          # fallback_path: /etc/codex/catalog.json   # override shipped snapshot
+          # codex_binary_path: /usr/local/bin/codex   # explicit binary path
+          discovery_timeout_seconds: 10.0
+```
+
+**Inspecting / refreshing the catalog:**
+
+```powershell
+# Print the shipped fallback catalog (slugs, per-model reasoning levels, downgrade matrix)
+./.venv/Scripts/python.exe scripts/list_codex_models.py
+./.venv/Scripts/python.exe scripts/list_codex_models.py --json
+
+# Refresh the shipped snapshot from the installed Codex CLI
+./.venv/Scripts/python.exe scripts/refresh_codex_model_catalog.py
+```
+
 ### Authentication
 
 The connector now uses a **managed multi-account OAuth store first**, and only falls back to legacy Codex CLI credentials when needed.

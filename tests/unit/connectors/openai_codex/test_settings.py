@@ -6,12 +6,16 @@ Tests cover configuration normalization, precedence order, and edge cases.
 from __future__ import annotations
 
 import os
+from dataclasses import asdict
 from unittest.mock import patch
 
 import pytest
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.openai_codex import (
     managed_oauth_constants as managed_oauth_constants_mod,
+)
+from src.connectors.openai_codex.catalog.config import (
+    DEFAULT_CODEX_MODEL_CATALOG_CONFIG,
 )
 from src.connectors.openai_codex.interfaces import ISettingsLoader
 from src.connectors.openai_codex.managed_oauth_constants import (
@@ -82,6 +86,69 @@ class TestSettingsLoader:
             settings.managed_oauth["allow_legacy_fallback"]
             == DEFAULT_ALLOW_LEGACY_FALLBACK
         )
+
+    def test_model_catalog_defaults(self, loader, app_config):
+        """Model catalog config defaults to discovery enabled, no override path."""
+        settings = loader.load(app_config)
+        assert settings.model_catalog == asdict(DEFAULT_CODEX_MODEL_CATALOG_CONFIG)
+        assert settings.model_catalog["discovery_enabled"] is True
+        assert settings.model_catalog["fallback_path"] is None
+        assert settings.model_catalog["codex_binary_path"] is None
+        assert settings.model_catalog["discovery_timeout_seconds"] == 10.0
+
+    def test_model_catalog_from_yaml(self, loader, app_config):
+        """Model catalog section is parsed from extra.codex.model_catalog."""
+        backend_config = BackendConfig(
+            extra={
+                "codex": {
+                    "model_catalog": {
+                        "discovery_enabled": False,
+                        "fallback_path": "/etc/codex/catalog.json",
+                        "codex_binary_path": "/usr/local/bin/codex",
+                        "discovery_timeout_seconds": 5.0,
+                    }
+                }
+            }
+        )
+        app_config = _with_openai_codex_backend(app_config, backend_config)
+
+        settings = loader.load(app_config)
+
+        assert settings.model_catalog["discovery_enabled"] is False
+        assert settings.model_catalog["fallback_path"] == "/etc/codex/catalog.json"
+        assert settings.model_catalog["codex_binary_path"] == "/usr/local/bin/codex"
+        assert settings.model_catalog["discovery_timeout_seconds"] == 5.0
+
+    def test_model_catalog_env_overrides_yaml(self, loader, app_config):
+        """ENV overrides take precedence over YAML for model catalog settings."""
+        backend_config = BackendConfig(
+            extra={
+                "codex": {
+                    "model_catalog": {
+                        "discovery_enabled": True,
+                        "fallback_path": "/yaml/path.json",
+                        "discovery_timeout_seconds": 5.0,
+                    }
+                }
+            }
+        )
+        app_config = _with_openai_codex_backend(app_config, backend_config)
+
+        with patch.dict(
+            os.environ,
+            {
+                "OPENAI_CODEX_MODEL_CATALOG_DISCOVERY_ENABLED": "false",
+                "OPENAI_CODEX_MODEL_CATALOG_FALLBACK_PATH": "/env/path.json",
+                "OPENAI_CODEX_MODEL_CATALOG_BINARY_PATH": "/env/codex",
+                "OPENAI_CODEX_MODEL_CATALOG_DISCOVERY_TIMEOUT_SECONDS": "7",
+            },
+        ):
+            settings = loader.load(app_config)
+
+        assert settings.model_catalog["discovery_enabled"] is False
+        assert settings.model_catalog["fallback_path"] == "/env/path.json"
+        assert settings.model_catalog["codex_binary_path"] == "/env/codex"
+        assert settings.model_catalog["discovery_timeout_seconds"] == 7.0
 
     def test_load_from_yaml_config(self, loader, app_config):
         """Test loading settings from YAML backend config."""

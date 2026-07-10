@@ -150,6 +150,7 @@ class ApplicationBuilder:
         """
         from .stages import (
             BackendStage,
+            CodexModelCatalogStage,
             CommandStage,
             ControllerStage,
             CoreServicesStage,
@@ -161,6 +162,9 @@ class ApplicationBuilder:
         return (
             self.add_stage(InfrastructureStage())
             .add_stage(CoreServicesStage())
+            .add_stage(
+                CodexModelCatalogStage()
+            )  # After core services, before backends: discover codex catalog
             .add_stage(
                 SteeringStage()
             )  # After core services, before backends to ensure handlers are available
