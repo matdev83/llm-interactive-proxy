@@ -773,6 +773,52 @@ class TestOpenAIPayloadCleaning:
         assert payload["reasoning"] == {"effort": "high"}
         assert payload["messages"][0]["reasoning_content"] == "reasoning to preserve"
 
+    @pytest.mark.asyncio
+    async def test_prepare_payload_includes_top_level_verbosity(self, openai_connector):
+        request = CanonicalChatRequest(
+            model="gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+            verbosity="low",
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request,
+            request.messages,
+            "gpt-5.4-mini",
+        )
+
+        assert payload.get("verbosity") == "low"
+        assert "text" not in payload or "verbosity" not in (
+            payload.get("text") or {}
+        )
+
+    @pytest.mark.asyncio
+    async def test_prepare_payload_omits_verbosity_when_unset(self, openai_connector):
+        request = CanonicalChatRequest(
+            model="gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request,
+            request.messages,
+            "gpt-5.4-mini",
+        )
+
+        assert "verbosity" not in payload
+
+    def test_clean_openai_payload_preserves_verbosity(self, openai_connector):
+        cleaned = openai_connector._clean_openai_payload(
+            {
+                "model": "gpt-5.4-mini",
+                "messages": [],
+                "verbosity": "high",
+                "reasoning_effort": "high",
+            }
+        )
+        assert cleaned.get("verbosity") == "high"
+        assert "reasoning_effort" not in cleaned
+
     def test_clean_openai_payload_strips_internal_stream_routing_keys(
         self, openai_connector
     ):

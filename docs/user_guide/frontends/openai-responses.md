@@ -69,7 +69,7 @@ The OpenAI Responses API frontend (`/v1/responses`) provides full compatibility 
 |-----------|------|-------------|
 | `text` | object | Text response configuration |
 | `text.format` | object | Format specification (type: text, json_schema, etc.) |
-| `text.verbosity` | string | Verbosity level: `low`, `medium`, `high` |
+| `text.verbosity` | string | Verbosity level: `low`, `medium`, `high` (also settable via URI `?verbosity=...` or backend `extra.verbosity`; the proxy injects/merges into `text.verbosity` on the outbound Responses payload) |
 
 ### Streaming & Processing
 

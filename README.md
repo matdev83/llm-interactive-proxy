@@ -237,7 +237,6 @@ See [Access Modes](docs/user_guide/access-modes.md) for the security model and d
 ```bash
 # Run the test suite
 python -m pytest
-
 # Lint and auto-fix
 python -m ruff check --fix .
 

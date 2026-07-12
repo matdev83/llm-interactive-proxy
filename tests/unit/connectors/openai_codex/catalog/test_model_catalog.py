@@ -165,3 +165,19 @@ class TestCatalogDerivedFields:
         assert descriptions["ultra"] == "Maximum reasoning with automatic task delegation"
         assert descriptions["low"] == "Fast responses with lighter reasoning"
         assert len(descriptions) == 6
+
+
+class TestCatalogVerbosity:
+    def test_supports_verbosity_true(self, catalog) -> None:
+        assert catalog.supports_verbosity("gpt-5.6-sol") is True
+        assert catalog.supports_verbosity("GPT-5.6-LUNA") is True
+
+    def test_supports_verbosity_false(self, catalog) -> None:
+        assert catalog.supports_verbosity("gpt-5.5") is False
+        assert catalog.supports_verbosity("unknown-model") is False
+
+    def test_default_verbosity_for(self, catalog) -> None:
+        assert catalog.default_verbosity_for("gpt-5.6-sol") == "low"
+        assert catalog.default_verbosity_for("gpt-5.6-luna") == "medium"
+        assert catalog.default_verbosity_for("gpt-5.5") is None
+        assert catalog.default_verbosity_for("missing") is None

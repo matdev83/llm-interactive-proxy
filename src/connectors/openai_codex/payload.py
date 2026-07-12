@@ -25,6 +25,7 @@ from src.connectors.openai_codex.contracts import (
     CodexRequestContext,
     CodexToolSchema,
     ReasoningSpec,
+    TextSpec,
 )
 from src.connectors.openai_codex.interfaces import (
     IPayloadBuilder,
@@ -314,6 +315,8 @@ class PayloadBuilder(IPayloadBuilder):
         if reasoning_effort:
             reasoning = ReasoningSpec(effort=reasoning_effort, summary="auto")
 
+        text_spec = self._resolve_text_spec(context)
+
         # Resolve system prompt/instructions
         instructions = self._resolve_instructions(context)
 
@@ -334,6 +337,7 @@ class PayloadBuilder(IPayloadBuilder):
             "tool_choice": "auto",
             "parallel_tool_calls": False,
             "reasoning": reasoning,
+            "text": text_spec,
             "store": False,
             "stream": bool(stream_flag),
             "include": ["reasoning.encrypted_content"] if reasoning else [],
@@ -352,6 +356,7 @@ class PayloadBuilder(IPayloadBuilder):
         tool_choice = cast(str, payload_dict["tool_choice"])
         parallel_tool_calls = cast(bool, payload_dict["parallel_tool_calls"])
         payload_reasoning = cast(ReasoningSpec | None, payload_dict["reasoning"])
+        payload_text = cast(TextSpec | None, payload_dict.get("text"))
         store = cast(bool, payload_dict["store"])
         stream = cast(bool, payload_dict["stream"])
         include = cast(list[str], payload_dict["include"])
@@ -367,6 +372,7 @@ class PayloadBuilder(IPayloadBuilder):
             tool_choice=tool_choice,
             parallel_tool_calls=parallel_tool_calls,
             reasoning=payload_reasoning,
+            text=payload_text,
             store=store,
             stream=stream,
             include=include,
@@ -453,6 +459,43 @@ class PayloadBuilder(IPayloadBuilder):
         # Default
         default_effort = getattr(self._connector, "DEFAULT_REASONING_EFFORT", None)
         return default_effort if isinstance(default_effort, str) else None
+
+    @staticmethod
+    def _has_resolved_verbosity(request_data: Any) -> bool:
+        """Return True when connector verbosity resolution has already run."""
+        if isinstance(request_data, dict):
+            return "_codex_resolved_verbosity" in request_data
+        return hasattr(request_data, "_codex_resolved_verbosity")
+
+    def _resolve_text_spec(self, context: CodexRequestContext) -> TextSpec | None:
+        """Resolve Responses ``text`` controls (verbosity) from request context.
+
+        When the connector has already resolved verbosity onto the request
+        (``_codex_resolved_verbosity``), that result is authoritative: a string
+        is emitted and ``None`` means omit (unsupported model / invalid value).
+        Fallbacks apply only when resolution has not run yet.
+        """
+        request_data = context.request
+
+        if self._has_resolved_verbosity(request_data):
+            if isinstance(request_data, dict):
+                resolved = request_data["_codex_resolved_verbosity"]
+            else:
+                resolved = getattr(request_data, "_codex_resolved_verbosity", None)
+            if isinstance(resolved, str) and resolved.strip():
+                return TextSpec(verbosity=resolved.strip())
+            return None
+
+        verbosity = getattr(request_data, "verbosity", None)
+        if isinstance(verbosity, str) and verbosity.strip():
+            return TextSpec(verbosity=verbosity.strip())
+
+        if context.metadata:
+            metadata_verbosity = context.metadata.get("verbosity")
+            if isinstance(metadata_verbosity, str) and metadata_verbosity.strip():
+                return TextSpec(verbosity=metadata_verbosity.strip())
+
+        return None
 
     def _resolve_instructions(self, context: CodexRequestContext) -> str | None:
         """Resolve system prompt/instructions for payload.
@@ -667,6 +710,22 @@ class PayloadBuilder(IPayloadBuilder):
                     summary=reason_dict.get("summary", "auto"),
                 )
 
+        # Resolved verbosity (URI / connector / catalog gate) is authoritative.
+        # Only fall back to passthrough text.verbosity when resolution has not run.
+        if self._has_resolved_verbosity(context.request):
+            text_spec = self._resolve_text_spec(context)
+        else:
+            text_spec = None
+            raw_text = payload_dict.get("text")
+            if isinstance(raw_text, TextSpec):
+                text_spec = raw_text
+            elif isinstance(raw_text, dict):
+                verbosity = raw_text.get("verbosity")
+                if isinstance(verbosity, str) and verbosity.strip():
+                    text_spec = TextSpec(verbosity=verbosity.strip())
+            if text_spec is None:
+                text_spec = self._resolve_text_spec(context)
+
         return CodexPayload(
             model=payload_dict.get("model", context.effective_model),
             input=input_items,
@@ -674,6 +733,7 @@ class PayloadBuilder(IPayloadBuilder):
             tool_choice=payload_dict.get("tool_choice", "auto"),
             parallel_tool_calls=payload_dict.get("parallel_tool_calls", False),
             reasoning=reasoning,
+            text=text_spec,
             store=payload_dict.get("store", False),
             stream=payload_dict.get("stream", True),
             include=payload_dict.get("include", []),

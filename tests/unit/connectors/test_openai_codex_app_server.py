@@ -186,6 +186,7 @@ def _make_request(
     model: str = "openai/auto",
     session_id: str | None = None,
     reasoning_effort: str | None = None,
+    verbosity: str | None = None,
 ) -> ConnectorChatCompletionsRequest:
     request = CanonicalChatRequest(
         model=model,
@@ -193,6 +194,7 @@ def _make_request(
         messages=[ChatMessage(role="user", content="hello")],
         extra_body=extra_body,
         reasoning_effort=reasoning_effort,
+        verbosity=verbosity,
     )
     context: ConnectorRequestContext | None = None
     if session_id is not None:
@@ -600,6 +602,115 @@ class TestMapReasoningEffort:
     def test_case_insensitive(self) -> None:
         assert map_reasoning_effort_to_codex_effort("HIGH") == "high"
         assert map_reasoning_effort_to_codex_effort("XHigh") == "xhigh"
+
+
+class TestAppServerResolveVerbosity:
+    def test_resolve_from_request_field(
+        self, connector: OpenAICodexAppServerConnector
+    ) -> None:
+        request = _make_request(
+            processed_messages=[ChatMessage(role="user", content="hi")],
+            verbosity="low",
+        )
+        assert connector._resolve_verbosity(request) == "low"
+
+    def test_resolve_from_extra_body(
+        self, connector: OpenAICodexAppServerConnector
+    ) -> None:
+        request = _make_request(
+            processed_messages=[ChatMessage(role="user", content="hi")],
+        )
+        object.__setattr__(
+            request.request,
+            "extra_body",
+            {"verbosity": "high"},
+        )
+        assert connector._resolve_verbosity(request) == "high"
+
+    def test_resolve_none_when_unset(
+        self, connector: OpenAICodexAppServerConnector
+    ) -> None:
+        request = _make_request(
+            processed_messages=[ChatMessage(role="user", content="hi")],
+        )
+        assert connector._resolve_verbosity(request) is None
+
+    def test_resolve_invalid_returns_none(
+        self, connector: OpenAICodexAppServerConnector
+    ) -> None:
+        request = _make_request(
+            processed_messages=[ChatMessage(role="user", content="hi")],
+            verbosity="extreme",
+        )
+        assert connector._resolve_verbosity(request) is None
+
+    def test_resolve_invalid_body_falls_back_to_extra_body(
+        self, connector: OpenAICodexAppServerConnector
+    ) -> None:
+        request = _make_request(
+            processed_messages=[ChatMessage(role="user", content="hi")],
+            verbosity="extreme",
+        )
+        object.__setattr__(
+            request.request,
+            "extra_body",
+            {"verbosity": "high"},
+        )
+        assert connector._resolve_verbosity(request) == "high"
+
+
+class TestAppServerVerbositySpawnOverrides:
+    async def test_build_command_includes_model_verbosity(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+    ) -> None:
+        runtime = _make_runtime(temp_workspace)
+        runtime.applied_model_verbosity = "low"
+        connector._codex_executable = "codex"
+        connector._codex_config_overrides = []
+        cmd = await connector._build_subprocess_command(runtime)
+        idx = cmd.index("-c")
+        assert cmd[idx + 1] == "model_verbosity=low"
+
+    async def test_prepare_turn_kills_when_verbosity_changes(
+        self,
+        connector: OpenAICodexAppServerConnector,
+        temp_workspace: Path,
+    ) -> None:
+        runtime = _make_runtime(
+            temp_workspace,
+            model="auto",
+            stdout_lines=[
+                b'{"jsonrpc":"2.0","id":1,"result":{"turn":{"id":"turn_1"}}}\n',
+            ],
+            thread_id="thr_1",
+        )
+        runtime.initialized = True
+        runtime.history_state = None
+        runtime.applied_model_verbosity = "high"
+        # Live process present
+        assert runtime.process is not None
+        assert runtime.process.poll() is None
+
+        kill_mock = AsyncMock()
+        connector._process_timeout = 5.0
+        with (
+            patch.object(connector, "_cancel_stale_kill_timer", AsyncMock()),
+            patch.object(connector, "_kill_runtime", kill_mock),
+            patch.object(connector, "_spawn_process", AsyncMock()),
+            patch.object(connector, "_perform_handshake", AsyncMock()),
+        ):
+            await connector._prepare_turn_request_locked(
+                runtime,
+                _make_request(
+                    processed_messages=[ChatMessage(role="user", content="hi")],
+                    verbosity="low",
+                ),
+            )
+
+        kill_mock.assert_awaited_once()
+        assert runtime.applied_model_verbosity == "low"
 
 
 class TestReasoningEffortForwardedToTurnStart:

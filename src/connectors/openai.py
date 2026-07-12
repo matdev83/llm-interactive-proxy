@@ -1205,6 +1205,10 @@ class OpenAIConnector(LLMBackend):
             # OpenAI/OpenRouter expects reasoning as a nested object with effort field
             payload["reasoning"] = {"effort": reasoning_effort}
 
+        verbosity = getattr(request_data, "verbosity", None)
+        if isinstance(verbosity, str) and verbosity.strip():
+            payload["verbosity"] = verbosity.strip()
+
         # Allow request.extra_body to override or augment the final payload.
         extra = getattr(request_data, "extra_body", None)
         if isinstance(extra, dict):

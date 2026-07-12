@@ -44,6 +44,7 @@ class ResolvedParameterValues(BaseModel):
 
     temperature: float | None = None
     reasoning_effort: str | None = None
+    verbosity: str | None = None
     top_p: float | None = None
     top_k: int | None = None
 
@@ -56,6 +57,7 @@ class ResolvedParameters:
 
     temperature: ParameterSource | None = None
     reasoning_effort: ParameterSource | None = None
+    verbosity: ParameterSource | None = None
     top_p: ParameterSource | None = None
     top_k: ParameterSource | None = None
 
@@ -82,6 +84,7 @@ class ResolvedParameters:
             reasoning_effort=(
                 self.reasoning_effort.value if self.reasoning_effort else None
             ),
+            verbosity=self.verbosity.value if self.verbosity else None,
         )
         return values.model_dump(exclude_none=True)
 
@@ -125,6 +128,12 @@ class ResolvedParameters:
                 source=self.reasoning_effort.source,
             )
 
+        if self.verbosity is not None:
+            result["verbosity"] = ParameterDebugInfo(
+                effective_value=self.verbosity.value,
+                source=self.verbosity.source,
+            )
+
         return result
 
 
@@ -151,6 +160,7 @@ class ParameterResolutionService:
         "top_p",
         "top_k",
         "reasoning_effort",
+        "verbosity",
     ]
 
     def resolve_parameters(

@@ -259,6 +259,47 @@ class TestURIParameterValidator:
         assert "reasoning_effort" in errors[0]
 
     # ========================================================================
+    # Verbosity Parameter Validation Tests
+    # ========================================================================
+
+    def test_verbosity_valid_low(self, validator):
+        params = {"verbosity": "low"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {"verbosity": "low"}
+        assert errors == []
+
+    def test_verbosity_valid_medium(self, validator):
+        params = {"verbosity": "medium"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {"verbosity": "medium"}
+        assert errors == []
+
+    def test_verbosity_valid_high(self, validator):
+        params = {"verbosity": "high"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {"verbosity": "high"}
+        assert errors == []
+
+    def test_verbosity_invalid_value(self, validator):
+        params = {"verbosity": "extreme"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {}
+        assert len(errors) == 1
+        assert "verbosity" in errors[0]
+        assert "not in allowed values" in errors[0]
+
+    def test_verbosity_with_reasoning_effort(self, validator):
+        params = {"verbosity": "low", "reasoning_effort": "high"}
+        normalized, errors = validator.validate_and_normalize(params)
+
+        assert normalized == {"verbosity": "low", "reasoning_effort": "high"}
+        assert errors == []
+
+    # ========================================================================
     # Unknown Parameter Handling Tests
     # ========================================================================
 

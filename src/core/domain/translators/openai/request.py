@@ -174,6 +174,10 @@ def from_domain_to_openai_request(request: CanonicalChatRequest) -> dict[str, An
     if reasoning_payload:
         payload["reasoning"] = reasoning_payload
 
+    verbosity_value = getattr(request, "verbosity", None)
+    if isinstance(verbosity_value, str) and verbosity_value.strip():
+        payload["verbosity"] = verbosity_value.strip()
+
     if request.extra_body and "response_format" in request.extra_body:
         response_format = request.extra_body["response_format"]
         if (

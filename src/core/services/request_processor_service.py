@@ -976,7 +976,7 @@ class RequestProcessor(IRequestProcessor):
                 if isinstance(metadata, dict):
                     orig_message = str(metadata.get("error_message") or "")
                     orig_type = str(metadata.get("error_type") or "")
-                    orig_code = str(metadata.get("error_code") or "")
+                    orig_code = str(metadata.get("error_code") or status_code)
                     orig_param = str(metadata.get("error_param") or "")
                     orig_details = metadata.get("error_details")  # type: ignore[assignment]
 
@@ -1149,7 +1149,9 @@ class RequestProcessor(IRequestProcessor):
                                     metadata.get("error_message") or ""
                                 )
                                 fallback_type = str(metadata.get("error_type") or "")
-                                fallback_code = str(metadata.get("error_code") or "")
+                                fallback_code = str(
+                                    metadata.get("error_code") or fallback_status
+                                )
                                 fallback_param = str(metadata.get("error_param") or "")
                                 fallback_details = metadata.get("error_details")
 

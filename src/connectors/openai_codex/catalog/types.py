@@ -45,6 +45,8 @@ class CodexModelReasoningProfile:
     supported_in_api: bool = True
     context_window: int | None = None
     max_context_window: int | None = None
+    support_verbosity: bool = False
+    default_verbosity: str | None = None
     legacy: bool = False
     extra: dict[str, object] = field(default_factory=dict)
 
@@ -162,6 +164,20 @@ class CodexModelCatalog:
             for p in self.profiles.values()
             if p.api_accepted and p.supports(wanted)
         )
+
+    def supports_verbosity(self, slug: str) -> bool:
+        """True when ``slug`` advertises Responses ``text.verbosity`` support."""
+        profile = self.get_profile(slug)
+        if profile is None:
+            return False
+        return bool(profile.support_verbosity)
+
+    def default_verbosity_for(self, slug: str) -> str | None:
+        """Return the catalog default verbosity for ``slug``, if any."""
+        profile = self.get_profile(slug)
+        if profile is None:
+            return None
+        return profile.default_verbosity
 
 
 __all__ = ["CodexModelCatalog", "CodexModelReasoningProfile"]

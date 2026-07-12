@@ -27,7 +27,7 @@ def test_streaming_request_returns_json_error_by_default() -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         logging_cfg = LoggingConfig(cbor_capture_dir=str(Path(tmpdir)))
-        backends_cfg = BackendSettings(
+        backends_cfg = BackendSettings(  # type: ignore[call-arg]
             default_backend="openai", openai=BackendConfig(api_key="test")
         )
         config = base_config.model_copy(
@@ -70,7 +70,7 @@ def test_streaming_request_can_opt_in_to_sse_error_format() -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         logging_cfg = LoggingConfig(cbor_capture_dir=str(Path(tmpdir)))
-        backends_cfg = BackendSettings(
+        backends_cfg = BackendSettings(  # type: ignore[call-arg]
             default_backend="openai", openai=BackendConfig(api_key="test")
         )
         config = base_config.model_copy(
@@ -112,7 +112,7 @@ def test_zai_streaming_sse_error_keeps_429_status() -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         logging_cfg = LoggingConfig(cbor_capture_dir=str(Path(tmpdir)))
-        backends_cfg = BackendSettings(
+        backends_cfg = BackendSettings(  # type: ignore[call-arg]
             default_backend="zai-coding-plan",
             zai_coding_plan=BackendConfig(api_key="test-zai-key"),
         )
@@ -170,7 +170,7 @@ def test_openai_streaming_sse_error_keeps_429_status() -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         logging_cfg = LoggingConfig(cbor_capture_dir=str(Path(tmpdir)))
-        backends_cfg = BackendSettings(
+        backends_cfg = BackendSettings(  # type: ignore[call-arg]
             default_backend="openai",
             openai=BackendConfig(api_key="test-openai-key"),
         )
@@ -216,7 +216,7 @@ def test_openai_streaming_sse_error_keeps_429_status() -> None:
 
                 assert resp.status_code == 429
                 assert "text/event-stream" in (resp.headers.get("content-type") or "")
-                assert "Backend returned 429 error" in resp.text
+                assert "Rate limit exceeded" in resp.text
                 assert "429" in resp.text
                 assert "502" not in resp.text
         finally:

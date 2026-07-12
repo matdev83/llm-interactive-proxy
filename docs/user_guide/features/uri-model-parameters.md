@@ -29,6 +29,7 @@ The following parameters can be specified via URI syntax:
 
 - **temperature**: Controls randomness in model outputs (0.0-2.0)
 - **reasoning_effort**: Controls computational effort for reasoning models (`low` / `medium` / `high`; OpenAI Codex backends also support `xhigh` where the upstream API allows it)
+- **verbosity**: Controls GPT-5 family output verbosity (`low` / `medium` / `high`). Outbound shape depends on the backend: Chat Completions uses top-level `verbosity`; Responses / Codex HTTP use `text.verbosity`; Codex App Server applies spawn-time `-c model_verbosity=...`
 - **top_p**: Controls diversity via nucleus sampling (e.g., 0.9)
 - **top_k**: Controls diversity by filtering to the K most likely next tokens (e.g., 40)
 
@@ -38,8 +39,8 @@ Parameters are resolved from multiple sources with the following precedence (hig
 
 1. **Connector-forced settings** (backend `extra` / connector policy) — hard overrides from configuration
 2. **Interactive session** — session reasoning mode and commands such as `!/temperature(0.5)` (and edit-precision promotions where applicable)
-3. **URI parameters** — query string on the routed model id, e.g. `openai-codex:gpt-5.4-mini?reasoning_effort=xhigh`
-4. **A-leg request body** — top-level OpenAI-style fields on the inbound request (for example `temperature`, `reasoning_effort`) when they were actually supplied by the client (schema defaults are not treated as overrides)
+3. **URI parameters** — query string on the routed model id, e.g. `openai-codex:gpt-5.4-mini?reasoning_effort=xhigh&verbosity=low`
+4. **A-leg request body** — top-level OpenAI-style fields on the inbound request (for example `temperature`, `reasoning_effort`, `verbosity`) when they were actually supplied by the client (schema defaults are not treated as overrides)
 5. **`extra_body` sampling fields** — same parameter names carried in `extra_body` (lower than top-level body for resolution)
 6. **Backend / app configuration** — defaults from `config.yaml` and backend blocks
 

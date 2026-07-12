@@ -1487,6 +1487,70 @@ class OpenAICodexConnector(OpenAIConnector):
 
         return effort
 
+    def _resolve_verbosity(
+        self, model: str, uri_params: dict[str, Any], request_data: Any
+    ) -> str | None:
+        """Resolve output verbosity for Codex Responses ``text.verbosity``.
+
+        Returns ``None`` when unset, invalid, or the model does not support
+        verbosity (omit from outbound payload).
+
+        The canonical request field is authoritative after centralized
+        parameter resolution. Raw URI and body values remain compatibility
+        fallbacks for callers that bypass that preparation step. An invalid
+        value is skipped so a valid lower-precedence source can still apply.
+        """
+        allowed = {"low", "medium", "high"}
+
+        def _normalize(raw: Any) -> str | None:
+            if isinstance(raw, list):
+                raw = raw[0] if raw else None
+            if not isinstance(raw, str):
+                return None
+            value = raw.lower().strip()
+            return value or None
+
+        def _accept(raw: Any) -> str | None:
+            value = _normalize(raw)
+            if value is None:
+                return None
+            if value in allowed:
+                return value
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Invalid verbosity '%s' for Codex; omitting. Supported: %s",
+                    value,
+                    ", ".join(sorted(allowed)),
+                )
+            return None
+
+        verbosity = _accept(getattr(request_data, "verbosity", None))
+
+        if verbosity is None:
+            verbosity = _accept(uri_params.get("verbosity"))
+
+        if verbosity is None:
+            extra_body = getattr(request_data, "extra_body", None)
+            if isinstance(extra_body, dict):
+                verbosity = _accept(extra_body.get("verbosity"))
+                if verbosity is None:
+                    text_cfg = extra_body.get("text")
+                    if isinstance(text_cfg, dict):
+                        verbosity = _accept(text_cfg.get("verbosity"))
+
+        if verbosity is None:
+            return None
+
+        if not self._catalog.supports_verbosity(model):
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Model '%s' does not support verbosity; omitting text.verbosity.",
+                    model,
+                )
+            return None
+
+        return verbosity
+
     async def _call_codex_responses_api(
         self,
         request_data: Any,
@@ -2239,16 +2303,25 @@ class OpenAICodexConnector(OpenAIConnector):
             resolved_reasoning_effort = self._resolve_reasoning_effort(
                 effective_model, uri_params, request_data
             )
+            resolved_verbosity = self._resolve_verbosity(
+                effective_model, uri_params, request_data
+            )
             if isinstance(request_data, dict):
                 request_data["_codex_resolved_reasoning_effort"] = (
                     resolved_reasoning_effort
                 )
+                request_data["_codex_resolved_verbosity"] = resolved_verbosity
             else:
                 # CanonicalChatRequest / ChatRequest are frozen Pydantic models; normal setattr raises.
                 object.__setattr__(
                     request_data,
                     "_codex_resolved_reasoning_effort",
                     resolved_reasoning_effort,
+                )
+                object.__setattr__(
+                    request_data,
+                    "_codex_resolved_verbosity",
+                    resolved_verbosity,
                 )
 
             ok = await self._validate_runtime_credentials()

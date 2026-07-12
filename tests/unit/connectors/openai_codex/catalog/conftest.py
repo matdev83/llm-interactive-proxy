@@ -54,6 +54,8 @@ def make_raw_catalog() -> dict[str, Any]:
                 ),
                 "visibility": "list",
                 "supported_in_api": True,
+                "support_verbosity": True,
+                "default_verbosity": "low",
                 "context_window": 372000,
                 "max_context_window": 372000,
             },
@@ -66,6 +68,8 @@ def make_raw_catalog() -> dict[str, Any]:
                 ),
                 "visibility": "list",
                 "supported_in_api": True,
+                "support_verbosity": True,
+                "default_verbosity": "medium",
                 "context_window": 372000,
                 "max_context_window": 372000,
             },
@@ -76,6 +80,7 @@ def make_raw_catalog() -> dict[str, Any]:
                 "supported_reasoning_levels": _levels("low", "medium", "high", "xhigh"),
                 "visibility": "list",
                 "supported_in_api": True,
+                "support_verbosity": False,
                 "context_window": 272000,
                 "max_context_window": 272000,
             },
@@ -124,6 +129,12 @@ def build_test_catalog() -> CodexModelCatalog:
             supported_in_api=entry.get("supported_in_api", True),
             context_window=entry.get("context_window"),
             max_context_window=entry.get("max_context_window"),
+            support_verbosity=bool(entry.get("support_verbosity", False)),
+            default_verbosity=(
+                entry["default_verbosity"]
+                if isinstance(entry.get("default_verbosity"), str)
+                else None
+            ),
         )
     order = ("low", "medium", "high", "xhigh", "max", "ultra")
     descriptions = dict(_EFFORT_DESCRIPTIONS)

@@ -108,6 +108,34 @@ class TestBackendRequestPreparer:
             request, {"foo": "bar"}, "openai", session
         )
 
+    @pytest.mark.asyncio
+    async def test_prepare_backend_request_resolves_empty_uri_params(
+        self,
+        preparer,
+        reasoning_config_applicator,
+        backend_config_service,
+        uri_parameter_applicator,
+        config,
+    ):
+        request = Mock(spec=ChatRequest)
+        session = Mock()
+
+        reasoning_config_applicator.apply.return_value = request
+        backend_config_service.apply_backend_config.return_value = request
+        uri_parameter_applicator.apply.return_value = request
+
+        result = await preparer.prepare_backend_request(
+            request=request,
+            backend_type="openai-responses",
+            session=session,
+            uri_params={},
+        )
+
+        assert result == request
+        uri_parameter_applicator.apply.assert_called_once_with(
+            request, {}, "openai-responses", session
+        )
+
     def test_prepare_backend_kwargs(self, preparer):
         session = Mock()
         session.state.project = "proj_1"

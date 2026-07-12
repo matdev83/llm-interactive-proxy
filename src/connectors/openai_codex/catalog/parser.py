@@ -28,6 +28,8 @@ _KNOWN_KEYS = frozenset(
         "supported_in_api",
         "context_window",
         "max_context_window",
+        "support_verbosity",
+        "default_verbosity",
     }
 )
 
@@ -102,6 +104,17 @@ class CodexCatalogParser:
         if not isinstance(max_context_window, int):
             max_context_window = None
 
+        support_verbosity = entry.get("support_verbosity")
+        if not isinstance(support_verbosity, bool):
+            support_verbosity = False
+
+        default_verbosity_raw = entry.get("default_verbosity")
+        default_verbosity: str | None
+        if isinstance(default_verbosity_raw, str) and default_verbosity_raw.strip():
+            default_verbosity = default_verbosity_raw.strip()
+        else:
+            default_verbosity = None
+
         extra = {str(k): v for k, v in entry.items() if str(k) not in _KNOWN_KEYS}
 
         profile = CodexModelReasoningProfile(
@@ -112,6 +125,8 @@ class CodexCatalogParser:
             supported_in_api=supported_in_api,
             context_window=context_window,
             max_context_window=max_context_window,
+            support_verbosity=support_verbosity,
+            default_verbosity=default_verbosity,
             extra=extra,
         )
         return profile, levels

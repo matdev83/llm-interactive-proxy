@@ -2153,13 +2153,19 @@ class BackendStreamingResponseHandler:
                 )
                 if isinstance(terminal_error_payload, dict):
                     base_metadata = dict(stream.metadata or {})
+                    original_error_details = base_metadata.get("error_details")
+                    if isinstance(original_error_details, dict):
+                        merged_error_details = dict(original_error_details)
+                        merged_error_details.update(terminal_error_payload)
+                    else:
+                        merged_error_details = dict(terminal_error_payload)
                     base_metadata["error_message"] = terminal_error_payload.get(
                         "message"
                     )
                     base_metadata["error_type"] = terminal_error_payload.get("type")
                     base_metadata["error_code"] = terminal_error_payload.get("code")
                     base_metadata["error_param"] = terminal_error_payload.get("param")
-                    base_metadata["error_details"] = terminal_error_payload
+                    base_metadata["error_details"] = merged_error_details
                     effective_metadata = base_metadata
 
         async def _with_prefetched_chunk() -> AsyncIterator[ProcessedResponse]:

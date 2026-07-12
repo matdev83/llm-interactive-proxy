@@ -74,6 +74,27 @@ the highest supported level at or below the request (e.g. `ultra` → `max` on
 unknown models). The app-server applies the same per-model clamping for non-
 `auto` models; `auto` passes the validated effort through to the app-server.
 
+### Output verbosity
+
+GPT-5 family models accept an output verbosity hint (`low` / `medium` / `high`).
+Set it via backend config or URI query parameters:
+
+```yaml
+backends:
+  openai_codex:
+    extra:
+      verbosity: low
+```
+
+```text
+openai-codex:gpt-5.4-mini?reasoning_effort=high&verbosity=low
+```
+
+Wire shapes:
+
+- `openai-codex` / `openai-codex-v2`: Responses payload `"text": {"verbosity": "..."}` (omitted when unset or when the catalog reports `support_verbosity: false` for the model)
+- `openai-codex-app-server`: process spawn override `-c model_verbosity=...` (Codex `turn/start` has no verbosity field). If a later request asks for a different verbosity while the app-server process is still alive, the connector restarts that process before the next turn
+
 **Configuration** (`extra.codex.model_catalog`):
 
 ```yaml

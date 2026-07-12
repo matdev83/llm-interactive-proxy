@@ -166,3 +166,6 @@ class CodexAppServerRuntime(ACPProcessRuntime):
     thread_id: str | None = None
     turn_id: str | None = None
     pending_history_state: HistoryState | None = None
+    # Verbosity applied via ``-c model_verbosity=...`` at spawn time. When a
+    # later request asks for a different value, the process is restarted.
+    applied_model_verbosity: str | None = None

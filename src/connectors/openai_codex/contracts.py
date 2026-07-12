@@ -32,6 +32,7 @@ __all__ = [
     "ProcessedMessage",
     "ProviderStreamChunk",
     "ReasoningSpec",
+    "TextSpec",
     "ToolArguments",
     "ToolCall",
     "ToolExecutionResult",
@@ -127,6 +128,12 @@ class ReasoningSpec(BaseModel):
     summary: str = "auto"
 
 
+class TextSpec(BaseModel):
+    """Text controls for Codex Responses API (GPT-5 family verbosity)."""
+
+    verbosity: str | None = None
+
+
 # Core Contract Models
 
 
@@ -208,6 +215,7 @@ class CodexPayload(BaseModel):
     tool_choice: str
     parallel_tool_calls: bool
     reasoning: ReasoningSpec | None = None
+    text: TextSpec | None = None
     store: bool
     stream: bool
     include: list[str]

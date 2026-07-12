@@ -10,6 +10,7 @@ import pytest
 from pydantic.types import JsonValue
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.translators.responses.request import responses_to_domain_request
 from src.core.services.uri_parameter_applicator import URIParameterApplicator
 
 
@@ -362,3 +363,103 @@ class TestURIParameterApplicatorReasoningEffort:
         assert result.reasoning_effort == "max"
         assert result.extra_body is not None
         assert result.extra_body.get("reasoning_effort") == "max"
+
+
+class TestURIParameterApplicatorVerbosity:
+    """URI and config verbosity handling."""
+
+    def test_uri_verbosity_applied_to_request(self) -> None:
+        backend_type = "openai"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="openai:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(verbosity="low"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.verbosity == "low"
+        assert result.extra_body is not None
+        assert result.extra_body.get("verbosity") == "low"
+
+    def test_uri_verbosity_overrides_backend_config(self) -> None:
+        backend_type = "openai-codex"
+        config = _make_config(backend_type, extra={"verbosity": "high"})
+
+        request = ChatRequest(
+            model="openai-codex:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(verbosity="low"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.verbosity == "low"
+
+    def test_backend_config_verbosity_applied_when_no_uri(self) -> None:
+        backend_type = "openai-responses"
+        config = _make_config(backend_type, extra={"verbosity": "medium"})
+
+        request = ChatRequest(
+            model="openai-responses:gpt-5.4",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params={},
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.verbosity == "medium"
+
+    def test_responses_text_verbosity_beats_backend_config(self) -> None:
+        backend_type = "openai-responses"
+        config = _make_config(backend_type, extra={"verbosity": "medium"})
+
+        request = responses_to_domain_request(
+            {
+                "model": "openai-responses:gpt-5.4",
+                "messages": [{"role": "user", "content": "hi"}],
+                "text": {"verbosity": "high"},
+            }
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(temperature="0.5"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.verbosity == "high"
+
+    def test_uri_verbosity_with_reasoning_effort(self) -> None:
+        backend_type = "openai-codex"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="openai-codex:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(verbosity="low", reasoning_effort="high"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.verbosity == "low"
+        assert result.reasoning_effort == "high"

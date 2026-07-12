@@ -44,6 +44,10 @@ class ICodexModelCatalog(Protocol):
 
     def models_supporting(self, effort: str) -> tuple[str, ...]: ...
 
+    def supports_verbosity(self, slug: str) -> bool: ...
+
+    def default_verbosity_for(self, slug: str) -> str | None: ...
+
 
 @runtime_checkable
 class ICodexCatalogParser(Protocol):

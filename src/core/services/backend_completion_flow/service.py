@@ -301,6 +301,11 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             if isinstance(raw_details, dict):
                 error_details = dict(raw_details)
 
+        if not error_code and status_code >= 400:
+            # Preserve the HTTP status in the OpenAI-compatible error payload
+            # when the upstream stream supplied no provider-specific code.
+            error_code = str(status_code)
+
         if status_code == 401:
             return AuthenticationError(error_message)
 

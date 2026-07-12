@@ -66,6 +66,7 @@ The OpenAI Chat Completions frontend provides full compatibility with the OpenAI
 | `user` | string | User identifier |
 | `service_tier` | string | Service tier preference |
 | `reasoning_effort` | string | Reasoning effort for o-series models |
+| `verbosity` | string | Output verbosity for GPT-5 family models (`low`, `medium`, `high`); also settable via URI `?verbosity=...` or backend `extra.verbosity` |
 | `modalities` | array | Output modalities (text, audio) |
 | `audio` | object | Audio output configuration |
 | `prediction` | object | Predicted output for speculative decoding |

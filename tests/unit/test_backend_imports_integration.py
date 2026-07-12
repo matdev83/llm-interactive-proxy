@@ -23,6 +23,20 @@ class TestBackendImportsIntegration:
     @pytest.fixture
     def clean_import_state(self) -> Generator[None, None, None]:
         """Clean module cache before and after test to ensure fresh imports."""
+        import src
+
+        # Keep the module objects that were already imported before this test.
+        # Other tests may hold direct references to connector protocols/classes;
+        # leaving freshly imported replacements in ``sys.modules`` would make
+        # those references fail identity-based DI lookups later in the suite.
+        original_modules = {
+            key: module
+            for key, module in sys.modules.items()
+            if key.startswith("src.connectors")
+            or key == "src.core.services.backend_imports"
+        }
+        original_connectors_package = getattr(src, "connectors", None)
+
         # Remove connector modules from cache to force a clean import.
         for key in list(sys.modules):
             if (
@@ -46,18 +60,19 @@ class TestBackendImportsIntegration:
         backend_registry._factories.update(original_factories)
         reset_backend_discovery_state()
 
-        # Remove connector modules imported during the test run first to avoid
-        # mixing stale/new module objects in sys.modules.
+        # Remove connector modules imported during the test run first, then
+        # restore the original module objects.  Restoring is important because
+        # tests that imported a protocol before this isolation fixture still
+        # legitimately reference that original class object.
         for key in list(sys.modules):
             if (
                 key.startswith("src.connectors")
                 or key == "src.core.services.backend_imports"
             ):
                 sys.modules.pop(key, None)
-
-        # Do not restore previous connector module objects. Re-importing connectors
-        # in later tests is safer than reintroducing potentially stale module
-        # instances captured before this fixture's isolation run.
+        sys.modules.update(original_modules)
+        if original_connectors_package is not None:
+            src.connectors = original_connectors_package
 
     def test_backend_imports_triggers_connector_discovery(
         self, clean_import_state: None

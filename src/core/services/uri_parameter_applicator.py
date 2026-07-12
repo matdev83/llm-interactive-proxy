@@ -57,12 +57,9 @@ class URIParameterApplicator(IURIParameterApplicator):
         - reasoning_effort -> str
 
         Edit-precision mode promotes one-shot request fields into session-level
-        precedence. Early-returns if uri_params is empty.
+        precedence. Resolution also runs when uri_params is empty so backend
+        configuration and other non-URI sources are applied consistently.
         """
-        # Early return if no URI parameters to apply
-        if not uri_params:
-            return request
-
         try:
             return self._apply_uri_parameters(
                 request, uri_params, backend_type, session
@@ -132,6 +129,8 @@ class URIParameterApplicator(IURIParameterApplicator):
                 return int(float_value)
             if name == "reasoning_effort":
                 return str(value)
+            if name == "verbosity":
+                return str(value)
         except (TypeError, ValueError) as exc:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -160,7 +159,7 @@ class URIParameterApplicator(IURIParameterApplicator):
 
     @staticmethod
     def _param_names() -> tuple[str, ...]:
-        return ("temperature", "top_p", "top_k", "reasoning_effort")
+        return ("temperature", "top_p", "top_k", "reasoning_effort", "verbosity")
 
     def _validate_uri_params(
         self, uri_params: dict[str, JsonValue], backend_type: str
@@ -429,7 +428,13 @@ class URIParameterApplicator(IURIParameterApplicator):
                     )
 
             updates: dict[str, Any] = {}
-            for param_name in ("temperature", "top_p", "top_k", "reasoning_effort"):
+            for param_name in (
+                "temperature",
+                "top_p",
+                "top_k",
+                "reasoning_effort",
+                "verbosity",
+            ):
                 if param_name in resolved_params:
                     updates[param_name] = resolved_params[param_name]
 

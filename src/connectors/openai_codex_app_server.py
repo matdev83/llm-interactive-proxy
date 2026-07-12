@@ -379,10 +379,18 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
     async def _build_subprocess_command(
         self, runtime: CodexAppServerRuntime
     ) -> list[str]:
-        _ = runtime
+        overrides = list(self._codex_config_overrides)
+        verbosity = runtime.applied_model_verbosity
+        if isinstance(verbosity, str) and verbosity.strip():
+            overrides = [
+                o
+                for o in overrides
+                if not str(o).strip().lower().startswith("model_verbosity=")
+            ]
+            overrides.append(f"model_verbosity={verbosity.strip()}")
         return build_codex_app_server_command(
             self._codex_executable,
-            codex_config_overrides=self._codex_config_overrides,
+            codex_config_overrides=overrides,
             app_server_extra_args=self._app_server_extra_args,
         )
 
@@ -530,6 +538,43 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
                     return value
         return None
 
+    def _resolve_verbosity(
+        self, request: ConnectorChatCompletionsRequest
+    ) -> str | None:
+        allowed = {"low", "medium", "high"}
+
+        def _accept(raw: object) -> str | None:
+            if not isinstance(raw, str) or not raw.strip():
+                return None
+            value = raw.strip().lower()
+            return value if value in allowed else None
+
+        canonical = _accept(getattr(request.request, "verbosity", None))
+        if canonical is not None:
+            return canonical
+
+        options = request.options if isinstance(request.options, dict) else None
+        extra_body = getattr(request.request, "extra_body", None)
+        extra_dict = extra_body if isinstance(extra_body, dict) else None
+
+        for source in (options, extra_dict):
+            if not source:
+                continue
+            direct = _accept(source.get("verbosity"))
+            if direct is not None:
+                return direct
+            text_cfg = source.get("text")
+            if isinstance(text_cfg, dict):
+                nested = _accept(text_cfg.get("verbosity"))
+                if nested is not None:
+                    return nested
+            for key, raw in source.items():
+                if isinstance(key, str) and key.lower() == "verbosity":
+                    value = _accept(raw)
+                    if value is not None:
+                        return value
+        return None
+
     async def _prepare_turn_request_locked(
         self,
         runtime: CodexAppServerRuntime,
@@ -548,6 +593,14 @@ class OpenAICodexAppServerConnector(BaseAcpConnector[CodexAppServerRuntime]):
         """
 
         await self._cancel_stale_kill_timer(runtime)
+
+        verbosity = self._resolve_verbosity(request)
+        process = runtime.process
+        process_alive = process is not None and process.poll() is None
+        if process_alive and runtime.applied_model_verbosity != verbosity:
+            await self._kill_runtime(runtime)
+        runtime.applied_model_verbosity = verbosity
+
         await self._spawn_process(runtime)
         if not (runtime.initialized and runtime.thread_id):
             try:

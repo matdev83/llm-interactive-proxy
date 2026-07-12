@@ -72,7 +72,12 @@ def _try_list_tracked_test_py_files(project_root: Path) -> list[Path] | None:
         name = Path(rel).name
         if not _is_pytest_style_test_module(name):
             continue
-        out.append(project_root / rel)
+        path = project_root / rel
+        # A dirty worktree may contain a tracked path that has already been
+        # renamed locally but is not staged yet. Do not report that stale path
+        # as a duplicate while scanning the current filesystem.
+        if path.exists():
+            out.append(path)
     return out
 
 

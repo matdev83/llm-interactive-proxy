@@ -80,6 +80,21 @@ class TestParserHappyPath:
         assert profile.context_window == 372000
         assert profile.max_context_window == 372000
 
+    def test_parse_preserves_verbosity_fields(self, parser, raw_catalog) -> None:
+        catalog = parser.parse(raw_catalog)
+        sol = catalog.get_profile("gpt-5.6-sol")
+        assert sol is not None
+        assert sol.support_verbosity is True
+        assert sol.default_verbosity == "low"
+        # First-class fields must not remain only in extra
+        assert "support_verbosity" not in sol.extra
+        assert "default_verbosity" not in sol.extra
+
+        unsupported = catalog.get_profile("gpt-5.5")
+        assert unsupported is not None
+        assert unsupported.support_verbosity is False
+        assert unsupported.default_verbosity is None
+
 
 class TestParserEdgeCases:
     def test_parse_empty_models(self, parser) -> None:

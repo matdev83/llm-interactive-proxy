@@ -659,9 +659,10 @@ class TestParameterResolutionService:
         assert hasattr(service, "SUPPORTED_PARAMETERS")
         assert "temperature" in service.SUPPORTED_PARAMETERS
         assert "reasoning_effort" in service.SUPPORTED_PARAMETERS
+        assert "verbosity" in service.SUPPORTED_PARAMETERS
         assert "top_p" in service.SUPPORTED_PARAMETERS
         assert "top_k" in service.SUPPORTED_PARAMETERS
-        assert len(service.SUPPORTED_PARAMETERS) == 4
+        assert len(service.SUPPORTED_PARAMETERS) == 5
 
     # ========================================================================
     # Integration-like Tests

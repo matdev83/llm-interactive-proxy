@@ -149,12 +149,18 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
             extra_body["stream_options"] = stream_opts.model_dump()  # type: ignore[attr-defined]
         else:
             extra_body["stream_options"] = stream_opts
+    text_verbosity: str | None = None
     if responses_request.text is not None:
         text_cfg = responses_request.text
         if hasattr(text_cfg, "model_dump") and not isinstance(text_cfg, dict):
-            extra_body["text"] = text_cfg.model_dump()  # type: ignore[attr-defined]
+            text_payload = text_cfg.model_dump()  # type: ignore[attr-defined]
         else:
-            extra_body["text"] = text_cfg
+            text_payload = text_cfg
+        extra_body["text"] = text_payload
+        if isinstance(text_payload, dict):
+            candidate_verbosity = text_payload.get("verbosity")
+            if isinstance(candidate_verbosity, str) and candidate_verbosity.strip():
+                text_verbosity = candidate_verbosity
 
     messages = responses_request.messages or []
     # Ensure we have at least one message - convert input if messages is empty
@@ -241,6 +247,7 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
         parallel_tool_calls=responses_request.parallel_tool_calls,
         reasoning=reasoning_config,
         reasoning_effort=reasoning_effort,
+        verbosity=text_verbosity,
         service_tier=responses_request.service_tier,
         request_metadata=request_metadata,
     )
@@ -279,7 +286,37 @@ def from_domain_to_responses_request(request: CanonicalChatRequest) -> dict[str,
         if safe_extra_body:
             payload.update(safe_extra_body)
 
+    # Responses API uses nested text.verbosity; Chat Completions uses top-level
+    # verbosity. Move/merge the canonical field and strip the top-level key.
+    _apply_responses_verbosity(payload, request)
+
     return payload
+
+
+def _apply_responses_verbosity(
+    payload: dict[str, Any], request: CanonicalChatRequest
+) -> None:
+    """Ensure Responses payloads use ``text.verbosity`` rather than top-level."""
+    verbosity: str | None = None
+    raw = getattr(request, "verbosity", None)
+    if isinstance(raw, str) and raw.strip():
+        verbosity = raw.strip()
+    elif isinstance(payload.get("verbosity"), str) and payload["verbosity"].strip():
+        verbosity = payload["verbosity"].strip()
+
+    # Top-level verbosity is invalid on Responses; always remove if present.
+    payload.pop("verbosity", None)
+
+    if verbosity is None:
+        return
+
+    existing_text = payload.get("text")
+    if isinstance(existing_text, dict):
+        text_obj = dict(existing_text)
+    else:
+        text_obj = {}
+    text_obj["verbosity"] = verbosity
+    payload["text"] = text_obj
 
 
 def filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:

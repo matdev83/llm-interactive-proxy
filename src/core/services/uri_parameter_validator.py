@@ -48,6 +48,14 @@ class URIParameterValidator:
                 "levels such as xhigh and max where the upstream API supports them)"
             ),
         },
+        "verbosity": {
+            "type": str,
+            "allowed": ["low", "medium", "high"],
+            "description": (
+                "Controls output verbosity for GPT-5 family models "
+                "(Chat Completions top-level; Responses/Codex text.verbosity)"
+            ),
+        },
         "top_p": {
             "type": float,
             "min": 0.0,

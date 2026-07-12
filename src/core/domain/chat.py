@@ -338,6 +338,9 @@ class ChatRequest(ValueObject):
     reasoning_effort: str | None = None
     reasoning: dict[str, Any] | None = None
 
+    # Output verbosity for GPT-5 family models (low|medium|high)
+    verbosity: str | None = None
+
     # Gemini-specific reasoning parameters
     thinking_budget: int | None = None
     generation_config: dict[str, Any] | None = None

@@ -258,10 +258,9 @@ class BackendRequestPreparer(IBackendRequestPreparer):
 
         # Apply URI parameters with precedence resolution
         # Note: URIParameterApplicator.apply handles exceptions internally
-        if uri_params:
-            domain_request = self._uri_parameter_applicator.apply(
-                domain_request, uri_params, backend_type, session
-            )
+        domain_request = self._uri_parameter_applicator.apply(
+            domain_request, uri_params, backend_type, session
+        )
 
         return cast(CanonicalChatRequest, domain_request)
 
