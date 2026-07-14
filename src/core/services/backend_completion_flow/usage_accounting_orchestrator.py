@@ -13,6 +13,8 @@ from pydantic.types import JsonValue
 from src.connectors.base import LLMBackend
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import (
+    APIConnectionError,
+    APITimeoutError,
     AuthenticationError,
     BackendError,
     RateLimitExceededError,
@@ -25,6 +27,7 @@ from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.translation_utils.processed_response_usage import (
     usage_summary_from_processed_response,
 )
+from src.core.domain.usage_canonical_record import UsageCompletionOutcome
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.backend_completion_collaborators import (
     IUsageAccountingOrchestrator,
@@ -49,9 +52,64 @@ from src.core.services.resilience.scope import build_resilience_instance_id
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
+from src.core.services.streaming.stream_recovery_budget import (
+    get_or_init_stream_recovery_budget,
+)
 from src.core.utils.usage_recalculation import calculate_outbound_tokens
 
 logger = logging.getLogger(__name__)
+
+
+def _stream_emitted_meaningful_output(context: RequestContext | None) -> bool:
+    """Return True when streaming already marked meaningful backend output."""
+    if context is None:
+        return False
+    budget = get_or_init_stream_recovery_budget(context)
+    return bool(budget is not None and budget.meaningful_output_emitted)
+
+
+def _record_streaming_resilience_outcome(
+    resilience: IResilienceCoordinator | None,
+    *,
+    instance_id: str | None,
+    effective_model: str,
+    completion_outcome: UsageCompletionOutcome | None,
+    stream_error: Exception | None,
+    error_classification: str | None,
+    context: RequestContext | None,
+    backend_type: str,
+) -> None:
+    """Record circuit-breaker outcome for a finished stream (no awaits).
+
+    Usage accounting may still classify client disconnect as incomplete; resilience
+    treats disconnect-after-meaningful-output as success so half-open probes heal.
+    """
+    if resilience is None or not instance_id:
+        return
+
+    if completion_outcome == UsageCompletionOutcome.complete:
+        resilience.record_success(instance_id, effective_model)
+        return
+
+    # Incomplete / disconnect with no explicit stream error: do not penalize.
+    if stream_error is None and error_classification is None:
+        if _stream_emitted_meaningful_output(context):
+            resilience.record_success(instance_id, effective_model)
+            return
+        resilience.release_circuit_breaker_probe(instance_id)
+        return
+
+    failure_error = stream_error
+    if failure_error is None:
+        failure_error = BackendError(
+            message=(
+                "Streaming terminated with error chunk"
+                if error_classification
+                else "Streaming terminated incompletely"
+            ),
+            backend_name=backend_type,
+        )
+    resilience.record_failure(instance_id, effective_model, failure_error)
 
 
 def _to_usage_summary(usage: Any) -> UsageSummary | None:
@@ -482,8 +540,6 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         # Record a failure for resilience/cooldown purposes and return as-is.
         status_code = getattr(result, "status_code", 200)
         if isinstance(status_code, int) and status_code >= 400 and self._resilience:
-            from src.core.common.exceptions import BackendError
-
             instance_id = build_resilience_instance_id(backend_type, context)
             # Best-effort: preserve upstream error info if available.
             message = f"Backend returned {status_code} error"
@@ -526,9 +582,6 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             resilience_instance_id = build_resilience_instance_id(backend_type, context)
 
         async def _inject_session_id_and_track_usage() -> Any:
-            from src.core.domain.usage_canonical_record import (
-                UsageCompletionOutcome,
-            )
             from src.core.domain.usage_normalization_context import (
                 UsageNormalizationContext,
             )
@@ -615,12 +668,6 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                 stream_error = e
                 # Classify error (only if not already classified from metadata)
                 if error_classification is None:
-                    from src.core.common.exceptions import (
-                        APIConnectionError,
-                        APITimeoutError,
-                        BackendError,
-                    )
-
                     if isinstance(e, APITimeoutError):
                         error_classification = "timeout"
                     elif isinstance(e, BackendError):
@@ -631,6 +678,19 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         error_classification = "unknown"
                 raise
             finally:
+                # Resilience first (no awaits): probe release/success must not be skipped
+                # if usage normalization awaits during async-generator cleanup.
+                _record_streaming_resilience_outcome(
+                    self._resilience,
+                    instance_id=resilience_instance_id,
+                    effective_model=effective_model,
+                    completion_outcome=completion_outcome,
+                    stream_error=stream_error,
+                    error_classification=error_classification,
+                    context=context,
+                    backend_type=backend_type,
+                )
+
                 # Build canonical usage when stream completes
                 if (
                     self._usage_normalization_service
@@ -711,40 +771,6 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         logger.warning(
                             f"Failed to build canonical usage for streaming response: {e}",
                             exc_info=True,
-                        )
-
-                # Record resilience outcome AFTER stream completion.
-                # Streaming failures can happen after the backend call returns.
-                if self._resilience and resilience_instance_id:
-                    if completion_outcome == UsageCompletionOutcome.complete:
-                        self._resilience.record_success(
-                            resilience_instance_id, effective_model
-                        )
-                    else:
-                        # Do not penalize the backend for client disconnect.
-                        if stream_error is None and error_classification is None:
-                            # No explicit error observed; treat as neutral.
-                            self._resilience.release_circuit_breaker_probe(
-                                resilience_instance_id
-                            )
-                            return
-
-                        if stream_error is None:
-                            from src.core.common.exceptions import BackendError
-
-                            stream_error = BackendError(
-                                message=(
-                                    "Streaming terminated with error chunk"
-                                    if error_classification
-                                    else "Streaming terminated incompletely"
-                                ),
-                                backend_name=backend_type,
-                            )
-
-                        self._resilience.record_failure(
-                            resilience_instance_id,
-                            effective_model,
-                            stream_error,
                         )
 
             if session_id and self._planning_phase_manager:

@@ -1,5 +1,6 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -471,3 +472,243 @@ class TestUsageAccountingOrchestrator:
         assert passed_usage.prompt_tokens == expected.prompt_tokens
         assert passed_usage.completion_tokens == expected.completion_tokens
         assert passed_usage.total_tokens == expected.total_tokens
+
+    @pytest.mark.asyncio
+    async def test_client_disconnect_after_meaningful_output_records_success(
+        self,
+        orchestrator,
+        resilience_coordinator,
+        stream_session_id_resolver,
+    ) -> None:
+        """OpenCode-style disconnect after finished stream must heal the breaker."""
+        from src.core.services.streaming.stream_recovery_budget import (
+            mark_stream_meaningful_output,
+        )
+
+        async def _stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=b'data: {"choices":[]}\n\n', metadata={})
+            yield ProcessedResponse(content=b"data: [DONE]\n\n", metadata={})
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=SimpleNamespace(app_config=None),
+            session_id="sess_disconnect_ok",
+        )
+        mark_stream_meaningful_output(context)
+        stream_session_id_resolver.resolve_stream_session_id.return_value = (
+            "sess_disconnect_ok"
+        )
+
+        result = await orchestrator.handle_streaming_response(
+            result=StreamingResponseEnvelope(content=_stream()),
+            backend_type="openai-codex",
+            effective_model="gpt-5.6-sol",
+            context=context,
+            request=Mock(),
+            session_id_for_backend="sess_disconnect_ok",
+        )
+        assert result.content is not None
+        agen = cast(AsyncGenerator[ProcessedResponse, None], result.content)
+        first = await agen.__anext__()
+        assert first is not None
+        await agen.aclose()
+
+        resilience_coordinator.record_success.assert_called_once_with(
+            "openai-codex:sess_disconnect_ok",
+            "gpt-5.6-sol",
+        )
+        resilience_coordinator.release_circuit_breaker_probe.assert_not_called()
+        resilience_coordinator.record_failure.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_client_disconnect_without_meaningful_output_releases_probe_only(
+        self,
+        orchestrator,
+        resilience_coordinator,
+        stream_session_id_resolver,
+    ) -> None:
+        async def _stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=b"data: {}\n\n", metadata={})
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=SimpleNamespace(app_config=None),
+            session_id="sess_disconnect_empty",
+        )
+        stream_session_id_resolver.resolve_stream_session_id.return_value = (
+            "sess_disconnect_empty"
+        )
+
+        result = await orchestrator.handle_streaming_response(
+            result=StreamingResponseEnvelope(content=_stream()),
+            backend_type="openai-codex",
+            effective_model="gpt-5.6-sol",
+            context=context,
+            request=Mock(),
+            session_id_for_backend="sess_disconnect_empty",
+        )
+        assert result.content is not None
+        agen = cast(AsyncGenerator[ProcessedResponse, None], result.content)
+        await agen.__anext__()
+        await agen.aclose()
+
+        resilience_coordinator.release_circuit_breaker_probe.assert_called_once_with(
+            "openai-codex:sess_disconnect_empty"
+        )
+        resilience_coordinator.record_success.assert_not_called()
+        resilience_coordinator.record_failure.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resilience_recorded_before_usage_normalization_failure(
+        self,
+        usage_tracking_service,
+        usage_tracking_wrapper,
+        stream_session_id_resolver,
+        planning_phase_manager,
+        resilience_coordinator,
+    ) -> None:
+        from src.core.domain.request_context import ProcessingContext
+        from src.core.interfaces.usage_normalization_service_interface import (
+            IUsageNormalizationService,
+        )
+        from src.core.services.streaming.stream_recovery_budget import (
+            mark_stream_meaningful_output,
+        )
+
+        mock_norm = Mock(spec=IUsageNormalizationService)
+        mock_norm.build_canonical_record = AsyncMock(
+            side_effect=RuntimeError("usage normalization boom")
+        )
+        orch = UsageAccountingOrchestrator(
+            usage_tracking_service=usage_tracking_service,
+            usage_tracking_wrapper=usage_tracking_wrapper,
+            stream_session_id_resolver=stream_session_id_resolver,
+            planning_phase_manager=planning_phase_manager,
+            resilience_coordinator=resilience_coordinator,
+            usage_normalization_service=mock_norm,
+        )
+
+        async def _stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=b"data: {}\n\n", metadata={})
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=SimpleNamespace(app_config=None),
+            session_id="sess_norm_fail",
+            processing_context=ProcessingContext(),
+        )
+        mark_stream_meaningful_output(context)
+        stream_session_id_resolver.resolve_stream_session_id.return_value = (
+            "sess_norm_fail"
+        )
+
+        result = await orch.handle_streaming_response(
+            result=StreamingResponseEnvelope(content=_stream()),
+            backend_type="openai-codex",
+            effective_model="gpt-5.6-sol",
+            context=context,
+            request=Mock(),
+            session_id_for_backend="sess_norm_fail",
+        )
+        assert result.content is not None
+        agen = cast(AsyncGenerator[ProcessedResponse, None], result.content)
+        await agen.__anext__()
+        await agen.aclose()
+
+        resilience_coordinator.record_success.assert_called_once_with(
+            "openai-codex:sess_norm_fail",
+            "gpt-5.6-sol",
+        )
+
+
+class TestRecordStreamingResilienceOutcome:
+    def test_disconnect_after_meaningful_output_closes_half_open_circuit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import src.core.services.resilience.circuit_breaker_state as cb_module
+        from src.core.config.models.misc import CircuitBreakerConfig
+        from src.core.domain.usage_canonical_record import UsageCompletionOutcome
+        from src.core.services.backend_completion_flow.usage_accounting_orchestrator import (
+            _record_streaming_resilience_outcome,
+        )
+        from src.core.services.provider_error_classifier import ProviderErrorClassifier
+        from src.core.services.resilience.circuit_breaker_state import (
+            CircuitBreakerStateManager,
+        )
+        from src.core.services.resilience.coordinator import ResilienceCoordinator
+        from src.core.services.resilience.handlers import CircuitBreakerErrorHandler
+        from src.core.services.resilience.rate_limit_state import RateLimitStateManager
+        from src.core.services.streaming.stream_recovery_budget import (
+            mark_stream_meaningful_output,
+        )
+
+        class _FakeClock:
+            def __init__(self) -> None:
+                self._now = 1000.0
+
+            def monotonic(self) -> float:
+                return self._now
+
+            def advance(self, seconds: float) -> None:
+                self._now += seconds
+
+        clock = _FakeClock()
+        monkeypatch.setattr(cb_module.time, "monotonic", clock.monotonic)
+
+        circuit_state = CircuitBreakerStateManager(
+            CircuitBreakerConfig(
+                failure_threshold=1,
+                open_cooldown_seconds=5.0,
+                half_open_max_inflight=1,
+                half_open_success_threshold=1,
+            )
+        )
+        coordinator = ResilienceCoordinator(
+            state_manager=RateLimitStateManager(),
+            provider_error_classifier=ProviderErrorClassifier(),
+            error_handler_chain=CircuitBreakerErrorHandler(circuit_state),
+            circuit_breaker_state=circuit_state,
+        )
+        instance_id = "openai-codex:sess_half_open"
+
+        coordinator.record_failure(instance_id, "gpt-5.6-sol", TimeoutError("boom"))
+        assert (
+            coordinator.check_availability(instance_id, "gpt-5.6-sol").should_proceed()
+            is False
+        )
+        clock.advance(5.1)
+        assert coordinator.try_acquire_circuit_breaker_probe(instance_id) is True
+        assert (
+            coordinator.check_availability(instance_id, "gpt-5.6-sol").reason
+            == "half_open_probe_inflight"
+        )
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=SimpleNamespace(app_config=None),
+            session_id="sess_half_open",
+        )
+        mark_stream_meaningful_output(context)
+
+        _record_streaming_resilience_outcome(
+            coordinator,
+            instance_id=instance_id,
+            effective_model="gpt-5.6-sol",
+            completion_outcome=UsageCompletionOutcome.incomplete,
+            stream_error=None,
+            error_classification=None,
+            context=context,
+            backend_type="openai-codex",
+        )
+
+        decision = coordinator.check_availability(instance_id, "gpt-5.6-sol")
+        assert decision.should_proceed() is True
+        assert coordinator.try_acquire_circuit_breaker_probe(instance_id) is True
