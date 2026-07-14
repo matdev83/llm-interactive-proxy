@@ -197,7 +197,7 @@ class TestCursorCliAcpInitialization:
             await connector.initialize(cursor_cli_executable=fake)
 
         assert connector.is_backend_functional() is True
-        assert connector._default_project_dir is None
+        assert connector._default_project_dir == Path.cwd().resolve()
 
     async def test_initialize_ignores_dot_workspace_path(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
@@ -214,7 +214,35 @@ class TestCursorCliAcpInitialization:
             )
 
         assert connector.is_backend_functional() is True
-        assert connector._default_project_dir is None
+        assert connector._default_project_dir == Path.cwd().resolve()
+
+
+class TestCursorCliAcpRuntimeReuse:
+    def test_runtime_key_ignores_proxy_session_id(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        first = connector._build_runtime_key(temp_workspace, "composer-2", "b-leg-1")
+        second = connector._build_runtime_key(temp_workspace, "composer-2", "b-leg-2")
+
+        assert first == second
+
+    async def test_history_change_does_not_restart_shared_cursor_runtime(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "composer-2")
+        first_messages = [ChatMessage(role="user", content="first")]
+        second_messages = [ChatMessage(role="user", content="second")]
+
+        first_text, first_state = await connector._compute_history_and_user_message(
+            runtime, first_messages
+        )
+        runtime.history_state = first_state
+        second_text, _ = await connector._compute_history_and_user_message(
+            runtime, second_messages
+        )
+
+        assert "first" in first_text
+        assert second_text == "second"
 
 
 class TestCursorCliAcpProtocol:

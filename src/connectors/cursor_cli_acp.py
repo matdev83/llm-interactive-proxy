@@ -16,7 +16,12 @@ from typing import Any
 import httpx
 
 from src.connectors.acp_core.base_connector import BaseAcpConnector
-from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
+from src.connectors.acp_core.transcript import ACPTranscriptSerializer
+from src.connectors.acp_core.types import (
+    ACPNotification,
+    ACPProcessRuntime,
+    HistoryState,
+)
 from src.connectors.acp_core.workspace_policy import resolve_backend_init_acp_workspace
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.core.common.exceptions import BackendError, ConfigurationError
@@ -115,7 +120,10 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
 
     backend_type: str = "cursor-cli-acp"
     VENDOR_PREFIX: str = "cursor"
-    requires_explicit_workspace: bool = True
+    # Cursor's CLI process is authenticated once and then reused across proxy
+    # request/session identifiers.  Those identifiers are B2BUA attempt ids,
+    # not Cursor conversation identities.
+    requires_explicit_workspace: bool = False
 
     def __init__(
         self,
@@ -158,6 +166,22 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     message=cfg_err,
                     details={"error_code": "cursor_cli_acp_workspace_invalid"},
                 )
+            if workspace is None:
+                configured_project_dir = (
+                    kwargs.get("project_dir")
+                    or kwargs.get("workspace_path")
+                    or os.getenv("CURSOR_CLI_WORKSPACE")
+                    or os.getcwd()
+                )
+                workspace = Path(str(configured_project_dir)).expanduser().resolve()
+                if not self._is_usable_directory(workspace):
+                    raise ConfigurationError(
+                        message=(
+                            "Project directory does not exist or is not readable: "
+                            f"{configured_project_dir}"
+                        ),
+                        details={"project_dir": str(configured_project_dir)},
+                    )
             self._default_project_dir = workspace
             exe_kw = kwargs.get("cursor_cli_executable") or kwargs.get(
                 "agent_executable"
@@ -314,6 +338,41 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         return [
             add_vendor_prefix(m, self.VENDOR_PREFIX) for m in _DEFAULT_CURSOR_MODEL_IDS
         ]
+
+    def _build_runtime_key(
+        self, project_dir: Path, model: str, client_session_id: str
+    ) -> tuple[str, str, str]:
+        """Reuse one Cursor child per workspace/model, regardless of B2BUA ids."""
+        _ = client_session_id
+        return super()._build_runtime_key(project_dir, model, "default")
+
+    async def _compute_history_and_user_message(
+        self,
+        runtime: ACPProcessRuntime,
+        messages: Sequence[Any],
+    ) -> tuple[str, HistoryState]:
+        """Keep the pre-session-isolation Cursor transcript behavior.
+
+        Cursor's ACP child is shared across proxy request/session identifiers;
+        send the full transcript only when that child is first started, then
+        send the latest user message on subsequent turns.  The generic ACP
+        divergence reset would otherwise restart Cursor and re-authenticate it
+        whenever a new B2BUA attempt has a different message prefix.
+        """
+        if runtime.history_state is None:
+            return (
+                ACPTranscriptSerializer.serialize(messages),
+                HistoryState(message_count=len(messages), prefix_hash="cursor-shared"),
+            )
+
+        return (
+            self._extract_user_message_as_string(messages),
+            HistoryState(message_count=len(messages), prefix_hash="cursor-shared"),
+        )
+
+    def _stale_acp_kill_enabled(self) -> bool:
+        """Keep the authenticated Cursor ACP child alive across idle periods."""
+        return False
 
     async def _build_subprocess_command(self, runtime: ACPProcessRuntime) -> list[str]:
         return build_cursor_agent_acp_command(
