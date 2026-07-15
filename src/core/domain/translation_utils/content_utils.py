@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
-_EMPTY_HTML_COMMENT_RE = re.compile(r"<!--\s*-->")
-_TRAILING_HTML_COMMENT_OPEN_RE = re.compile(r"<!--\s*$")
+_EMPTY_HTML_COMMENT_RE = re.compile(r"[ \t]*<!--\s*-->[ \t]*")
+_TRAILING_HTML_COMMENT_OPEN_RE = re.compile(r"[ \t]*<!--\s*$")
 _LEADING_HTML_COMMENT_CLOSE_RE = re.compile(r"^\s*-->\s*")
+_HTML_COMMENT_BOUNDARY_RE = re.compile(
+    rf"{_EMPTY_HTML_COMMENT_RE.pattern}|{_TRAILING_HTML_COMMENT_OPEN_RE.pattern}"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningSummarySanitizerState:
+    """Cross-delta state for hidden Codex reasoning-summary boundaries."""
+
+    has_visible_text: bool = False
+    previous_ended_with_newline: bool = False
+    separator_pending: bool = False
 
 
 def collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
@@ -66,12 +79,46 @@ def coerce_reasoning_text(value: Any) -> str | None:
     return "\n".join(parts)
 
 
-def strip_empty_html_comment_markers(text: str) -> str:
-    """Remove private empty HTML comment markers from visible reasoning text."""
-    text = _EMPTY_HTML_COMMENT_RE.sub("", text)
-    text = _TRAILING_HTML_COMMENT_OPEN_RE.sub("", text)
+def sanitize_reasoning_summary_stream_delta(
+    text: str,
+    state: ReasoningSummarySanitizerState | None = None,
+) -> tuple[str, ReasoningSummarySanitizerState]:
+    """Hide markers and resolve one separator using both neighboring deltas."""
+    current = state or ReasoningSummarySanitizerState()
+    has_visible_text = current.has_visible_text
+    previous_ended_with_newline = current.previous_ended_with_newline
+    separator_pending = current.separator_pending
+    output: list[str] = []
+
     text = _LEADING_HTML_COMMENT_CLOSE_RE.sub("", text)
-    return text
+    for index, part in enumerate(_HTML_COMMENT_BOUNDARY_RE.split(text)):
+        if index > 0:
+            separator_pending = separator_pending or has_visible_text
+        if not part:
+            continue
+        if separator_pending:
+            if (
+                has_visible_text
+                and not previous_ended_with_newline
+                and not part.startswith(("\r", "\n"))
+            ):
+                output.append("\n")
+            separator_pending = False
+        output.append(part)
+        has_visible_text = True
+        previous_ended_with_newline = part.endswith(("\r", "\n"))
+
+    return "".join(output), ReasoningSummarySanitizerState(
+        has_visible_text=has_visible_text,
+        previous_ended_with_newline=previous_ended_with_newline,
+        separator_pending=separator_pending,
+    )
+
+
+def strip_empty_html_comment_markers(text: str) -> str:
+    """Remove markers from one isolated reasoning-summary value."""
+    sanitized, _ = sanitize_reasoning_summary_stream_delta(text)
+    return sanitized
 
 
 def safe_string(value: Any) -> str:

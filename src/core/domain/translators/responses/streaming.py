@@ -10,7 +10,8 @@ from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.chat import FunctionCall, ToolCall
 from src.core.domain.tool_text_renderer import render_tool_call
 from src.core.domain.translation_utils.content_utils import (
-    strip_empty_html_comment_markers,
+    ReasoningSummarySanitizerState,
+    sanitize_reasoning_summary_stream_delta,
 )
 from src.core.domain.translation_utils.tool_call_state import (
     accumulate_tool_call_arguments,
@@ -187,11 +188,18 @@ def _normalize_shell_like_tool_arguments_json(
 _active_responses_stream_id: ContextVar[str | None] = ContextVar(
     "active_responses_stream_id", default=None
 )
+_reasoning_summary_sanitizer_state: ContextVar[ReasoningSummarySanitizerState] = (
+    ContextVar(
+        "reasoning_summary_sanitizer_state",
+        default=ReasoningSummarySanitizerState(),
+    )
+)
 
 
 def reset_active_responses_stream_context() -> None:
     """Clear active Responses stream id (tests, teardown, or error recovery)."""
     _active_responses_stream_id.set(None)
+    _reasoning_summary_sanitizer_state.set(ReasoningSummarySanitizerState())
 
 
 def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
@@ -328,7 +336,11 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
 
     if event_type == "response.reasoning_summary_text.delta":
         summary_text = _extract_text(chunk.get("delta"))
-        summary_text = strip_empty_html_comment_markers(summary_text)
+        summary_text, sanitizer_state = sanitize_reasoning_summary_stream_delta(
+            summary_text,
+            _reasoning_summary_sanitizer_state.get(),
+        )
+        _reasoning_summary_sanitizer_state.set(sanitizer_state)
         if not summary_text:
             return _build_chunk()
         return _build_chunk({"reasoning_summary": summary_text})
@@ -578,6 +590,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         if response_id:
             result["response_id"] = response_id
             reset_tool_call_state(response_id)
+        _reasoning_summary_sanitizer_state.set(ReasoningSummarySanitizerState())
         _active_responses_stream_id.set(None)
         return result
 
@@ -586,6 +599,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         response_id = response_info.get("id") or chunk_id
         if response_id:
             reset_tool_call_state(response_id)
+        _reasoning_summary_sanitizer_state.set(ReasoningSummarySanitizerState())
         created_delta: dict[str, Any] = {}
         if response_id:
             created_delta["response_id"] = response_id
@@ -596,6 +610,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         response_info = chunk.get("response") or {}
         error_payload = response_info.get("error") or chunk.get("error") or {}
         reset_tool_call_state(response_info.get("id") or chunk_id)
+        _reasoning_summary_sanitizer_state.set(ReasoningSummarySanitizerState())
         _active_responses_stream_id.set(None)
         return _build_error_chunk(error_payload)
 

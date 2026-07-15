@@ -82,6 +82,67 @@ def test_reasoning_summary_delta_suppresses_split_comment_close() -> None:
     assert out["choices"][0]["delta"] == {}
 
 
+def test_reasoning_summary_split_comment_preserves_thought_separator() -> None:
+    """A split empty comment separates adjacent Codex reasoning thoughts."""
+    responses_to_domain_stream_chunk(
+        {
+            "type": "response.created",
+            "response": {"id": "resp_split_comment_separator"},
+        }
+    )
+    deltas = (
+        "Planning comprehensive commit submission<!--",
+        " -->",
+        "Designing phased stacked pull requests",
+    )
+    rendered: list[str] = []
+
+    for delta in deltas:
+        out = responses_to_domain_stream_chunk(
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "delta": delta,
+            }
+        )
+        rendered.append(out["choices"][0]["delta"].get("reasoning_summary", ""))
+
+    assert "".join(rendered) == (
+        "Planning comprehensive commit submission\n"
+        "Designing phased stacked pull requests"
+    )
+
+
+@pytest.mark.parametrize(
+    ("deltas", "expected"),
+    [
+        (("thought\n", "<!--", " -->", "next"), "thought\nnext"),
+        (("thought", "<!--", " -->", "\nnext"), "thought\nnext"),
+    ],
+)
+def test_reasoning_summary_separator_respects_newline_in_adjacent_delta(
+    deltas: tuple[str, ...], expected: str
+) -> None:
+    """Marker chunking must not duplicate a neighboring newline."""
+    responses_to_domain_stream_chunk(
+        {
+            "type": "response.created",
+            "response": {"id": "resp_adjacent_newline"},
+        }
+    )
+    rendered: list[str] = []
+
+    for delta in deltas:
+        out = responses_to_domain_stream_chunk(
+            {
+                "type": "response.reasoning_summary_text.delta",
+                "delta": delta,
+            }
+        )
+        rendered.append(out["choices"][0]["delta"].get("reasoning_summary", ""))
+
+    assert "".join(rendered) == expected
+
+
 def test_partial_tool_call_events_are_buffered_until_output_item_done() -> None:
     """Responses partial tool-call chunks should not surface before the final done event."""
     response_id = "resp_tool_delta_buffer_1"
