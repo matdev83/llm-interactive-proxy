@@ -131,9 +131,14 @@ async def test_websocket_non_streaming_store_before_response_done_send(
         payload: dict[str, Any],
         *,
         instructions: str | None = None,
+        history_items: list[Any] | None = None,
     ) -> None:
         order.append("store_start")
-        await orig_store(payload, instructions=instructions)
+        await orig_store(
+            payload,
+            instructions=instructions,
+            history_items=history_items,
+        )
         order.append("store_end")
 
     controller._store_completed_responses_payload = track_store  # type: ignore[method-assign]

@@ -22,8 +22,13 @@ _TERMINAL_TYPES: frozenset[ResponsesSemanticEventType] = frozenset(
 )
 
 
+class ResponsesStreamAbortedError(Exception):
+    """Signal that a stream ended before a Responses terminal event was emitted."""
+
+
 class ResponsesStreamSource(str, Enum):
     OPENAI_RESPONSES = "openai_responses"
+    OPENAI_CHAT_COMPLETIONS = "openai_chat_completions"
     ANTHROPIC = "anthropic"
     GEMINI = "gemini"
 
@@ -109,6 +114,11 @@ class ResponsesEventNormalizer:
         self._active_response_id = response_id
         self._seq = 0
         self._openai_legacy_stream_started = False
+        self._openai_legacy_text_started = False
+        self._openai_legacy_text_finalized = False
+        self._openai_legacy_response_id: str | None = None
+        self._openai_legacy_model: str | None = None
+        self._openai_legacy_text_fragments: list[str] = []
         self._gemini_lifecycle_started = False
         self._anthropic_message_id: str | None = None
         self._anthropic_items: dict[int, dict[str, Any]] = {}
@@ -213,15 +223,32 @@ class ResponsesEventNormalizer:
         self, chunks: AsyncIterator[Any]
     ) -> AsyncIterator[ResponsesSemanticEvent]:
         terminal_emitted = False
+        stream_aborted = False
         try:
             async for raw in chunks:
                 for payload in self._unwrap_to_dicts(raw):
                     for event in self._map_payload(payload):
                         if event.type in _TERMINAL_TYPES:
+                            if terminal_emitted:
+                                continue
                             terminal_emitted = True
                         yield event
+        except ResponsesStreamAbortedError:
+            # Client disconnect/cancellation must not be turned into a synthetic
+            # response.completed event.  Re-raise so the renderer can skip both
+            # wire output and chainable session persistence.
+            stream_aborted = True
+            raise
         except Exception as exc:
-            if not terminal_emitted:
+            if not terminal_emitted and not stream_aborted:
+                if (
+                    self._source is ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS
+                    and not self._openai_legacy_stream_started
+                ):
+                    for opening_event in self._start_openai_legacy_stream(
+                        self._default_response_id, None
+                    ):
+                        yield opening_event
                 yield self._next(
                     type=ResponsesSemanticEventType.RESPONSE_FAILED,
                     response_id=self._default_response_id,
@@ -233,15 +260,52 @@ class ResponsesEventNormalizer:
                 terminal_emitted = True
             return
         finally:
-            if not terminal_emitted:
+            if not terminal_emitted and not stream_aborted:
+                if (
+                    self._source is ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS
+                    and not self._openai_legacy_stream_started
+                ):
+                    for opening_event in self._start_openai_legacy_stream(
+                        self._default_response_id, None
+                    ):
+                        yield opening_event
+                terminal_response_id = self._default_response_id
+                terminal_response: dict[str, Any] = {"id": self._default_response_id}
+                if self._openai_legacy_stream_started:
+                    terminal_response_id = (
+                        self._openai_legacy_response_id or self._default_response_id
+                    )
+                    for closing_event in self._finalize_openai_legacy_text(
+                        terminal_response_id
+                    ):
+                        yield closing_event
+                    terminal_response = {
+                        "id": terminal_response_id,
+                        "object": "response",
+                        "status": "completed",
+                        "model": self._openai_legacy_model,
+                        "output": (
+                            [
+                                self._build_message_item(
+                                    f"item_{terminal_response_id}_0",
+                                    "".join(self._openai_legacy_text_fragments),
+                                )
+                            ]
+                            if self._openai_legacy_text_started
+                            else []
+                        ),
+                    }
                 yield self._next(
                     type=ResponsesSemanticEventType.RESPONSE_COMPLETED,
-                    response_id=self._default_response_id,
-                    response={"id": self._default_response_id},
+                    response_id=terminal_response_id,
+                    response=terminal_response,
                 )
 
     def _map_payload(self, payload: dict[str, Any]) -> list[ResponsesSemanticEvent]:
-        if self._source == ResponsesStreamSource.OPENAI_RESPONSES:
+        if self._source in {
+            ResponsesStreamSource.OPENAI_RESPONSES,
+            ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS,
+        }:
             return self._map_openai(payload)
         if self._source == ResponsesStreamSource.ANTHROPIC:
             return self._map_anthropic(payload)
@@ -259,7 +323,8 @@ class ResponsesEventNormalizer:
         delta_raw = choice0.get("delta")
         delta: dict[str, Any] = delta_raw if isinstance(delta_raw, dict) else {}
         finish_reason = choice0.get("finish_reason")
-        content = delta.get("content") if isinstance(delta.get("content"), str) else ""
+        content_raw = delta.get("content")
+        content: str = content_raw if isinstance(content_raw, str) else ""
         tool_calls_raw = delta.get("tool_calls")
         tool_calls_list: list[Any] = (
             tool_calls_raw if isinstance(tool_calls_raw, list) else []
@@ -268,33 +333,45 @@ class ResponsesEventNormalizer:
         has_tools = bool(tool_calls_list)
         has_finish = bool(finish_reason)
         if not has_text and not has_tools and not has_finish:
-            # Swallow non-informative legacy chunks (e.g. role-only deltas) without
-            # falling through to PASSTHROUGH in _map_openai.
-            return []
+            # Role-only chunks still establish a valid legacy stream lifecycle.
+            # They are otherwise non-informative and must not leak as passthrough
+            # events on the Responses wire.
+            return self._start_openai_legacy_stream(rid, d.get("model"))
 
-        events: list[ResponsesSemanticEvent] = []
-        if not self._openai_legacy_stream_started:
-            events.append(
-                self._next(
-                    type=ResponsesSemanticEventType.RESPONSE_CREATED,
-                    response_id=rid,
-                    response={
-                        "id": rid,
-                        "model": d.get("model"),
-                        "object": "response",
-                    },
-                )
-            )
-            events.append(
-                self._next(
-                    type=ResponsesSemanticEventType.RESPONSE_IN_PROGRESS,
-                    response_id=rid,
-                )
-            )
-            self._openai_legacy_stream_started = True
+        events = self._start_openai_legacy_stream(rid, d.get("model"))
+        if self._openai_legacy_response_id is not None:
+            rid = self._openai_legacy_response_id
 
         item_id_text = f"item_{rid}_0"
         if has_text:
+            if not self._openai_legacy_text_started:
+                events.extend(
+                    [
+                        self._next(
+                            type=ResponsesSemanticEventType.OUTPUT_ITEM_ADDED,
+                            response_id=rid,
+                            output_index=0,
+                            item_id=item_id_text,
+                            item={
+                                "id": item_id_text,
+                                "type": "message",
+                                "role": "assistant",
+                                "status": "in_progress",
+                                "content": [],
+                            },
+                        ),
+                        self._next(
+                            type=ResponsesSemanticEventType.CONTENT_PART_ADDED,
+                            response_id=rid,
+                            output_index=0,
+                            content_index=0,
+                            item_id=item_id_text,
+                            part={"type": "output_text", "text": ""},
+                        ),
+                    ]
+                )
+                self._openai_legacy_text_started = True
+            self._openai_legacy_text_fragments.append(content)
             events.append(
                 self._next(
                     type=ResponsesSemanticEventType.TEXT_DELTA,
@@ -372,14 +449,104 @@ class ResponsesEventNormalizer:
                 )
 
         if has_finish:
+            error_raw = d.get("error")
+            if isinstance(error_raw, dict) or str(finish_reason) == "error":
+                error = (
+                    dict(error_raw)
+                    if isinstance(error_raw, dict)
+                    else {
+                        "message": "ACP backend stream failed",
+                        "type": "backend_error",
+                    }
+                )
+                events.append(
+                    self._next(
+                        type=ResponsesSemanticEventType.RESPONSE_FAILED,
+                        response_id=rid,
+                        error=error,
+                        response={"id": rid, "object": "response", "error": error},
+                    )
+                )
+                return events
+            text = "".join(self._openai_legacy_text_fragments)
+            if self._openai_legacy_text_started:
+                completed_item = self._build_message_item(item_id_text, text)
+                events.extend(self._finalize_openai_legacy_text(rid))
+                output = [completed_item]
+            else:
+                output = []
             events.append(
                 self._next(
                     type=ResponsesSemanticEventType.RESPONSE_COMPLETED,
                     response_id=rid,
-                    response={"id": rid, "object": "response"},
+                    response={
+                        "id": rid,
+                        "object": "response",
+                        "status": "completed",
+                        "model": d.get("model"),
+                        "output": output,
+                    },
                 )
             )
         return events
+
+    def _start_openai_legacy_stream(
+        self, rid: str, model: Any
+    ) -> list[ResponsesSemanticEvent]:
+        if self._openai_legacy_stream_started:
+            return []
+
+        self._openai_legacy_response_id = rid
+        self._openai_legacy_model = model if isinstance(model, str) else None
+        self._openai_legacy_stream_started = True
+        return [
+            self._next(
+                type=ResponsesSemanticEventType.RESPONSE_CREATED,
+                response_id=rid,
+                response={
+                    "id": rid,
+                    "model": model,
+                    "object": "response",
+                },
+            ),
+            self._next(
+                type=ResponsesSemanticEventType.RESPONSE_IN_PROGRESS,
+                response_id=rid,
+            ),
+        ]
+
+    def _finalize_openai_legacy_text(self, rid: str) -> list[ResponsesSemanticEvent]:
+        if self._openai_legacy_text_finalized or not self._openai_legacy_text_started:
+            return []
+        self._openai_legacy_text_finalized = True
+        text = "".join(self._openai_legacy_text_fragments)
+        item_id = f"item_{rid}_0"
+        completed_item = self._build_message_item(item_id, text)
+        return [
+            self._next(
+                type=ResponsesSemanticEventType.TEXT_DONE,
+                response_id=rid,
+                output_index=0,
+                content_index=0,
+                item_id=item_id,
+                text=text,
+            ),
+            self._next(
+                type=ResponsesSemanticEventType.CONTENT_PART_DONE,
+                response_id=rid,
+                output_index=0,
+                content_index=0,
+                item_id=item_id,
+                part=self._build_output_text_part(text),
+            ),
+            self._next(
+                type=ResponsesSemanticEventType.OUTPUT_ITEM_DONE,
+                response_id=rid,
+                output_index=0,
+                item_id=item_id,
+                item=completed_item,
+            ),
+        ]
 
     def _map_openai(self, d: dict[str, Any]) -> list[ResponsesSemanticEvent]:
         rid = self._consume_openai_response_id(d)
@@ -539,14 +706,31 @@ class ResponsesEventNormalizer:
                 )
             ]
         if et in {"response.completed", "response.done"}:
+            prefix: list[ResponsesSemanticEvent] = []
+            raw_completed_response = d.get("response")
+            completed_response: dict[str, Any] = (
+                dict(raw_completed_response)
+                if isinstance(raw_completed_response, dict)
+                else {}
+            )
+            if self._openai_legacy_stream_started:
+                rid = self._openai_legacy_response_id or rid
+                prefix = self._finalize_openai_legacy_text(rid)
+                completed_response["id"] = rid
+                if self._openai_legacy_text_started:
+                    completed_response["output"] = [
+                        self._build_message_item(
+                            f"item_{rid}_0",
+                            "".join(self._openai_legacy_text_fragments),
+                        )
+                    ]
             return [
+                *prefix,
                 self._next(
                     type=ResponsesSemanticEventType.RESPONSE_COMPLETED,
                     response_id=rid,
-                    response=(
-                        d.get("response") if isinstance(d.get("response"), dict) else {}
-                    ),
-                )
+                    response=completed_response,
+                ),
             ]
         if et == "response.failed":
             response_obj = (

@@ -99,6 +99,35 @@ class TestJSONResponseBuilder:
         assert response.headers["x-usage-completion-tokens"] == "20"
         assert response.headers["x-usage-total-tokens"] == "30"
 
+    def test_build_preserves_extended_responses_usage_fields(self) -> None:
+        builder = JSONResponseBuilder()
+        envelope = ResponseEnvelope(
+            content={
+                "object": "response",
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                    "total_tokens": 30,
+                    "input_tokens_details": {"cached_tokens": 4},
+                    "output_tokens_details": {"reasoning_tokens": 6},
+                    "cost": 0.0123,
+                },
+            },
+            headers={},
+            status_code=200,
+        )
+
+        body = _parse_json_response_body(builder.build(envelope))
+
+        assert body["usage"] == {
+            "input_tokens": 10,
+            "output_tokens": 20,
+            "total_tokens": 30,
+            "input_tokens_details": {"cached_tokens": 4},
+            "output_tokens_details": {"reasoning_tokens": 6},
+            "cost": 0.0123,
+        }
+
     def test_build_status_code_is_set_correctly(self) -> None:
         """Test that status code is set correctly."""
         builder = JSONResponseBuilder()

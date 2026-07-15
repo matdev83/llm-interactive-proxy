@@ -203,6 +203,40 @@ async def test_openai_response_done_maps_to_completed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_legacy_chat_stream_end_closes_text_lifecycle_once() -> None:
+    n = ResponsesEventNormalizer(
+        source=ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS,
+        response_id="resp_fallback",
+    )
+    events = await _collect(
+        n.normalize(
+            _chunks(
+                {
+                    "id": "chat_exact",
+                    "model": "cursor/glm-5.2-max",
+                    "choices": [{"delta": {"content": "OK"}, "finish_reason": None}],
+                },
+            )
+        )
+    )
+
+    assert [event.type for event in events[-4:]] == [
+        ResponsesSemanticEventType.TEXT_DONE,
+        ResponsesSemanticEventType.CONTENT_PART_DONE,
+        ResponsesSemanticEventType.OUTPUT_ITEM_DONE,
+        ResponsesSemanticEventType.RESPONSE_COMPLETED,
+    ]
+    assert {event.response_id for event in events} == {"chat_exact"}
+    assert (
+        sum(
+            event.type == ResponsesSemanticEventType.RESPONSE_COMPLETED
+            for event in events
+        )
+        == 1
+    )
+
+
+@pytest.mark.asyncio
 async def test_anthropic_sse_string_mapping() -> None:
     n = ResponsesEventNormalizer(
         source=ResponsesStreamSource.ANTHROPIC, response_id="resp_ant"
@@ -531,9 +565,182 @@ async def test_openai_legacy_chat_chunk_maps_lifecycle_and_text_delta() -> None:
     )
     assert events[0].type == ResponsesSemanticEventType.RESPONSE_CREATED
     assert events[1].type == ResponsesSemanticEventType.RESPONSE_IN_PROGRESS
-    assert events[2].type == ResponsesSemanticEventType.TEXT_DELTA
-    assert events[2].delta == "Hello world"
+    text_delta = next(
+        event for event in events if event.type == ResponsesSemanticEventType.TEXT_DELTA
+    )
+    assert text_delta.delta == "Hello world"
     assert events[-1].type == ResponsesSemanticEventType.RESPONSE_COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_acp_legacy_chat_stream_emits_complete_responses_lifecycle_once() -> None:
+    normalizer = ResponsesEventNormalizer(
+        source=ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS,
+        response_id="resp_acp",
+    )
+    events = await _collect(
+        normalizer.normalize(
+            _chunks(
+                'data: {"id":"chat-acp","object":"chat.completion.chunk",'
+                '"model":"cursor/glm-5.2-max","choices":[{"index":0,'
+                '"delta":{"content":"OK"},"finish_reason":null}]}\n\n',
+                'data: {"id":"chat-acp","object":"chat.completion.chunk",'
+                '"model":"cursor/glm-5.2-max","choices":[{"index":0,'
+                '"delta":{},"finish_reason":"stop"}]}\n\n',
+                "data: [DONE]\n\n",
+            )
+        )
+    )
+
+    assert [event.type for event in events] == [
+        ResponsesSemanticEventType.RESPONSE_CREATED,
+        ResponsesSemanticEventType.RESPONSE_IN_PROGRESS,
+        ResponsesSemanticEventType.OUTPUT_ITEM_ADDED,
+        ResponsesSemanticEventType.CONTENT_PART_ADDED,
+        ResponsesSemanticEventType.TEXT_DELTA,
+        ResponsesSemanticEventType.TEXT_DONE,
+        ResponsesSemanticEventType.CONTENT_PART_DONE,
+        ResponsesSemanticEventType.OUTPUT_ITEM_DONE,
+        ResponsesSemanticEventType.RESPONSE_COMPLETED,
+    ]
+    assert [event.sequence_number for event in events] == list(range(len(events)))
+    assert (
+        sum(
+            event.type
+            in {
+                ResponsesSemanticEventType.RESPONSE_COMPLETED,
+                ResponsesSemanticEventType.RESPONSE_FAILED,
+                ResponsesSemanticEventType.RESPONSE_INCOMPLETE,
+            }
+            for event in events
+        )
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_acp_legacy_chat_error_emits_failed_terminal_once() -> None:
+    normalizer = ResponsesEventNormalizer(
+        source=ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS,
+        response_id="resp_acp_error",
+    )
+    events = await _collect(
+        normalizer.normalize(
+            _chunks(
+                {
+                    "object": "chat.completion.chunk",
+                    "model": "cursor/glm-5.2-max",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                    "error": {
+                        "message": "ACP process exited",
+                        "code": "backend_error",
+                    },
+                },
+                "data: [DONE]\n\n",
+            )
+        )
+    )
+
+    assert events[-1].type == ResponsesSemanticEventType.RESPONSE_FAILED
+    assert events[-1].error == {
+        "message": "ACP process exited",
+        "code": "backend_error",
+    }
+    assert (
+        sum(
+            event.type
+            in {
+                ResponsesSemanticEventType.RESPONSE_COMPLETED,
+                ResponsesSemanticEventType.RESPONSE_FAILED,
+                ResponsesSemanticEventType.RESPONSE_INCOMPLETE,
+            }
+            for event in events
+        )
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_acp_empty_stream_emits_lifecycle_before_completed() -> None:
+    normalizer = ResponsesEventNormalizer(
+        source=ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS,
+        response_id="resp_acp_empty",
+    )
+
+    events = await _collect(normalizer.normalize(_chunks()))
+
+    assert [event.type for event in events] == [
+        ResponsesSemanticEventType.RESPONSE_CREATED,
+        ResponsesSemanticEventType.RESPONSE_IN_PROGRESS,
+        ResponsesSemanticEventType.RESPONSE_COMPLETED,
+    ]
+    assert [event.sequence_number for event in events] == [0, 1, 2]
+    assert [event.response_id for event in events] == [
+        "resp_acp_empty",
+        "resp_acp_empty",
+        "resp_acp_empty",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_acp_role_only_chunk_emits_lifecycle_before_completed() -> None:
+    normalizer = ResponsesEventNormalizer(
+        source=ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS,
+        response_id="resp_acp_role",
+    )
+    events = await _collect(
+        normalizer.normalize(
+            _chunks(
+                {
+                    "id": "chat-role",
+                    "model": "cursor/glm-5.2-max",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"role": "assistant"},
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+        )
+    )
+
+    assert [event.type for event in events] == [
+        ResponsesSemanticEventType.RESPONSE_CREATED,
+        ResponsesSemanticEventType.RESPONSE_IN_PROGRESS,
+        ResponsesSemanticEventType.RESPONSE_COMPLETED,
+    ]
+    assert [event.sequence_number for event in events] == [0, 1, 2]
+    assert events[0].response == {
+        "id": "chat-role",
+        "model": "cursor/glm-5.2-max",
+        "object": "response",
+    }
+
+
+@pytest.mark.asyncio
+async def test_acp_backend_error_starts_lifecycle_before_failed() -> None:
+    async def bad() -> AsyncGenerator[Any, None]:
+        raise RuntimeError("ACP process exited")
+        yield  # pragma: no cover
+
+    normalizer = ResponsesEventNormalizer(
+        source=ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS,
+        response_id="resp_acp_backend_error",
+    )
+    events = await _collect(normalizer.normalize(bad()))
+
+    assert [event.type for event in events] == [
+        ResponsesSemanticEventType.RESPONSE_CREATED,
+        ResponsesSemanticEventType.RESPONSE_IN_PROGRESS,
+        ResponsesSemanticEventType.RESPONSE_FAILED,
+    ]
+    assert [event.sequence_number for event in events] == [0, 1, 2]
+    assert events[-1].error == {
+        "message": "ACP process exited",
+        "type": "RuntimeError",
+    }
 
 
 @pytest.mark.asyncio

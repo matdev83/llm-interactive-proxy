@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Protocol, runtime_checkable
 
 from src.core.domain.responses_domain import ResponsesOutputItem
-from src.core.domain.responses_resolved_session import ResponsesResolvedSession
+from src.core.domain.responses_resolved_session import (
+    ResponsesHistoryItem,
+    ResponsesResolvedSession,
+)
 
 
 @runtime_checkable
@@ -17,6 +20,7 @@ class IResponsesSessionStore(Protocol):
         ttl_seconds: int | None = None,
         *,
         instructions: str | None = None,
+        history_items: list[ResponsesHistoryItem] | None = None,
     ) -> None: ...
 
     async def resolve(

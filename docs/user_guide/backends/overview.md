@@ -50,6 +50,30 @@ These entry points are defined in the sibling repo’s `pyproject.toml` under `[
 
 The `gemini-cli-acp` and `cursor-cli-acp` backends spawn a local agent subprocess for each pooled workspace/session key (see connector implementation for pooling). After each **completed chat turn** (assistant response finished), the proxy schedules termination of that subprocess if it stays **idle** for `stale_acp_agent_kill_idle_seconds` (default **3600** seconds = 60 minutes). When you send another message or reuse the same pooled agent, the pending timer is **cancelled**; after the next completed turn, a **new** idle timer is scheduled.
 
+The Cursor `/v1/responses` compatibility path is an exception: each Responses turn uses an isolated subprocess and is reaped immediately after completion or cancellation. Chained Responses turns replay the stored visible transcript into a fresh process.
+
+### Cursor CLI ACP as a Codex custom provider
+
+`cursor-cli-acp` has a dedicated `/v1/responses` projection path for text-only Planner and Advisor agents. Configure Codex without changing its root provider:
+
+```toml
+[model_providers.lip_local]
+name = "Local LLM Interactive Proxy"
+base_url = "http://127.0.0.1:8000/v1"
+wire_api = "responses"
+requires_openai_auth = false
+```
+
+Use an instance-pinned route returned by `GET /v1/models`, for example `cursor-cli-acp.default:cursor/glm-5.2-max`. Every Cursor route contains the full backend instance name, so multiple project-bound instances are never collapsed into a generic round-robin selector. The catalog is sourced from the live `agent models` capability output; when `cursor_api_endpoint` is configured, discovery uses the same `-e <endpoint>` option as the ACP subprocess. Discovery failures return no Cursor routes, and unadvertised models fail with `cursor_model_unavailable`. The connector never substitutes another model.
+
+This compatibility path is deliberately **not an Executor provider**. Cursor ACP is an agent runtime whose native tool activity cannot currently be translated into Codex-owned Responses function calls. Responses-projected turns use a separate subprocess launched with `--mode ask`; requests containing `tools`, `tool_choice`, or `parallel_tool_calls` fail with `provider_limitation`, and ACP permission requests are rejected. That is not a no-tools guarantee: live acceptance testing showed Cursor's ask mode executing a built-in Edit File operation without issuing a permission request. Historical `function_call` and matching `function_call_output` items retain their `call_id` during conversation projection, but Cursor cannot originate a Codex-governed tool round trip through this path. Use it for Planner/Advisor roles only with a dedicated disposable workspace or an external OS/container sandbox; do not point it at a valuable project workspace on the assumption that ask mode is read-only.
+
+Workspace selection is project-specific rather than request-driven. Set `workspace_path` to an existing readable absolute path in a dedicated backend instance, or set `CURSOR_CLI_WORKSPACE` before starting the proxy. Relative paths, an implicit proxy working directory, prompt-derived paths, and per-request `project_dir` / `workspace_path` / `cwd` / `project` overrides are rejected. Create a separate constrained backend instance for each project; standard Responses requests cannot safely select arbitrary host paths.
+
+Every Cursor Responses turn receives a fresh, isolated ACP subprocess. The in-process Responses session store carries the complete visible text transcript for `previous_response_id` replay, so continuation does not depend on keeping the original Cursor process alive. The store is process-local and does not cross worker or proxy-process boundaries.
+
+For model names ending in an effort suffix such as `-xhigh` or `-max`, that suffix is authoritative. Omit `reasoning.effort`, or send the identical suffix value. A contradictory effort fails explicitly and a matching value is validation-only; it is not forwarded as a second effort selector.
+
 ### `openai-codex-app-server` (Codex native app-server, not ACP)
 
 `openai-codex-app-server` is a sibling local-agent backend that reuses the same pooling / request-lock / cancellation / idle-reap / stale-kill / shutdown lifecycle as the ACP backends, but speaks Codex's **native app-server JSON-RPC 2.0 protocol** over stdio (not ACP). It launches Codex equivalent to:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from src.core.domain.responses_domain import ResponsesOutputItem
+from src.core.domain.responses_domain import ResponsesInputItem, ResponsesOutputItem
 from src.core.domain.responses_resolved_session import (
     effective_instructions_for_chained_turn,
 )
@@ -35,6 +35,31 @@ async def test_store_resolve_round_trip() -> None:
     assert resolved is not None
     assert list(resolved.output_items) == items
     assert resolved.instructions == "prior sys"
+
+
+@pytest.mark.asyncio
+async def test_store_preserves_complete_visible_history() -> None:
+    store = InMemoryResponsesSessionStore()
+    history = [
+        ResponsesInputItem(
+            type="message",
+            role="user",
+            content="original prompt",
+        ),
+        ResponsesOutputItem(
+            id="msg_1",
+            type="message",
+            role="assistant",
+            status="completed",
+            content=None,
+        ),
+    ]
+
+    await store.store("resp_a", _sample_items(), history_items=history)
+
+    resolved = await store.resolve("resp_a")
+    assert resolved is not None
+    assert resolved.history_items == history
 
 
 @pytest.mark.asyncio

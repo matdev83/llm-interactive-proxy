@@ -37,24 +37,28 @@ from src.core.domain.client_termination import (
     ClientTerminationReason,
 )
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.responses_api import (
     ResponsesRequest,
     enforce_json_schema_limits,
 )
 from src.core.domain.responses_domain import (
     ResponsesDomainRequest,
+    ResponsesInputItem,
     ResponsesOutputItem,
 )
 from src.core.domain.responses_event_normalizer import (
     ResponsesEventNormalizer,
+    ResponsesStreamAbortedError,
     ResponsesStreamSource,
 )
 from src.core.domain.responses_native_wiring import (
+    ACP_RESPONSES_STANDALONE_MODE_KEY,
     RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
 )
 from src.core.domain.responses_request_normalizer import ResponsesRequestNormalizer
 from src.core.domain.responses_resolved_session import (
+    ResponsesHistoryItem,
     effective_instructions_for_chained_turn,
 )
 from src.core.domain.responses_wire_renderer import ResponsesWireRenderer
@@ -79,6 +83,7 @@ from src.core.interfaces.translation_service_interface import (
     ITranslationService,
 )
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.services.acp_responses_projector import project_responses_to_acp_chat
 from src.core.services.anthropic_responses_projector import AnthropicResponsesProjector
 from src.core.services.gemini_responses_projector import GeminiResponsesProjector
 from src.core.services.json_repair_service import enforce_schema_size_limits
@@ -317,12 +322,56 @@ class ResponsesController:
         payload: dict[str, Any],
         *,
         instructions: str | None,
+        history_items: list[ResponsesHistoryItem] | None = None,
     ) -> None:
         rid = payload.get("id")
         if not isinstance(rid, str) or not rid:
             return
         items = self._responses_output_items_from_payload(payload, response_id=rid)
-        await self._responses_session_store.store(rid, items, instructions=instructions)
+        stored_history = (
+            cast(list[ResponsesHistoryItem], [*history_items, *items])
+            if isinstance(history_items, list)
+            else cast(list[ResponsesHistoryItem], list(items))
+        )
+        await self._responses_session_store.store(
+            rid,
+            items,
+            instructions=instructions,
+            history_items=stored_history,
+        )
+
+    async def _responses_history_for_turn(
+        self,
+        domain_request: ResponsesDomainRequest,
+        output_items: list[ResponsesOutputItem],
+    ) -> list[ResponsesHistoryItem]:
+        """Build the complete visible transcript for a stored response.
+
+        Cursor ACP runtimes are deliberately disposable.  Keeping the complete
+        text transcript in the Responses session store lets a later
+        ``previous_response_id`` turn start a fresh runtime without losing the
+        original user prompt or earlier assistant turns.
+        """
+
+        history: list[ResponsesHistoryItem] = []
+        previous_id = domain_request.previous_response_id
+        if previous_id:
+            resolved = await self._responses_session_store.resolve(previous_id)
+            if resolved is not None:
+                history.extend(resolved.history_items or resolved.output_items)
+        raw_input: object = getattr(domain_request, "input", [])
+        if isinstance(raw_input, str):
+            history.append(
+                ResponsesInputItem(type="message", role="user", content=raw_input)
+            )
+        elif isinstance(raw_input, list):
+            for item in raw_input:
+                if isinstance(item, ResponsesInputItem | ResponsesOutputItem):
+                    history.append(item)
+                else:
+                    history.append(ResponsesInputItem.model_validate(item))
+        history.extend(output_items)
+        return history
 
     def _responses_output_items_from_payload(
         self, payload: dict[str, Any], *, response_id: str
@@ -435,6 +484,7 @@ class ResponsesController:
         normalized_raw = _responses_request_dump_for_normalize(responses_request)
         domain = self._responses_request_normalizer.normalize(normalized_raw)
         prior_items: list[ResponsesOutputItem] | None = None
+        prior_history: list[ResponsesHistoryItem] | None = None
         prior_instructions: str | None = None
         if domain.previous_response_id:
             resolved = await self._responses_session_store.resolve(
@@ -445,6 +495,7 @@ class ResponsesController:
                     domain.previous_response_id
                 )
             prior_items = list(resolved.output_items)
+            prior_history = list(resolved.history_items or resolved.output_items)
             prior_instructions = resolved.instructions
         instructions = effective_instructions_for_chained_turn(
             domain.instructions,
@@ -487,6 +538,36 @@ class ResponsesController:
                 raise
         backend = (target.backend or "").strip()
         backend_key = backend.casefold()
+        backend_family = backend_key.split(".", 1)[0]
+        explicit_model = f"{target.backend}:{target.model}"
+        if backend_family == "cursor-cli-acp":
+            # Cursor Responses turns are deliberately process-isolated.  The
+            # generated key is an internal pool identity only; it is never
+            # persisted as a Responses conversation/session identity.  Chained
+            # turns replay the complete visible transcript from the session
+            # store, so they do not depend on the previous ACP subprocess.
+            import uuid
+
+            domain = domain.model_copy(
+                update={"session_id": f"acp-responses-{uuid.uuid4().hex}"}
+            )
+            canonical = project_responses_to_acp_chat(
+                domain,
+                prior_items,
+                explicit_model=explicit_model,
+                prior_history=prior_history,
+            )
+            canonical_extra_body = dict(canonical.extra_body or {})
+            canonical_extra_body[ACP_RESPONSES_STANDALONE_MODE_KEY] = True
+            canonical = canonical.model_copy(
+                update={"extra_body": canonical_extra_body}
+            )
+            return (
+                domain,
+                canonical,
+                ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS,
+                instructions,
+            )
         projector: IResponsesBackendProjector
         if backend_key in ("openai", "openai-responses") or backend_key.startswith(
             ("openai-codex", "opencode")
@@ -509,7 +590,6 @@ class ResponsesController:
                 backend or "unknown",
             )
         wire_payload, _flags = projector.project(domain, prior_items)
-        explicit_model = f"{target.backend}:{target.model}"
         canonical = CanonicalChatRequest(
             model=explicit_model,
             messages=[ChatMessage(role="user", content=".")],
@@ -926,6 +1006,7 @@ class ResponsesController:
                     "total_tokens": 0,
                 },
             }
+
         except (
             TypeError,
             ValueError,
@@ -947,6 +1028,148 @@ class ResponsesController:
                     exc_info=True,
                 )
             return content
+
+    @staticmethod
+    def _chat_completion_to_responses_object(
+        content: object,
+        *,
+        responses_model: str,
+        envelope: ResponseEnvelope | None = None,
+    ) -> dict[str, Any]:
+        if isinstance(content, bytes):
+            try:
+                content = content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ResponsesProtocolError(
+                    "ACP non-streaming response is not valid UTF-8",
+                    code="invalid_response_shape",
+                    param=None,
+                    status_code=502,
+                    error_type="api_error",
+                ) from exc
+        if isinstance(content, str):
+            raw_text = content
+            try:
+                content = json.loads(content)
+            except json.JSONDecodeError:
+                content = raw_text
+        if hasattr(content, "model_dump"):
+            content = content.model_dump(exclude_none=True)  # type: ignore[union-attr]
+        if isinstance(content, str):
+            metadata = envelope.metadata if envelope and envelope.metadata else {}
+            synthetic_content: dict[str, Any] = {
+                "id": metadata.get("id"),
+                "model": metadata.get("model") or responses_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": content},
+                        "finish_reason": "stop",
+                    }
+                ],
+            }
+            content = synthetic_content
+        if not isinstance(content, dict):
+            raise ResponsesProtocolError(
+                "ACP non-streaming response must be a Chat Completions object",
+                code="invalid_response_shape",
+                param=None,
+                status_code=502,
+                error_type="api_error",
+            )
+
+        response_id = str(content.get("id") or f"resp_{int(time.time())}")
+        model = str(content.get("model") or responses_model)
+        output: list[dict[str, Any]] = []
+        choices = content.get("choices")
+        if isinstance(choices, list):
+            for choice_index, choice_raw in enumerate(choices):
+                if not isinstance(choice_raw, dict):
+                    continue
+                message_raw = choice_raw.get("message")
+                if not isinstance(message_raw, dict):
+                    continue
+                text = message_raw.get("content")
+                if isinstance(text, str):
+                    output.append(
+                        {
+                            "id": f"{response_id}:message:{choice_index}",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [{"type": "output_text", "text": text}],
+                        }
+                    )
+                tool_calls = message_raw.get("tool_calls")
+                if isinstance(tool_calls, list):
+                    for tool_index, tool_raw in enumerate(tool_calls):
+                        if not isinstance(tool_raw, dict):
+                            continue
+                        function_raw = tool_raw.get("function")
+                        if not isinstance(function_raw, dict):
+                            continue
+                        call_id = str(
+                            tool_raw.get("id")
+                            or f"{response_id}:call:{choice_index}:{tool_index}"
+                        )
+                        arguments_raw = function_raw.get("arguments")
+                        arguments = (
+                            arguments_raw
+                            if isinstance(arguments_raw, str)
+                            else json.dumps(arguments_raw or {}, ensure_ascii=False)
+                        )
+                        output.append(
+                            {
+                                "id": call_id,
+                                "type": "function_call",
+                                "status": "completed",
+                                "call_id": call_id,
+                                "name": str(function_raw.get("name") or ""),
+                                "arguments": arguments,
+                            }
+                        )
+
+        usage_raw = content.get("usage")
+        usage_dict = usage_raw if isinstance(usage_raw, dict) else {}
+        if not usage_dict and envelope is not None and envelope.usage is not None:
+            usage_dict = envelope.usage.to_legacy_dict()
+
+        def token_count(value: object) -> int:
+            if isinstance(value, bool):
+                return 0
+            if isinstance(value, int):
+                return value
+            if isinstance(value, float | str):
+                try:
+                    return int(value)
+                except ValueError:
+                    return 0
+            return 0
+
+        input_tokens = token_count(
+            usage_dict.get("input_tokens") or usage_dict.get("prompt_tokens")
+        )
+        output_tokens = token_count(
+            usage_dict.get("output_tokens") or usage_dict.get("completion_tokens")
+        )
+        total_tokens = token_count(
+            usage_dict.get("total_tokens") or input_tokens + output_tokens
+        )
+        normalized_usage = dict(usage_dict)
+        normalized_usage["input_tokens"] = input_tokens
+        normalized_usage["output_tokens"] = output_tokens
+        normalized_usage["total_tokens"] = total_tokens
+        normalized_usage.pop("prompt_tokens", None)
+        normalized_usage.pop("completion_tokens", None)
+        return {
+            "id": response_id,
+            "object": "response",
+            "created_at": int(content.get("created") or time.time()),
+            "status": "completed",
+            "model": model,
+            "output": output,
+            "usage": normalized_usage,
+        }
 
     async def handle_responses_request(
         self,
@@ -1022,6 +1245,10 @@ class ResponsesController:
             ctx.extensions["responses_semantic_pipeline"] = True
             ctx.extensions["responses_stream_source"] = stream_source.value
             ctx.extensions["responses_store_instructions"] = store_instructions
+            ctx.extensions["responses_store_history_items"] = cast(
+                Any,
+                await self._responses_history_for_turn(responses_domain, []),
+            )
             request.state.responses_semantic_pipeline = True
             # Requirement 5.5: Proactive session metrics initialization
             # Initialize session metrics early in lifecycle before backend work begins
@@ -1096,12 +1323,20 @@ class ResponsesController:
                     headers=streaming_headers,
                 )
 
-            converted_content = self._ensure_responses_schema_content(
-                response.content,
-                request_id=request_id,
-                envelope=response,
-                responses_model=responses_domain.model,
-            )
+            converted_content: object
+            if stream_source is ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS:
+                converted_content = self._chat_completion_to_responses_object(
+                    response.content,
+                    responses_model=responses_domain.model,
+                    envelope=response,
+                )
+            else:
+                converted_content = self._ensure_responses_schema_content(
+                    response.content,
+                    request_id=request_id,
+                    envelope=response,
+                    responses_model=responses_domain.model,
+                )
 
             final_response = domain_response_to_fastapi(
                 dataclasses.replace(response, content=cast(Any, converted_content)),
@@ -1121,6 +1356,10 @@ class ResponsesController:
                         store_instructions
                         if isinstance(store_instructions, str)
                         else None
+                    ),
+                    history_items=cast(
+                        list[ResponsesHistoryItem] | None,
+                        ctx.extensions.get("responses_store_history_items"),
                     ),
                 )
 
@@ -1582,6 +1821,32 @@ class ResponsesController:
                         source=stream_source,
                         response_id=response_id,
                     )
+
+                    async def _disconnect_aware_chunks() -> AsyncIterator[Any]:
+                        nonlocal stream_terminated
+
+                        async def _abort_if_disconnected() -> None:
+                            nonlocal stream_terminated
+                            if not await is_disconnected():
+                                return
+                            stream_terminated = True
+                            await report_client_termination(
+                                ClientTerminationReason.CLIENT_DISCONNECTED
+                            )
+                            await trigger_cancel("client_disconnect")
+                            raise ResponsesStreamAbortedError(
+                                "Client disconnected during Responses streaming"
+                            )
+
+                        await _abort_if_disconnected()
+                        async for upstream_chunk in chunk_iterator:
+                            await _abort_if_disconnected()
+                            yield upstream_chunk
+                        # Also inspect the disconnect state after upstream EOF.
+                        # Otherwise an empty/short ACP stream can be mistaken for
+                        # a successful completion after the client has gone away.
+                        await _abort_if_disconnected()
+
                     renderer = ResponsesWireRenderer(
                         self._responses_session_store,
                         transport="sse",
@@ -1591,11 +1856,24 @@ class ResponsesController:
                     )
                     if not isinstance(store_instructions, str):
                         store_instructions = None
-                    event_stream = normalizer.normalize(chunk_iterator)
+                    raw_store_history_items = ctx_extensions.get(
+                        "responses_store_history_items"
+                    )
+                    store_history_items = (
+                        cast(list[ResponsesHistoryItem], raw_store_history_items)
+                        if isinstance(raw_store_history_items, list)
+                        else None
+                    )
+                    event_stream = normalizer.normalize(_disconnect_aware_chunks())
                     async for frame in renderer.render(
                         event_stream,
                         response_id,
                         instructions=store_instructions,
+                        history_items=store_history_items,
+                        emit_done_sentinel=(
+                            stream_source
+                            is not ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS
+                        ),
                     ):
                         if isinstance(frame, str):
                             yield frame
@@ -1730,6 +2008,11 @@ class ResponsesController:
                         )
                 await trigger_cancel("stream_cancelled")
                 raise
+            except ResponsesStreamAbortedError:
+                # The client is gone.  Do not expose a synthetic terminal event or
+                # persist partial output as a chainable response.
+                stream_terminated = True
+                return
             except ResponsesProtocolError:
                 # Semantic / contract failures are not generic stream I/O errors; do not
                 # run cancellation bookkeeping that assumes a full RequestContext.
@@ -2250,6 +2533,10 @@ class ResponsesController:
             ctx.extensions["responses_semantic_pipeline"] = True
             ctx.extensions["responses_stream_source"] = stream_source.value
             ctx.extensions["responses_store_instructions"] = store_instructions
+            ctx.extensions["responses_store_history_items"] = cast(
+                Any,
+                await self._responses_history_for_turn(responses_domain, []),
+            )
 
             response_format = responses_request.response_format
             if response_format and response_format.json_schema:
@@ -2287,6 +2574,10 @@ class ResponsesController:
                         if isinstance(store_instructions, str)
                         else None
                     ),
+                    history_items=cast(
+                        list[ResponsesHistoryItem] | None,
+                        ctx.extensions.get("responses_store_history_items"),
+                    ),
                 ):
                     if isinstance(frame, dict):
                         await websocket.send_json(frame)
@@ -2294,12 +2585,20 @@ class ResponsesController:
                         await websocket.send_text(str(frame))
 
             else:
-                converted_content = self._ensure_responses_schema_content(
-                    response.content,
-                    request_id=request_id,
-                    envelope=response,
-                    responses_model=responses_domain.model,
-                )
+                converted_content: object
+                if stream_source is ResponsesStreamSource.OPENAI_CHAT_COMPLETIONS:
+                    converted_content = self._chat_completion_to_responses_object(
+                        response.content,
+                        responses_model=responses_domain.model,
+                        envelope=response,
+                    )
+                else:
+                    converted_content = self._ensure_responses_schema_content(
+                        response.content,
+                        request_id=request_id,
+                        envelope=response,
+                        responses_model=responses_domain.model,
+                    )
                 content = converted_content
                 payload_to_store: dict[str, Any] | None = None
                 if isinstance(content, dict):
@@ -2331,6 +2630,10 @@ class ResponsesController:
                         store_instructions
                         if isinstance(store_instructions, str)
                         else None
+                    ),
+                    history_items=cast(
+                        list[ResponsesHistoryItem] | None,
+                        ctx.extensions.get("responses_store_history_items"),
                     ),
                 )
                 await websocket.send_json(done_event)

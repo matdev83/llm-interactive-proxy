@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 from pathlib import Path
@@ -105,6 +106,31 @@ def _make_request(
 @pytest.fixture
 def connector() -> DummyAcpConnector:
     return DummyAcpConnector(MagicMock(), MagicMock())
+
+
+@pytest.mark.asyncio
+async def test_windows_terminate_kills_tree_before_root_process(
+    connector: DummyAcpConnector,
+) -> None:
+    process = MagicMock()
+    process.pid = 1234
+    process.poll.return_value = None
+    process.wait.return_value = 0
+
+    def fake_taskkill(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+        assert process.terminate.call_count == 0
+        return subprocess.CompletedProcess(args=args, returncode=0)
+
+    with (
+        patch("src.connectors.acp_core.base_connector.os.name", "nt"),
+        patch(
+            "src.connectors.acp_core.base_connector.subprocess.run",
+            side_effect=fake_taskkill,
+        ),
+    ):
+        await connector._terminate_process(process)
+
+    process.terminate.assert_not_called()
 
 
 def test_resolve_stream_keepalive_interval_default(

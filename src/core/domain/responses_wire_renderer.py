@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import ValidationError
 
 from src.core.domain.responses_domain import ResponsesOutputItem
+from src.core.domain.responses_resolved_session import ResponsesHistoryItem
 from src.core.domain.responses_semantic_events import (
     ResponsesSemanticEvent,
     ResponsesSemanticEventType,
@@ -165,7 +166,9 @@ class ResponsesWireRenderer:
         response_id: str,
         *,
         instructions: str | None = None,
+        history_items: list[ResponsesHistoryItem] | None = None,
         ttl_seconds: int | None = None,
+        emit_done_sentinel: bool = True,
     ) -> AsyncGenerator[str | dict[str, Any], None]:
         collected: list[ResponsesOutputItem] = []
         terminal: ResponsesSemanticEvent | None = None
@@ -197,14 +200,9 @@ class ResponsesWireRenderer:
                 yield payload
 
         if terminal is None:
-            await self._session_store.store(
-                response_id,
-                [],
-                ttl_seconds,
-                instructions=instructions,
-            )
             if self._transport == "sse":
-                yield "data: [DONE]\n\n"
+                if emit_done_sentinel:
+                    yield "data: [DONE]\n\n"
             else:
                 synthetic = ResponsesSemanticEvent(
                     type=ResponsesSemanticEventType.RESPONSE_INCOMPLETE,
@@ -219,6 +217,14 @@ class ResponsesWireRenderer:
             return
 
         tid = _terminal_response_id(terminal, response_id)
+        if terminal.type != ResponsesSemanticEventType.RESPONSE_COMPLETED:
+            if self._transport == "sse" and emit_done_sentinel:
+                yield "data: [DONE]\n\n"
+            elif self._transport == "websocket":
+                for ws_payload in deferred_ws_terminal_payloads:
+                    yield ws_payload
+            return
+
         if terminal.type == ResponsesSemanticEventType.RESPONSE_COMPLETED:
             resp = terminal.response
             if isinstance(resp, dict):
@@ -238,10 +244,12 @@ class ResponsesWireRenderer:
             collected,
             ttl_seconds,
             instructions=instructions,
+            history_items=[*(history_items or []), *collected],
         )
 
         if self._transport == "sse":
-            yield "data: [DONE]\n\n"
+            if emit_done_sentinel:
+                yield "data: [DONE]\n\n"
         else:
             for ws_payload in deferred_ws_terminal_payloads:
                 yield ws_payload

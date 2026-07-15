@@ -127,6 +127,29 @@ async def test_sse_ordering_ends_with_typed_terminal_and_done() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sse_can_end_at_typed_terminal_without_done_sentinel() -> None:
+    store = InMemoryResponsesSessionStore()
+    renderer = ResponsesWireRenderer(store, transport="sse")
+
+    async def events() -> AsyncGenerator[ResponsesSemanticEvent, None]:
+        yield _ev(
+            etype=ResponsesSemanticEventType.RESPONSE_COMPLETED,
+            sequence_number=0,
+            response={"id": "resp_no_sentinel", "output": []},
+        )
+
+    frames = await _collect_wire(
+        renderer.render(
+            events(),
+            "resp_no_sentinel",
+            emit_done_sentinel=False,
+        )
+    )
+
+    assert all(frame != "data: [DONE]\n\n" for frame in frames)
+
+
+@pytest.mark.asyncio
 async def test_sse_never_emits_response_done() -> None:
     store = InMemoryResponsesSessionStore()
     renderer = ResponsesWireRenderer(
@@ -290,12 +313,18 @@ async def test_session_store_called_after_terminal_with_output_items() -> None:
         )
 
     await _collect_wire(
-        renderer.render(events(), "resp_x", instructions="sys", ttl_seconds=120)
+        renderer.render(
+            events(),
+            "resp_x",
+            instructions="sys",
+            ttl_seconds=120,
+        )
     )
 
     resolved = await store.resolve("resp_x")
     assert resolved is not None
     assert resolved.instructions == "sys"
+    assert resolved.history_items == [ResponsesOutputItem.model_validate(item_done)]
     assert len(resolved.output_items) == 1
     assert resolved.output_items[0].id == "msg_1"
 
@@ -506,9 +535,7 @@ async def test_sse_yields_done_when_no_terminal_event() -> None:
     )
     assert chunks
     assert chunks[-1] == "data: [DONE]\n\n"
-    resolved = await store.resolve("rid-empty")
-    assert resolved is not None
-    assert resolved.output_items == []
+    assert await store.resolve("rid-empty") is None
 
 
 @pytest.mark.asyncio

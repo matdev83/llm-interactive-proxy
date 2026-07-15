@@ -195,6 +195,27 @@ class JSONResponseBuilder:
         prepared_content, usage_data = self._ensure_usage(
             envelope, prepared_content, context
         )
+        if (
+            isinstance(prepared_content, dict)
+            and prepared_content.get("object") == "response"
+        ):
+            usage_raw = prepared_content.get("usage")
+            if isinstance(usage_raw, dict):
+                normalized_usage = dict(usage_raw)
+                normalized_usage["input_tokens"] = int(
+                    usage_raw.get("input_tokens") or usage_raw.get("prompt_tokens") or 0
+                )
+                normalized_usage["output_tokens"] = int(
+                    usage_raw.get("output_tokens")
+                    or usage_raw.get("completion_tokens")
+                    or 0
+                )
+                normalized_usage["total_tokens"] = int(
+                    usage_raw.get("total_tokens") or 0
+                )
+                normalized_usage.pop("prompt_tokens", None)
+                normalized_usage.pop("completion_tokens", None)
+                prepared_content["usage"] = normalized_usage
 
         # Guardrail: some clients error if a chat.completion response contains no assistant message.
         # Ensure at least one assistant message is always present for OpenAI-compatible payloads.
@@ -445,14 +466,47 @@ class JSONResponseBuilder:
 
             parsed = OpenRouterUsage.from_dict(usage)
             if parsed is not None:
-                return parsed.to_openrouter_dict()
+                normalized = parsed.to_openrouter_dict()
+                token_aliases = {
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "input_tokens",
+                    "output_tokens",
+                    "total_tokens",
+                    "promptTokenCount",
+                    "candidatesTokenCount",
+                    "totalTokenCount",
+                }
+                normalized.update(
+                    {
+                        key: value
+                        for key, value in usage.items()
+                        if key not in token_aliases
+                    }
+                )
+                return normalized
 
             # Fallback to basic normalization
-            return {
+            normalized = {
                 "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
                 "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
                 "total_tokens": int(usage.get("total_tokens", 0) or 0),
             }
+            normalized.update(
+                {
+                    key: value
+                    for key, value in usage.items()
+                    if key
+                    not in {
+                        "prompt_tokens",
+                        "completion_tokens",
+                        "input_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                    }
+                }
+            )
+            return normalized
         except (ValueError, TypeError, KeyError, AttributeError):
             # Log at WARNING level since this is on a critical path for response formatting
             if logger.isEnabledFor(logging.WARNING):

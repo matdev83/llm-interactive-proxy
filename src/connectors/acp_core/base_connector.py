@@ -12,7 +12,7 @@ import uuid
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 from src.connectors.acp_core.acp_subprocess_identity import (
     capture_acp_subprocess_identity,
@@ -146,8 +146,9 @@ class _RuntimeCancellable(Generic[RuntimeT]):
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
+        connector = cast(Any, self._connector)
         task = loop.create_task(
-            self._connector._cancel_active_request(
+            connector._cancel_active_request(
                 self._runtime,
                 self._prompt_request_id,
             )
@@ -354,12 +355,23 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         return is_usable_workspace_directory(path)
 
     def _build_runtime_key(
-        self, project_dir: Path, model: str, client_session_id: str
+        self,
+        project_dir: Path,
+        model: str,
+        client_session_id: str,
+        *,
+        responses_text_only: bool = False,
     ) -> tuple[str, str, str]:
         return (str(project_dir), model, client_session_id)
 
-    @staticmethod
-    def _resolve_client_session_id(request: ConnectorChatCompletionsRequest) -> str:
+    def _is_responses_text_only_request(
+        self, request: ConnectorChatCompletionsRequest
+    ) -> bool:
+        return False
+
+    def _resolve_client_session_id(
+        self, request: ConnectorChatCompletionsRequest
+    ) -> str:
         """Resolve the logical client session used to key ACP subprocess pools.
 
         When neither ``ConnectorRequestContext.session_id`` nor
@@ -396,7 +408,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         )
         client_session_id = self._resolve_client_session_id(request)
         runtime_key = self._build_runtime_key(
-            project_dir, requested_model, client_session_id
+            project_dir,
+            requested_model,
+            client_session_id,
+            responses_text_only=self._is_responses_text_only_request(request),
         )
 
         async with self._runtime_pool_lock:
@@ -412,9 +427,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
     def _resolve_project_dir_for_request(
         self, request: ConnectorChatCompletionsRequest
     ) -> Path:
-        extra_body = getattr(request.request, "extra_body", None)
-        extra_dict = extra_body if isinstance(extra_body, dict) else None
-        options = request.options if isinstance(request.options, dict) else None
+        extra_body: object = getattr(request.request, "extra_body", None)
+        extra_dict = cast(dict[str, Any] | None, extra_body)
+        options = cast(dict[str, Any] | None, request.options)
 
         usable = first_usable_workspace_dir(
             extra_dict,
@@ -622,16 +637,17 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             return
 
         if os.name == "nt":
-            with contextlib.suppress(Exception):
-                process.terminate()
             try:
-                await asyncio.to_thread(
+                result = await asyncio.to_thread(
                     subprocess.run,
                     ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                     capture_output=True,
                     check=False,
                     shell=False,
                 )
+                if getattr(result, "returncode", 1) != 0 and process.poll() is None:
+                    with contextlib.suppress(Exception):
+                        process.terminate()
             finally:
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     await asyncio.to_thread(lambda: process.wait(timeout=5))

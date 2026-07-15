@@ -144,6 +144,11 @@ class ACPProcessRuntime:
     #: True while ACP reasoning/progress is being emitted as visible ``Thinking:``
     #: content so later deltas can append without reopening the block each time.
     acp_thinking_block_open: bool = False
+    #: True only for Responses-projected turns whose tool permissions must fail closed.
+    responses_text_only_mode: bool = False
+    #: True for ephemeral Responses turns that must be retired after completion.
+    #: Chained turns replay stored transcript history in a fresh runtime.
+    responses_standalone_mode: bool = False
     #: Pending idle kill task for this pooled ACP runtime (if any).
     stale_kill_task: Any = field(default=None)  # asyncio.Task | None
     #: Captured when the child starts; used before idle-kill to detect PID reuse.

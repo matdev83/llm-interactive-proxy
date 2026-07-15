@@ -18,6 +18,7 @@ from typing import Any, cast
 
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.domain.responses_native_wiring import ACP_RESPONSES_TEXT_ONLY_MODE_KEY
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.request_processor_internal import ISessionEnricher
 from src.core.interfaces.session_manager_interface import ISessionManager
@@ -139,11 +140,20 @@ class SessionEnricher(ISessionEnricher):
         if session.state.vtc_enabled:
             request = request.model_copy(update={"vtc_enabled": True})
 
-        # Auto-detect project directory if needed
+        extra_body = getattr(request, "extra_body", None)
+        uses_static_acp_workspace = bool(
+            isinstance(extra_body, dict)
+            and extra_body.get(ACP_RESPONSES_TEXT_ONLY_MODE_KEY) is True
+        )
+
+        # Auto-detect project directory if needed. Responses-to-ACP requests use
+        # the connector's validated static workspace and must never infer a host
+        # path from prompt text.
         if (
             self._app_state is not None
             and hasattr(session, "state")
             and not getattr(session.state, "project_dir_resolution_attempted", False)
+            and not uses_static_acp_workspace
         ):
             try:
                 from src.core.services.project_directory_resolution_service import (

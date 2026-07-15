@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.domain.responses_native_wiring import ACP_RESPONSES_TEXT_ONLY_MODE_KEY
 from src.core.domain.session import Session, SessionState
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_manager_interface import ISessionManager
@@ -769,6 +770,27 @@ class TestSessionEnricher:
         await enricher.enrich(context, request)
 
         # Assert
+        project_dir_service.maybe_resolve_project_directory.assert_not_called()
+
+    async def test_project_directory_skipped_for_acp_responses_text_only_mode(
+        self,
+        enricher: SessionEnricher,
+        mock_app_state: IApplicationState,
+    ):
+        """The static ACP workspace contract must not inspect prompt text for paths."""
+        context = RequestContext(
+            headers={}, cookies={}, state={}, app_state=MagicMock()
+        )
+        request = ChatRequest(
+            model="cursor-cli-acp.default:cursor/glm-5.2-max",
+            messages=[ChatMessage(role="user", content="work in another repository")],
+            extra_body={ACP_RESPONSES_TEXT_ONLY_MODE_KEY: True},
+        )
+        project_dir_service = AsyncMock()
+        mock_app_state.get_service.return_value = project_dir_service
+
+        await enricher.enrich(context, request)
+
         project_dir_service.maybe_resolve_project_directory.assert_not_called()
 
     async def test_multimodal_content_os_detection(

@@ -7,8 +7,8 @@ Handles model-related endpoints for the application.
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
@@ -235,6 +235,29 @@ def _build_models_from_capability_snapshot(
         canonical_display = _canonicalize_model_id(
             canonical_model, snapshot.model_to_instances
         )
+        instances = snapshot.model_to_instances.get(canonical_model, ())
+        cursor_instances = [
+            instance
+            for instance in instances
+            if instance.split(".", 1)[0] == "cursor-cli-acp"
+        ]
+        if cursor_instances:
+            for instance_name in cursor_instances:
+                exact_route = f"{instance_name}:{canonical_display}"
+                if exact_route not in seen:
+                    seen.add(exact_route)
+                    models.append(
+                        _build_model_info(
+                            model_id=exact_route,
+                            owned_by=instance_name,
+                            canonical_id=canonical_display,
+                        )
+                    )
+            non_cursor_instances = [
+                instance for instance in instances if instance not in cursor_instances
+            ]
+            if not non_cursor_instances:
+                continue
         if canonical_display not in seen:
             seen.add(canonical_display)
             models.append(_build_model_info(model_id=canonical_display))
@@ -259,6 +282,88 @@ def _collect_quota_headers_from_active_backends(
                 {str(k): str(v) for k, v in backend_headers.items() if v is not None}
             )
     return headers
+
+
+async def _build_models_from_active_cursor_backends(
+    backend_service: IBackendService,
+    *,
+    active_backends: Mapping[str, Any] | None = None,
+) -> list[ModelInfo]:
+    """Refresh exact Cursor routes from the connector's live ACP capability path."""
+    if active_backends is None:
+        try:
+            active_backends = backend_service.get_active_backends()
+        except Exception:
+            return []
+
+    models: list[ModelInfo] = []
+    seen: set[str] = set()
+    for instance_name, backend in active_backends.items():
+        if instance_name.split(".", 1)[0] != "cursor-cli-acp":
+            continue
+        discover = getattr(backend, "get_available_models_async", None)
+        if not callable(discover):
+            continue
+        try:
+            discover_async = cast(Callable[[], Awaitable[object]], discover)
+            available_models = await discover_async()
+        except Exception:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Cursor ACP model discovery failed for %s",
+                    instance_name,
+                    exc_info=True,
+                )
+            continue
+        if not isinstance(available_models, list):
+            continue
+        for model_id in available_models:
+            if not isinstance(model_id, str) or not model_id.startswith("cursor/"):
+                continue
+            exact_route = f"{instance_name}:{model_id}"
+            if exact_route in seen:
+                continue
+            seen.add(exact_route)
+            models.append(
+                _build_model_info(
+                    model_id=exact_route,
+                    owned_by=instance_name,
+                    canonical_id=model_id,
+                )
+            )
+
+    models.sort(key=lambda item: item.id)
+    return models
+
+
+def _cursor_snapshot_route_ids_for_active_instances(
+    *, snapshot: Any, active_backends: Mapping[str, Any]
+) -> set[str]:
+    """Return snapshot Cursor routes owned by currently active instances.
+
+    Live ACP discovery is authoritative for an active Cursor connector.  The
+    capability snapshot can lag behind a failed or changed discovery refresh,
+    so those routes must be removed before live routes are merged back in.
+    """
+    active_cursor_instances = {
+        instance_name
+        for instance_name in active_backends
+        if instance_name.split(".", 1)[0] == "cursor-cli-acp"
+    }
+    if not active_cursor_instances:
+        return set()
+
+    route_ids: set[str] = set()
+    for canonical_model, instances in snapshot.model_to_instances.items():
+        if not any(instance in active_cursor_instances for instance in instances):
+            continue
+        canonical_display = _canonicalize_model_id(
+            canonical_model, snapshot.model_to_instances
+        )
+        for instance_name in instances:
+            if instance_name in active_cursor_instances:
+                route_ids.add(f"{instance_name}:{canonical_display}")
+    return route_ids
 
 
 def _merge_global_quota_headers(current_headers: dict[str, str]) -> dict[str, str]:
@@ -292,6 +397,31 @@ async def _list_models_impl(
             all_models: list[ModelInfo] = []
         else:
             all_models = _build_models_from_capability_snapshot(snapshot=snapshot)
+
+        try:
+            active_backends = backend_service.get_active_backends()
+        except Exception:
+            active_backends = {}
+
+        if snapshot is not None:
+            stale_cursor_route_ids = _cursor_snapshot_route_ids_for_active_instances(
+                snapshot=snapshot,
+                active_backends=active_backends,
+            )
+            if stale_cursor_route_ids:
+                all_models = [
+                    model
+                    for model in all_models
+                    if model.id not in stale_cursor_route_ids
+                ]
+
+        live_cursor_models = await _build_models_from_active_cursor_backends(
+            backend_service,
+            active_backends=active_backends,
+        )
+        models_by_id = {model.id: model for model in all_models}
+        models_by_id.update({model.id: model for model in live_cursor_models})
+        all_models = sorted(models_by_id.values(), key=lambda item: item.id)
 
         all_quota_headers = _collect_quota_headers_from_active_backends(backend_service)
 

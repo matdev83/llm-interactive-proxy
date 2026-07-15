@@ -4,15 +4,21 @@
 # Multi User Mode: this connector is OAuth-style and is not loaded in production multi-user.
 connector: cursor-cli-acp
 extra:
-  workspace_path: "."
+  # Required: set one explicit absolute trusted workspace here or through
+  # CURSOR_CLI_WORKSPACE. Relative paths and per-request workspace overrides
+  # are rejected. Use a separate backend instance per project.
+  # workspace_path: "C:\\absolute\\trusted\\project"
   model: "composer-2"
-  auto_accept: true
-  trust_workspace: true
+  # Responses compatibility is text-only: Cursor-owned tool permissions are
+  # always rejected and this backend must not be used as a Codex Executor.
+  auto_accept: false
+  trust_workspace: false
   process_timeout: 300
   idle_timeout: 120
   # Seconds to reuse `agent models` output before re-running subprocess (0 = always refresh).
   cursor_models_cache_ttl_seconds: 3600
   mcp_servers: []
   # cursor_cli_executable: "C:\\Users\\YOU\\AppData\\Local\\cursor-agent\\agent.cmd"
+  # Applied consistently to both `agent models` discovery and the ACP process.
   # cursor_api_endpoint: "https://api.cursor.sh"
   # cursor_cli_extra_args: []

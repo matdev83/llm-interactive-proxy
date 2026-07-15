@@ -365,6 +365,38 @@ def normalize_responses_input_to_messages(
             return {"role": "user", "content": entry}
 
         if isinstance(entry, dict):
+            item_type = str(entry.get("type") or "")
+            if item_type == "function_call":
+                call_id = str(entry.get("call_id") or entry.get("id") or "")
+                arguments = entry.get("arguments")
+                if not isinstance(arguments, str):
+                    arguments = safe_string(arguments)
+                return {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": {
+                                "name": str(entry.get("name") or ""),
+                                "arguments": arguments,
+                            },
+                        }
+                    ],
+                }
+            if item_type == "function_call_output":
+                output = entry.get("output")
+                return {
+                    "role": "tool",
+                    "content": safe_string(output),
+                    "tool_call_id": str(entry.get("call_id") or ""),
+                    **(
+                        {"name": str(entry["name"])}
+                        if entry.get("name") is not None
+                        else {}
+                    ),
+                }
             raw_role = entry.get("role")
             if raw_role is None:
                 raw_role = "user"

@@ -9,7 +9,10 @@ import time
 from dataclasses import dataclass
 
 from src.core.domain.responses_domain import ResponsesOutputItem
-from src.core.domain.responses_resolved_session import ResponsesResolvedSession
+from src.core.domain.responses_resolved_session import (
+    ResponsesHistoryItem,
+    ResponsesResolvedSession,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +21,7 @@ logger = logging.getLogger(__name__)
 class _SessionEntry:
     output_items: list[ResponsesOutputItem]
     instructions: str | None
+    history_items: list[ResponsesHistoryItem]
     expires_at: float
 
 
@@ -76,6 +80,7 @@ class InMemoryResponsesSessionStore:
         ttl_seconds: int | None = None,
         *,
         instructions: str | None = None,
+        history_items: list[ResponsesHistoryItem] | None = None,
     ) -> None:
         ttl = self._default_ttl_seconds if ttl_seconds is None else ttl_seconds
         expires_at = time.monotonic() + float(ttl)
@@ -84,6 +89,9 @@ class InMemoryResponsesSessionStore:
             self._entries[response_id] = _SessionEntry(
                 output_items=list(output_items),
                 instructions=instructions,
+                history_items=(
+                    list(output_items) if history_items is None else list(history_items)
+                ),
                 expires_at=expires_at,
             )
 
@@ -101,4 +109,5 @@ class InMemoryResponsesSessionStore:
             return ResponsesResolvedSession(
                 output_items=list(entry.output_items),
                 instructions=entry.instructions,
+                history_items=list(entry.history_items),
             )
