@@ -246,7 +246,7 @@ class TestCursorCliAcpRuntimeReuse:
 
 
 class TestCursorCliAcpProtocol:
-    async def test_prepare_prompt_sends_initialize_authenticate_session(
+    async def test_prepare_prompt_uses_existing_auth_without_interactive_login(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector._default_project_dir = temp_workspace
@@ -258,7 +258,7 @@ class TestCursorCliAcpProtocol:
             patch.object(
                 connector,
                 "_send_jsonrpc_message",
-                AsyncMock(side_effect=[1, 2, 3, 4]),
+                AsyncMock(side_effect=[1, 2, 3]),
             ) as send_jsonrpc,
             patch.object(
                 connector,
@@ -266,8 +266,7 @@ class TestCursorCliAcpProtocol:
                 AsyncMock(
                     side_effect=[
                         ACPNotification(id=1, result={"protocolVersion": 1}),
-                        ACPNotification(id=2, result={}),
-                        ACPNotification(id=3, result={"sessionId": "sid-1"}),
+                        ACPNotification(id=2, result={"sessionId": "sid-1"}),
                     ]
                 ),
             ),
@@ -276,7 +275,7 @@ class TestCursorCliAcpProtocol:
                 await connector._prepare_turn_request_locked(runtime, _make_request())
             )
 
-        assert prompt_request_id == 4
+        assert prompt_request_id == 3
         assert requested_model == "cursor/composer-2"
         assert runtime.session_id == "sid-1"
         assert runtime.initialized is True
@@ -284,7 +283,6 @@ class TestCursorCliAcpProtocol:
         methods = [c.args[1] for c in send_jsonrpc.await_args_list]
         assert methods == [
             "initialize",
-            "authenticate",
             "session/new",
             "session/prompt",
         ]

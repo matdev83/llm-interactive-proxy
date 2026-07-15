@@ -419,18 +419,9 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                 details=initialize_response.error.model_dump(),
             )
 
-        auth_id = await self._send_jsonrpc_message(
-            runtime,
-            "authenticate",
-            {"methodId": "cursor_login"},
-        )
-        auth_response = await self._await_response(runtime, auth_id)
-        if auth_response.is_error and auth_response.error is not None:
-            raise BackendError(
-                message=f"Cursor CLI authenticate failed: {auth_response.error.message}",
-                details=auth_response.error.model_dump(),
-            )
-
+        # Cursor resolves credentials from its existing `agent login` state or
+        # CURSOR_API_KEY. Calling ACP `authenticate(cursor_login)` here forces an
+        # interactive browser flow even when the child is already authenticated.
         session_new_id = await self._send_jsonrpc_message(
             runtime,
             "session/new",
