@@ -23,6 +23,7 @@ from src.connectors.acp_core.types import (
     HistoryState,
 )
 from src.connectors.acp_core.workspace_policy import (
+    first_usable_workspace_dir,
     first_workspace_hint_str,
     resolve_backend_init_acp_workspace,
 )
@@ -208,10 +209,11 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
     async def initialize(self, **kwargs: Any) -> None:
         self._ensure_mutable_state()
         try:
+            env_workspace = os.getenv("CURSOR_CLI_WORKSPACE")
             workspace, cfg_err = resolve_backend_init_acp_workspace(
                 project_dir=kwargs.get("project_dir"),
                 workspace_path=kwargs.get("workspace_path"),
-                env_workspace=os.getenv("CURSOR_CLI_WORKSPACE"),
+                env_workspace=env_workspace,
                 env_source_label="CURSOR_CLI_WORKSPACE",
                 is_usable=self._is_usable_directory,
             )
@@ -220,13 +222,25 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     message=cfg_err,
                     details={"error_code": "cursor_cli_acp_workspace_invalid"},
                 )
-            if workspace is None:  # pyright: ignore[reportUnnecessaryComparison]
+            configured_workspace = next(
+                (
+                    str(raw).strip()
+                    for raw in (
+                        kwargs.get("project_dir"),
+                        kwargs.get("workspace_path"),
+                        env_workspace,
+                    )
+                    if raw is not None and str(raw).strip()
+                ),
+                None,
+            )
+            if workspace is None and configured_workspace is not None:
                 raise ConfigurationError(
                     message=(
-                        "cursor-cli-acp requires an explicit absolute workspace path "
-                        "via project_dir, workspace_path, or CURSOR_CLI_WORKSPACE"
+                        "cursor-cli-acp configured workspace must be an explicit "
+                        f"absolute readable directory: {configured_workspace!r}"
                     ),
-                    details={"error_code": "cursor_cli_acp_workspace_required"},
+                    details={"error_code": "cursor_cli_acp_workspace_invalid"},
                 )
             self._default_project_dir = workspace
             exe_kw = kwargs.get("cursor_cli_executable") or kwargs.get(
@@ -293,7 +307,14 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     details={"executable": self._cursor_cli_executable},
                 )
 
-            await self._ensure_models_discovered(force=True)
+            if workspace is not None:
+                await self._ensure_models_discovered(force=True, workspace=workspace)
+            else:
+                logger.info(
+                    "Cursor ACP initialized without a static workspace; model "
+                    "discovery is deferred until a legacy chat request supplies "
+                    "a validated absolute project directory"
+                )
             self._validation_errors = []
             self._initialization_failed = False
             self.is_functional = True
@@ -317,7 +338,7 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
-    async def _discover_models(self) -> list[str]:
+    async def _discover_models(self, *, workspace: Path | None = None) -> list[str]:
         """Discover models accepted by the running Cursor ACP server.
 
         The human-readable ``agent models`` command describes the normal CLI
@@ -325,7 +346,7 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         the catalog never advertises a route that fails only at turn startup.
         """
 
-        workspace = getattr(self, "_default_project_dir", None)
+        workspace = workspace or getattr(self, "_default_project_dir", None)
         if not isinstance(workspace, Path):
             logger.warning("Cursor ACP model discovery skipped without workspace")
             return []
@@ -397,7 +418,12 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             # conversation.  Always reap it, including startup/protocol errors.
             await self._kill_runtime(runtime)
 
-    async def _ensure_models_discovered(self, *, force: bool = False) -> None:
+    async def _ensure_models_discovered(
+        self,
+        *,
+        force: bool = False,
+        workspace: Path | None = None,
+    ) -> None:
         """Populate ``_cached_models`` via a live ACP capability probe.
 
         Skips subprocess when cache is fresh (within TTL) unless ``force`` is True.
@@ -405,6 +431,12 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         """
         exe = getattr(self, "_cursor_cli_executable", None)
         if not isinstance(exe, str) or not exe.strip():
+            return
+        if workspace is None and self._default_project_dir is None:
+            # A dynamic legacy-chat instance has no safe cwd until a request
+            # supplies its validated session workspace. Do not turn this
+            # deferred state into a fresh negative cache entry, otherwise the
+            # first real request would skip discovery for the whole TTL.
             return
 
         now = time.monotonic()
@@ -422,7 +454,10 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             return
 
         try:
-            self._cached_models = await self._discover_models()
+            if workspace is None:
+                self._cached_models = await self._discover_models()
+            else:
+                self._cached_models = await self._discover_models(workspace=workspace)
         except Exception:
             # A failed capability probe is a negative discovery result.  Cache
             # it for the configured TTL so every request does not launch a
@@ -446,7 +481,8 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
     async def _acquire_runtime(
         self, request: ConnectorChatCompletionsRequest
     ) -> ACPProcessRuntime:
-        await self._ensure_models_discovered(force=False)
+        project_dir = self._resolve_project_dir_for_request(request)
+        await self._ensure_models_discovered(force=False, workspace=project_dir)
         requested_model = strip_vendor_prefix(
             request.effective_model or self._model,
             self.VENDOR_PREFIX,
@@ -469,13 +505,44 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         extra_dict = cast(dict[str, Any] | None, extra_body)
         options = cast(dict[str, Any] | None, request.options)
         hint = first_workspace_hint_str(extra_dict, options)
+        if self._is_responses_text_only_request(request):
+            if hint is not None:
+                raise BackendError(
+                    message=(
+                        "cursor-cli-acp Responses requests do not accept per-request "
+                        "workspace selection; configure one trusted absolute workspace "
+                        "for this backend instance"
+                    ),
+                    details={"code": "cursor_cli_acp_dynamic_workspace_forbidden"},
+                )
+            if self._default_project_dir is None:
+                raise ConfigurationError(
+                    message=(
+                        "cursor-cli-acp Responses requests require one trusted "
+                        "absolute workspace configured for the backend instance"
+                    ),
+                    details={"error_code": "cursor_cli_acp_workspace_required"},
+                )
+            return self._default_project_dir
+
+        request_workspace = first_usable_workspace_dir(
+            extra_dict,
+            options,
+            is_usable=self._is_usable_directory,
+            require_absolute_hint=True,
+        )
+        if request_workspace is not None:
+            return request_workspace
         if hint is not None:
             raise BackendError(
                 message=(
-                    "cursor-cli-acp does not accept per-request workspace selection; "
-                    "configure one trusted absolute workspace for this backend instance"
+                    "cursor-cli-acp request workspace must be an existing readable "
+                    f"absolute directory: {hint!r}"
                 ),
-                details={"code": "cursor_cli_acp_dynamic_workspace_forbidden"},
+                details={
+                    "code": "cursor_cli_acp_workspace_invalid",
+                    "workspace": hint,
+                },
             )
         if self._default_project_dir is None:
             raise ConfigurationError(

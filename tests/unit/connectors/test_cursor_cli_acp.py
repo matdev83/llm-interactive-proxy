@@ -179,6 +179,7 @@ class TestCursorCliAcpModelCache:
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector._cursor_cli_executable = str(temp_workspace / "agent")
+        connector._default_project_dir = temp_workspace
         connector._models_cache_ttl_seconds = 0.0
         connector.is_functional = True
         connector._initialization_failed = False
@@ -202,6 +203,7 @@ class TestCursorCliAcpModelCache:
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector._cursor_cli_executable = str(temp_workspace / "agent")
+        connector._default_project_dir = temp_workspace
         connector._models_cache_ttl_seconds = 3600.0
         connector.is_functional = True
         connector._initialization_failed = False
@@ -223,6 +225,7 @@ class TestCursorCliAcpModelCache:
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector._cursor_cli_executable = str(temp_workspace / "agent")
+        connector._default_project_dir = temp_workspace
         connector._models_cache_ttl_seconds = 3600.0
         connector.is_functional = True
         connector._initialization_failed = False
@@ -244,6 +247,7 @@ class TestCursorCliAcpModelCache:
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector._cursor_cli_executable = str(temp_workspace / "agent")
+        connector._default_project_dir = temp_workspace
         connector._models_cache_ttl_seconds = 3600.0
         connector.is_functional = True
         connector._initialization_failed = False
@@ -265,6 +269,7 @@ class TestCursorCliAcpModelCache:
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector._cursor_cli_executable = str(temp_workspace / "agent")
+        connector._default_project_dir = temp_workspace
         connector._models_cache_ttl_seconds = 3600.0
         connector._cached_models = []
         connector._models_cache_fetched_at = time.monotonic()
@@ -285,6 +290,7 @@ class TestCursorCliAcpModelCache:
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector._cursor_cli_executable = str(temp_workspace / "agent")
+        connector._default_project_dir = temp_workspace
         connector._models_cache_ttl_seconds = 3600.0
         connector.is_functional = True
         connector._initialization_failed = False
@@ -301,6 +307,19 @@ class TestCursorCliAcpModelCache:
             assert await connector.get_available_models_async() == []
 
         assert calls == 1
+
+    async def test_model_catalog_without_workspace_defers_without_negative_cache(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector._cursor_cli_executable = str(temp_workspace / "agent")
+        connector.is_functional = True
+        discover_models = AsyncMock(return_value=["cursor/composer-2"])
+
+        with patch.object(connector, "_discover_models", discover_models):
+            assert await connector.get_available_models_async() == []
+
+        discover_models.assert_not_awaited()
+        assert connector._models_cache_fetched_at == 0.0
 
 
 class TestCursorCliAcpHelpers:
@@ -375,19 +394,25 @@ class TestCursorCliAcpInitialization:
 
         assert connector.is_backend_functional() is False
 
-    async def test_initialize_without_workspace_config_is_rejected(
+    async def test_legacy_request_uses_resolved_workspace_without_static_config(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         fake = str(temp_workspace / "fake-agent")
         Path(fake).write_text("noop", encoding="utf-8")
+        discover_models = AsyncMock(return_value=["cursor/composer-2"])
         with (
             patch.object(connector, "_check_agent_available", return_value=True),
-            patch.object(connector, "_discover_models", return_value=["cursor/x"]),
-            pytest.raises(ConfigurationError),
+            patch.object(connector, "_discover_models", discover_models),
         ):
             await connector.initialize(cursor_cli_executable=fake)
+            runtime = await connector._acquire_runtime(
+                _make_request(options={"project_dir": str(temp_workspace)})
+            )
 
-        assert connector.is_backend_functional() is False
+        assert connector.is_backend_functional() is True
+        assert connector._default_project_dir is None
+        assert runtime.project_dir == temp_workspace.resolve()
+        discover_models.assert_awaited_once_with(workspace=temp_workspace.resolve())
 
     async def test_initialize_rejects_relative_dot_workspace_path(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
@@ -433,6 +458,33 @@ class TestCursorCliAcpInitialization:
 
 
 class TestCursorCliAcpRuntimeReuse:
+    def test_responses_request_cannot_use_dynamic_legacy_workspace(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        request = _make_request(
+            extra_body={ACP_RESPONSES_TEXT_ONLY_MODE_KEY: True},
+            options={"project_dir": str(temp_workspace)},
+        )
+
+        with pytest.raises(BackendError) as exc_info:
+            connector._resolve_project_dir_for_request(request)
+
+        assert (
+            exc_info.value.details.get("code")
+            == "cursor_cli_acp_dynamic_workspace_forbidden"
+        )
+
+    def test_responses_request_uses_static_trusted_workspace(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector._default_project_dir = temp_workspace.resolve()
+
+        resolved = connector._resolve_project_dir_for_request(
+            _make_request(extra_body={ACP_RESPONSES_TEXT_ONLY_MODE_KEY: True})
+        )
+
+        assert resolved == temp_workspace.resolve()
+
     async def test_failed_standalone_turn_retires_runtime_from_pool(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:

@@ -4,9 +4,11 @@
 # Multi User Mode: this connector is OAuth-style and is not loaded in production multi-user.
 connector: cursor-cli-acp
 extra:
-  # Required: set one explicit absolute trusted workspace here or through
-  # CURSOR_CLI_WORKSPACE. Relative paths and per-request workspace overrides
-  # are rejected. Use a separate backend instance per project.
+  # Required for /v1/responses: set one explicit absolute trusted workspace
+  # here or through CURSOR_CLI_WORKSPACE. Legacy /v1/chat/completions requests
+  # may instead use the absolute project directory resolved into session state.
+  # Relative paths are rejected. Use a separate backend instance per project
+  # for Responses routes.
   # workspace_path: "C:\\absolute\\trusted\\project"
   model: "composer-2"
   # Responses compatibility is text-only: Cursor-owned tool permissions are
