@@ -236,13 +236,14 @@ def _build_models_from_capability_snapshot(
             canonical_model, snapshot.model_to_instances
         )
         instances = snapshot.model_to_instances.get(canonical_model, ())
-        cursor_instances = [
+        route_policy = getattr(snapshot, "instance_route_policy", {})
+        pinned_instances = [
             instance
             for instance in instances
-            if instance.split(".", 1)[0] == "cursor-cli-acp"
+            if route_policy.get(instance) == "instance_pinned"
         ]
-        if cursor_instances:
-            for instance_name in cursor_instances:
+        if pinned_instances:
+            for instance_name in pinned_instances:
                 exact_route = f"{instance_name}:{canonical_display}"
                 if exact_route not in seen:
                     seen.add(exact_route)
@@ -253,10 +254,10 @@ def _build_models_from_capability_snapshot(
                             canonical_id=canonical_display,
                         )
                     )
-            non_cursor_instances = [
-                instance for instance in instances if instance not in cursor_instances
+            non_pinned_instances = [
+                instance for instance in instances if instance not in pinned_instances
             ]
-            if not non_cursor_instances:
+            if not non_pinned_instances:
                 continue
         if canonical_display not in seen:
             seen.add(canonical_display)

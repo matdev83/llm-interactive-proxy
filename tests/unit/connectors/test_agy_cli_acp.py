@@ -221,11 +221,28 @@ class TestAgyCliAcpRuntime:
         )
         assert runtime.project_dir == other.resolve()
 
-    def test_available_models_are_prefixed(self, connector: AgyCliAcpConnector) -> None:
-        models = connector.get_available_models()
-        assert "google/gemini-3.5-flash-high" in models
-        assert "google/gemini-3.5-flash-medium" in models
-        assert "google/gemini-3.5-flash-low" in models
-        assert "google/gemini-3.1-pro" in models
-        assert "anthropic/claude-sonnet-4.6-thinking" in models
-        assert "anthropic/claude-opus-4.6-thinking" in models
+    def test_available_models_are_empty_without_explicit_configuration(
+        self, connector: AgyCliAcpConnector
+    ) -> None:
+        assert connector.get_available_models() == []
+
+    async def test_available_models_preserve_explicit_configuration(
+        self,
+        connector: AgyCliAcpConnector,
+        temp_workspace: Path,
+    ) -> None:
+        fake = str(temp_workspace / "go-agy-acp-wrapper.exe")
+        Path(fake).write_text("noop", encoding="utf-8")
+        with patch.object(connector, "_check_wrapper_available", return_value=True):
+            await connector.initialize(
+                wrapper_executable=fake,
+                models=[
+                    "google/gemini-3.5-flash-high",
+                    "anthropic/claude-sonnet-4.6-thinking",
+                ],
+            )
+
+        assert connector.get_available_models() == [
+            "google/gemini-3.5-flash-high",
+            "anthropic/claude-sonnet-4.6-thinking",
+        ]

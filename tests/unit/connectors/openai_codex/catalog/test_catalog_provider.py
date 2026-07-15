@@ -37,6 +37,7 @@ class TestProviderDiscoverySuccess:
         await provider.load()
 
         assert provider.get_catalog() is sentinel_d
+        assert provider.get_catalog_source() == "discovery"
         assert fallback.calls == 0
 
     @pytest.mark.asyncio
@@ -69,6 +70,7 @@ class TestProviderFallback:
         await provider.load()
 
         assert provider.get_catalog() is sentinel_f
+        assert provider.get_catalog_source() == "fallback"
         assert fallback.calls == 1
 
     @pytest.mark.asyncio

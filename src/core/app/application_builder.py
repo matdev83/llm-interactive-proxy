@@ -615,7 +615,7 @@ class ApplicationBuilder:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("Exception handlers not available", exc_info=True)
 
-    def _add_lifecycle_handlers(  # noqa: C901
+    def _add_lifecycle_handlers(
         self, app: FastAPI, service_provider: IServiceProvider
     ) -> None:
         """Add startup and shutdown handlers."""
@@ -661,23 +661,17 @@ class ApplicationBuilder:
                 )
                 if routing_service is not None:
                     active_routing_service = routing_service
-
-                    async def _startup_capability_refresh() -> None:
-                        try:
-                            await active_routing_service.refresh_model_capabilities(
-                                reason="startup"
+                    try:
+                        await active_routing_service.refresh_model_capabilities(
+                            reason="startup"
+                        )
+                    except Exception as exc:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Startup capability refresh failed: %s",
+                                exc,
+                                exc_info=True,
                             )
-                        except Exception as exc:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    "Startup capability refresh failed: %s",
-                                    exc,
-                                    exc_info=True,
-                                )
-
-                    _ = asyncio.create_task(  # noqa: RUF006 - fire-and-forget
-                        _startup_capability_refresh()
-                    )
 
                     refresh_interval_seconds = 0.0
                     if app_config is not None:

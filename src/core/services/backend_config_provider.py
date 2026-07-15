@@ -144,6 +144,26 @@ class BackendConfigProvider(IBackendConfigProvider):
 
         return registered
 
+    def iter_configured_backend_names(self) -> Iterable[str]:
+        """Return backend entries carrying explicit routing or connector settings."""
+
+        configured: list[str] = []
+        for name, cfg in self._app_config.backends.get_named_backend_configs().items():
+            if not name or name == "default_backend" or name.startswith("_"):
+                continue
+            if not isinstance(cfg, BackendConfig):
+                continue
+            if (
+                cfg.connector
+                or cfg.models
+                or cfg.api_key
+                or cfg.api_url
+                or cfg.credentials_path
+                or cfg.extra
+            ):
+                configured.append(name)
+        return configured
+
     def get_default_backend(self) -> str:
         """Return the configured default backend name."""
         try:

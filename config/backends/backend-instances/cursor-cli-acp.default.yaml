@@ -17,10 +17,14 @@ extra:
   trust_workspace: false
   process_timeout: 300
   idle_timeout: 120
-  # Seconds to reuse `agent models` output before re-running subprocess (0 = always refresh).
+  # Seconds to reuse `agent --list-models` output before re-running subprocess (0 = always refresh).
   cursor_models_cache_ttl_seconds: 3600
   mcp_servers: []
   # cursor_cli_executable: "C:\\Users\\YOU\\AppData\\Local\\cursor-agent\\agent.cmd"
-  # Applied consistently to both `agent models` discovery and the ACP process.
+  # Applied consistently to both `agent --list-models` discovery and the ACP process.
   # cursor_api_endpoint: "https://api.cursor.sh"
+  # Optional arguments are passed unchanged to both commands (for example,
+  # profile or endpoint-selection flags required by a local Cursor install).
   # cursor_cli_extra_args: []
+  # Discovery subprocess deadline in seconds (default: 60).
+  # cursor_model_discovery_timeout_seconds: 60

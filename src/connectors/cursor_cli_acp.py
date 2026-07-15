@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -30,7 +31,8 @@ from src.connectors.acp_core.workspace_policy import (
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.core.common.exceptions import BackendError, ConfigurationError
-from src.core.config.app_config import AppConfig
+from src.core.common.model_catalog import BackendModelEnumeration
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.chat import ChatMessage
 from src.core.domain.responses_native_wiring import (
     ACP_RESPONSES_STANDALONE_MODE_KEY,
@@ -50,7 +52,7 @@ def _strip_ansi(text: str) -> str:
 
 
 def parse_agent_models_listing(stdout: str) -> list[str]:
-    """Parse `agent models` human-readable output into model id strings."""
+    """Parse ``agent --list-models`` output into exact Cursor CLI model ids."""
     models: list[str] = []
     seen: set[str] = set()
     for raw_line in stdout.splitlines():
@@ -70,56 +72,125 @@ def parse_agent_models_listing(stdout: str) -> list[str]:
     return models
 
 
-def parse_cursor_acp_models_result(result: object) -> list[str]:
-    """Extract model identifiers returned by Cursor's ACP capability method.
+def _cursor_cli_model_route(model_id: str) -> str:
+    """Expose a stable provider route while retaining Cursor's exact CLI id."""
 
-    ``cursor/list_available_models`` has had more than one result shape in
-    Cursor Agent releases.  Keep parsing deliberately limited to identifier
-    fields from the capability response; display names or the standalone
-    ``agent models`` output are not treated as ACP capabilities.
-    """
+    route_id = model_id.removeprefix("cursor-")
+    return add_vendor_prefix(route_id, "cursor")
 
-    if not isinstance(result, dict):
-        return []
 
-    values: list[object] = []
-    for key in ("models", "availableModels", "modelIds", "available_models"):
-        candidate = result.get(key)
-        if isinstance(candidate, list):
-            values.extend(candidate)
+@dataclass(frozen=True)
+class CursorCliModelCatalog:
+    routes: tuple[str, ...]
+    cli_ids: dict[str, str]
 
-    models: list[str] = []
-    seen: set[str] = set()
-    for value in values:
-        raw_id: object
-        if isinstance(value, str):
-            raw_id = value
-        elif isinstance(value, dict):
-            raw_id = next(
-                (
-                    value.get(key)
-                    for key in ("id", "modelId", "model_id")
-                    if isinstance(value.get(key), str)
-                ),
-                None,
-            )
-        else:
-            continue
 
-        if not isinstance(raw_id, str):
-            continue
-        model_id = raw_id.strip()
-        if not model_id or any(char.isspace() for char in model_id):
-            continue
-        normalized = add_vendor_prefix(
-            strip_vendor_prefix(model_id, "cursor"),
-            "cursor",
+def normalize_cursor_cli_extra_args(value: object) -> list[str]:
+    """Normalize configured Cursor CLI arguments without shell re-parsing."""
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+async def discover_cursor_cli_model_catalog(
+    *,
+    executable: str,
+    cursor_api_endpoint: str | None,
+    extra_args: Sequence[str] | None = None,
+    workspace: Path | None,
+    timeout_seconds: float,
+) -> CursorCliModelCatalog:
+    """Run Cursor's noninteractive catalog command without starting ACP."""
+
+    command = [executable]
+    if cursor_api_endpoint:
+        command.extend(["-e", cursor_api_endpoint])
+    if extra_args:
+        command.extend(list(extra_args))
+    command.append("--list-models")
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+            shell=False,
+            cwd=str(workspace) if isinstance(workspace, Path) else None,
         )
-        if normalized in seen:
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        logger.warning("Cursor model discovery command failed", exc_info=True)
+        return CursorCliModelCatalog(routes=(), cli_ids={})
+    if result.returncode != 0:
+        logger.warning(
+            "Cursor model discovery command failed with exit code %s: %s",
+            result.returncode,
+            result.stderr.strip(),
+        )
+        return CursorCliModelCatalog(routes=(), cli_ids={})
+
+    routes: list[str] = []
+    cli_ids: dict[str, str] = {}
+    for cli_model_id in parse_agent_models_listing(result.stdout):
+        route = _cursor_cli_model_route(cli_model_id)
+        if route in cli_ids:
             continue
-        seen.add(normalized)
-        models.append(normalized)
-    return models
+        cli_ids[route] = cli_model_id
+        routes.append(route)
+    return CursorCliModelCatalog(routes=tuple(routes), cli_ids=cli_ids)
+
+
+class CursorCliConfiguredModelEnumerator:
+    """Enumerate a configured Cursor instance without creating an ACP session."""
+
+    async def enumerate(
+        self, instance_name: str, config: BackendConfig
+    ) -> BackendModelEnumeration:
+        extra = config.extra
+        configured_executable = extra.get("cursor_cli_executable") or extra.get(
+            "agent_executable"
+        )
+        executable = resolve_cursor_agent_executable(
+            str(configured_executable) if configured_executable else None
+        )
+        if executable is None:
+            return BackendModelEnumeration.unavailable(
+                instance_name=instance_name,
+                connector="cursor-cli-acp",
+                source="cursor_cli",
+                error_code="executable_not_found",
+                instance_pinned=True,
+            )
+        endpoint = extra.get("cursor_api_endpoint") or extra.get("cursor_api_base_url")
+        extra_args = normalize_cursor_cli_extra_args(
+            extra.get("cursor_cli_extra_args") or extra.get("cursor_extra_cli_args")
+        )
+        timeout = float(extra.get("cursor_model_discovery_timeout_seconds", 60.0))
+        catalog = await discover_cursor_cli_model_catalog(
+            executable=executable,
+            cursor_api_endpoint=str(endpoint) if endpoint else None,
+            extra_args=extra_args,
+            workspace=None,
+            timeout_seconds=timeout,
+        )
+        if not catalog.routes:
+            return BackendModelEnumeration.unavailable(
+                instance_name=instance_name,
+                connector="cursor-cli-acp",
+                source="cursor_cli",
+                error_code="catalog_unavailable",
+                instance_pinned=True,
+            )
+        return BackendModelEnumeration.available(
+            instance_name=instance_name,
+            connector="cursor-cli-acp",
+            models=catalog.routes,
+            source="cursor_cli",
+            instance_pinned=True,
+        )
 
 
 def resolve_cursor_agent_executable(configured: str | None) -> str | None:
@@ -198,8 +269,10 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self._cursor_api_endpoint: str | None = None
         self._extra_cli_args: list[str] = []
         self._cached_models: list[str] = []
+        self._model_cli_ids: dict[str, str] = {}
         self._models_cache_fetched_at: float = 0.0
         self._models_cache_ttl_seconds: float = 3600.0
+        self._model_discovery_timeout_seconds: float = 60.0
         self._extension_response_log: set[str] = set()
 
     def _ensure_mutable_state(self) -> None:
@@ -266,6 +339,10 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     )
                 ),
             )
+            self._model_discovery_timeout_seconds = max(
+                0.1,
+                float(kwargs.get("cursor_model_discovery_timeout_seconds", 60.0)),
+            )
             mcp = kwargs.get("mcp_servers", [])
             if isinstance(mcp, list):
                 self._mcp_servers = mcp
@@ -282,12 +359,7 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             extra = kwargs.get("cursor_cli_extra_args") or kwargs.get(
                 "cursor_extra_cli_args"
             )
-            if isinstance(extra, list):
-                self._extra_cli_args = [str(x) for x in extra]
-            elif isinstance(extra, str) and extra.strip():
-                self._extra_cli_args = [extra.strip()]
-            else:
-                self._extra_cli_args = []
+            self._extra_cli_args = normalize_cursor_cli_extra_args(extra)
 
             resolved = resolve_cursor_agent_executable(self._cursor_cli_executable)
             if resolved is None:
@@ -307,14 +379,7 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     details={"executable": self._cursor_cli_executable},
                 )
 
-            if workspace is not None:
-                await self._ensure_models_discovered(force=True, workspace=workspace)
-            else:
-                logger.info(
-                    "Cursor ACP initialized without a static workspace; model "
-                    "discovery is deferred until a legacy chat request supplies "
-                    "a validated absolute project directory"
-                )
+            await self._ensure_models_discovered(force=True, workspace=workspace)
             self._validation_errors = []
             self._initialization_failed = False
             self.is_functional = True
@@ -339,84 +404,19 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             return False
 
     async def _discover_models(self, *, workspace: Path | None = None) -> list[str]:
-        """Discover models accepted by the running Cursor ACP server.
-
-        The human-readable ``agent models`` command describes the normal CLI
-        surface and may include models that ACP rejects.  Probe ACP itself so
-        the catalog never advertises a route that fails only at turn startup.
-        """
+        """Discover selectable models from Cursor's supported CLI catalog command."""
 
         workspace = workspace or getattr(self, "_default_project_dir", None)
-        if not isinstance(workspace, Path):
-            logger.warning("Cursor ACP model discovery skipped without workspace")
-            return []
 
-        runtime = self._create_runtime(workspace, "", "model-discovery")
-        runtime.responses_text_only_mode = True
-        try:
-            await self._spawn_process(runtime)
-
-            initialize_id = await self._send_jsonrpc_message(
-                runtime,
-                "initialize",
-                {
-                    "protocolVersion": ACP_PROTOCOL_VERSION,
-                    "clientCapabilities": {
-                        "fs": {"readTextFile": False, "writeTextFile": False},
-                        "terminal": False,
-                    },
-                    "clientInfo": {
-                        "name": "llm-interactive-proxy-model-discovery",
-                        "version": "1",
-                    },
-                },
-            )
-            initialize_response = await self._await_response(runtime, initialize_id)
-            if initialize_response.is_error:
-                logger.warning(
-                    "Cursor ACP initialize failed during model discovery: %s",
-                    initialize_response.error,
-                )
-                return []
-
-            session_new_id = await self._send_jsonrpc_message(
-                runtime,
-                "session/new",
-                {
-                    "cwd": str(runtime.project_dir),
-                    "mcpServers": list(self._mcp_servers),
-                },
-            )
-            session_new_response = await self._await_response(runtime, session_new_id)
-            if session_new_response.is_error:
-                logger.warning(
-                    "Cursor ACP session/new failed during model discovery: %s",
-                    session_new_response.error,
-                )
-                return []
-            session_result = session_new_response.result or {}
-            session_id = session_result.get("sessionId")
-
-            list_models_id = await self._send_jsonrpc_message(
-                runtime,
-                "cursor/list_available_models",
-                {"sessionId": session_id} if isinstance(session_id, str) else {},
-            )
-            models_response = await self._await_response(runtime, list_models_id)
-            if models_response.is_error:
-                logger.warning(
-                    "Cursor ACP model capability request failed: %s",
-                    models_response.error,
-                )
-                return []
-            return parse_cursor_acp_models_result(models_response.result)
-        except Exception:
-            logger.warning("Cursor ACP capability discovery failed", exc_info=True)
-            return []
-        finally:
-            # Discovery is a short-lived capability probe, never a pooled
-            # conversation.  Always reap it, including startup/protocol errors.
-            await self._kill_runtime(runtime)
+        catalog = await discover_cursor_cli_model_catalog(
+            executable=self._cursor_cli_executable,
+            cursor_api_endpoint=self._cursor_api_endpoint,
+            extra_args=self._extra_cli_args,
+            workspace=workspace,
+            timeout_seconds=self._model_discovery_timeout_seconds,
+        )
+        self._model_cli_ids = dict(catalog.cli_ids)
+        return list(catalog.routes)
 
     async def _ensure_models_discovered(
         self,
@@ -432,13 +432,6 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         exe = getattr(self, "_cursor_cli_executable", None)
         if not isinstance(exe, str) or not exe.strip():
             return
-        if workspace is None and self._default_project_dir is None:
-            # A dynamic legacy-chat instance has no safe cwd until a request
-            # supplies its validated session workspace. Do not turn this
-            # deferred state into a fresh negative cache entry, otherwise the
-            # first real request would skip discovery for the whole TTL.
-            return
-
         now = time.monotonic()
         # ``_models_cache_fetched_at`` is the discovery-attempt sentinel.  It
         # is updated even when the CLI returns no models or fails, so an empty
@@ -496,7 +489,10 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     "requested_model": advertised,
                 },
             )
-        return await super()._acquire_runtime(request)
+        cli_model_id = self._model_cli_ids.get(advertised, requested_model)
+        return await super()._acquire_runtime(
+            replace(request, effective_model=cli_model_id)
+        )
 
     def _resolve_project_dir_for_request(
         self, request: ConnectorChatCompletionsRequest

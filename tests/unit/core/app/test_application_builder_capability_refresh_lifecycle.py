@@ -73,6 +73,45 @@ async def test_lifespan_schedules_startup_and_periodic_capability_refresh() -> N
 
 
 @pytest.mark.asyncio
+async def test_lifespan_waits_for_startup_capability_refresh_before_ready() -> None:
+    builder = ApplicationBuilder()
+    builder._services = Mock()
+    builder._services.dispose = AsyncMock()
+
+    refresh_started = asyncio.Event()
+    allow_refresh_to_finish = asyncio.Event()
+
+    async def _refresh(*, reason: str) -> bool:
+        assert reason == "startup"
+        refresh_started.set()
+        await allow_refresh_to_finish.wait()
+        return True
+
+    routing_service = Mock()
+    routing_service.refresh_model_capabilities = AsyncMock(side_effect=_refresh)
+    routing_service.start_model_capability_refresh = AsyncMock(return_value=None)
+    routing_service.stop_model_capability_refresh = AsyncMock(return_value=None)
+    provider = _build_provider(
+        app_config=AppConfig(
+            routing=RoutingConfig(capability_refresh_interval_seconds=0.0)
+        ),
+        routing_service=routing_service,
+        backend_lifecycle_manager=None,
+    )
+    app = FastAPI()
+    builder._add_lifecycle_handlers(app, provider)
+
+    lifespan = app.router.lifespan_context(app)
+    enter_task = asyncio.create_task(lifespan.__aenter__())
+    await refresh_started.wait()
+    assert enter_task.done() is False
+
+    allow_refresh_to_finish.set()
+    await enter_task
+    await lifespan.__aexit__(None, None, None)
+
+
+@pytest.mark.asyncio
 async def test_lifespan_stops_capability_refresh_before_backend_shutdown() -> None:
     builder = ApplicationBuilder()
     builder._services = Mock()

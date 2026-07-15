@@ -26,6 +26,12 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
         def _routing_service_factory(
             provider: IServiceProvider,
         ) -> BackendRoutingService:
+            from src.connectors.cursor_cli_acp import (
+                CursorCliConfiguredModelEnumerator,
+            )
+            from src.connectors.openai_codex.catalog.provider import (
+                CodexModelCatalogProvider,
+            )
             from src.core.config.models import RoutingConfig
             from src.core.interfaces.backend_config_provider_interface import (
                 IBackendConfigProvider,
@@ -34,7 +40,12 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
                 IBackendLifecycleManager,
             )
             from src.core.interfaces.resilience_interface import IResilienceCoordinator
+            from src.core.services.configured_backend_model_enumerators import (
+                CodexAppServerConfiguredModelEnumerator,
+                ExplicitConfiguredModelEnumerator,
+            )
             from src.core.services.model_capability_index import (
+                BackendModelEnumeratorRegistry,
                 ModelCapabilityDiscoverer,
             )
 
@@ -49,9 +60,33 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
             resilience_coordinator = provider.get_service(
                 cast(type, IResilienceCoordinator)
             )
+            enumerators = BackendModelEnumeratorRegistry()
+            enumerators.register(
+                "cursor-cli-acp",
+                CursorCliConfiguredModelEnumerator(),
+                timeout_seconds=None,
+            )
+            enumerators.register(
+                "gemini-cli-acp",
+                ExplicitConfiguredModelEnumerator(connector="gemini-cli-acp"),
+            )
+            enumerators.register(
+                "agy-cli-acp",
+                ExplicitConfiguredModelEnumerator(connector="agy-cli-acp"),
+            )
+            codex_catalog_provider = provider.get_service(CodexModelCatalogProvider)
+            if codex_catalog_provider is not None:
+                enumerators.register(
+                    "openai-codex-app-server",
+                    CodexAppServerConfiguredModelEnumerator(
+                        catalog=codex_catalog_provider.get_catalog(),
+                        catalog_source=codex_catalog_provider.get_catalog_source(),
+                    ),
+                )
             discoverer = ModelCapabilityDiscoverer(
                 config_provider=backend_cfg_provider,
                 backend_lifecycle_manager=lifecycle_manager,
+                enumerator_registry=enumerators,
             )
             return BackendRoutingService(
                 config_provider=backend_cfg_provider,

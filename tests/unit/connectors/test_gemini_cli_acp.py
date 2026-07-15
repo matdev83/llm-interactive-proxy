@@ -137,13 +137,23 @@ class TestGeminiCliAcpHelpers:
 
         assert connector._extract_user_message_as_string(messages) == "second message"
 
-    def test_available_models_use_shared_gemini_catalog(
+    def test_available_models_are_empty_without_explicit_configuration(
         self, connector: GeminiCliAcpConnector
     ) -> None:
-        models = connector.get_available_models()
+        assert connector.get_available_models() == []
 
-        assert "google/gemini-3-flash-preview" in models
-        assert "google/gemini-3.1-pro-preview" in models
+    async def test_available_models_preserve_explicit_configuration(
+        self, connector: GeminiCliAcpConnector
+    ) -> None:
+        with patch.object(connector, "_check_gemini_cli_available", return_value=True):
+            await connector.initialize(
+                models=["google/gemini-3.1-pro-preview", "gemini-2.5-flash"]
+            )
+
+        assert connector.get_available_models() == [
+            "google/gemini-3.1-pro-preview",
+            "gemini-2.5-flash",
+        ]
 
     async def test_acquire_runtime_uses_project_dir_override_from_options(
         self,

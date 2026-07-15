@@ -50,6 +50,7 @@ class CodexModelCatalogProvider:
             )
         )
         self._catalog: CodexModelCatalog | None = None
+        self._catalog_source: str | None = None
 
     async def load(self) -> None:
         """Eagerly resolve the catalog (discovery, else fallback) and cache it.
@@ -74,11 +75,13 @@ class CodexModelCatalogProvider:
                     len(discovered.routable_slugs()),
                 )
                 self._catalog = discovered
+                self._catalog_source = "discovery"
                 return
             logger.info(
                 "Codex catalog discovery unavailable; falling back to shipped snapshot."
             )
         self._catalog = self._fallback_loader.load()
+        self._catalog_source = "fallback"
         logger.info(
             "Codex model catalog loaded from fallback snapshot (%d routable models).",
             len(self._catalog.routable_slugs()),
@@ -89,6 +92,13 @@ class CodexModelCatalogProvider:
         if self._catalog is None:
             raise RuntimeError("Codex model catalog not loaded; call load() first.")
         return self._catalog
+
+    def get_catalog_source(self) -> str:
+        """Return ``discovery`` or ``fallback`` for the loaded catalog."""
+
+        if self._catalog_source is None:
+            raise RuntimeError("Codex model catalog not loaded; call load() first.")
+        return self._catalog_source
 
     def load_fallback_only(self) -> CodexModelCatalog:
         """Load and return the fallback snapshot synchronously (no discovery).

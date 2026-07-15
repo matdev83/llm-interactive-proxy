@@ -22,6 +22,10 @@ class IBackendConfigProvider(Protocol):
         """Iterate over known backend names."""
         ...
 
+    def iter_configured_backend_names(self) -> Iterable[str]:
+        """Iterate over explicitly configured, non-empty backend instances."""
+        ...
+
     def get_default_backend(self) -> str:
         """Return the configured default backend name."""
         ...

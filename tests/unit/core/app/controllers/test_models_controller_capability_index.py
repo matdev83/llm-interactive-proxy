@@ -54,6 +54,31 @@ def _cursor_snapshot() -> ModelCapabilitySnapshot:
             "cursor/glm-5.2-max": "cursor/glm-5.2-max",
         },
         created_at_monotonic=3.0,
+        instance_route_policy={"cursor-cli-acp.default": "instance_pinned"},
+    )
+
+
+def _agy_snapshot() -> ModelCapabilitySnapshot:
+    return ModelCapabilitySnapshot(
+        generation=6,
+        model_to_instances={
+            "google/gemini-3.5-flash-high": (
+                "agy-cli-acp.project-a",
+                "agy-cli-acp.project-b",
+            ),
+        },
+        instance_to_models={
+            "agy-cli-acp.project-a": ("google/gemini-3.5-flash-high",),
+            "agy-cli-acp.project-b": ("google/gemini-3.5-flash-high",),
+        },
+        alias_to_canonical={
+            "google/gemini-3.5-flash-high": "google/gemini-3.5-flash-high",
+        },
+        created_at_monotonic=4.0,
+        instance_route_policy={
+            "agy-cli-acp.project-a": "instance_pinned",
+            "agy-cli-acp.project-b": "instance_pinned",
+        },
     )
 
 
@@ -110,6 +135,25 @@ async def test_list_models_exposes_exact_cursor_acp_route() -> None:
     ids = [model.id for model in response.data]
     assert "cursor-cli-acp.default:cursor/glm-5.2-max" in ids
     assert "cursor-cli-acp:cursor/glm-5.2-max" not in ids
+
+
+@pytest.mark.asyncio
+async def test_list_models_exposes_instance_pinned_routes_for_any_connector() -> None:
+    backend_service = MagicMock(spec=IBackendService)
+    backend_service.get_active_backends.return_value = {}
+    routing_service = MagicMock()
+    routing_service.get_model_capability_snapshot.return_value = _agy_snapshot()
+
+    response = await list_models(
+        response=Response(),
+        backend_service=backend_service,
+        routing_service=routing_service,
+    )
+
+    assert [model.id for model in response.data] == [
+        "agy-cli-acp.project-a:google/gemini-3.5-flash-high",
+        "agy-cli-acp.project-b:google/gemini-3.5-flash-high",
+    ]
 
 
 @pytest.mark.asyncio

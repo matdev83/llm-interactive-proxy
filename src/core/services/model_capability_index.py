@@ -6,10 +6,11 @@ import logging
 import time
 from collections import defaultdict
 from collections.abc import Awaitable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from threading import RLock
 from typing import TYPE_CHECKING, Any, cast
 
+from src.core.common.model_catalog import BackendModelEnumeration
 from src.core.domain.model_utils import (
     has_explicit_backend_selector,
     parse_model_backend,
@@ -22,6 +23,36 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class BackendModelDiscoveryStatus:
+    status: str
+    source: str
+    model_count: int
+    error_code: str | None = None
+
+
+class BackendModelEnumeratorRegistry:
+    """Configured-instance model sources that do not require backend activation."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[Any, float | None]] = {}
+
+    def register(
+        self,
+        connector: str,
+        enumerator: Any,
+        *,
+        timeout_seconds: float | None = 15.0,
+    ) -> None:
+        deadline = (
+            max(0.1, float(timeout_seconds)) if timeout_seconds is not None else None
+        )
+        self._entries[connector] = (enumerator, deadline)
+
+    def get(self, connector: str) -> tuple[Any, float | None] | None:
+        return self._entries.get(connector)
 
 
 def _normalize_model_selector(selector: str) -> str:
@@ -51,6 +82,10 @@ class ModelCapabilitySnapshot:
     instance_to_models: dict[str, tuple[str, ...]]
     alias_to_canonical: dict[str, str]
     created_at_monotonic: float
+    instance_route_policy: dict[str, str] = field(default_factory=dict)
+    discovery_status_by_instance: dict[str, BackendModelDiscoveryStatus] = field(
+        default_factory=dict
+    )
 
 
 class ModelCapabilityIndex:
@@ -83,6 +118,11 @@ class ModelCapabilityIndex:
         cls,
         instance_to_models: Mapping[str, Iterable[str]],
         generation: int,
+        *,
+        instance_route_policy: Mapping[str, str] | None = None,
+        discovery_status_by_instance: (
+            Mapping[str, BackendModelDiscoveryStatus] | None
+        ) = None,
     ) -> ModelCapabilitySnapshot:
         model_to_instances: dict[str, set[str]] = defaultdict(set)
         normalized_instance_to_models: dict[str, tuple[str, ...]] = {}
@@ -126,6 +166,8 @@ class ModelCapabilityIndex:
             instance_to_models=normalized_instance_to_models,
             alias_to_canonical=alias_to_canonical,
             created_at_monotonic=time.monotonic(),
+            instance_route_policy=dict(instance_route_policy or {}),
+            discovery_status_by_instance=dict(discovery_status_by_instance or {}),
         )
 
     @staticmethod
@@ -212,9 +254,13 @@ class ModelCapabilityDiscoverer:
         *,
         config_provider: IBackendConfigProvider,
         backend_lifecycle_manager: IBackendLifecycleManager | None = None,
+        enumerator_registry: BackendModelEnumeratorRegistry | None = None,
     ) -> None:
         self._config_provider = config_provider
         self._backend_lifecycle_manager = backend_lifecycle_manager
+        self._enumerator_registry = (
+            enumerator_registry or BackendModelEnumeratorRegistry()
+        )
 
     async def discover_snapshot(self, generation: int = 1) -> ModelCapabilitySnapshot:
         active_backends: Mapping[str, Any] = {}
@@ -229,8 +275,84 @@ class ModelCapabilityDiscoverer:
                         exc_info=True,
                     )
 
+        configured_backend_names = set(
+            self._config_provider.iter_configured_backend_names()
+        )
+        active_backend_names = {name for name in active_backends if ":" not in name}
+        all_backend_names = configured_backend_names | active_backend_names
+
+        enumerations: dict[str, BackendModelEnumeration] = {}
+
+        async def _enumerate_configured(
+            backend_name: str,
+        ) -> tuple[str, BackendModelEnumeration] | None:
+            cfg = self._config_provider.get_backend_config(backend_name)
+            connector = str(getattr(cfg, "connector", "") or "")
+            entry = self._enumerator_registry.get(connector)
+            if entry is None or cfg is None:
+                return None
+            enumerator, timeout_seconds = entry
+            try:
+                enumeration = enumerator.enumerate(backend_name, cfg)
+                if timeout_seconds is None:
+                    result = await enumeration
+                else:
+                    result = await asyncio.wait_for(
+                        enumeration,
+                        timeout=timeout_seconds,
+                    )
+                if isinstance(result, BackendModelEnumeration):
+                    return backend_name, result
+            except asyncio.TimeoutError:
+                return backend_name, BackendModelEnumeration.unavailable(
+                    instance_name=backend_name,
+                    connector=connector,
+                    source=connector,
+                    error_code="timeout",
+                    instance_pinned=True,
+                )
+            except Exception:
+                logger.warning(
+                    "Configured model enumeration failed for %s",
+                    backend_name,
+                    exc_info=True,
+                )
+                return backend_name, BackendModelEnumeration.unavailable(
+                    instance_name=backend_name,
+                    connector=connector,
+                    source=connector,
+                    error_code="enumeration_failed",
+                    instance_pinned=True,
+                )
+            return None
+
+        # Configured-instance enumerators are intentionally restricted to
+        # explicitly configured backend entries. Registered connector names
+        # without configuration must not trigger local CLI discovery.
+        tasks = [
+            _enumerate_configured(name) for name in sorted(configured_backend_names)
+        ]
+        if tasks:
+            for item in await asyncio.gather(*tasks):
+                if item is not None:
+                    enumerations[item[0]] = item[1]
+
         instance_to_models: dict[str, list[str]] = {}
-        for backend_name in sorted(set(self._config_provider.iter_backend_names())):
+        route_policy: dict[str, str] = {}
+        discovery_status: dict[str, BackendModelDiscoveryStatus] = {}
+        for backend_name in sorted(all_backend_names):
+            enumeration = enumerations.get(backend_name)
+            if enumeration is not None:
+                instance_to_models[backend_name] = list(enumeration.models)
+                if enumeration.instance_pinned:
+                    route_policy[backend_name] = "instance_pinned"
+                discovery_status[backend_name] = BackendModelDiscoveryStatus(
+                    status=enumeration.status,
+                    source=enumeration.source,
+                    model_count=len(enumeration.models),
+                    error_code=enumeration.error_code,
+                )
+                continue
             backend = active_backends.get(backend_name)
             discovered_models = await self._enumerate_live_models(backend)
             if not discovered_models:
@@ -241,6 +363,8 @@ class ModelCapabilityDiscoverer:
         return ModelCapabilityIndex.build_snapshot(
             instance_to_models=instance_to_models,
             generation=generation,
+            instance_route_policy=route_policy,
+            discovery_status_by_instance=discovery_status,
         )
 
     async def _enumerate_live_models(self, backend: Any | None) -> list[str]:

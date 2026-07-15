@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from src.core.config.app_config import BackendConfig
 from src.core.services.model_capability_index import (
+    BackendModelEnumeration,
+    BackendModelEnumeratorRegistry,
     ModelCapabilityDiscoverer,
     ModelCapabilityIndex,
     ModelCapabilityRefreshController,
@@ -16,6 +18,11 @@ def _mock_config_provider(configs: dict[str, BackendConfig]) -> Mock:
     provider = Mock()
     provider.get_backend_config.side_effect = lambda name: configs.get(name)
     provider.iter_backend_names.side_effect = lambda: list(configs.keys())
+    provider.iter_configured_backend_names.side_effect = lambda: [
+        name
+        for name, cfg in configs.items()
+        if cfg.connector or cfg.models or cfg.api_key or cfg.api_url or cfg.extra
+    ]
     return provider
 
 
@@ -61,6 +68,155 @@ async def test_discoverer_prefers_live_enumeration_with_config_hint_fallback() -
 
     assert snapshot.model_to_instances["openai/gpt-4o"] == ("openai.1",)
     assert snapshot.model_to_instances["anthropic/claude-3-haiku"] == ("anthropic.1",)
+
+
+@pytest.mark.asyncio
+async def test_discoverer_enumerates_configured_inactive_local_agent_instance() -> None:
+    config = BackendConfig(connector="cursor-cli-acp", extra={"model": "auto"})
+    provider = _mock_config_provider({"cursor-cli-acp.project": config})
+    provider.iter_configured_backend_names.return_value = ["cursor-cli-acp.project"]
+    lifecycle = Mock()
+    lifecycle.get_active_backends.return_value = {}
+    enumerator = Mock()
+    enumerator.enumerate = AsyncMock(
+        return_value=BackendModelEnumeration.available(
+            instance_name="cursor-cli-acp.project",
+            connector="cursor-cli-acp",
+            models=["cursor/glm-5.2-max"],
+            source="cursor_cli",
+            instance_pinned=True,
+        )
+    )
+    registry = BackendModelEnumeratorRegistry()
+    registry.register("cursor-cli-acp", enumerator)
+
+    discoverer = ModelCapabilityDiscoverer(
+        config_provider=provider,
+        backend_lifecycle_manager=lifecycle,
+        enumerator_registry=registry,
+    )
+    snapshot = await discoverer.discover_snapshot()
+
+    assert snapshot.instance_to_models["cursor-cli-acp.project"] == (
+        "cursor/glm-5.2-max",
+    )
+    assert snapshot.instance_route_policy["cursor-cli-acp.project"] == (
+        "instance_pinned"
+    )
+    assert snapshot.discovery_status_by_instance["cursor-cli-acp.project"].status == (
+        "available"
+    )
+
+
+@pytest.mark.asyncio
+async def test_discoverer_can_delegate_timeout_to_enumerator() -> None:
+    config = BackendConfig(connector="cursor-cli-acp")
+    provider = _mock_config_provider({"cursor-cli-acp.project": config})
+    lifecycle = Mock()
+    lifecycle.get_active_backends.return_value = {}
+    enumerator = Mock()
+
+    async def _enumerate(instance_name: str, backend_config: BackendConfig):
+        del instance_name, backend_config
+        await asyncio.sleep(0.02)
+        return BackendModelEnumeration.available(
+            instance_name="cursor-cli-acp.project",
+            connector="cursor-cli-acp",
+            models=["cursor/glm-5.2-max"],
+            source="cursor_cli",
+            instance_pinned=True,
+        )
+
+    enumerator.enumerate = _enumerate
+    registry = BackendModelEnumeratorRegistry()
+    registry.register("cursor-cli-acp", enumerator, timeout_seconds=None)
+
+    snapshot = await ModelCapabilityDiscoverer(
+        config_provider=provider,
+        backend_lifecycle_manager=lifecycle,
+        enumerator_registry=registry,
+    ).discover_snapshot()
+
+    assert snapshot.instance_to_models["cursor-cli-acp.project"] == (
+        "cursor/glm-5.2-max",
+    )
+
+
+@pytest.mark.asyncio
+async def test_discoverer_does_not_probe_unconfigured_registered_instance() -> None:
+    provider = Mock()
+    provider.get_backend_config.return_value = BackendConfig(connector="cursor-cli-acp")
+    provider.iter_backend_names.return_value = ["cursor-cli-acp.default"]
+    provider.iter_configured_backend_names.return_value = []
+
+    lifecycle = Mock()
+    lifecycle.get_active_backends.return_value = {}
+    enumerator = Mock()
+    enumerator.enumerate = AsyncMock()
+    registry = BackendModelEnumeratorRegistry()
+    registry.register("cursor-cli-acp", enumerator, timeout_seconds=None)
+
+    snapshot = await ModelCapabilityDiscoverer(
+        config_provider=provider,
+        backend_lifecycle_manager=lifecycle,
+        enumerator_registry=registry,
+    ).discover_snapshot()
+
+    enumerator.enumerate.assert_not_awaited()
+    assert "cursor-cli-acp.default" not in snapshot.instance_to_models
+
+
+@pytest.mark.asyncio
+async def test_discoverer_omits_only_failed_authoritative_instance() -> None:
+    configs = {
+        "cursor-cli-acp.failed": BackendConfig(connector="cursor-cli-acp"),
+        "agy-cli-acp.configured": BackendConfig(
+            connector="agy-cli-acp", models=["google/gemini-3.5-flash-high"]
+        ),
+    }
+    provider = _mock_config_provider(configs)
+    provider.iter_configured_backend_names.return_value = list(configs)
+    lifecycle = Mock()
+    lifecycle.get_active_backends.return_value = {}
+
+    failed = Mock()
+    failed.enumerate = AsyncMock(
+        return_value=BackendModelEnumeration.unavailable(
+            instance_name="cursor-cli-acp.failed",
+            connector="cursor-cli-acp",
+            source="cursor_cli",
+            error_code="command_failed",
+            instance_pinned=True,
+        )
+    )
+    explicit = Mock()
+    explicit.enumerate = AsyncMock(
+        return_value=BackendModelEnumeration.available(
+            instance_name="agy-cli-acp.configured",
+            connector="agy-cli-acp",
+            models=["google/gemini-3.5-flash-high"],
+            source="configured",
+            instance_pinned=True,
+        )
+    )
+    registry = BackendModelEnumeratorRegistry()
+    registry.register("cursor-cli-acp", failed)
+    registry.register("agy-cli-acp", explicit)
+
+    snapshot = await ModelCapabilityDiscoverer(
+        config_provider=provider,
+        backend_lifecycle_manager=lifecycle,
+        enumerator_registry=registry,
+    ).discover_snapshot()
+
+    assert snapshot.instance_to_models["cursor-cli-acp.failed"] == ()
+    assert snapshot.instance_to_models["agy-cli-acp.configured"] == (
+        "google/gemini-3.5-flash-high",
+    )
+    assert "cursor/glm-5.2-max" not in snapshot.model_to_instances
+    assert snapshot.discovery_status_by_instance["cursor-cli-acp.failed"].status == (
+        "unavailable"
+    )
 
 
 @pytest.mark.asyncio

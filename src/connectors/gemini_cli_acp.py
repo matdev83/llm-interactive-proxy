@@ -12,13 +12,12 @@ import httpx
 from src.connectors.acp_core.base_connector import BaseAcpConnector
 from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
 from src.connectors.acp_core.workspace_policy import resolve_backend_init_acp_workspace
-from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
+from src.connectors.base import strip_vendor_prefix
 from src.core.common.exceptions import BackendError, ConfigurationError
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
 
 from .gemini_base.command_resolution import build_gemini_cli_command
-from .gemini_base.config import get_shared_gemini_fallback_models
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +43,7 @@ class GeminiCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self.name = "gemini-cli-acp"
         self._gemini_cli_executable = "gemini"
         self._model = "gemini-2.5-flash"
+        self._configured_models: list[str] = []
         self._auto_accept = True
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -66,6 +66,16 @@ class GeminiCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             )
             configured_model = str(kwargs.get("model") or self._model)
             self._model = strip_vendor_prefix(configured_model, self.VENDOR_PREFIX)
+            configured_models = kwargs.get("models")
+            self._configured_models = (
+                [
+                    str(model).strip()
+                    for model in configured_models
+                    if str(model).strip()
+                ]
+                if isinstance(configured_models, list)
+                else []
+            )
             self._auto_accept = bool(kwargs.get("auto_accept", self._auto_accept))
             self._process_timeout = float(
                 kwargs.get("process_timeout", self._process_timeout)
@@ -183,8 +193,7 @@ class GeminiCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         pass
 
     def get_available_models(self) -> list[str]:
-        raw_models = get_shared_gemini_fallback_models()
-        return [add_vendor_prefix(model, self.VENDOR_PREFIX) for model in raw_models]
+        return list(self._configured_models)
 
 
 from src.core.services.backend_registry import backend_registry

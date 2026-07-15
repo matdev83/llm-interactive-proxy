@@ -25,15 +25,6 @@ logger = logging.getLogger(__name__)
 
 ACP_PROTOCOL_VERSION = 1
 
-_DEFAULT_AGY_MODEL_IDS: tuple[str, ...] = (
-    "google/gemini-3.5-flash-high",
-    "google/gemini-3.5-flash-medium",
-    "google/gemini-3.5-flash-low",
-    "google/gemini-3.1-pro",
-    "anthropic/claude-sonnet-4.6-thinking",
-    "anthropic/claude-opus-4.6-thinking",
-)
-
 
 def resolve_agy_acp_wrapper_executable(configured: str | None) -> str | None:
     """Resolve go-agy-acp-wrapper binary suitable for subprocess.Popen."""
@@ -98,6 +89,7 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self._wrapper_executable = "go-agy-acp-wrapper"
         self._agy_binary: str | None = None
         self._model = "google/gemini-3.5-flash-high"
+        self._configured_models: list[str] = []
         self._skip_permissions = True
         self._mcp_servers: list[Any] = []
         self._extra_wrapper_args: list[str] = []
@@ -126,6 +118,16 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             self._agy_binary = str(agy_binary).strip() if agy_binary else None
             configured_model = str(kwargs.get("model") or self._model)
             self._model = strip_vendor_prefix(configured_model, self.VENDOR_PREFIX)
+            configured_models = kwargs.get("models")
+            self._configured_models = (
+                [
+                    str(model).strip()
+                    for model in configured_models
+                    if str(model).strip()
+                ]
+                if isinstance(configured_models, list)
+                else []
+            )
             self._skip_permissions = bool(
                 kwargs.get("skip_permissions", self._skip_permissions)
             )
@@ -294,7 +296,7 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         )
 
     def get_available_models(self) -> list[str]:
-        return list(_DEFAULT_AGY_MODEL_IDS)
+        return list(self._configured_models)
 
 
 from src.core.services.backend_registry import backend_registry

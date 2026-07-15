@@ -135,6 +135,19 @@ class TestBackendConfigProvider:
         # Assert
         assert "custom_backend" in backend_names
 
+    def test_iter_configured_backend_names_excludes_empty_registered_defaults(
+        self,
+    ) -> None:
+        app_config = AppConfig(
+            backends=BackendSettings(
+                cursor_project=BackendConfig(connector="cursor-cli-acp"),
+                empty_backend=BackendConfig(),
+            )
+        )
+        provider = BackendConfigProvider(app_config)
+
+        assert list(provider.iter_configured_backend_names()) == ["cursor_project"]
+
     def test_get_default_backend(self) -> None:
         """Test getting the default backend."""
         # Arrange

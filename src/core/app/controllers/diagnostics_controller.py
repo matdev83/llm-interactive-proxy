@@ -6,7 +6,7 @@ import time
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.core.app.controllers.models_controller import get_backend_service
 from src.core.common.exceptions import ServiceResolutionError
@@ -216,12 +216,23 @@ class RoutingEligibilityInfo(BaseModel):
     model_eligibility: list[ModelEligibilityInfo]
 
 
+class ModelCatalogDiscoveryInfo(BaseModel):
+    """Cold-start model discovery status for one configured backend instance."""
+
+    instance_name: str
+    status: str
+    source: str
+    model_count: int
+    error_code: str | None = None
+
+
 class DiagnosticResponse(BaseModel):
     """Response from the diagnostics endpoint."""
 
     timestamp: float
     instances: list[BackendInstanceInfo]
     routing: RoutingEligibilityInfo | None = None
+    catalog_discovery: list[ModelCatalogDiscoveryInfo] = Field(default_factory=list)
     global_activity: GlobalActivityInfo | None = None
     activity_tracking_enabled: bool = False
 
@@ -310,6 +321,7 @@ async def get_diagnostics(
                     logger.debug("Failed to load resilience state", exc_info=True)
 
     routing: RoutingEligibilityInfo | None = None
+    catalog_discovery: list[ModelCatalogDiscoveryInfo] = []
     if routing_service is not None:
         builder = getattr(routing_service, "build_model_eligibility_diagnostics", None)
         if callable(builder):
@@ -330,6 +342,28 @@ async def get_diagnostics(
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to build model eligibility diagnostics", exc_info=True
+                    )
+        get_snapshot = getattr(routing_service, "get_model_capability_snapshot", None)
+        if callable(get_snapshot):
+            try:
+                snapshot = get_snapshot()
+                statuses = getattr(snapshot, "discovery_status_by_instance", {})
+                if isinstance(statuses, dict):
+                    catalog_discovery = [
+                        ModelCatalogDiscoveryInfo(
+                            instance_name=instance_name,
+                            status=status.status,
+                            source=status.source,
+                            model_count=status.model_count,
+                            error_code=status.error_code,
+                        )
+                        for instance_name, status in sorted(statuses.items())
+                    ]
+            except (AttributeError, TypeError, ValueError):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to build model catalog discovery diagnostics",
+                        exc_info=True,
                     )
 
     known_instance_names = sorted(
@@ -471,6 +505,7 @@ async def get_diagnostics(
         timestamp=time.time(),
         instances=sorted(instances, key=lambda item: item.name),
         routing=routing,
+        catalog_discovery=catalog_discovery,
         global_activity=global_activity,
         activity_tracking_enabled=activity_tracking_enabled,
     )

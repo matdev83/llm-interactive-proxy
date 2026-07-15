@@ -201,6 +201,16 @@ class TestRoutingDiagnostics:
         backend_service.get_active_backends.return_value = {"openai.1": backend}
 
         routing_service = MagicMock()
+        routing_service.get_model_capability_snapshot.return_value = SimpleNamespace(
+            discovery_status_by_instance={
+                "cursor-cli-acp.default": SimpleNamespace(
+                    status="unavailable",
+                    source="agent_list_models",
+                    model_count=0,
+                    error_code="model_discovery_failed",
+                )
+            }
+        )
         routing_service.build_model_eligibility_diagnostics.return_value = {
             "default_preference_policy": "cost",
             "proxy_selection_scope": "proxy_instance_model_selection",
@@ -268,6 +278,10 @@ class TestRoutingDiagnostics:
         ]
         assert result.instances[0].availability_status == "rate_limited"
         assert result.instances[0].cooldown_remaining_seconds == 7.5
+        assert result.catalog_discovery[0].instance_name == "cursor-cli-acp.default"
+        assert result.catalog_discovery[0].status == "unavailable"
+        assert result.catalog_discovery[0].source == "agent_list_models"
+        assert result.catalog_discovery[0].error_code == "model_discovery_failed"
 
     @pytest.mark.asyncio
     async def test_get_diagnostics_surfaces_disabled_instance_and_truncation(

@@ -15,9 +15,10 @@ from src.connectors.acp_core.types import ACPNotification
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.cursor_cli_acp import (
     CursorCliAcpConnector,
+    CursorCliConfiguredModelEnumerator,
+    CursorCliModelCatalog,
     build_cursor_agent_acp_command,
     parse_agent_models_listing,
-    parse_cursor_acp_models_result,
     resolve_cursor_agent_executable,
 )
 from src.core.common.exceptions import (
@@ -25,7 +26,7 @@ from src.core.common.exceptions import (
     ConfigurationError,
     ServiceUnavailableError,
 )
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import (
     ProcessedResponse,
@@ -81,99 +82,112 @@ def _make_request(
 
 
 class TestCursorCliAcpModelCache:
-    async def test_discovery_uses_configured_cursor_api_endpoint(
-        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    async def test_configured_enumerator_does_not_require_workspace(
+        self, connector: CursorCliAcpConnector
     ) -> None:
-        connector._cursor_cli_executable = "agent"
-        connector._cursor_api_endpoint = "https://cursor.example.test"
-        connector._default_project_dir = temp_workspace
-        runtime = connector._create_runtime(temp_workspace, "", "model-discovery")
-        initialize_response = ACPNotification(id=1, result={"protocolVersion": 1})
-        session_response = ACPNotification(id=2, result={"sessionId": "discovery"})
-        models_response = ACPNotification(
-            id=3,
-            result={"models": [{"id": "glm-5.2-max"}]},
+        del connector
+        catalog = CursorCliModelCatalog(
+            routes=("cursor/glm-5.2-max",),
+            cli_ids={"cursor/glm-5.2-max": "glm-5.2-max"},
+        )
+        enumerator = CursorCliConfiguredModelEnumerator()
+        config = BackendConfig(
+            connector="cursor-cli-acp",
+            extra={
+                "cursor_cli_executable": "agent",
+                "cursor_cli_extra_args": ["--profile", "work"],
+                "cursor_model_discovery_timeout_seconds": 73,
+            },
         )
 
         with (
             patch(
-                "src.connectors.cursor_cli_acp.CursorCliAcpConnector._create_runtime",
-                return_value=runtime,
+                "src.connectors.cursor_cli_acp.resolve_cursor_agent_executable",
+                return_value="agent",
             ),
-            patch.object(connector, "_spawn_process", AsyncMock()),
-            patch.object(
-                connector,
-                "_send_jsonrpc_message",
-                AsyncMock(side_effect=[1, 2, 3]),
-            ) as send_jsonrpc,
-            patch.object(
-                connector,
-                "_await_response",
-                AsyncMock(
-                    side_effect=[initialize_response, session_response, models_response]
-                ),
-            ),
-            patch.object(connector, "_kill_runtime", AsyncMock()) as kill_runtime,
+            patch(
+                "src.connectors.cursor_cli_acp.discover_cursor_cli_model_catalog",
+                AsyncMock(return_value=catalog),
+            ) as discover,
         ):
-            models = await connector._discover_models()
+            result = await enumerator.enumerate("cursor-cli-acp.default", config)
 
-        assert models == ["cursor/glm-5.2-max"]
-        assert [call.args[1] for call in send_jsonrpc.await_args_list] == [
-            "initialize",
-            "session/new",
-            "cursor/list_available_models",
-        ]
-        kill_runtime.assert_awaited_once_with(runtime)
+        assert result.models == ("cursor/glm-5.2-max",)
+        discover.assert_awaited_once_with(
+            executable="agent",
+            cursor_api_endpoint=None,
+            extra_args=["--profile", "work"],
+            workspace=None,
+            timeout_seconds=73.0,
+        )
 
-    def test_acp_parser_ignores_display_only_entries(self) -> None:
-        result = {
-            "models": [
-                {"id": "glm-5.2-max", "name": "GLM 5.2 Max"},
-                {"name": "CLI-only display entry"},
-                "cursor/grok-4.5-xhigh",
-                {"modelId": "glm-5.2-max"},
-            ]
-        }
-
-        assert parse_cursor_acp_models_result(result) == [
-            "cursor/glm-5.2-max",
-            "cursor/grok-4.5-xhigh",
-        ]
-
-    async def test_acp_discovery_does_not_use_cli_models_listing(
+    async def test_discovery_uses_list_models_and_configured_cursor_api_endpoint(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
-        connector._default_project_dir = temp_workspace
         connector._cursor_cli_executable = "agent"
+        connector._cursor_api_endpoint = "https://cursor.example.test"
+        connector._extra_cli_args = ["--profile", "work"]
+        connector._model_discovery_timeout_seconds = 73.0
+        connector._default_project_dir = temp_workspace
+        completed = MagicMock(
+            returncode=0,
+            stdout=(
+                "Available models\n\n"
+                "cursor-grok-4.5-high - Cursor Grok 4.5\n"
+                "glm-5.2-max - GLM 5.2 Max\n"
+            ),
+            stderr="",
+        )
 
+        with patch(
+            "src.connectors.cursor_cli_acp.subprocess.run", return_value=completed
+        ) as run:
+            models = await connector._discover_models()
+
+        assert models == [
+            "cursor/grok-4.5-high",
+            "cursor/glm-5.2-max",
+        ]
+        assert connector._model_cli_ids == {
+            "cursor/grok-4.5-high": "cursor-grok-4.5-high",
+            "cursor/glm-5.2-max": "glm-5.2-max",
+        }
+        run.assert_called_once_with(
+            [
+                "agent",
+                "-e",
+                "https://cursor.example.test",
+                "--profile",
+                "work",
+                "--list-models",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=73.0,
+            check=False,
+            shell=False,
+            cwd=str(temp_workspace),
+        )
+
+    async def test_initialize_preserves_model_discovery_timeout_and_extra_args(
+        self, connector: CursorCliAcpConnector
+    ) -> None:
         with (
-            patch.object(connector, "_spawn_process", AsyncMock()),
-            patch.object(
-                connector,
-                "_send_jsonrpc_message",
-                AsyncMock(side_effect=[1, 2, 3]),
-            ),
-            patch.object(
-                connector,
-                "_await_response",
-                AsyncMock(
-                    side_effect=[
-                        ACPNotification(id=1, result={}),
-                        ACPNotification(id=2, result={"sessionId": "discovery"}),
-                        ACPNotification(
-                            id=3,
-                            result={"models": [{"id": "acp-only"}]},
-                        ),
-                    ]
-                ),
-            ),
-            patch.object(connector, "_kill_runtime", AsyncMock()),
+            patch.object(connector, "_check_agent_available", return_value=True),
+            patch.object(connector, "_ensure_models_discovered", AsyncMock()),
             patch(
-                "src.connectors.cursor_cli_acp.subprocess.run",
-                side_effect=AssertionError("standalone CLI discovery must not run"),
+                "src.connectors.cursor_cli_acp.resolve_cursor_agent_executable",
+                return_value="agent",
             ),
         ):
-            assert await connector._discover_models() == ["cursor/acp-only"]
+            await connector.initialize(
+                cursor_cli_executable="agent",
+                cursor_cli_extra_args=["--profile", "work"],
+                cursor_model_discovery_timeout_seconds=91,
+            )
+
+        assert connector._extra_cli_args == ["--profile", "work"]
+        assert connector._model_discovery_timeout_seconds == 91.0
 
     async def test_get_available_models_async_refreshes_when_ttl_zero(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
@@ -308,7 +322,7 @@ class TestCursorCliAcpModelCache:
 
         assert calls == 1
 
-    async def test_model_catalog_without_workspace_defers_without_negative_cache(
+    async def test_model_catalog_without_workspace_uses_list_models(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
         connector._cursor_cli_executable = str(temp_workspace / "agent")
@@ -316,10 +330,10 @@ class TestCursorCliAcpModelCache:
         discover_models = AsyncMock(return_value=["cursor/composer-2"])
 
         with patch.object(connector, "_discover_models", discover_models):
-            assert await connector.get_available_models_async() == []
+            assert await connector.get_available_models_async() == ["cursor/composer-2"]
 
-        discover_models.assert_not_awaited()
-        assert connector._models_cache_fetched_at == 0.0
+        discover_models.assert_awaited_once_with()
+        assert connector._models_cache_fetched_at > 0.0
 
 
 class TestCursorCliAcpHelpers:
@@ -412,7 +426,7 @@ class TestCursorCliAcpInitialization:
         assert connector.is_backend_functional() is True
         assert connector._default_project_dir is None
         assert runtime.project_dir == temp_workspace.resolve()
-        discover_models.assert_awaited_once_with(workspace=temp_workspace.resolve())
+        discover_models.assert_awaited_once_with()
 
     async def test_initialize_rejects_relative_dot_workspace_path(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
@@ -649,6 +663,23 @@ class TestCursorCliAcpRuntimeReuse:
         assert exc_info.value.details["code"] == "cursor_model_unavailable"
         assert exc_info.value.details["requested_model"] == "cursor/grok-4.5-xhigh"
         assert "glm-5.2-max" not in exc_info.value.message
+
+    async def test_cursor_cli_model_id_is_preserved_for_runtime(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector.is_functional = True
+        connector._initialization_failed = False
+        connector._validation_errors = []
+        connector._default_project_dir = temp_workspace
+        connector._cached_models = ["cursor/grok-4.5-high"]
+        connector._model_cli_ids = {"cursor/grok-4.5-high": "cursor-grok-4.5-high"}
+        connector._models_cache_fetched_at = time.monotonic()
+
+        runtime = await connector._acquire_runtime(
+            _make_request(model="cursor/grok-4.5-high")
+        )
+
+        assert runtime.model == "cursor-grok-4.5-high"
 
     async def test_history_change_does_not_restart_shared_cursor_runtime(
         self, connector: CursorCliAcpConnector, temp_workspace: Path

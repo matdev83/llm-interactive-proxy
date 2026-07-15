@@ -113,6 +113,7 @@ class CodexModelCatalogStage(InitializationStage):
             return
 
         services.add_instance(cast(type[Any], ICodexModelCatalog), catalog)
+        services.add_instance(CodexModelCatalogProvider, provider)
         logger.info(
             "Codex model catalog registered (%d routable models).",
             len(catalog.routable_slugs()),
