@@ -38,6 +38,25 @@ class TestStreamingContentConverter:
         assert callable(converter.convert_stream)
 
     @pytest.mark.asyncio
+    async def test_converter_closes_source_after_terminal_chunk(self) -> None:
+        converter = StreamingContentConverter()
+        closed = False
+
+        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+            nonlocal closed
+            try:
+                yield ProcessedResponse(content="data: [DONE]\n\n", metadata={})
+            finally:
+                closed = True
+
+        results = []
+        async for content in converter.convert_stream(raw_stream(), {}):
+            results.append(content)
+
+        assert results[-1].is_done is True
+        assert closed is True
+
+    @pytest.mark.asyncio
     async def test_processed_response_normalization(self) -> None:
         """Test ProcessedResponse normalization."""
         converter = StreamingContentConverter()

@@ -800,7 +800,7 @@ class TestGeminiCliAcpCancellation:
             assert asyncio.iscoroutine(result)
             await result
 
-        cancel_mock.assert_called_once_with(runtime, 5)
+        cancel_mock.assert_called_once_with(runtime, 5, expected_generation=1)
 
     async def test_non_streaming_registers_cancellable(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path

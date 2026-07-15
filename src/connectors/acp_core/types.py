@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -135,6 +136,8 @@ class ACPProcessRuntime:
     history_state: HistoryState | None = None
     process_lock: Any = field(default=None)
     request_lock: Any = field(default=None)
+    request_generation: int = 0
+    active_request_generation: int | None = None
     cancellation_lock: Any = field(default=None)
     cancellation_event: Any = field(default=None)
     #: Per correlation key (``toolCallId`` / ``__anon__:N``) for the current stream.
@@ -153,6 +156,14 @@ class ACPProcessRuntime:
     stale_kill_task: Any = field(default=None)  # asyncio.Task | None
     #: Captured when the child starts; used before idle-kill to detect PID reuse.
     acp_subprocess_identity: AcpSubprocessIdentity | None = None
+    #: Dedicated stderr reader thread for the live child process.
+    stderr_drain_thread: Any = field(default=None)
+    #: Stop signal for the dedicated stderr reader.
+    stderr_drain_stop_event: Any = field(default_factory=threading.Event)
+    #: Synchronizes bounded stderr-tail updates between the reader and event loop.
+    stderr_tail_lock: Any = field(default_factory=threading.Lock)
+    #: Bounded stderr tail retained for startup/exit diagnostics.
+    stderr_tail: bytearray = field(default_factory=bytearray)
 
 
 @dataclass(slots=True)

@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import subprocess
+import threading
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -77,6 +78,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROCESS_TIMEOUT = 300.0
 DEFAULT_IDLE_TIMEOUT = 30.0
 MAX_RESPONSE_LINE_SIZE = 10 * 1024 * 1024
+MAX_STDERR_TAIL_SIZE = 16 * 1024
 ACP_UPDATE_METHOD = "session/update"
 ACP_AGENT_MESSAGE_CHUNK = "agent_message_chunk"
 ACP_AGENT_THOUGHT_CHUNK = "agent_thought_chunk"
@@ -413,6 +415,14 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             client_session_id,
             responses_text_only=self._is_responses_text_only_request(request),
         )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "ACP runtime lookup: key=%s project=%s model=%s client_session=%s",
+                runtime_key,
+                project_dir,
+                requested_model,
+                client_session_id,
+            )
 
         async with self._runtime_pool_lock:
             runtime = self._runtimes.get(runtime_key)
@@ -544,9 +554,22 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                     ),
                 )
                 runtime.process = new_process
+                runtime.stderr_drain_stop_event.clear()
+                # Clear diagnostics before the reader starts so bytes emitted
+                # immediately during process startup cannot be erased by a
+                # late reset.
+                with runtime.stderr_tail_lock:
+                    runtime.stderr_tail.clear()
+                runtime.stderr_drain_thread = threading.Thread(
+                    target=self._drain_stderr_thread,
+                    args=(new_process, runtime),
+                    name=f"acp-stderr-{new_process.pid}",
+                    daemon=True,
+                )
+                runtime.stderr_drain_thread.start()
                 await asyncio.sleep(0.1)
                 if new_process.poll() is not None:
-                    stderr = await self._read_stderr(new_process)
+                    stderr = await self._read_stderr(new_process, runtime)
                     raise BackendError(
                         message="ACP process failed to start",
                         details={
@@ -566,12 +589,16 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 )
             except Exception as exc:
                 if new_process is not None:
+                    self._stop_stderr_drain(runtime)
                     self._cleanup_process(new_process)
+                    self._join_stderr_drain_thread(runtime)
                 runtime.process = None
                 runtime.initialized = False
                 self._reset_protocol_runtime_state(runtime)
                 runtime.history_state = None
                 runtime.acp_subprocess_identity = None
+                with runtime.stderr_tail_lock:
+                    runtime.stderr_tail.clear()
                 raise APIConnectionError(
                     message=f"Failed to start ACP process: {exc}",
                     details={
@@ -606,7 +633,9 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         runtime: RuntimeT,
         process: subprocess.Popen[bytes] | None = None,
     ) -> None:
+        self._stop_stderr_drain(runtime)
         self._cleanup_process(process or runtime.process)
+        self._join_stderr_drain_thread(runtime)
         runtime.process = None
         runtime.initialized = False
         self._reset_protocol_runtime_state(runtime)
@@ -614,6 +643,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         runtime.last_activity = 0.0
         runtime.history_state = None
         runtime.acp_subprocess_identity = None
+        with runtime.stderr_tail_lock:
+            runtime.stderr_tail.clear()
 
     def _cleanup_process(self, process: subprocess.Popen[bytes] | None = None) -> None:
         if process is None:
@@ -626,11 +657,82 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             with contextlib.suppress(OSError, ValueError):
                 stream.close()
 
-    async def _read_stderr(self, process: subprocess.Popen[bytes]) -> str:
+    def _stop_stderr_drain(self, runtime: RuntimeT) -> None:
+        runtime.stderr_drain_stop_event.set()
+
+    def _join_stderr_drain_thread(self, runtime: RuntimeT) -> None:
+        """Detach the stderr reader without blocking the event loop.
+
+        Runtime cleanup is invoked from async request/cancellation paths.  The
+        reader is a daemon thread and its pipe is closed by
+        :meth:`_cleanup_process` immediately before this helper is called, so
+        it will exit promptly.  A zero-timeout join lets an already-finished
+        reader be reclaimed while avoiding a synchronous wait on the event
+        loop.  If the reader is still unwinding, it remains detached and will
+        terminate once the closed pipe is observed.
+        """
+        thread = runtime.stderr_drain_thread
+        if thread is None:
+            return
+        runtime.stderr_drain_thread = None
+        if thread is not threading.current_thread():
+            thread.join(timeout=0)
+
+    def _drain_stderr_thread(
+        self, process: subprocess.Popen[bytes], runtime: RuntimeT
+    ) -> None:
+        if process.stderr is None:
+            return
+
+        def _read_chunk() -> bytes:
+            stream = cast(Any, process.stderr)
+            return bytes(stream.read1(4096))
+
+        try:
+            while not runtime.stderr_drain_stop_event.is_set():
+                chunk = _read_chunk()
+                if not chunk:
+                    return
+                with runtime.stderr_tail_lock:
+                    runtime.stderr_tail.extend(chunk)
+                    if len(runtime.stderr_tail) > MAX_STDERR_TAIL_SIZE:
+                        del runtime.stderr_tail[:-MAX_STDERR_TAIL_SIZE]
+        except (OSError, ValueError):
+            return
+
+    async def _read_stderr(
+        self, process: subprocess.Popen[bytes], runtime: RuntimeT | None = None
+    ) -> str:
+        if runtime is not None:
+            thread = runtime.stderr_drain_thread
+            deadline = time.monotonic() + 1.0
+            while (
+                thread is not None and thread.is_alive() and time.monotonic() < deadline
+            ):
+                await asyncio.sleep(0.01)
+            with runtime.stderr_tail_lock:
+                return bytes(runtime.stderr_tail).decode("utf-8", errors="replace")
         if process.stderr is None:
             return ""
-        stderr_bytes = await asyncio.to_thread(process.stderr.read)
-        return stderr_bytes.decode("utf-8", errors="replace")
+        stderr_bytes: list[bytes] = []
+
+        def _read_all() -> None:
+            stream = cast(Any, process.stderr)
+            with contextlib.suppress(OSError, ValueError):
+                stderr_bytes.append(bytes(stream.read()))
+
+        reader = threading.Thread(
+            target=_read_all,
+            name=f"acp-stderr-fallback-{process.pid}",
+            daemon=True,
+        )
+        reader.start()
+        while reader.is_alive():
+            await asyncio.sleep(0.01)
+        reader.join()
+        return (stderr_bytes[0] if stderr_bytes else b"").decode(
+            "utf-8", errors="replace"
+        )
 
     async def _terminate_process(self, process: subprocess.Popen[bytes]) -> None:
         if process.poll() is not None:
@@ -678,7 +780,20 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             process.stdin.write(encoded)
             process.stdin.flush()
 
-        await asyncio.to_thread(_write)
+        try:
+            await asyncio.wait_for(
+                asyncio.to_thread(_write),
+                timeout=self._process_timeout,
+            )
+        except asyncio.TimeoutError as exc:
+            # A blocked pipe means the child is no longer making progress.  Tear
+            # it down before the caller releases the request lock so a later
+            # turn cannot inherit a half-written ACP conversation.
+            await self._kill_runtime(runtime)
+            raise APITimeoutError(
+                message="Timeout writing to ACP process",
+                details={"timeout": self._process_timeout, "model": runtime.model},
+            ) from exc
         runtime.last_activity = time.monotonic()
 
     async def _send_jsonrpc_message(
@@ -697,6 +812,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         try:
             await self._write_json_line(runtime, payload)
             return message_id
+        except APITimeoutError:
+            raise
         except Exception as exc:
             raise APIConnectionError(
                 message=f"Failed to communicate with ACP process: {exc}"
@@ -723,7 +840,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             line = await asyncio.to_thread(_read_limited)
             if not line:
                 if process.poll() is not None:
-                    stderr = await self._read_stderr(process)
+                    stderr = await self._read_stderr(process, runtime)
                     self._cleanup_runtime_state(runtime, process)
                     raise BackendError(
                         message="ACP process exited unexpectedly",
@@ -1339,6 +1456,83 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
     def _create_sse_done_chunk() -> str:
         return "data: [DONE]\n\n"
 
+    @staticmethod
+    def _is_terminal_finish_reason(value: Any) -> bool:
+        """Return whether a finish reason terminates an OpenAI stream."""
+
+        return value in {
+            "stop",
+            "length",
+            "content_filter",
+            "tool_calls",
+            "error",
+        }
+
+    @classmethod
+    def _stream_chunk_is_terminal(cls, chunk: ProcessedResponse) -> bool:
+        """Detect terminal markers before exposing a stream chunk downstream.
+
+        Most providers send a separate ``data: [DONE]`` sentinel, but Codex
+        emits its final OpenAI JSON chunk with ``finish_reason="stop"`` and
+        downstream converters stop consuming at that chunk.  Detect both
+        representations here so the lock-owning wrapper can finish teardown
+        before yielding a terminal chunk to the client.
+        """
+
+        metadata = chunk.metadata
+        if isinstance(metadata, dict):
+            if metadata.get("is_done") is True:
+                return True
+            if cls._is_terminal_finish_reason(metadata.get("finish_reason")):
+                return True
+
+        content = chunk.content
+        if content == cls._create_sse_done_chunk():
+            return True
+
+        payloads: list[Any] = []
+        if isinstance(content, dict):
+            payloads.append(content)
+        else:
+            if isinstance(content, bytes | bytearray):
+                with contextlib.suppress(UnicodeDecodeError):
+                    content = bytes(content).decode("utf-8")
+            if isinstance(content, str):
+                # Accept both SSE data lines and raw JSON payloads.  Ignore
+                # comments/keepalives and malformed data lines; a later
+                # well-formed terminal payload still has to release the lock.
+                for line in content.splitlines():
+                    line = line.strip()
+                    if line.startswith("data:"):
+                        line = line[5:].strip()
+                        if line == "[DONE]":
+                            return True
+                    elif not line:
+                        continue
+                    else:
+                        continue
+                    if not line:
+                        continue
+                    with contextlib.suppress(json.JSONDecodeError):
+                        payloads.append(json.loads(line))
+                if not payloads:
+                    with contextlib.suppress(json.JSONDecodeError):
+                        payloads.append(json.loads(content))
+
+        for payload in payloads:
+            if not isinstance(payload, dict):
+                continue
+            if cls._is_terminal_finish_reason(payload.get("finish_reason")):
+                return True
+            choices = payload.get("choices")
+            if isinstance(choices, list):
+                for choice in choices:
+                    if isinstance(choice, dict) and cls._is_terminal_finish_reason(
+                        choice.get("finish_reason")
+                    ):
+                        return True
+        return False
+
     async def _stream_response(
         self,
         runtime: RuntimeT,
@@ -1346,17 +1540,18 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         prompt_request_id: int,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         chunk_id = str(uuid.uuid4())
-        try:
-            async for piece in self._iter_stream_pieces(
-                runtime, prompt_request_id, requested_model
-            ):
-                sse = self._create_sse_chunk_from_piece(
-                    piece, requested_model, chunk_id
-                )
-                if sse is not None:
-                    yield ProcessedResponse(content=sse)
-        finally:
-            yield ProcessedResponse(content=self._create_sse_done_chunk())
+        async for piece in self._iter_stream_pieces(
+            runtime, prompt_request_id, requested_model
+        ):
+            sse = self._create_sse_chunk_from_piece(piece, requested_model, chunk_id)
+            if sse is not None:
+                yield ProcessedResponse(content=sse)
+
+        # Emit the terminal chunk only after the protocol iterator has ended.
+        # Keeping this out of ``finally`` is important: downstream adapters may
+        # stop consuming as soon as they see [DONE].  The lock-owning wrapper
+        # must be able to finish its own cleanup before exposing that chunk.
+        yield ProcessedResponse(content=self._create_sse_done_chunk())
 
     async def _compute_history_and_user_message(
         self,
@@ -1484,32 +1679,134 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         runtime: RuntimeT,
         requested_model: str,
         prompt_request_id: int,
+        request_generation: int | None = None,
     ) -> AsyncGenerator[ProcessedResponse, None]:
+        stream_completed = False
+        natural_cleanup_done = False
+        inner = self._stream_response(runtime, requested_model, prompt_request_id)
         try:
-            async for chunk in self._stream_response(
-                runtime, requested_model, prompt_request_id
-            ):
-                yield chunk
+            # Closing the inner generator is essential when a downstream
+            # adapter stops at the terminal [DONE] chunk.  Without this,
+            # ``_stream_response`` remains suspended immediately after its
+            # final yield and this wrapper never reaches teardown reliably.
+            async with contextlib.aclosing(inner):
+                async for chunk in inner:
+                    if self._stream_chunk_is_terminal(chunk):
+                        stream_completed = True
+                        # A provider terminal JSON chunk (for example Codex's
+                        # ``finish_reason="stop"``) is followed by the
+                        # canonical ``[DONE]`` sentinel from
+                        # ``_stream_response``.  Keep the inner iterator alive
+                        # in that case so direct consumers still receive the
+                        # sentinel; converter consumers may close the nested
+                        # generators immediately after this terminal chunk.
+                        if chunk.content == self._create_sse_done_chunk():
+                            await inner.aclose()
+                        if not natural_cleanup_done:
+                            await self._invalidate_active_request_generation(
+                                runtime, request_generation
+                            )
+                            cancellation_in_progress = (
+                                runtime.cancellation_event is not None
+                                and runtime.cancellation_event.is_set()
+                            )
+                            if not cancellation_in_progress:
+                                if runtime.cancellation_event is not None:
+                                    runtime.cancellation_event.clear()
+                                await self._schedule_stale_kill_after_turn(runtime)
+                                await self._release_runtime_request_lock(runtime)
+                            natural_cleanup_done = True
+                    yield chunk
+                stream_completed = True
         finally:
-            # When cancellation is in progress, ``_cancel_active_request`` owns
-            # teardown and releases the lock in its ``finally`` AFTER the
-            # subprocess is fully torn down. Releasing here would let a
-            # follow-up request acquire the lock against a half-torn-down child.
-            cancellation_in_progress = (
-                runtime.cancellation_event is not None
-                and runtime.cancellation_event.is_set()
-            )
-            if not cancellation_in_progress:
+            if not stream_completed:
+                # A downstream consumer can close this generator without the
+                # session cancellation coordinator seeing the disconnect. Own
+                # teardown here as well; otherwise the per-runtime lock can
+                # remain held behind a blocked stdout read forever.
+                cancellation_in_progress = (
+                    runtime.cancellation_event is not None
+                    and runtime.cancellation_event.is_set()
+                )
+                if not cancellation_in_progress:
+                    await self._cancel_active_request(
+                        runtime,
+                        prompt_request_id,
+                        expected_generation=request_generation,
+                    )
+            elif not natural_cleanup_done:
                 # Natural stream end: clear the event, schedule idle stale-kill,
                 # and release the request lock so the next turn can acquire it.
-                if runtime.cancellation_event is not None:
-                    runtime.cancellation_event.clear()
-                await self._schedule_stale_kill_after_turn(runtime)
-                await self._release_runtime_request_lock(runtime)
+                cancellation_in_progress = (
+                    runtime.cancellation_event is not None
+                    and runtime.cancellation_event.is_set()
+                )
+                if not cancellation_in_progress:
+                    await self._invalidate_active_request_generation(
+                        runtime, request_generation
+                    )
+                    if runtime.cancellation_event is not None:
+                        runtime.cancellation_event.clear()
+                    await self._schedule_stale_kill_after_turn(runtime)
+                    await self._release_runtime_request_lock(runtime)
+
+    async def _invalidate_active_request_generation(
+        self, runtime: RuntimeT, request_generation: int | None
+    ) -> None:
+        """Make a completed stream's cancel callback a no-op before unlock.
+
+        Streaming envelopes can report a client disconnect after the terminal
+        ``[DONE]`` chunk has already been delivered.  The callback belongs to
+        the completed turn, while the pooled runtime may already be serving a
+        newer turn by the time it runs.  Serialize invalidation with active
+        cancellation so the old callback cannot kill or unlock the newer turn.
+        """
+
+        if request_generation is None:
+            return
+        cancellation_lock = runtime.cancellation_lock
+        if cancellation_lock is None:
+            if runtime.active_request_generation == request_generation:
+                runtime.active_request_generation = None
+            return
+        async with cancellation_lock:
+            if runtime.active_request_generation == request_generation:
+                runtime.active_request_generation = None
 
     async def _release_runtime_request_lock(self, runtime: RuntimeT) -> None:
         if runtime.request_lock is not None and runtime.request_lock.locked():
             runtime.request_lock.release()
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ACP request lock released: project=%s model=%s client_session=%s",
+                    runtime.project_dir,
+                    runtime.model,
+                    runtime.client_session_id,
+                )
+
+    async def _acquire_runtime_request_lock(self, runtime: RuntimeT) -> None:
+        if runtime.request_lock is None:
+            raise BackendError(message="ACP runtime is missing request lock")
+        started = time.monotonic()
+        await runtime.request_lock.acquire()
+        waited = time.monotonic() - started
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "ACP request lock acquired: waited=%.3fs project=%s model=%s "
+                "client_session=%s",
+                waited,
+                runtime.project_dir,
+                runtime.model,
+                runtime.client_session_id,
+            )
+        if waited >= 1.0:
+            logger.warning(
+                "ACP request lock waited %.3fs: project=%s model=%s client_session=%s",
+                waited,
+                runtime.project_dir,
+                runtime.model,
+                runtime.client_session_id,
+            )
 
     async def _wait_for_process_exit(
         self,
@@ -1582,19 +1879,54 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         self,
         runtime: RuntimeT,
         prompt_request_id: int,
-    ) -> None:
-        if runtime.cancellation_event is not None:
-            runtime.cancellation_event.set()
+        expected_generation: int | None = None,
+    ) -> bool:
+        """Cancel the request iff it still owns the pooled runtime.
 
-        try:
-            if runtime.cancellation_lock is None:
+        ``expected_generation`` is supplied by streaming envelopes.  A stale
+        callback from a completed stream must not tear down a newer request or
+        release its request lock.  Calls without a generation retain the
+        unconditional cancellation behavior used by non-streaming requests.
+        """
+
+        cancellation_lock = runtime.cancellation_lock
+        if cancellation_lock is None:
+            if (
+                expected_generation is not None
+                and runtime.active_request_generation != expected_generation
+            ):
+                return False
+            if runtime.cancellation_event is not None:
+                runtime.cancellation_event.set()
+            try:
                 await self._kill_runtime(runtime)
-                return
+            finally:
+                if (
+                    expected_generation is None
+                    or runtime.active_request_generation == expected_generation
+                ):
+                    runtime.active_request_generation = None
+                if runtime.cancellation_event is not None:
+                    runtime.cancellation_event.clear()
+                await self._release_runtime_request_lock(runtime)
+            return True
 
-            async with runtime.cancellation_lock:
+        async with cancellation_lock:
+            if (
+                expected_generation is not None
+                and runtime.active_request_generation != expected_generation
+            ):
+                return False
+            if runtime.cancellation_event is not None:
+                runtime.cancellation_event.set()
+            try:
                 process = runtime.process
                 if process is None or process.poll() is not None:
-                    return
+                    # Process already gone (or never attached): still stop the
+                    # stderr drain and close any leftover pipe handles so a
+                    # later respawn cannot leak FDs or mix diagnostics.
+                    self._cleanup_runtime_state(runtime, process)
+                    return True
 
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
@@ -1623,17 +1955,24 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                             process.pid,
                         )
                     await self._kill_runtime(runtime)
-        finally:
-            # Always release the request lock after teardown (idempotent). This
-            # owns the release in the cancellation path so the streaming/non-
-            # streaming finally blocks can SKIP their release while cancellation
-            # is in progress, preventing a follow-up request from acquiring the
-            # lock against a half-torn-down subprocess. Releasing here in the
-            # finally also guarantees the lock is released even when teardown
-            # raises mid-way (no deadlock).
-            await self._release_runtime_request_lock(runtime)
-            if runtime.cancellation_event is not None:
-                runtime.cancellation_event.clear()
+            finally:
+                # Invalidate the callback generation while cancellation_lock is
+                # still held.  A stale callback then returns without touching a
+                # newer request, and a new request cannot acquire request_lock
+                # until the cancellation event has also been cleared.
+                if (
+                    expected_generation is None
+                    or runtime.active_request_generation == expected_generation
+                ):
+                    runtime.active_request_generation = None
+                if runtime.cancellation_event is not None:
+                    runtime.cancellation_event.clear()
+                # Always release the request lock after teardown (idempotent).
+                # This owns the release in the cancellation path so a follow-up
+                # request cannot acquire the lock against a half-torn-down
+                # subprocess.
+                await self._release_runtime_request_lock(runtime)
+        return True
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -1659,7 +1998,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         # Streaming holds the per-runtime lock for the full SSE response so idle reap
         # cannot swap the pool entry until the stream completes (see ``_reap_idle_runtime``).
         if bool(getattr(request.request, "stream", False)):
-            await runtime.request_lock.acquire()
+            await self._acquire_runtime_request_lock(runtime)
             try:
                 prompt_request_id, requested_model = (
                     await self._prepare_turn_request_locked(runtime, request)
@@ -1668,8 +2007,16 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 runtime.request_lock.release()
                 raise
 
+            runtime.request_generation += 1
+            request_generation = runtime.request_generation
+            runtime.active_request_generation = request_generation
+
             async def _cancel_streaming_request() -> None:
-                await self._cancel_active_request(runtime, prompt_request_id)
+                await self._cancel_active_request(
+                    runtime,
+                    prompt_request_id,
+                    expected_generation=request_generation,
+                )
 
             stream_id: str | None = getattr(request.request, "session_id", None)
             if not stream_id and request.context is not None:
@@ -1677,7 +2024,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
 
             async def _stream_with_keepalive() -> AsyncIterator[ProcessedResponse]:
                 inner = self._stream_response_with_lock(
-                    runtime, requested_model, prompt_request_id
+                    runtime,
+                    requested_model,
+                    prompt_request_id,
+                    request_generation,
                 )
                 async for chunk in wrap_processed_stream_with_idle_keepalive(
                     inner,
@@ -1702,7 +2052,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         # teardown and releases the lock in its ``finally`` after the subprocess
         # is fully torn down; releasing here too would let a follow-up request
         # acquire the lock against a half-torn-down child.
-        await runtime.request_lock.acquire()
+        await self._acquire_runtime_request_lock(runtime)
         try:
             prompt_request_id, requested_model = (
                 await self._prepare_turn_request_locked(runtime, request)

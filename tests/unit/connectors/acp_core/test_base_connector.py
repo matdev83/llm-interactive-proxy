@@ -17,9 +17,9 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import APITimeoutError, BackendError
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.responses import ProcessedResponse, ResponseEnvelope
 
 
 class DummyAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
@@ -131,6 +131,192 @@ async def test_windows_terminate_kills_tree_before_root_process(
         await connector._terminate_process(process)
 
     process.terminate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stderr_drain_keeps_only_bounded_tail(
+    connector: DummyAcpConnector,
+) -> None:
+    class FakeStderr:
+        def __init__(self) -> None:
+            self.chunks = [b"x" * 20_000, b""]
+
+        def read1(self, _size: int) -> bytes:
+            return self.chunks.pop(0)
+
+    process = MagicMock()
+    process.stderr = FakeStderr()
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+
+    connector._drain_stderr_thread(process, runtime)
+
+    assert len(runtime.stderr_tail) == 16 * 1024
+    assert bytes(runtime.stderr_tail) == b"x" * (16 * 1024)
+
+
+@pytest.mark.asyncio
+async def test_spawn_clears_stderr_tail_before_reader_starts(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    runtime.stderr_tail.extend(b"stale diagnostics")
+
+    class FakeStderr:
+        def __init__(self) -> None:
+            self.chunks = [b"startup diagnostics", b""]
+
+        def read1(self, _size: int) -> bytes:
+            return self.chunks.pop(0)
+
+    class FakeProcess:
+        pid = 1234
+        stdin = MagicMock()
+        stdout = MagicMock()
+
+        def __init__(self) -> None:
+            self.stderr = FakeStderr()
+
+        def poll(self) -> None:
+            return None
+
+    process = FakeProcess()
+
+    class FakeThread:
+        def __init__(self, target: Any, args: tuple[Any, ...], **_: Any) -> None:
+            self._target = target
+            self._args = args
+
+        def start(self) -> None:
+            self._target(*self._args)
+
+        def is_alive(self) -> bool:
+            return False
+
+        def join(self, timeout: float | None = None) -> None:
+            del timeout
+
+    with (
+        patch(
+            "src.connectors.acp_core.base_connector.subprocess.Popen",
+            return_value=process,
+        ),
+        patch(
+            "src.connectors.acp_core.base_connector.threading.Thread",
+            FakeThread,
+        ),
+        patch(
+            "src.connectors.acp_core.base_connector.capture_acp_subprocess_identity",
+            return_value=None,
+        ),
+    ):
+        await connector._spawn_process(runtime)
+
+    assert bytes(runtime.stderr_tail) == b"startup diagnostics"
+
+
+@pytest.mark.asyncio
+async def test_stale_stream_cancel_callback_does_not_touch_new_generation(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    assert runtime.request_lock is not None
+    await runtime.request_lock.acquire()
+    runtime.active_request_generation = 2
+
+    cancelled = await connector._cancel_active_request(
+        runtime,
+        prompt_request_id=1,
+        expected_generation=1,
+    )
+
+    assert cancelled is False
+    assert runtime.active_request_generation == 2
+    assert runtime.request_lock.locked()
+
+
+@pytest.mark.asyncio
+async def test_cancel_active_request_cleans_up_already_exited_process(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    mock_process = MagicMock()
+    mock_process.poll.return_value = 0
+    mock_process.stdin = MagicMock()
+    mock_process.stdout = MagicMock()
+    mock_process.stderr = MagicMock()
+    mock_process.pid = 12345
+    runtime.process = mock_process
+    runtime.initialized = True
+
+    class JoinProbe:
+        def is_alive(self) -> bool:
+            return False
+
+        def join(self, *, timeout: float | None = None) -> None:
+            assert timeout == 0
+
+    runtime.stderr_drain_thread = JoinProbe()
+    assert runtime.request_lock is not None
+    await runtime.request_lock.acquire()
+
+    with patch.object(connector, "_kill_runtime", AsyncMock()) as kill_mock:
+        cancelled = await connector._cancel_active_request(
+            runtime,
+            prompt_request_id=1,
+        )
+
+    assert cancelled is True
+    kill_mock.assert_not_called()
+    assert runtime.process is None
+    assert runtime.initialized is False
+    assert runtime.stderr_drain_thread is None
+    assert runtime.stderr_drain_stop_event.is_set()
+    assert runtime.request_lock.locked() is False
+    mock_process.stdin.close.assert_called_once()
+    mock_process.stdout.close.assert_called_once()
+    mock_process.stderr.close.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stderr_drain_thread_join_is_non_blocking(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+
+    class JoinProbe:
+        def join(self, *, timeout: float | None = None) -> None:
+            assert timeout == 0
+
+    runtime.stderr_drain_thread = JoinProbe()
+
+    connector._join_stderr_drain_thread(runtime)
+
+    assert runtime.stderr_drain_thread is None
+
+
+@pytest.mark.asyncio
+async def test_blocked_stdin_write_kills_runtime_on_timeout(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    runtime.process = MagicMock()
+    runtime.process.stdin = MagicMock()
+    connector._process_timeout = 0.01
+
+    async def stuck_to_thread(*_: Any, **__: Any) -> None:
+        await asyncio.sleep(3600)
+
+    with (
+        patch(
+            "src.connectors.acp_core.base_connector.asyncio.to_thread",
+            side_effect=stuck_to_thread,
+        ),
+        patch.object(connector, "_kill_runtime", AsyncMock()) as kill_mock,
+        pytest.raises(APITimeoutError, match="Timeout writing to ACP process"),
+    ):
+        await connector._write_json_line(runtime, {"jsonrpc": "2.0"})
+
+    kill_mock.assert_awaited_once_with(runtime)
 
 
 def test_resolve_stream_keepalive_interval_default(
@@ -545,6 +731,81 @@ async def test_acquire_runtime_isolates_per_client_session(
     assert ra.client_session_id == "s-a"
     assert rb.client_session_id == "s-b"
     assert len(connector._runtimes) == 2
+
+
+@pytest.mark.asyncio
+async def test_stream_lock_released_before_terminal_chunk(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    assert runtime.request_lock is not None
+    await runtime.request_lock.acquire()
+    runtime.active_request_generation = 1
+
+    async def source(*_: Any) -> AsyncGenerator[ProcessedResponse, None]:
+        yield ProcessedResponse(content='data: {"ok":true}\n\n')
+        yield ProcessedResponse(content="data: [DONE]\n\n")
+
+    with patch.object(connector, "_stream_response", source):
+        stream = connector._stream_response_with_lock(runtime, "m", 1, 1)
+        first = await anext(stream)
+        assert first.content != "data: [DONE]\n\n"
+        assert runtime.request_lock.locked()
+
+        done = await anext(stream)
+        assert done.content == "data: [DONE]\n\n"
+        assert not runtime.request_lock.locked()
+        assert runtime.active_request_generation is None
+        await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_stream_lock_released_before_provider_terminal_json_chunk(
+    connector: DummyAcpConnector,
+) -> None:
+    """Codex finish_reason chunks must release the lock before being yielded."""
+
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    assert runtime.request_lock is not None
+    await runtime.request_lock.acquire()
+    runtime.active_request_generation = 1
+
+    async def source(*_: Any) -> AsyncGenerator[ProcessedResponse, None]:
+        yield ProcessedResponse(
+            content=('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n')
+        )
+
+    with patch.object(connector, "_stream_response", source):
+        stream = connector._stream_response_with_lock(runtime, "m", 1, 1)
+        terminal = await anext(stream)
+
+    assert isinstance(terminal.content, str)
+    assert terminal.content.startswith("data: {")
+    assert not runtime.request_lock.locked()
+    assert runtime.active_request_generation is None
+    await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_abandoned_stream_cancels_before_releasing_lock(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    assert runtime.request_lock is not None
+    await runtime.request_lock.acquire()
+
+    async def source(*_: Any) -> AsyncGenerator[ProcessedResponse, None]:
+        yield ProcessedResponse(content='data: {"partial":true}\n\n')
+        await asyncio.sleep(3600)
+
+    with patch.object(connector, "_stream_response", source):
+        stream = connector._stream_response_with_lock(runtime, "m", 1)
+        await anext(stream)
+        await stream.aclose()
+
+    assert not runtime.request_lock.locked()
+    assert runtime.cancellation_event is not None
+    assert not runtime.cancellation_event.is_set()
 
 
 @pytest.mark.asyncio

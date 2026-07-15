@@ -808,12 +808,25 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self,
         runtime: ACPProcessRuntime,
         prompt_request_id: int,
-    ) -> None:
+        expected_generation: int | None = None,
+    ) -> bool:
+        owned_at_entry = (
+            expected_generation is None
+            or runtime.active_request_generation == expected_generation
+        )
         try:
-            await super()._cancel_active_request(runtime, prompt_request_id)
-        finally:
-            if runtime.responses_standalone_mode:
+            cancelled = await super()._cancel_active_request(
+                runtime,
+                prompt_request_id,
+                expected_generation=expected_generation,
+            )
+        except BaseException:
+            if owned_at_entry and runtime.responses_standalone_mode:
                 await self._remove_runtime_from_pool(runtime)
+            raise
+        if cancelled and runtime.responses_standalone_mode:
+            await self._remove_runtime_from_pool(runtime)
+        return cancelled
 
     async def _handle_server_request(
         self, runtime: ACPProcessRuntime, msg: ACPNotification

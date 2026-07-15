@@ -915,6 +915,15 @@ class StreamingContentConverter:
                 metadata={"error": error_payload, "finish_reason": "error"},
                 is_done=True,
             )
+        finally:
+            # A terminal chunk can cause this converter to break out of the
+            # ``async for`` before the source generator naturally resumes.
+            # Close it explicitly so connector-owned teardown (including ACP
+            # request-lock release) runs immediately.
+            close_source = getattr(source, "aclose", None)
+            if close_source is not None:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await close_source()
 
     def _log_stream_conversion_exception(self, exc: Exception) -> None:
         """Log streaming conversion exceptions with appropriate verbosity."""
