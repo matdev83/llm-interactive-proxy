@@ -90,6 +90,9 @@ class URIParameterApplicator(IURIParameterApplicator):
         request_params = self._extract_request_params(request, backend_type)
         session_params = self._extract_session_params(session, backend_type)
         connector_forced_params = self._extract_connector_forced_params(backend_type)
+        connector_forced_params.update(
+            self._extract_early_session_verbosity_bump_params(backend_type, session)
+        )
         self._apply_edit_precision_overrides(request, session_params)
 
         resolved = self._resolve_parameters(
@@ -314,6 +317,70 @@ class URIParameterApplicator(IURIParameterApplicator):
                 )
 
         return forced_params
+
+    def _extract_early_session_verbosity_bump_params(
+        self, backend_type: str, session: Any | None
+    ) -> dict[str, Any]:
+        """Force temperature/verbosity for early openai-codex session turns."""
+        try:
+            from src.connectors.openai_codex.early_session_verbosity_bump import (
+                early_session_bump_forced_params,
+                is_openai_codex_responses_family,
+            )
+
+            if not is_openai_codex_responses_family(backend_type):
+                return {}
+
+            bump_cfg = self._lookup_early_session_verbosity_bump_config(backend_type)
+            return early_session_bump_forced_params(
+                session=session,
+                backend_type=backend_type,
+                config=bump_cfg,
+            )
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to extract early-session verbosity bump for %s: %s",
+                    backend_type,
+                    exc,
+                    exc_info=True,
+                )
+            return {}
+
+    def _lookup_early_session_verbosity_bump_config(
+        self, backend_type: str
+    ) -> dict[str, Any] | None:
+        """Read ``extra.codex.early_session_verbosity_bump`` for a Codex backend."""
+        if not self._config:
+            return None
+
+        from src.connectors.openai_codex.early_session_verbosity_bump import (
+            normalize_backend_family,
+        )
+        from src.core.config.app_config import AppConfig
+
+        app_config = cast(AppConfig, self._config)
+        backends = app_config.backends
+        family = normalize_backend_family(backend_type)
+        candidate_keys: list[str] = []
+        for key in (backend_type, family, family.replace("-", "_")):
+            if key and key not in candidate_keys:
+                candidate_keys.append(key)
+
+        for key in candidate_keys:
+            backend_config = backends.get(key)
+            if backend_config is None:
+                continue
+            extra_cfg = getattr(backend_config, "extra", None)
+            if not isinstance(extra_cfg, dict):
+                continue
+            codex_cfg = extra_cfg.get("codex")
+            if not isinstance(codex_cfg, dict):
+                continue
+            bump_cfg = codex_cfg.get("early_session_verbosity_bump")
+            if isinstance(bump_cfg, dict):
+                return bump_cfg
+        return None
 
     def _extract_session_params(
         self, session: Any | None, backend_type: str

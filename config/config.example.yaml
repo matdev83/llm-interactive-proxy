@@ -510,6 +510,14 @@ backends:
           source_model: gpt-5.5
           target_model: gpt-5.4
           free_plan_types: [free]
+
+        # First N proxy session turns force temperature=1 and verbosity=high
+        # on the resolved request (enabled by default; set enabled: false to
+        # opt out). ChatGPT Codex rejects temperature on the wire, so only
+        # text.verbosity=high is sent outbound.
+        early_session_verbosity_bump:
+          enabled: true
+          max_turns: 5
         
         default_capabilities:
           protocol: openai-chat
@@ -578,6 +586,13 @@ backends:
           source_model: gpt-5.5
           target_model: gpt-5.4
           free_plan_types: [free]
+        # First N proxy session turns force temperature=1 and verbosity=high
+        # on the resolved request (enabled by default; set enabled: false to
+        # opt out). ChatGPT Codex rejects temperature on the wire, so only
+        # text.verbosity=high is sent outbound.
+        early_session_verbosity_bump:
+          enabled: true
+          max_turns: 5
         default_capabilities:
           protocol: openai-chat
           codex_passthrough: false

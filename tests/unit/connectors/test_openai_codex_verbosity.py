@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.openai_codex.catalog.types import (
     CodexModelCatalog,
@@ -244,6 +245,57 @@ class TestCodexPayloadVerbosity:
         payload = builder.build_payload(context)
         assert payload.text is not None
         assert payload.text.verbosity == "low"
+        assert payload.temperature is None
+
+    def test_payload_builder_emits_temperature(self) -> None:
+        mock_connector = MagicMock()
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_connector.DEFAULT_REASONING_EFFORT = "medium"
+        builder = _builder(mock_connector)
+
+        request = CanonicalChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="gpt-5.4-mini",
+            temperature=1.0,
+        )
+        object.__setattr__(request, "_codex_resolved_verbosity", "high")
+
+        context = CodexRequestContext(
+            request=request,
+            processed_messages=[],
+            capabilities=CodexClientCapabilities(),
+            effective_model="gpt-5.4-mini",
+            session_id="test-session-temp",
+        )
+        payload = builder.build_payload(context)
+        assert payload.temperature == pytest.approx(1.0)
+        assert payload.text is not None
+        assert payload.text.verbosity == "high"
+
+    def test_payload_builder_emits_temperature_when_verbosity_omitted(self) -> None:
+        mock_connector = MagicMock()
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_connector.DEFAULT_REASONING_EFFORT = "medium"
+        builder = _builder(mock_connector)
+
+        request = CanonicalChatRequest(
+            messages=[ChatMessage(role="user", content="Hello")],
+            model="no-verbosity-model",
+            temperature=1.0,
+            verbosity="high",
+        )
+        object.__setattr__(request, "_codex_resolved_verbosity", None)
+
+        context = CodexRequestContext(
+            request=request,
+            processed_messages=[],
+            capabilities=CodexClientCapabilities(),
+            effective_model="no-verbosity-model",
+            session_id="test-session-temp-no-verbosity",
+        )
+        payload = builder.build_payload(context)
+        assert payload.text is None
+        assert payload.temperature == pytest.approx(1.0)
 
     def test_payload_builder_omits_text_when_verbosity_unset(self) -> None:
         mock_connector = MagicMock()

@@ -22,6 +22,15 @@ def _make_config(backend_type: str, extra: dict[str, Any]) -> AppConfig:
     return AppConfig(backends=BackendSettings.model_validate(raw_backends))
 
 
+def _disable_early_bump(extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Opt out of openai-codex early-session bump for URI precedence tests."""
+    merged = dict(extra or {})
+    codex = dict(merged.get("codex") or {})
+    codex["early_session_verbosity_bump"] = {"enabled": False}
+    merged["codex"] = codex
+    return merged
+
+
 def _uri(**values: JsonValue) -> dict[str, JsonValue]:
     """Build ``uri_params`` with stable ``dict[str, JsonValue]`` typing for tests."""
     return dict(values)
@@ -390,7 +399,10 @@ class TestURIParameterApplicatorVerbosity:
 
     def test_uri_verbosity_overrides_backend_config(self) -> None:
         backend_type = "openai-codex"
-        config = _make_config(backend_type, extra={"verbosity": "high"})
+        config = _make_config(
+            backend_type,
+            extra=_disable_early_bump({"verbosity": "high"}),
+        )
 
         request = ChatRequest(
             model="openai-codex:gpt-5.4-mini",
@@ -447,7 +459,7 @@ class TestURIParameterApplicatorVerbosity:
 
     def test_uri_verbosity_with_reasoning_effort(self) -> None:
         backend_type = "openai-codex"
-        config = _make_config(backend_type, extra={})
+        config = _make_config(backend_type, extra=_disable_early_bump())
 
         request = ChatRequest(
             model="openai-codex:gpt-5.4-mini",
@@ -463,3 +475,114 @@ class TestURIParameterApplicatorVerbosity:
 
         assert result.verbosity == "low"
         assert result.reasoning_effort == "high"
+
+
+class TestURIParameterApplicatorEarlySessionVerbosityBump:
+    """Early-session forced temperature/verbosity for openai-codex family."""
+
+    def test_default_enabled_forces_params_on_early_turn(self) -> None:
+        backend_type = "openai-codex"
+        # Empty extra: bump defaults to enabled with max_turns=5.
+        config = _make_config(backend_type, extra={})
+        session = SimpleNamespace(history=[object(), object()])
+
+        request = ChatRequest(
+            model="openai-codex:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+            temperature=0.2,
+            verbosity="low",
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(temperature="0.5", verbosity="low"),
+            backend_type=backend_type,
+            session=session,
+        )
+
+        assert result.temperature == pytest.approx(1.0)
+        assert result.verbosity == "high"
+
+    def test_forces_params_when_session_missing(self) -> None:
+        backend_type = "openai-codex-v2"
+        config = _make_config("openai_codex_v2", extra={})
+
+        request = ChatRequest(
+            model="openai-codex-v2:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(verbosity="low", temperature="0.3"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.temperature == pytest.approx(1.0)
+        assert result.verbosity == "high"
+
+    def test_respects_uri_after_max_turns(self) -> None:
+        backend_type = "openai-codex"
+        config = _make_config(
+            backend_type,
+            extra={
+                "codex": {
+                    "early_session_verbosity_bump": {"enabled": True, "max_turns": 5}
+                }
+            },
+        )
+        session = SimpleNamespace(history=[object()] * 5)
+
+        request = ChatRequest(
+            model="openai-codex:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(verbosity="low", temperature="0.4"),
+            backend_type=backend_type,
+            session=session,
+        )
+
+        assert result.temperature == pytest.approx(0.4)
+        assert result.verbosity == "low"
+
+    def test_opt_out_via_config(self) -> None:
+        backend_type = "openai-codex"
+        config = _make_config(backend_type, extra=_disable_early_bump())
+
+        request = ChatRequest(
+            model="openai-codex:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(verbosity="low", temperature="0.4"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.temperature == pytest.approx(0.4)
+        assert result.verbosity == "low"
+
+    def test_does_not_apply_to_app_server(self) -> None:
+        backend_type = "openai-codex-app-server"
+        config = _make_config(backend_type, extra={})
+
+        request = ChatRequest(
+            model="openai-codex-app-server:gpt-5.4-mini",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=_uri(verbosity="low", temperature="0.4"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.temperature == pytest.approx(0.4)
+        assert result.verbosity == "low"

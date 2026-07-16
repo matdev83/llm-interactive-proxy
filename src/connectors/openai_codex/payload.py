@@ -199,6 +199,7 @@ class PayloadBuilder(IPayloadBuilder):
                 "parallel_tool_calls",
                 "reasoning",
                 "text",
+                "temperature",
                 "include",
                 "prompt_cache_key",
                 "previous_response_id",
@@ -212,6 +213,11 @@ class PayloadBuilder(IPayloadBuilder):
 
         # Ensure model is set
         passthrough_dict.setdefault("model", context.effective_model)
+
+        # Prefer request-level temperature (URI / early-session bump / config).
+        resolved_temperature = self._resolve_temperature(context.request)
+        if resolved_temperature is not None:
+            passthrough_dict["temperature"] = resolved_temperature
 
         # Codex backend expects streaming SSE; Codex CLI always sets stream=true.
         passthrough_dict["stream"] = True
@@ -316,6 +322,7 @@ class PayloadBuilder(IPayloadBuilder):
             reasoning = ReasoningSpec(effort=reasoning_effort, summary="auto")
 
         text_spec = self._resolve_text_spec(context)
+        temperature = self._resolve_temperature(context.request)
 
         # Resolve system prompt/instructions
         instructions = self._resolve_instructions(context)
@@ -338,6 +345,7 @@ class PayloadBuilder(IPayloadBuilder):
             "parallel_tool_calls": False,
             "reasoning": reasoning,
             "text": text_spec,
+            "temperature": temperature,
             "store": False,
             "stream": bool(stream_flag),
             "include": ["reasoning.encrypted_content"] if reasoning else [],
@@ -357,6 +365,7 @@ class PayloadBuilder(IPayloadBuilder):
         parallel_tool_calls = cast(bool, payload_dict["parallel_tool_calls"])
         payload_reasoning = cast(ReasoningSpec | None, payload_dict["reasoning"])
         payload_text = cast(TextSpec | None, payload_dict.get("text"))
+        payload_temperature = cast(float | None, payload_dict.get("temperature"))
         store = cast(bool, payload_dict["store"])
         stream = cast(bool, payload_dict["stream"])
         include = cast(list[str], payload_dict["include"])
@@ -373,6 +382,7 @@ class PayloadBuilder(IPayloadBuilder):
             parallel_tool_calls=parallel_tool_calls,
             reasoning=payload_reasoning,
             text=payload_text,
+            temperature=payload_temperature,
             store=store,
             stream=stream,
             include=include,
@@ -496,6 +506,27 @@ class PayloadBuilder(IPayloadBuilder):
                 return TextSpec(verbosity=metadata_verbosity.strip())
 
         return None
+
+    @staticmethod
+    def _resolve_temperature(request_data: Any) -> float | None:
+        """Resolve sampling temperature from request / extra_body when present."""
+        raw = getattr(request_data, "temperature", None)
+        if isinstance(request_data, dict):
+            raw = request_data.get("temperature", raw)
+        if raw is None:
+            extra_body = (
+                request_data.get("extra_body")
+                if isinstance(request_data, dict)
+                else getattr(request_data, "extra_body", None)
+            )
+            if isinstance(extra_body, dict):
+                raw = extra_body.get("temperature")
+        if raw is None:
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
 
     def _resolve_instructions(self, context: CodexRequestContext) -> str | None:
         """Resolve system prompt/instructions for payload.
@@ -726,6 +757,15 @@ class PayloadBuilder(IPayloadBuilder):
             if text_spec is None:
                 text_spec = self._resolve_text_spec(context)
 
+        temperature = payload_dict.get("temperature")
+        if temperature is None:
+            temperature = self._resolve_temperature(context.request)
+        else:
+            try:
+                temperature = float(temperature)
+            except (TypeError, ValueError):
+                temperature = self._resolve_temperature(context.request)
+
         return CodexPayload(
             model=payload_dict.get("model", context.effective_model),
             input=input_items,
@@ -734,6 +774,7 @@ class PayloadBuilder(IPayloadBuilder):
             parallel_tool_calls=payload_dict.get("parallel_tool_calls", False),
             reasoning=reasoning,
             text=text_spec,
+            temperature=temperature,
             store=payload_dict.get("store", False),
             stream=payload_dict.get("stream", True),
             include=payload_dict.get("include", []),

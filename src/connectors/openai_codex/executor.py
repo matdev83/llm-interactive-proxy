@@ -509,6 +509,10 @@ class ResponseExecutor(IResponseExecutor):
             prompt_cache_key=payload.prompt_cache_key,
         )
         payload_dict = payload.model_dump(exclude_none=True)
+        # ChatGPT Codex ``/responses`` rejects ``temperature`` (HTTP 400
+        # "Unsupported parameter: temperature"). Keep it off the wire even when
+        # early-session bump or clients set it on the canonical request.
+        payload_dict.pop("temperature", None)
         full_payload_dict = dict(payload_dict)
         continuation_snapshot = await self._get_continuation_snapshot(
             continuation_context

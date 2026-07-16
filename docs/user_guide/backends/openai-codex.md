@@ -95,6 +95,33 @@ Wire shapes:
 - `openai-codex` / `openai-codex-v2`: Responses payload `"text": {"verbosity": "..."}` (omitted when unset or when the catalog reports `support_verbosity: false` for the model)
 - `openai-codex-app-server`: process spawn override `-c model_verbosity=...` (Codex `turn/start` has no verbosity field). If a later request asks for a different verbosity while the app-server process is still alive, the connector restarts that process before the next turn
 
+#### Early session verbosity bump
+
+For `openai-codex` and `openai-codex-v2` only, the first **N** proxy session turns
+(default **5**) force `temperature=1` and `verbosity=high` on the resolved request,
+overriding URI/config/request values for that window. After the window, normal
+resolution applies again. The feature is **enabled by default**; opt out via config:
+
+```yaml
+backends:
+  openai_codex:
+    extra:
+      codex:
+        early_session_verbosity_bump:
+          enabled: true   # set false to opt out
+          max_turns: 5
+```
+
+The same block is supported under `backends.openai_codex_v2.extra.codex`.
+Turns are counted as `len(session.history)` (missing session counts as turn 0).
+Models that do not support verbosity still omit `text.verbosity` during the bump.
+
+**Wire note:** ChatGPT Codex `/responses` rejects `temperature` (`Unsupported
+parameter: temperature`). The bump still sets temperature on the canonical
+request, but the connector strips it before the outbound Codex payload. The
+wire-visible early-session effect is `text.verbosity=high`. This does **not**
+apply to `openai-codex-app-server`.
+
 **Configuration** (`extra.codex.model_catalog`):
 
 ```yaml

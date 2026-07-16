@@ -96,6 +96,30 @@ class TestSettingsLoader:
         assert settings.model_catalog["codex_binary_path"] is None
         assert settings.model_catalog["discovery_timeout_seconds"] == 10.0
 
+    def test_early_session_verbosity_bump_defaults(self, loader, app_config):
+        settings = loader.load(app_config)
+        assert settings.early_session_verbosity_bump == {
+            "enabled": True,
+            "max_turns": 5,
+        }
+
+    def test_early_session_verbosity_bump_opt_out_from_yaml(self, loader, app_config):
+        backend_config = BackendConfig(
+            extra={
+                "codex": {
+                    "early_session_verbosity_bump": {
+                        "enabled": False,
+                        "max_turns": 2,
+                    }
+                }
+            }
+        )
+        settings = loader.load(_with_openai_codex_backend(app_config, backend_config))
+        assert settings.early_session_verbosity_bump == {
+            "enabled": False,
+            "max_turns": 2,
+        }
+
     def test_model_catalog_from_yaml(self, loader, app_config):
         """Model catalog section is parsed from extra.codex.model_catalog."""
         backend_config = BackendConfig(

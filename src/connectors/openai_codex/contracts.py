@@ -159,6 +159,12 @@ class CodexConnectorSettings(BaseModel):
             "free_plan_types": ["free"],
         }
     )
+    early_session_verbosity_bump: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "enabled": True,
+            "max_turns": 5,
+        }
+    )
     model_catalog: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -216,6 +222,7 @@ class CodexPayload(BaseModel):
     parallel_tool_calls: bool
     reasoning: ReasoningSpec | None = None
     text: TextSpec | None = None
+    temperature: float | None = None
     store: bool
     stream: bool
     include: list[str]

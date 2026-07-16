@@ -18,6 +18,9 @@ from src.connectors.openai_codex.catalog.config import (
     codex_model_catalog_config_from_mapping,
 )
 from src.connectors.openai_codex.contracts import CodexConnectorSettings
+from src.connectors.openai_codex.early_session_verbosity_bump import (
+    normalize_early_session_verbosity_bump,
+)
 from src.connectors.openai_codex.interfaces import ISettingsLoader
 from src.connectors.openai_codex.managed_oauth_constants import (
     DEFAULT_ALLOW_LEGACY_FALLBACK,
@@ -702,6 +705,12 @@ class SettingsLoader(ISettingsLoader):
             to_mapping(codex_cfg.get("gpt55_unsupported_free_plan_downgrade")) or {}
         )
         settings["gpt55_unsupported_free_plan_downgrade"] = {**gpt55_base, **gpt55_yaml}
+
+        settings["early_session_verbosity_bump"] = (
+            normalize_early_session_verbosity_bump(
+                to_mapping(codex_cfg.get("early_session_verbosity_bump"))
+            )
+        )
 
         # Model catalog auto-discovery + fallback settings
         # (extra.codex.model_catalog; ENV overrides per-key).
