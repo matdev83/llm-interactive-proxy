@@ -339,6 +339,8 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         summary_text, sanitizer_state = sanitize_reasoning_summary_stream_delta(
             summary_text,
             _reasoning_summary_sanitizer_state.get(),
+            output_index=chunk.get("output_index"),
+            summary_index=chunk.get("summary_index"),
         )
         _reasoning_summary_sanitizer_state.set(sanitizer_state)
         if not summary_text:

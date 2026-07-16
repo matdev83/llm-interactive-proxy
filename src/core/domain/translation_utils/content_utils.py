@@ -19,6 +19,8 @@ class ReasoningSummarySanitizerState:
     has_visible_text: bool = False
     previous_ended_with_newline: bool = False
     separator_pending: bool = False
+    last_output_index: Any = None
+    last_summary_index: Any = None
 
 
 def collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
@@ -82,12 +84,26 @@ def coerce_reasoning_text(value: Any) -> str | None:
 def sanitize_reasoning_summary_stream_delta(
     text: str,
     state: ReasoningSummarySanitizerState | None = None,
+    *,
+    output_index: Any = None,
+    summary_index: Any = None,
 ) -> tuple[str, ReasoningSummarySanitizerState]:
-    """Hide markers and resolve one separator using both neighboring deltas."""
+    """Hide markers and resolve separators between adjacent reasoning sections."""
     current = state or ReasoningSummarySanitizerState()
     has_visible_text = current.has_visible_text
     previous_ended_with_newline = current.previous_ended_with_newline
-    separator_pending = current.separator_pending
+    summary_section_changed = (
+        summary_index is not None
+        and current.last_summary_index is not None
+        and summary_index != current.last_summary_index
+    ) or (
+        output_index is not None
+        and current.last_output_index is not None
+        and output_index != current.last_output_index
+    )
+    separator_pending = current.separator_pending or (
+        summary_section_changed and has_visible_text
+    )
     output: list[str] = []
 
     text = _LEADING_HTML_COMMENT_CLOSE_RE.sub("", text)
@@ -112,6 +128,12 @@ def sanitize_reasoning_summary_stream_delta(
         has_visible_text=has_visible_text,
         previous_ended_with_newline=previous_ended_with_newline,
         separator_pending=separator_pending,
+        last_output_index=(
+            output_index if output_index is not None else current.last_output_index
+        ),
+        last_summary_index=(
+            summary_index if summary_index is not None else current.last_summary_index
+        ),
     )
 
 

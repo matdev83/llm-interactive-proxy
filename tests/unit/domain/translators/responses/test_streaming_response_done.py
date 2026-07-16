@@ -112,6 +112,47 @@ def test_reasoning_summary_split_comment_preserves_thought_separator() -> None:
     )
 
 
+def test_reasoning_summary_index_transition_preserves_thought_separator() -> None:
+    """Adjacent Codex summary sections need a separator even without markers."""
+    responses_to_domain_stream_chunk(
+        {
+            "type": "response.created",
+            "response": {"id": "resp_summary_index_separator"},
+        }
+    )
+    events = (
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "Planning the implementation",
+            "output_index": 0,
+            "summary_index": 0,
+        },
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "Designing the response boundary",
+            "output_index": 0,
+            "summary_index": 1,
+        },
+        {
+            "type": "response.reasoning_summary_text.delta",
+            "delta": "Validating the next output item",
+            "output_index": 1,
+            "summary_index": 0,
+        },
+    )
+
+    rendered: list[str] = []
+    for event in events:
+        out = responses_to_domain_stream_chunk(event)
+        rendered.append(out["choices"][0]["delta"].get("reasoning_summary", ""))
+
+    assert "".join(rendered) == (
+        "Planning the implementation\n"
+        "Designing the response boundary\n"
+        "Validating the next output item"
+    )
+
+
 @pytest.mark.parametrize(
     ("deltas", "expected"),
     [
