@@ -87,13 +87,17 @@ class ToolProgressLoopGuard(IToolProgressLoopGuard):
                 current_call_fingerprint
                 and current_call_fingerprint == state.pending_steer_call_fingerprint
             ):
-                return ToolProgressLoopDecision(
+                decision = ToolProgressLoopDecision(
                     action=ToolProgressLoopAction.BLOCK,
                     reason="repeated_tool_call_after_steer",
                     score=state.pending_steer_score,
                     repeated_call_count=state.pending_steer_repeated_call_count,
                     repeated_output_count=state.pending_steer_repeated_output_count,
                 )
+                # One-shot block: clear sticky pending-steer state so the session
+                # can recover on subsequent requests instead of returning 409 forever.
+                self._sessions[session_id] = _SessionLoopState()
+                return decision
             self._clear_pending_steer(state)
 
         if not tool_outputs:
@@ -188,6 +192,9 @@ class ToolProgressLoopGuard(IToolProgressLoopGuard):
         state.pending_steer_score = score
         state.pending_steer_repeated_call_count = max_call_count
         state.pending_steer_repeated_output_count = max_output_count
+        # Back off consecutive counter after steering so a productive changed
+        # tool call does not immediately re-trigger consecutive_tool_followups.
+        state.consecutive_tool_followups = 0
         return ToolProgressLoopDecision(
             action=ToolProgressLoopAction.STEER,
             reason=reason,

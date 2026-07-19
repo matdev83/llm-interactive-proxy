@@ -441,6 +441,85 @@ async def test_guard_steer_then_error_blocks_repeat_same_call_after_steer() -> N
     assert decision.reason == "repeated_tool_call_after_steer"
 
 
+async def test_guard_block_after_steer_is_one_shot_not_sticky() -> None:
+    """After BLOCK, the same retry must not keep returning 409 forever."""
+    guard = ToolProgressLoopGuard(
+        max_repeated_tool_output=3,
+        max_repeated_tool_call_signature=99,
+        max_consecutive_tool_followups=99,
+        action_mode="steer_then_error",
+    )
+    request = _request_with_tool_result("same output")
+
+    for _ in range(2):
+        assert (
+            await guard.evaluate_request(session_id="stable-session", request=request)
+        ).action == ToolProgressLoopAction.ALLOW
+
+    assert (
+        await guard.evaluate_request(session_id="stable-session", request=request)
+    ).action == ToolProgressLoopAction.STEER
+
+    assert (
+        await guard.evaluate_request(session_id="stable-session", request=request)
+    ).action == ToolProgressLoopAction.BLOCK
+
+    # One-shot block: session counters/pending steer are cleared so retries recover.
+    retry = await guard.evaluate_request(session_id="stable-session", request=request)
+    assert retry.action == ToolProgressLoopAction.ALLOW
+
+
+async def test_guard_steer_on_consecutive_resets_counter_for_changed_call() -> None:
+    """Changing tool call after consecutive STEER must not immediately re-steer."""
+    guard = ToolProgressLoopGuard(
+        max_consecutive_tool_followups=3,
+        max_repeated_tool_call_signature=99,
+        max_repeated_tool_output=99,
+        action_mode="steer_then_error",
+    )
+
+    for idx in range(2):
+        assert (
+            await guard.evaluate_request(
+                session_id="stable-session",
+                request=_request_with_tool_result(f"output {idx}", tool_name="read"),
+            )
+        ).action == ToolProgressLoopAction.ALLOW
+
+    steer = await guard.evaluate_request(
+        session_id="stable-session",
+        request=_request_with_tool_result("output 2", tool_name="read"),
+    )
+    assert steer.action == ToolProgressLoopAction.STEER
+    assert steer.reason == "consecutive_tool_followups"
+
+    changed_call = ChatRequest(
+        model="gpt-4",
+        messages=[
+            ChatMessage(role="user", content="inspect logs"),
+            ChatMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[
+                    ToolCall(
+                        id="call_2",
+                        function=FunctionCall(
+                            name="read",
+                            arguments='{"filePath":"var/logs/other.log","limit":20}',
+                        ),
+                    )
+                ],
+            ),
+            ChatMessage(role="tool", content="different output", tool_call_id="call_2"),
+        ],
+    )
+    after_steer = await guard.evaluate_request(
+        session_id="stable-session",
+        request=changed_call,
+    )
+    assert after_steer.action == ToolProgressLoopAction.ALLOW
+
+
 async def test_guard_steer_then_error_block_preserves_steering_metadata() -> None:
     guard = ToolProgressLoopGuard(
         max_repeated_tool_output=3,
