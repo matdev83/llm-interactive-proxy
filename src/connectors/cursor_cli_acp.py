@@ -37,6 +37,7 @@ from src.connectors.cursor_cli_auth import (
     discovery_modes_to_try,
     is_cursor_api_key_invalid_error,
     is_cursor_auth_required_error,
+    read_cursor_login_store_api_key,
     resolve_cursor_auth_policy,
 )
 from src.core.common.exceptions import BackendError, ConfigurationError
@@ -179,15 +180,28 @@ async def discover_cursor_cli_model_catalog(
     """
 
     env_key_invalid = False
+    # Read login-store apiKey once up front. Cursor CLI may unlink auth.json
+    # during later status/list-models probes; re-reading mid-loop can lose it.
+    discovery_api_key = await asyncio.to_thread(read_cursor_login_store_api_key)
     policy = await asyncio.to_thread(
         resolve_cursor_auth_policy,
         executable,
         timeout_seconds=auth_timeout_seconds,
         env_key_invalid=env_key_invalid,
     )
+    # Prefer the key captured before probes if the policy re-read races.
+    if discovery_api_key and not policy.login_store_key_present:
+        policy = CursorAuthPolicy(
+            cookie_usable=policy.cookie_usable,
+            env_key_present=policy.env_key_present,
+            env_key_invalid=policy.env_key_invalid,
+            discovery_mode=policy.discovery_mode,
+            acp_mode=policy.acp_mode,
+            login_store_key_present=True,
+        )
     last_stderr = ""
     for mode in discovery_modes_to_try(policy):
-        env = build_cursor_cli_env(mode)
+        env = build_cursor_cli_env(mode, discovery_api_key=discovery_api_key)
         try:
             result = await _run_list_models(
                 executable=executable,
@@ -222,6 +236,7 @@ async def discover_cursor_cli_model_catalog(
                 env_key_invalid=env_key_invalid,
                 discovery_mode=mode,
                 acp_mode=acp_mode,
+                login_store_key_present=policy.login_store_key_present,
             )
             return CursorCliModelCatalog(
                 routes=catalog.routes,
@@ -244,15 +259,29 @@ async def discover_cursor_cli_model_catalog(
                 env_key_invalid=True,
                 discovery_mode=policy.discovery_mode,
                 acp_mode=("cookie_only" if policy.cookie_usable else policy.acp_mode),
+                login_store_key_present=policy.login_store_key_present,
             )
             continue
 
         if is_cursor_auth_required_error(stderr):
-            logger.warning(
-                "Cursor model discovery auth failed (mode=%s): %s",
-                mode,
-                stderr,
-            )
+            # Cookie-only --list-models often fails on CLI builds that require
+            # an API key for discovery, even when login cookies / env key still
+            # work for status or ACP. Warn only when no usable fallback remains.
+            if policy.cookie_usable or policy.discovery_key_available:
+                logger.debug(
+                    "Cursor --list-models auth rejected (mode=%s); "
+                    "auth remains usable via cookie=%s discovery_key=%s: %s",
+                    mode,
+                    policy.cookie_usable,
+                    policy.discovery_key_available,
+                    stderr,
+                )
+            else:
+                logger.warning(
+                    "Cursor model discovery auth failed (mode=%s): %s",
+                    mode,
+                    stderr,
+                )
             continue
 
         logger.warning(
@@ -262,10 +291,20 @@ async def discover_cursor_cli_model_catalog(
             stderr,
         )
 
-    logger.warning(
-        "Cursor model discovery exhausted auth modes; last error: %s",
-        last_stderr or "(none)",
-    )
+    if policy.cookie_usable or policy.discovery_key_available:
+        logger.info(
+            "Cursor model discovery returned an empty catalog while auth remains "
+            "usable (cookie=%s discovery_key=%s); requests may still proceed. "
+            "Last discovery error: %s",
+            policy.cookie_usable,
+            policy.discovery_key_available and not env_key_invalid,
+            last_stderr or "(none)",
+        )
+    else:
+        logger.warning(
+            "Cursor model discovery exhausted auth modes; last error: %s",
+            last_stderr or "(none)",
+        )
     final_policy = CursorAuthPolicy(
         cookie_usable=policy.cookie_usable,
         env_key_present=policy.env_key_present,
@@ -276,10 +315,12 @@ async def discover_cursor_cli_model_catalog(
             if policy.cookie_usable
             else (
                 "with_env_key"
-                if policy.env_key_present and not env_key_invalid
+                if (policy.env_key_present or policy.login_store_key_present)
+                and not env_key_invalid
                 else "cookie_only"
             )
         ),
+        login_store_key_present=policy.login_store_key_present,
     )
     return CursorCliModelCatalog(
         routes=(),

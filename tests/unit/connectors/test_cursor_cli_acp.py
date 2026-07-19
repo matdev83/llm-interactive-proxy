@@ -1100,6 +1100,183 @@ class TestCursorCliDualAuthDiscovery:
             == "crsr_valid_test_key"
         )
 
+    async def test_discovery_retries_with_login_store_key_when_env_key_absent(
+        self, temp_workspace: Path
+    ) -> None:
+        del temp_workspace
+        cookie_policy = CursorAuthPolicy(
+            cookie_usable=True,
+            env_key_present=False,
+            env_key_invalid=False,
+            discovery_mode="cookie_only",
+            acp_mode="cookie_only",
+            login_store_key_present=True,
+        )
+        auth_fail = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Error: Authentication required. Run 'agent login', "
+                "pass --api-key/--auth-token, or set CURSOR_API_KEY/CURSOR_AUTH_TOKEN."
+            ),
+        )
+        key_ok = MagicMock(
+            returncode=0,
+            stdout="Available models\n\ncomposer-2 - Composer 2\n",
+            stderr="",
+        )
+        base_env = {
+            k: v
+            for k, v in __import__("os").environ.items()
+            if k not in ("CURSOR_API_KEY", "CURSOR_AUTH_TOKEN")
+        }
+
+        with (
+            patch(
+                "src.connectors.cursor_cli_acp.resolve_cursor_auth_policy",
+                return_value=cookie_policy,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.read_cursor_login_store_api_key",
+                return_value="crsr_from_auth_json",
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.subprocess.run",
+                side_effect=[auth_fail, key_ok],
+            ) as run,
+            patch.dict("os.environ", base_env, clear=True),
+        ):
+            catalog = await discover_cursor_cli_model_catalog(
+                executable="agent",
+                cursor_api_endpoint=None,
+                workspace=None,
+                timeout_seconds=10.0,
+            )
+
+        assert catalog.routes == ("cursor/composer-2",)
+        assert catalog.discovery_mode == "with_env_key"
+        assert catalog.auth_policy is not None
+        assert catalog.auth_policy.acp_mode == "cookie_only"
+        assert "CURSOR_API_KEY" not in run.call_args_list[0].kwargs["env"]
+        assert (
+            run.call_args_list[1].kwargs["env"].get("CURSOR_API_KEY")
+            == "crsr_from_auth_json"
+        )
+
+    async def test_cookie_only_list_models_auth_failure_is_debug_when_logged_in(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        policy = CursorAuthPolicy(
+            cookie_usable=True,
+            env_key_present=False,
+            env_key_invalid=False,
+            discovery_mode="cookie_only",
+            acp_mode="cookie_only",
+            login_store_key_present=False,
+        )
+        auth_fail = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Error: Authentication required. Run 'agent login'",
+        )
+        with (
+            patch(
+                "src.connectors.cursor_cli_acp.resolve_cursor_auth_policy",
+                return_value=policy,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.read_cursor_login_store_api_key",
+                return_value=None,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.subprocess.run",
+                return_value=auth_fail,
+            ),
+            caplog.at_level(logging.DEBUG, logger="src.connectors.cursor_cli_acp"),
+        ):
+            catalog = await discover_cursor_cli_model_catalog(
+                executable="agent",
+                cursor_api_endpoint=None,
+                workspace=None,
+                timeout_seconds=10.0,
+            )
+
+        assert catalog.routes == ()
+        assert not any(
+            "Authentication required" in r.message and r.levelno >= logging.WARNING
+            for r in caplog.records
+        )
+        assert any(
+            "auth remains usable via cookie=" in r.message
+            and r.levelno == logging.DEBUG
+            for r in caplog.records
+        )
+        assert any(
+            "empty catalog while auth remains usable" in r.message
+            and r.levelno == logging.INFO
+            for r in caplog.records
+        )
+
+    async def test_cookie_only_auth_failure_is_debug_when_env_key_fallback_exists(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        policy = CursorAuthPolicy(
+            cookie_usable=False,
+            env_key_present=True,
+            env_key_invalid=False,
+            discovery_mode="with_env_key",
+            acp_mode="with_env_key",
+        )
+        auth_fail = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr="Error: Authentication required. Run 'agent login'",
+        )
+        key_ok = MagicMock(
+            returncode=0,
+            stdout="Available models\n\nauto - Auto\n",
+            stderr="",
+        )
+        with (
+            patch(
+                "src.connectors.cursor_cli_acp.resolve_cursor_auth_policy",
+                return_value=policy,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.read_cursor_login_store_api_key",
+                return_value=None,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.subprocess.run",
+                side_effect=[auth_fail, key_ok],
+            ),
+            patch.dict(
+                "os.environ",
+                {"CURSOR_API_KEY": "crsr_valid_test_key"},
+                clear=False,
+            ),
+            caplog.at_level(logging.DEBUG, logger="src.connectors.cursor_cli_acp"),
+        ):
+            catalog = await discover_cursor_cli_model_catalog(
+                executable="agent",
+                cursor_api_endpoint=None,
+                workspace=None,
+                timeout_seconds=10.0,
+            )
+
+        assert catalog.routes == ("cursor/auto",)
+        assert catalog.discovery_mode == "with_env_key"
+        assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+        assert any(
+            "auth remains usable via cookie=" in r.message
+            and r.levelno == logging.DEBUG
+            for r in caplog.records
+        )
+
     async def test_discovery_cookie_only_success_keeps_acp_cookie_mode(self) -> None:
         policy = CursorAuthPolicy(
             cookie_usable=True,
