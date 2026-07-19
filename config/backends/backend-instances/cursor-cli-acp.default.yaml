@@ -1,7 +1,11 @@
 # Optional Cursor CLI ACP backend instance (local Cursor subscription / login).
 # Prerequisites: install Cursor CLI so `agent` is on PATH (Windows: typically
-# %LOCALAPPDATA%\cursor-agent\agent.cmd). Run `agent login` once.
-# Multi User Mode: this connector is OAuth-style and is not loaded in production multi-user.
+# %LOCALAPPDATA%\cursor-agent\agent.cmd). Run `agent login` once for cookie auth.
+# Dual auth: ACP prefers local login cookies; CURSOR_API_KEY is optional and used
+# as a discovery fallback when `agent --list-models` rejects cookie-only auth.
+# When both are present, ACP strips CURSOR_API_KEY from the child so an invalid
+# inherited key cannot poison cookie login. Multi User Mode: this connector is
+# OAuth-style and is not loaded in production multi-user.
 connector: cursor-cli-acp
 extra:
   # Required for /v1/responses: set one explicit absolute trusted workspace

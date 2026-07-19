@@ -30,6 +30,15 @@ from src.connectors.acp_core.workspace_policy import (
 )
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.cursor_cli_auth import (
+    CursorAuthMode,
+    CursorAuthPolicy,
+    build_cursor_cli_env,
+    discovery_modes_to_try,
+    is_cursor_api_key_invalid_error,
+    is_cursor_auth_required_error,
+    resolve_cursor_auth_policy,
+)
 from src.core.common.exceptions import BackendError, ConfigurationError
 from src.core.common.model_catalog import BackendModelEnumeration
 from src.core.config.app_config import AppConfig, BackendConfig
@@ -79,10 +88,30 @@ def _cursor_cli_model_route(model_id: str) -> str:
     return add_vendor_prefix(route_id, "cursor")
 
 
+def resolve_cursor_cli_model_id(
+    advertised: str,
+    *,
+    cli_ids: dict[str, str],
+    requested_model: str,
+) -> str:
+    """Map an advertised proxy route to a Cursor CLI ``--model`` id."""
+
+    mapped = cli_ids.get(advertised)
+    if mapped:
+        return mapped
+    stripped = strip_vendor_prefix(requested_model or advertised, "cursor")
+    if not stripped:
+        return requested_model or advertised
+    # Empty-catalog pass-through: Cursor often expects the ``cursor-`` prefix.
+    return f"cursor-{stripped}"
+
+
 @dataclass(frozen=True)
 class CursorCliModelCatalog:
     routes: tuple[str, ...]
     cli_ids: dict[str, str]
+    discovery_mode: CursorAuthMode | None = None
+    auth_policy: CursorAuthPolicy | None = None
 
 
 def normalize_cursor_cli_extra_args(value: object) -> list[str]:
@@ -94,6 +123,46 @@ def normalize_cursor_cli_extra_args(value: object) -> list[str]:
     return []
 
 
+def _parse_list_models_catalog(stdout: str) -> CursorCliModelCatalog:
+    routes: list[str] = []
+    cli_ids: dict[str, str] = {}
+    for cli_model_id in parse_agent_models_listing(stdout):
+        route = _cursor_cli_model_route(cli_model_id)
+        if route in cli_ids:
+            continue
+        cli_ids[route] = cli_model_id
+        routes.append(route)
+    return CursorCliModelCatalog(routes=tuple(routes), cli_ids=cli_ids)
+
+
+async def _run_list_models(
+    *,
+    executable: str,
+    cursor_api_endpoint: str | None,
+    extra_args: Sequence[str] | None,
+    workspace: Path | None,
+    timeout_seconds: float,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    command = [executable]
+    if cursor_api_endpoint:
+        command.extend(["-e", cursor_api_endpoint])
+    if extra_args:
+        command.extend(list(extra_args))
+    command.append("--list-models")
+    return await asyncio.to_thread(
+        subprocess.run,
+        command,
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+        check=False,
+        shell=False,
+        cwd=str(workspace) if isinstance(workspace, Path) else None,
+        env=env,
+    )
+
+
 async def discover_cursor_cli_model_catalog(
     *,
     executable: str,
@@ -101,46 +170,123 @@ async def discover_cursor_cli_model_catalog(
     extra_args: Sequence[str] | None = None,
     workspace: Path | None,
     timeout_seconds: float,
+    auth_timeout_seconds: float = 30.0,
 ) -> CursorCliModelCatalog:
-    """Run Cursor's noninteractive catalog command without starting ACP."""
+    """Run Cursor's noninteractive catalog command without starting ACP.
 
-    command = [executable]
-    if cursor_api_endpoint:
-        command.extend(["-e", cursor_api_endpoint])
-    if extra_args:
-        command.extend(list(extra_args))
-    command.append("--list-models")
-    try:
-        result = await asyncio.to_thread(
-            subprocess.run,
-            command,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-            shell=False,
-            cwd=str(workspace) if isinstance(workspace, Path) else None,
-        )
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-        logger.warning("Cursor model discovery command failed", exc_info=True)
-        return CursorCliModelCatalog(routes=(), cli_ids={})
-    if result.returncode != 0:
-        logger.warning(
-            "Cursor model discovery command failed with exit code %s: %s",
-            result.returncode,
-            result.stderr.strip(),
-        )
-        return CursorCliModelCatalog(routes=(), cli_ids={})
+    Auth policy is cookie-first for session identity. Discovery retries with
+    ``CURSOR_API_KEY`` when cookie-only ``--list-models`` fails auth.
+    """
 
-    routes: list[str] = []
-    cli_ids: dict[str, str] = {}
-    for cli_model_id in parse_agent_models_listing(result.stdout):
-        route = _cursor_cli_model_route(cli_model_id)
-        if route in cli_ids:
+    env_key_invalid = False
+    policy = await asyncio.to_thread(
+        resolve_cursor_auth_policy,
+        executable,
+        timeout_seconds=auth_timeout_seconds,
+        env_key_invalid=env_key_invalid,
+    )
+    last_stderr = ""
+    for mode in discovery_modes_to_try(policy):
+        env = build_cursor_cli_env(mode)
+        try:
+            result = await _run_list_models(
+                executable=executable,
+                cursor_api_endpoint=cursor_api_endpoint,
+                extra_args=extra_args,
+                workspace=workspace,
+                timeout_seconds=timeout_seconds,
+                env=env,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            logger.warning(
+                "Cursor model discovery command failed (mode=%s)",
+                mode,
+                exc_info=True,
+            )
             continue
-        cli_ids[route] = cli_model_id
-        routes.append(route)
-    return CursorCliModelCatalog(routes=tuple(routes), cli_ids=cli_ids)
+
+        stderr = (result.stderr or "").strip()
+        last_stderr = stderr
+        if result.returncode == 0:
+            catalog = _parse_list_models_catalog(result.stdout or "")
+            # Refresh ACP mode: cookie preferred when usable; otherwise key.
+            if mode == "with_env_key" and policy.cookie_usable:
+                acp_mode: CursorAuthMode = "cookie_only"
+            else:
+                acp_mode = mode if mode == "with_env_key" else policy.acp_mode
+                if policy.cookie_usable:
+                    acp_mode = "cookie_only"
+            resolved_policy = CursorAuthPolicy(
+                cookie_usable=policy.cookie_usable,
+                env_key_present=policy.env_key_present,
+                env_key_invalid=env_key_invalid,
+                discovery_mode=mode,
+                acp_mode=acp_mode,
+            )
+            return CursorCliModelCatalog(
+                routes=catalog.routes,
+                cli_ids=catalog.cli_ids,
+                discovery_mode=mode,
+                auth_policy=resolved_policy,
+            )
+
+        if is_cursor_api_key_invalid_error(stderr):
+            env_key_invalid = True
+            logger.warning(
+                "Cursor model discovery rejected CURSOR_API_KEY (mode=%s): %s",
+                mode,
+                stderr,
+            )
+            # Rebuild policy so later ACP uses cookie when available.
+            policy = CursorAuthPolicy(
+                cookie_usable=policy.cookie_usable,
+                env_key_present=policy.env_key_present,
+                env_key_invalid=True,
+                discovery_mode=policy.discovery_mode,
+                acp_mode=("cookie_only" if policy.cookie_usable else policy.acp_mode),
+            )
+            continue
+
+        if is_cursor_auth_required_error(stderr):
+            logger.warning(
+                "Cursor model discovery auth failed (mode=%s): %s",
+                mode,
+                stderr,
+            )
+            continue
+
+        logger.warning(
+            "Cursor model discovery command failed with exit code %s (mode=%s): %s",
+            result.returncode,
+            mode,
+            stderr,
+        )
+
+    logger.warning(
+        "Cursor model discovery exhausted auth modes; last error: %s",
+        last_stderr or "(none)",
+    )
+    final_policy = CursorAuthPolicy(
+        cookie_usable=policy.cookie_usable,
+        env_key_present=policy.env_key_present,
+        env_key_invalid=env_key_invalid,
+        discovery_mode=policy.discovery_mode,
+        acp_mode=(
+            "cookie_only"
+            if policy.cookie_usable
+            else (
+                "with_env_key"
+                if policy.env_key_present and not env_key_invalid
+                else "cookie_only"
+            )
+        ),
+    )
+    return CursorCliModelCatalog(
+        routes=(),
+        cli_ids={},
+        discovery_mode=None,
+        auth_policy=final_policy,
+    )
 
 
 class CursorCliConfiguredModelEnumerator:
@@ -274,6 +420,8 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self._models_cache_ttl_seconds: float = 3600.0
         self._model_discovery_timeout_seconds: float = 60.0
         self._extension_response_log: set[str] = set()
+        self._auth_policy: CursorAuthPolicy | None = None
+        self._acp_auth_mode: CursorAuthMode = "cookie_only"
 
     def _ensure_mutable_state(self) -> None:
         if not hasattr(self, "_mcp_servers"):
@@ -403,6 +551,16 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             return False
 
+    def _apply_auth_policy(self, policy: CursorAuthPolicy | None) -> None:
+        if policy is None:
+            return
+        self._auth_policy = policy
+        self._acp_auth_mode = policy.acp_mode
+
+    def _subprocess_env(self, runtime: ACPProcessRuntime) -> dict[str, str]:
+        del runtime
+        return build_cursor_cli_env(self._acp_auth_mode)
+
     async def _discover_models(self, *, workspace: Path | None = None) -> list[str]:
         """Discover selectable models from Cursor's supported CLI catalog command."""
 
@@ -416,6 +574,7 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             timeout_seconds=self._model_discovery_timeout_seconds,
         )
         self._model_cli_ids = dict(catalog.cli_ids)
+        self._apply_auth_policy(catalog.auth_policy)
         return list(catalog.routes)
 
     async def _ensure_models_discovered(
@@ -481,7 +640,7 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             self.VENDOR_PREFIX,
         )
         advertised = add_vendor_prefix(requested_model, self.VENDOR_PREFIX)
-        if advertised not in self._cached_models:
+        if self._cached_models and advertised not in self._cached_models:
             raise BackendError(
                 message=f"Cursor ACP model is not currently available: {advertised}",
                 details={
@@ -489,7 +648,31 @@ class CursorCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     "requested_model": advertised,
                 },
             )
-        cli_model_id = self._model_cli_ids.get(advertised, requested_model)
+        if not self._cached_models:
+            policy = self._auth_policy
+            if policy is None or not policy.any_usable:
+                raise BackendError(
+                    message=(
+                        "Cursor CLI authentication is unavailable. "
+                        "Run 'agent login' for local cookie auth, and/or set a valid "
+                        "CURSOR_API_KEY (discovery may require the key on some CLI "
+                        "versions)."
+                    ),
+                    details={
+                        "code": "cursor_cli_auth_unavailable",
+                        "requested_model": advertised,
+                    },
+                )
+            logger.info(
+                "Cursor model catalog empty but auth is usable; "
+                "allowing requested model %s via deterministic CLI id mapping",
+                advertised,
+            )
+        cli_model_id = resolve_cursor_cli_model_id(
+            advertised,
+            cli_ids=self._model_cli_ids,
+            requested_model=requested_model,
+        )
         return await super()._acquire_runtime(
             replace(request, effective_model=cli_model_id)
         )

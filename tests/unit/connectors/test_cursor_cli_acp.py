@@ -18,8 +18,14 @@ from src.connectors.cursor_cli_acp import (
     CursorCliConfiguredModelEnumerator,
     CursorCliModelCatalog,
     build_cursor_agent_acp_command,
+    discover_cursor_cli_model_catalog,
     parse_agent_models_listing,
     resolve_cursor_agent_executable,
+    resolve_cursor_cli_model_id,
+)
+from src.connectors.cursor_cli_auth import (
+    CursorAuthPolicy,
+    build_cursor_cli_env,
 )
 from src.core.common.exceptions import (
     BackendError,
@@ -138,10 +144,23 @@ class TestCursorCliAcpModelCache:
             ),
             stderr="",
         )
+        policy = CursorAuthPolicy(
+            cookie_usable=True,
+            env_key_present=False,
+            env_key_invalid=False,
+            discovery_mode="cookie_only",
+            acp_mode="cookie_only",
+        )
 
-        with patch(
-            "src.connectors.cursor_cli_acp.subprocess.run", return_value=completed
-        ) as run:
+        with (
+            patch(
+                "src.connectors.cursor_cli_acp.resolve_cursor_auth_policy",
+                return_value=policy,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.subprocess.run", return_value=completed
+            ) as run,
+        ):
             models = await connector._discover_models()
 
         assert models == [
@@ -152,22 +171,21 @@ class TestCursorCliAcpModelCache:
             "cursor/grok-4.5-high": "cursor-grok-4.5-high",
             "cursor/glm-5.2-max": "glm-5.2-max",
         }
-        run.assert_called_once_with(
-            [
-                "agent",
-                "-e",
-                "https://cursor.example.test",
-                "--profile",
-                "work",
-                "--list-models",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=73.0,
-            check=False,
-            shell=False,
-            cwd=str(temp_workspace),
-        )
+        assert connector._acp_auth_mode == "cookie_only"
+        run.assert_called_once()
+        args, kwargs = run.call_args
+        assert args[0] == [
+            "agent",
+            "-e",
+            "https://cursor.example.test",
+            "--profile",
+            "work",
+            "--list-models",
+        ]
+        assert kwargs["timeout"] == 73.0
+        assert kwargs["cwd"] == str(temp_workspace)
+        assert "CURSOR_API_KEY" not in kwargs["env"]
+        assert "CURSOR_AUTH_TOKEN" not in kwargs["env"]
 
     async def test_initialize_preserves_model_discovery_timeout_and_extra_args(
         self, connector: CursorCliAcpConnector
@@ -664,6 +682,77 @@ class TestCursorCliAcpRuntimeReuse:
         assert exc_info.value.details["requested_model"] == "cursor/grok-4.5-xhigh"
         assert "glm-5.2-max" not in exc_info.value.message
 
+    async def test_empty_catalog_with_usable_auth_allows_requested_model(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector.is_functional = True
+        connector._initialization_failed = False
+        connector._validation_errors = []
+        connector._default_project_dir = temp_workspace
+        connector._cached_models = []
+        connector._model_cli_ids = {}
+        connector._models_cache_fetched_at = time.monotonic()
+        connector._auth_policy = CursorAuthPolicy(
+            cookie_usable=True,
+            env_key_present=False,
+            env_key_invalid=False,
+            discovery_mode="cookie_only",
+            acp_mode="cookie_only",
+        )
+        expected = connector._create_runtime(temp_workspace, "cursor-grok-4.5-high")
+
+        with patch.object(
+            BaseAcpConnector,
+            "_acquire_runtime",
+            AsyncMock(return_value=expected),
+        ) as acquire:
+            runtime = await connector._acquire_runtime(
+                _make_request(model="cursor/grok-4.5-high")
+            )
+
+        assert runtime is expected
+        passed = acquire.await_args.args[0]
+        assert passed.effective_model == "cursor-grok-4.5-high"
+
+    async def test_empty_catalog_without_auth_raises_auth_unavailable(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector.is_functional = True
+        connector._initialization_failed = False
+        connector._validation_errors = []
+        connector._default_project_dir = temp_workspace
+        connector._cached_models = []
+        connector._models_cache_fetched_at = time.monotonic()
+        connector._auth_policy = CursorAuthPolicy(
+            cookie_usable=False,
+            env_key_present=False,
+            env_key_invalid=False,
+            discovery_mode="cookie_only",
+            acp_mode="cookie_only",
+        )
+
+        with pytest.raises(BackendError) as exc_info:
+            await connector._acquire_runtime(
+                _make_request(model="cursor/grok-4.5-high")
+            )
+
+        assert exc_info.value.details["code"] == "cursor_cli_auth_unavailable"
+
+    async def test_subprocess_env_strips_key_in_cookie_mode(
+        self, connector: CursorCliAcpConnector, temp_workspace: Path
+    ) -> None:
+        connector._acp_auth_mode = "cookie_only"
+        runtime = connector._create_runtime(temp_workspace, "composer-2")
+        with patch.dict(
+            "os.environ",
+            {"CURSOR_API_KEY": "crsr_test", "CURSOR_AUTH_TOKEN": "tok", "PATH": "x"},
+            clear=False,
+        ):
+            env = connector._subprocess_env(runtime)
+        assert "CURSOR_API_KEY" not in env
+        assert "CURSOR_AUTH_TOKEN" not in env
+        assert env.get("PATH") == "x"
+
     async def test_cursor_cli_model_id_is_preserved_for_runtime(
         self, connector: CursorCliAcpConnector, temp_workspace: Path
     ) -> None:
@@ -949,3 +1038,168 @@ class TestCursorCliAcpRuntime:
         rt = connector._create_runtime(temp_workspace, "composer-2")
         assert rt.process_lock is not None
         assert rt.request_lock is not None
+
+
+class TestCursorCliDualAuthDiscovery:
+    async def test_discovery_retries_with_env_key_after_cookie_auth_failure(
+        self, temp_workspace: Path
+    ) -> None:
+        del temp_workspace
+        cookie_policy = CursorAuthPolicy(
+            cookie_usable=True,
+            env_key_present=True,
+            env_key_invalid=False,
+            discovery_mode="cookie_only",
+            acp_mode="cookie_only",
+        )
+        auth_fail = MagicMock(
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Error: Authentication required. Run 'agent login', "
+                "pass --api-key/--auth-token, or set CURSOR_API_KEY/CURSOR_AUTH_TOKEN."
+            ),
+        )
+        key_ok = MagicMock(
+            returncode=0,
+            stdout="Available models\n\nauto - Auto\nglm-5.2-max - GLM\n",
+            stderr="",
+        )
+
+        with (
+            patch(
+                "src.connectors.cursor_cli_acp.resolve_cursor_auth_policy",
+                return_value=cookie_policy,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.subprocess.run",
+                side_effect=[auth_fail, key_ok],
+            ) as run,
+            patch.dict(
+                "os.environ",
+                {"CURSOR_API_KEY": "crsr_valid_test_key"},
+                clear=False,
+            ),
+        ):
+            catalog = await discover_cursor_cli_model_catalog(
+                executable="agent",
+                cursor_api_endpoint=None,
+                extra_args=None,
+                workspace=None,
+                timeout_seconds=10.0,
+            )
+
+        assert catalog.routes == ("cursor/auto", "cursor/glm-5.2-max")
+        assert catalog.discovery_mode == "with_env_key"
+        assert catalog.auth_policy is not None
+        assert catalog.auth_policy.acp_mode == "cookie_only"
+        assert run.call_count == 2
+        assert "CURSOR_API_KEY" not in run.call_args_list[0].kwargs["env"]
+        assert (
+            run.call_args_list[1].kwargs["env"].get("CURSOR_API_KEY")
+            == "crsr_valid_test_key"
+        )
+
+    async def test_discovery_cookie_only_success_keeps_acp_cookie_mode(self) -> None:
+        policy = CursorAuthPolicy(
+            cookie_usable=True,
+            env_key_present=True,
+            env_key_invalid=False,
+            discovery_mode="cookie_only",
+            acp_mode="cookie_only",
+        )
+        ok = MagicMock(
+            returncode=0,
+            stdout="Available models\n\ncomposer-2 - Composer 2\n",
+            stderr="",
+        )
+        with (
+            patch(
+                "src.connectors.cursor_cli_acp.resolve_cursor_auth_policy",
+                return_value=policy,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.subprocess.run",
+                return_value=ok,
+            ) as run,
+            patch.dict(
+                "os.environ",
+                {"CURSOR_API_KEY": "crsr_valid_test_key"},
+                clear=False,
+            ),
+        ):
+            catalog = await discover_cursor_cli_model_catalog(
+                executable="agent",
+                cursor_api_endpoint=None,
+                workspace=None,
+                timeout_seconds=10.0,
+            )
+
+        assert catalog.discovery_mode == "cookie_only"
+        assert catalog.auth_policy is not None
+        assert catalog.auth_policy.acp_mode == "cookie_only"
+        assert run.call_count == 1
+        assert "CURSOR_API_KEY" not in run.call_args.kwargs["env"]
+
+    async def test_invalid_env_key_does_not_block_cookie_discovery(self) -> None:
+        policy = CursorAuthPolicy(
+            cookie_usable=True,
+            env_key_present=True,
+            env_key_invalid=False,
+            discovery_mode="cookie_only",
+            acp_mode="cookie_only",
+        )
+        cookie_ok = MagicMock(
+            returncode=0,
+            stdout="Available models\n\ncomposer-2 - Composer 2\n",
+            stderr="",
+        )
+        with (
+            patch(
+                "src.connectors.cursor_cli_acp.resolve_cursor_auth_policy",
+                return_value=policy,
+            ),
+            patch(
+                "src.connectors.cursor_cli_acp.subprocess.run",
+                return_value=cookie_ok,
+            ),
+            patch.dict(
+                "os.environ",
+                {"CURSOR_API_KEY": "crsr_invalid"},
+                clear=False,
+            ),
+        ):
+            catalog = await discover_cursor_cli_model_catalog(
+                executable="agent",
+                cursor_api_endpoint=None,
+                workspace=None,
+                timeout_seconds=10.0,
+            )
+
+        assert catalog.routes == ("cursor/composer-2",)
+        assert catalog.auth_policy is not None
+        assert catalog.auth_policy.acp_mode == "cookie_only"
+
+    def test_resolve_cursor_cli_model_id_empty_catalog_uses_cursor_prefix(self) -> None:
+        assert (
+            resolve_cursor_cli_model_id(
+                "cursor/grok-4.5-high",
+                cli_ids={},
+                requested_model="grok-4.5-high",
+            )
+            == "cursor-grok-4.5-high"
+        )
+
+    def test_build_cursor_cli_env_modes(self) -> None:
+        base = {
+            "PATH": "/bin",
+            "CURSOR_API_KEY": "crsr_x",
+            "CURSOR_AUTH_TOKEN": "tok",
+        }
+        cookie = build_cursor_cli_env("cookie_only", base=base)
+        keyed = build_cursor_cli_env("with_env_key", base=base)
+        assert "CURSOR_API_KEY" not in cookie
+        assert "CURSOR_AUTH_TOKEN" not in cookie
+        assert cookie["PATH"] == "/bin"
+        assert keyed["CURSOR_API_KEY"] == "crsr_x"
+        assert keyed["CURSOR_AUTH_TOKEN"] == "tok"

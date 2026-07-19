@@ -530,6 +530,11 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 return current
         return runtime
 
+    def _subprocess_env(self, runtime: RuntimeT) -> dict[str, str]:
+        """Environment for the ACP child process. Subclasses may specialize."""
+        del runtime
+        return os.environ.copy()
+
     async def _spawn_process(self, runtime: RuntimeT) -> None:
         assert runtime.process_lock is not None
         async with runtime.process_lock:
@@ -548,7 +553,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                     stderr=subprocess.PIPE,
                     cwd=str(runtime.project_dir),
                     shell=False,
-                    env=os.environ.copy(),
+                    env=self._subprocess_env(runtime),
                     creationflags=(
                         subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
                     ),

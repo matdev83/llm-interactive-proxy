@@ -17,7 +17,7 @@ Backend IDs are the `type:` values in YAML and the `backend_type` carried on req
 | `anthropic` | Anthropic | API Key | Claude via the standard Anthropic API |
 | `gemini` | Google Gemini | API Key | Metered API usage, production apps |
 | `gemini-cli-acp` | Google Gemini (ACP via Gemini CLI) | Local OAuth token | Sub-agents and tooling via Gemini CLI |
-| `cursor-cli-acp` | Cursor (ACP via Cursor CLI `agent acp`) | Local Cursor login (`agent login`) | Cursor-hosted models through the official CLI; requires `agent` on PATH or `CURSOR_AGENT_BIN` |
+| `cursor-cli-acp` | Cursor (ACP via Cursor CLI `agent acp`) | Local Cursor login (`agent login`); optional `CURSOR_API_KEY` discovery fallback | Cursor-hosted models through the official CLI; requires `agent` on PATH or `CURSOR_AGENT_BIN` |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + GCP project | Enterprise / team billing on Vertex-style flows |
 | `openrouter` | OpenRouter | API Key | Many third-party hosted models behind one API |
 | `nvidia` | NVIDIA (NIM / OpenAI-compatible) | API Key (`NVIDIA_API_KEY`) | NVIDIA integrator or self-hosted NIM |
@@ -68,7 +68,9 @@ wire_api = "responses"
 requires_openai_auth = false
 ```
 
-Use an instance-pinned route returned by `GET /v1/models`, for example `cursor-cli-acp.default:cursor/glm-5.2-max`. Every Cursor route contains the full backend instance name, so multiple project-bound instances are never collapsed into a generic round-robin selector. The catalog is sourced from the installed Cursor CLI's `agent --list-models` output; when `cursor_api_endpoint` is configured, discovery uses the same `-e <endpoint>` option as the ACP subprocess. Cursor-native CLI IDs such as `cursor-grok-4.5-high` are exposed as `cursor/grok-4.5-high` while the exact CLI ID is retained for process startup. Discovery failures return no Cursor routes, and unadvertised models fail with `cursor_model_unavailable`. The connector never substitutes another model.
+Use an instance-pinned route returned by `GET /v1/models`, for example `cursor-cli-acp.default:cursor/glm-5.2-max`. Every Cursor route contains the full backend instance name, so multiple project-bound instances are never collapsed into a generic round-robin selector. The catalog is sourced from the installed Cursor CLI's `agent --list-models` output; when `cursor_api_endpoint` is configured, discovery uses the same `-e <endpoint>` option as the ACP subprocess. Cursor-native CLI IDs such as `cursor-grok-4.5-high` are exposed as `cursor/grok-4.5-high` while the exact CLI ID is retained for process startup.
+
+Auth policy is cookie-first: ACP children prefer `agent login` credentials and strip inherited `CURSOR_API_KEY` / `CURSOR_AUTH_TOKEN` when cookie auth is usable. Discovery tries cookie-only env first, then retries with `CURSOR_API_KEY` when `--list-models` fails authentication (some CLI builds require the key for listing even though login cookies work for ACP). When the catalog is empty but cookie or key auth is still usable, requested models are allowed via deterministic CLI-id mapping (`cursor/foo` → `cursor-foo`). When auth is unusable, requests fail with `cursor_cli_auth_unavailable`. When the catalog is populated, unadvertised models still fail with `cursor_model_unavailable`. The connector never substitutes another advertised model.
 
 This compatibility path is deliberately **not an Executor provider**. Cursor ACP is an agent runtime whose native tool activity cannot currently be translated into Codex-owned Responses function calls. Responses-projected turns use a separate subprocess launched with `--mode ask`; requests containing `tools`, `tool_choice`, or `parallel_tool_calls` fail with `provider_limitation`, and ACP permission requests are rejected. That is not a no-tools guarantee: live acceptance testing showed Cursor's ask mode executing a built-in Edit File operation without issuing a permission request. Historical `function_call` and matching `function_call_output` items retain their `call_id` during conversation projection, but Cursor cannot originate a Codex-governed tool round trip through this path. Use it for Planner/Advisor roles only with a dedicated disposable workspace or an external OS/container sandbox; do not point it at a valuable project workspace on the assumption that ask mode is read-only.
 
@@ -203,7 +205,7 @@ For detailed configuration and usage information for each backend, see:
 - [OpenAI Codex](openai-codex.md) (`openai-codex`)
 - [Anthropic](anthropic.md)
 - [Gemini](gemini.md) (API keys, CLI OAuth variants, `gemini-cli-acp`, and `gemini-cli-cloud-project`)
-- **Cursor CLI ACP** (`cursor-cli-acp`): same idea as Gemini CLI ACP but via Cursor’s `agent acp` CLI; install and log in with Cursor’s agent tooling, ensure `agent` is on `PATH` or set `CURSOR_AGENT_BIN`. There is no separate backend guide page yet.
+- **Cursor CLI ACP** (`cursor-cli-acp`): same idea as Gemini CLI ACP but via Cursor’s `agent acp` CLI; install and log in with `agent login` (preferred for ACP). Optional `CURSOR_API_KEY` can help model discovery on CLI builds that reject cookie-only `--list-models`. Ensure `agent` is on `PATH` or set `CURSOR_AGENT_BIN`. There is no separate backend guide page yet.
 - [OpenRouter](openrouter.md)
 - [NVIDIA](nvidia.md)
 - [ZAI](zai.md)
