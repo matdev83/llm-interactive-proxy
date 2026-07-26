@@ -720,6 +720,48 @@ class TestOpenAIPayloadCleaning:
         assert "reasoning_effort" not in payload
 
     @pytest.mark.asyncio
+    async def test_prepare_payload_remaps_deepseek_developer_role_to_system(
+        self, openai_connector
+    ):
+        """DeepSeek chat/completions rejects role=developer with HTTP 400."""
+        request = CanonicalChatRequest(
+            model="deepseek-v4-flash-free",
+            messages=[
+                ChatMessage(role="developer", content="You are helpful."),
+                ChatMessage(role="user", content="one"),
+            ],
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request,
+            request.messages,
+            "deepseek-v4-flash-free",
+        )
+
+        assert payload["messages"][0]["role"] == "system"
+        assert payload["messages"][1]["role"] == "user"
+
+    @pytest.mark.asyncio
+    async def test_prepare_payload_preserves_non_deepseek_developer_role(
+        self, openai_connector
+    ):
+        request = CanonicalChatRequest(
+            model="gpt-compatible",
+            messages=[
+                ChatMessage(role="developer", content="You are helpful."),
+                ChatMessage(role="user", content="one"),
+            ],
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request,
+            request.messages,
+            "gpt-compatible",
+        )
+
+        assert payload["messages"][0]["role"] == "developer"
+
+    @pytest.mark.asyncio
     async def test_prepare_payload_preserves_deepseek_reasoning_continuation(
         self, openai_connector
     ):
@@ -788,9 +830,7 @@ class TestOpenAIPayloadCleaning:
         )
 
         assert payload.get("verbosity") == "low"
-        assert "text" not in payload or "verbosity" not in (
-            payload.get("text") or {}
-        )
+        assert "text" not in payload or "verbosity" not in (payload.get("text") or {})
 
     @pytest.mark.asyncio
     async def test_prepare_payload_omits_verbosity_when_unset(self, openai_connector):

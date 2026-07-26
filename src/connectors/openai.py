@@ -1298,7 +1298,7 @@ class OpenAIConnector(LLMBackend):
         effective_model: str,
         context: ConnectorRequestContext | None = None,
     ) -> None:
-        """Avoid DeepSeek 400s for mixed transcripts with partial reasoning history."""
+        """Avoid DeepSeek 400s for unsupported roles and mixed thinking history."""
 
         model = str(payload.get("model") or effective_model or "").lower()
         if "deepseek" not in model:
@@ -1314,10 +1314,15 @@ class OpenAIConnector(LLMBackend):
         if not isinstance(messages, list):
             return
 
+        remapped_developer_roles = 0
         reasoning_message_count = 0
         for message in messages:
             if not isinstance(message, dict):
                 continue
+            role = message.get("role")
+            if isinstance(role, str) and role.strip().casefold() == "developer":
+                message["role"] = "system"
+                remapped_developer_roles += 1
             if message.get("reasoning_content") is not None:
                 reasoning_message_count += 1
             elif message.get("reasoning") is not None:
@@ -1329,19 +1334,32 @@ class OpenAIConnector(LLMBackend):
                 message["reasoning_content"] = message.get("reasoning_details")
                 message.pop("reasoning_details", None)
 
-        if reasoning_message_count <= 0 and not removed_controls:
+        if (
+            reasoning_message_count <= 0
+            and not removed_controls
+            and remapped_developer_roles <= 0
+        ):
             return
 
         log_extra_payload = self._get_log_extra(context) if context else None
-        logger.warning(
-            "Removed DeepSeek native thinking fields from outbound payload "
-            "to avoid invalid mixed thinking-mode history: model=%s "
-            "reasoning_messages=%d removed_controls=%s",
-            model,
-            reasoning_message_count,
-            removed_controls,
-            extra=log_extra_payload if log_extra_payload else None,
-        )
+        if remapped_developer_roles > 0:
+            logger.warning(
+                "Remapped DeepSeek unsupported message role developer->system "
+                "in outbound payload: model=%s remapped_messages=%d",
+                model,
+                remapped_developer_roles,
+                extra=log_extra_payload if log_extra_payload else None,
+            )
+        if reasoning_message_count > 0 or removed_controls:
+            logger.warning(
+                "Removed DeepSeek native thinking fields from outbound payload "
+                "to avoid invalid mixed thinking-mode history: model=%s "
+                "reasoning_messages=%d removed_controls=%s",
+                model,
+                reasoning_message_count,
+                removed_controls,
+                extra=log_extra_payload if log_extra_payload else None,
+            )
 
     def _clean_openai_payload(self, payload: Any) -> dict[str, Any]:
         """Strip None values and internal-only top-level keys from an OpenAI payload."""
@@ -2651,6 +2669,15 @@ class OpenAIConnector(LLMBackend):
             finally:
                 with contextlib.suppress(BaseException):
                     await response.aclose()
+
+            if not isinstance(body, str):
+                body = str(body)
+            logger.warning(
+                "[stream_completion] Backend %s returned HTTP %s with body: %s",
+                url,
+                status_code,
+                body,
+            )
 
             error_details = _error_details_from_http_response(response)
             quota_message = _extract_insufficient_quota_message(body)

@@ -932,6 +932,55 @@ async def test_stream_completion_429_preserves_retry_after_header(
 
 
 @pytest.mark.asyncio
+async def test_stream_completion_logs_upstream_error_body(
+    connector: OpenAIConnector, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Streaming HTTP errors must log the upstream response body for diagnosis."""
+    import logging
+
+    from src.core.common.exceptions import BackendError
+    from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+    error_body = (
+        b'{"error":{"message":"Error from provider (Console): Upstream request failed",'
+        b'"type":"invalid_request_error","param":null,"code":"invalid_request_error"}}'
+    )
+    mock_response = MockResponse(
+        status_code=400,
+        content=error_body,
+        is_error=True,
+    )
+    mock_response._headers = {
+        "content-type": "application/json",
+        "content-length": "153",
+    }
+    mock_response.aiter_bytes = lambda: AsyncIterBytes([mock_response._content])
+
+    mocker.patch.object(connector.client, "send", AsyncMock(return_value=mock_response))
+
+    request = CanonicalChatRequest(
+        model="deepseek-v4-flash-free",
+        messages=[ChatMessage(role="user", content="hi")],
+        stream=True,
+    )
+
+    with (
+        caplog.at_level(logging.WARNING, logger="src.connectors.openai"),
+        pytest.raises(BackendError) as excinfo,
+    ):
+        async for _ in connector.stream_completion(request):
+            pass
+
+    assert excinfo.value.status_code == 400
+    assert any(
+        "[stream_completion] Backend" in record.message
+        and "HTTP 400" in record.message
+        and "Upstream request failed" in record.message
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
 async def test_streaming_response_insufficient_quota_yields_terminal_error(
     connector: OpenAIConnector, mocker: MockerFixture
 ) -> None:
