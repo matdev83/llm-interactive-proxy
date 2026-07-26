@@ -24,6 +24,7 @@ from typing import Literal
 logger = logging.getLogger(__name__)
 
 CURSOR_AUTH_ENV_KEYS: tuple[str, ...] = ("CURSOR_API_KEY", "CURSOR_AUTH_TOKEN")
+_CACHED_LOGIN_STORE_API_KEY: str | None = None
 
 CursorAuthMode = Literal["cookie_only", "with_env_key"]
 
@@ -93,8 +94,13 @@ def cursor_auth_json_paths() -> tuple[Path, ...]:
 
 
 def read_cursor_login_store_api_key() -> str | None:
-    """Read ``apiKey`` from Cursor's local login store when present."""
+    """Read ``apiKey`` from Cursor's local login store when present.
 
+    The last known good value stays cached in memory so model discovery can
+    keep working if Cursor unlinks ``auth.json`` after startup.
+    """
+
+    global _CACHED_LOGIN_STORE_API_KEY
     for path in cursor_auth_json_paths():
         try:
             if not path.is_file():
@@ -110,9 +116,12 @@ def read_cursor_login_store_api_key() -> str | None:
         if not isinstance(payload, dict):
             continue
         api_key = payload.get("apiKey")
-        if isinstance(api_key, str) and api_key.strip():
-            return api_key.strip()
-    return None
+        if isinstance(api_key, str):
+            stripped_api_key = api_key.strip()
+            if stripped_api_key:
+                _CACHED_LOGIN_STORE_API_KEY = stripped_api_key
+                return stripped_api_key
+    return _CACHED_LOGIN_STORE_API_KEY
 
 
 def build_cursor_cli_env(

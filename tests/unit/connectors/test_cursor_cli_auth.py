@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import src.connectors.cursor_cli_auth as cursor_cli_auth
 from src.connectors.cursor_cli_auth import (
     CursorAuthPolicy,
     build_cursor_cli_env,
@@ -85,6 +86,26 @@ class TestCursorCliAuthHelpers:
             return_value=(auth_path,),
         ):
             assert read_cursor_login_store_api_key() == "crsr_store_key"
+
+    def test_build_env_reuses_cached_login_store_key_when_file_disappears(
+        self, tmp_path: Path
+    ) -> None:
+        auth_path = tmp_path / "Cursor" / "auth.json"
+        auth_path.parent.mkdir(parents=True)
+        auth_path.write_text(json.dumps({"apiKey": "crsr_cached"}), encoding="utf-8")
+        with (
+            patch.object(cursor_cli_auth, "_CACHED_LOGIN_STORE_API_KEY", None),
+            patch(
+                "src.connectors.cursor_cli_auth.cursor_auth_json_paths",
+                return_value=(auth_path,),
+            ),
+        ):
+            assert read_cursor_login_store_api_key() == "crsr_cached"
+            auth_path.unlink()
+            env = build_cursor_cli_env("with_env_key", base={"HOME": "h"})
+
+        assert env["CURSOR_API_KEY"] == "crsr_cached"
+        assert env["HOME"] == "h"
 
     def test_env_has_cursor_api_credentials(self) -> None:
         assert env_has_cursor_api_credentials({"CURSOR_API_KEY": "x"})
