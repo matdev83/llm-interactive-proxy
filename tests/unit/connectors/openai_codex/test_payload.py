@@ -603,6 +603,49 @@ class TestPayloadBuilder:
         assert "OpenCode tool environment prompt" not in normalized_text
         assert "Prior tool output" in normalized_text
 
+    def test_convert_dict_to_payload_drops_empty_named_function_calls(
+        self, builder, sample_context
+    ):
+        """Codex rejects input[].name empty string with HTTP 400."""
+        payload = builder.convert_dict_to_payload(
+            {
+                "model": "gpt-5.6-sol",
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "hi"}],
+                    },
+                    {
+                        "type": "function_call",
+                        "call_id": "call_good",
+                        "name": "bash",
+                        "arguments": '{"command":"ls"}',
+                    },
+                    {
+                        "type": "function_call",
+                        "call_id": "call_bad",
+                        "name": "",
+                        "arguments": '"}"',
+                    },
+                    {
+                        "type": "function_call_output",
+                        "call_id": "",
+                        "output": '{"output":"Tool  not found"}',
+                    },
+                ],
+                "stream": True,
+            },
+            sample_context,
+        )
+
+        dumped = [item.model_dump(exclude_none=True) for item in payload.input]
+        assert [item.get("type") for item in dumped] == [
+            "message",
+            "function_call",
+        ]
+        assert dumped[1]["name"] == "bash"
+
     def test_convert_dict_to_payload_preserves_responses_item_fields(
         self, builder, sample_context
     ):

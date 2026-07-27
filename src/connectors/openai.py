@@ -1410,6 +1410,37 @@ class OpenAIConnector(LLMBackend):
             for message in messages:
                 if isinstance(message, dict):
                     message.pop("metadata", None)
+            from src.core.domain.translation_utils.tool_utils import (
+                sanitize_chat_messages_for_empty_tool_names,
+            )
+
+            sanitized_messages, removed_empty_tools = (
+                sanitize_chat_messages_for_empty_tool_names(messages)
+            )
+            cleaned_payload["messages"] = sanitized_messages
+            if removed_empty_tools > 0:
+                logger.warning(
+                    "Removed %d empty-name tool call/result field(s) from outbound "
+                    "chat payload to avoid upstream HTTP 400s",
+                    removed_empty_tools,
+                )
+
+        input_items = cleaned_payload.get("input")
+        if isinstance(input_items, list):
+            from src.core.domain.translation_utils.tool_utils import (
+                sanitize_responses_input_for_empty_names,
+            )
+
+            sanitized_input, removed_empty_input = (
+                sanitize_responses_input_for_empty_names(input_items)
+            )
+            cleaned_payload["input"] = sanitized_input
+            if removed_empty_input > 0:
+                logger.warning(
+                    "Removed %d empty-name Responses input item(s) from outbound "
+                    "payload to avoid upstream HTTP 400s",
+                    removed_empty_input,
+                )
         return cleaned_payload
 
     async def _handle_non_streaming_response(

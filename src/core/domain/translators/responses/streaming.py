@@ -482,6 +482,16 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             if not isinstance(arguments, str):
                 arguments = json.dumps(arguments) if arguments else "{}"
             tool_name = item.get("name", "")
+            if not isinstance(tool_name, str) or not tool_name.strip():
+                # Never emit unnamed tool calls to clients; harnesses (e.g. pi)
+                # persist them and later replay empty-name history that 400s.
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Skipping function_call output_item.done with empty name "
+                        "(call_id=%r)",
+                        call_id,
+                    )
+                return _build_chunk()
             arguments = _normalize_shell_like_tool_arguments_json(tool_name, arguments)
             emit_name = _openai_client_shell_tool_name(tool_name)
             tool_index = assign_tool_call_index(
@@ -519,15 +529,22 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 or item.get("id")
                 or f"custom_{uuid.uuid4().hex[:8]}"
             )
+            custom_name = item.get("name", "")
+            if not isinstance(custom_name, str) or not custom_name.strip():
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Skipping custom_tool_call output_item.done with empty name "
+                        "(call_id=%r)",
+                        call_id,
+                    )
+                return _build_chunk()
             tool_index = assign_tool_call_index(
                 chunk_id, chunk.get("output_index"), call_id
             )
             tool_call_obj = ToolCall(
                 id=call_id,
                 type="function",
-                function=FunctionCall(
-                    name=item.get("name", ""), arguments=input_payload
-                ),
+                function=FunctionCall(name=custom_name, arguments=input_payload),
             )
             tool_text = render_tool_call(tool_call_obj)
             delta = {
@@ -537,7 +554,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                         "index": tool_index,
                         "type": "function",
                         "function": {
-                            "name": item.get("name", ""),
+                            "name": custom_name,
                             "arguments": input_payload or "{}",
                         },
                     }
@@ -625,6 +642,8 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 item.get("call_id") or item.get("id") or f"call_{uuid.uuid4().hex[:8]}"
             )
             name = item.get("name", "")
+            if not isinstance(name, str) or not name.strip():
+                return _build_chunk()
             if _should_buffer_partial_tool_call(str(name)):
                 cache_function_name(call_id, name)
                 return _build_chunk()

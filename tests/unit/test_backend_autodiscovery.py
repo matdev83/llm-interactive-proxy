@@ -153,6 +153,7 @@ class TestBackendAutoDiscovery:
             "gemini_request_counter",
             "gemini_oauth_base",
             "gemini_cli_acp_types",  # Shared ACP typing helpers, not a backend
+            "cursor_cli_auth",  # Cursor CLI dual-auth helpers, not a backend
             "oauth_detector",
             "openai_codex_config",  # Configuration file, not a backend
             "openai_websocket_client",  # WebSocket client utility, not a backend

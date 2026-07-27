@@ -28,7 +28,7 @@ def _coerce_json_str(value: Any, *, default: str = "") -> str:
 
 
 def _extract_delta_map(
-    domain_chunk: dict[str, Any]
+    domain_chunk: dict[str, Any],
 ) -> tuple[dict[str, Any], str | None]:
     """Return ``(delta_dict, finish_reason)`` from a canonical stream chunk."""
     choices = domain_chunk.get("choices")
@@ -237,6 +237,9 @@ class ResponsesWireStreamEmitter:
                 call_id = f"call_{uuid.uuid4().hex[:12]}"
 
             name = _coerce_str(fn_dict.get("name") or item.get("name")).strip()
+            if not name:
+                # Skip unnamed tool-call fragments; replaying them causes HTTP 400s.
+                continue
             arguments_fragment = _coerce_json_str(
                 fn_dict.get("arguments", item.get("arguments")), default=""
             )

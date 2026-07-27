@@ -789,10 +789,28 @@ class PayloadBuilder(IPayloadBuilder):
         """Make a Responses `input` array safe for ChatGPT Codex backend.
 
         Note: We must NOT strip `id`, `metadata`, or `item_reference` fields, nor
-        modify `function_call_output` entries. The Codex backend relies on the exact
-        shape of these messages (including `id`s) to perform context (write) caching.
-        Stripping them causes cache misses and rapid quota exhaustion.
+        modify valid `function_call_output` entries. The Codex backend relies on the
+        exact shape of these messages (including `id`s) to perform context (write)
+        caching. Stripping them causes cache misses and rapid quota exhaustion.
+
+        We do drop items with empty required ``name`` / ``call_id`` values: those
+        are invalid and cause HTTP 400 ``empty_string`` errors (commonly replayed
+        by agent harnesses after a bad streamed tool-call fragment).
         """
         if not isinstance(input_value, list):
             return []
-        return [dict(item) if isinstance(item, dict) else item for item in input_value]
+        copied = [
+            dict(item) if isinstance(item, dict) else item for item in input_value
+        ]
+        from src.core.domain.translation_utils.tool_utils import (
+            sanitize_responses_input_for_empty_names,
+        )
+
+        sanitized, removed = sanitize_responses_input_for_empty_names(copied)
+        if removed > 0:
+            logger.warning(
+                "Removed %d empty-name/empty-call_id Responses input item(s) "
+                "before Codex submit",
+                removed,
+            )
+        return sanitized

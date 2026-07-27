@@ -762,6 +762,57 @@ class TestOpenAIPayloadCleaning:
         assert payload["messages"][0]["role"] == "developer"
 
     @pytest.mark.asyncio
+    async def test_prepare_payload_strips_empty_named_tool_calls(
+        self, openai_connector
+    ):
+        """Agent harnesses may replay unnamed tool-call fragments that 400 upstream."""
+        request = CanonicalChatRequest(
+            model="gpt-compatible",
+            messages=[
+                ChatMessage(role="user", content="go"),
+                ChatMessage(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        {
+                            "id": "call_good",
+                            "type": "function",
+                            "function": {
+                                "name": "web_search",
+                                "arguments": '{"q":"x"}',
+                            },
+                        },
+                        {
+                            "id": "",
+                            "type": "function",
+                            "function": {"name": "", "arguments": '"}"'},
+                        },
+                    ],
+                ),
+                ChatMessage(
+                    role="tool",
+                    content="Tool  not found",
+                    tool_call_id="",
+                ),
+            ],
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request,
+            request.messages,
+            "gpt-compatible",
+        )
+
+        assert len(payload["messages"]) == 2
+        assert payload["messages"][1]["tool_calls"] == [
+            {
+                "id": "call_good",
+                "type": "function",
+                "function": {"name": "web_search", "arguments": '{"q":"x"}'},
+            }
+        ]
+
+    @pytest.mark.asyncio
     async def test_prepare_payload_preserves_deepseek_reasoning_continuation(
         self, openai_connector
     ):

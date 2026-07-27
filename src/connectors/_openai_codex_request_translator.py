@@ -374,10 +374,12 @@ class CodexRequestTranslator:
                 function = tool_call.get("function")
 
             result = self._extract_tool_call_name_and_arguments(function)
+            if not (isinstance(result.name, str) and result.name.strip()):
+                continue
             call_id = call_id or f"call_{uuid.uuid4().hex[:16]}"
             matcher.register(
                 call_id,
-                result.name or "",
+                result.name.strip(),
                 _extract_command_text_from_arguments(result.arguments),
             )
 
@@ -385,7 +387,7 @@ class CodexRequestTranslator:
                 {
                     "type": "function_call",
                     "call_id": call_id,
-                    "name": result.name or "",
+                    "name": result.name.strip(),
                     "arguments": result.arguments,
                 }
             )
@@ -469,12 +471,14 @@ class CodexRequestTranslator:
                     function = tool_call.get("function")
 
                 result = self._extract_tool_call_name_and_arguments(function)
+                if not (isinstance(result.name, str) and result.name.strip()):
+                    continue
                 call_id = call_id or f"call_{uuid.uuid4().hex[:16]}"
                 input_items.append(
                     {
                         "type": "function_call",
                         "call_id": call_id,
-                        "name": result.name or "",
+                        "name": result.name.strip(),
                         "arguments": result.arguments,
                     }
                 )

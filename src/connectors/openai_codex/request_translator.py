@@ -136,6 +136,8 @@ class RequestTranslator(IRequestTranslator):
                 if isinstance(function, dict)
                 else getattr(function, "name", "")
             )
+            if not isinstance(function_name, str) or not function_name.strip():
+                continue
             arguments = (
                 function.get("arguments")
                 if isinstance(function, dict)
@@ -145,7 +147,7 @@ class RequestTranslator(IRequestTranslator):
             item_dict: dict[str, Any] = {
                 "type": "function_call",
                 "call_id": tool_call.id or "",
-                "name": function_name or "",
+                "name": function_name.strip(),
                 "arguments": arguments or "{}",
             }
             result.append(CodexInputItem(**item_dict))
