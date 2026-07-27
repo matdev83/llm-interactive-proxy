@@ -6,11 +6,49 @@ without requiring hardcoded imports.
 """
 
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from importlib.util import find_spec
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 from src.core.services.backend_registry import BackendRegistry
+
+
+@contextmanager
+def _isolated_connector_modules() -> Iterator[None]:
+    """Temporarily drop ``src.connectors*`` from ``sys.modules``, then restore.
+
+    Other tests may already hold references to connector classes/protocols.
+    Leaving freshly re-imported replacements in ``sys.modules`` breaks later
+    identity-based equality and DI lookups (e.g. Codex catalog stage tests).
+    """
+    import src
+
+    original_modules: dict[str, ModuleType] = {
+        key: module
+        for key, module in sys.modules.items()
+        if key.startswith("src.connectors")
+    }
+    original_connectors_package = getattr(src, "connectors", None)
+
+    for key in list(original_modules):
+        sys.modules.pop(key, None)
+
+    from src.core.services.backend_discovery import reset_backend_discovery_state
+
+    reset_backend_discovery_state()
+    try:
+        yield
+    finally:
+        for key in list(sys.modules):
+            if key.startswith("src.connectors"):
+                sys.modules.pop(key, None)
+        sys.modules.update(original_modules)
+        if original_connectors_package is not None:
+            src.connectors = original_connectors_package
+        reset_backend_discovery_state()
 
 
 class TestBackendAutoDiscovery:
@@ -26,82 +64,67 @@ class TestBackendAutoDiscovery:
 
         original_registry = registry_module.backend_registry
 
-        # Remove connector modules from cache to force re-import.
-        for key in list(sys.modules):
-            if key.startswith("src.connectors"):
-                sys.modules.pop(key, None)
+        with _isolated_connector_modules():
+            try:
+                # Replace with test registry
+                registry_module.backend_registry = test_registry
 
-        try:
-            # Replace with test registry
-            registry_module.backend_registry = test_registry
+                # Import connectors and trigger the lazy discovery hook explicitly.
+                import src.connectors as connectors
 
-            # Import connectors and trigger the lazy discovery hook explicitly.
-            import src.connectors as connectors
+                connectors.ensure_builtin_connectors_discovered()
 
-            connectors.ensure_builtin_connectors_discovered()
+                # Get all registered backends
+                registered = test_registry.get_registered_backends()
 
-            # Get all registered backends
-            registered = test_registry.get_registered_backends()
+                # Verify we have backends registered
+                assert len(registered) > 0, "No backends were auto-discovered"
 
-            # Verify we have backends registered
-            assert len(registered) > 0, "No backends were auto-discovered"
+                # Core backends expected to be available without optional OAuth plugins.
+                expected_backends = [
+                    "anthropic",
+                    "gemini",
+                    "gemini-cli-cloud-project",
+                    "hybrid",
+                    "minimax",
+                    "openai",
+                    "openai-codex",
+                    "openai-responses",
+                    "openrouter",
+                    "zai",
+                    "zai-coding-plan",
+                    "zenmux",
+                ]
+                if find_spec("src.connectors.opencode_go") is not None:
+                    expected_backends.append("opencode-go")
 
-            # Core backends expected to be available without optional OAuth plugins.
-            expected_backends = [
-                "anthropic",
-                "gemini",
-                "gemini-cli-cloud-project",
-                "hybrid",
-                "minimax",
-                "openai",
-                "openai-codex",
-                "openai-responses",
-                "openrouter",
-                "zai",
-                "zai-coding-plan",
-                "zenmux",
-            ]
-            if find_spec("src.connectors.opencode_go") is not None:
-                expected_backends.append("opencode-go")
+                # Check that all expected backends are registered
+                for backend_name in expected_backends:
+                    assert backend_name in registered, (
+                        f"Backend '{backend_name}' was not auto-discovered. "
+                        f"Registered backends: {registered}"
+                    )
 
-            # Check that all expected backends are registered
-            for backend_name in expected_backends:
-                assert backend_name in registered, (
-                    f"Backend '{backend_name}' was not auto-discovered. "
-                    f"Registered backends: {registered}"
+                # Verify no duplicates
+                assert len(registered) == len(
+                    set(registered)
+                ), "Duplicate backends detected in registry"
+
+                # Extracted OAuth connectors must not be loaded from core auto-discovery.
+                extracted_oauth_backends = {
+                    "antigravity-oauth",
+                    "gemini-oauth-auto",
+                    "gemini-oauth-free",
+                    "gemini-oauth-plan",
+                    "qwen-oauth",
+                }
+                leaked_oauth = extracted_oauth_backends.intersection(set(registered))
+                assert not leaked_oauth, (
+                    "Extracted OAuth backends leaked into core discovery: "
+                    f"{sorted(leaked_oauth)}"
                 )
-
-            # Verify no duplicates
-            assert len(registered) == len(
-                set(registered)
-            ), "Duplicate backends detected in registry"
-
-            # Extracted OAuth connectors must not be loaded from core auto-discovery.
-            extracted_oauth_backends = {
-                "antigravity-oauth",
-                "gemini-oauth-auto",
-                "gemini-oauth-free",
-                "gemini-oauth-plan",
-                "qwen-oauth",
-            }
-            leaked_oauth = extracted_oauth_backends.intersection(set(registered))
-            assert (
-                not leaked_oauth
-            ), f"Extracted OAuth backends leaked into core discovery: {sorted(leaked_oauth)}"
-
-        finally:
-            # Restore original registry
-            registry_module.backend_registry = original_registry
-            for key in list(sys.modules):
-                if key.startswith("src.connectors"):
-                    sys.modules.pop(key, None)
-            # Do not restore prior connector module instances; allowing clean
-            # re-imports avoids stale module object interactions in later tests.
-            from src.core.services.backend_discovery import (
-                reset_backend_discovery_state,
-            )
-
-            reset_backend_discovery_state()
+            finally:
+                registry_module.backend_registry = original_registry
 
     def test_backend_modules_discovered_without_hardcoded_imports(self):
         """Test that backend modules are discovered dynamically, not from hardcoded list."""
@@ -194,31 +217,18 @@ class TestBackendAutoDiscovery:
         test_registry = BackendRegistry()
         original_registry = registry_module.backend_registry
 
-        # Remove connector modules from cache to force re-import.
-        for key in list(sys.modules):
-            if key.startswith("src.connectors"):
-                sys.modules.pop(key, None)
+        with _isolated_connector_modules():
+            try:
+                registry_module.backend_registry = test_registry
 
-        try:
-            registry_module.backend_registry = test_registry
+                # Import connectors
+                import src.connectors  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
-            # Import connectors
-            import src.connectors  # noqa: F401  # pyright: ignore[reportUnusedImport]
-
-            # base.py should not register any backend
-            registered = test_registry.get_registered_backends()
-            assert "base" not in registered, "base.py should not register a backend"
-
-        finally:
-            registry_module.backend_registry = original_registry
-            for key in list(sys.modules):
-                if key.startswith("src.connectors"):
-                    sys.modules.pop(key, None)
-            from src.core.services.backend_discovery import (
-                reset_backend_discovery_state,
-            )
-
-            reset_backend_discovery_state()
+                # base.py should not register any backend
+                registered = test_registry.get_registered_backends()
+                assert "base" not in registered, "base.py should not register a backend"
+            finally:
+                registry_module.backend_registry = original_registry
 
     def test_failed_backend_import_doesnt_break_others(self):
         """Test that if one backend fails to import, others still load."""

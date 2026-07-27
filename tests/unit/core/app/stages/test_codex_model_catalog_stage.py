@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
@@ -11,7 +12,6 @@ from src.connectors.openai_codex.catalog.config import (
     DEFAULT_CODEX_MODEL_CATALOG_CONFIG,
     CodexModelCatalogConfig,
 )
-from src.connectors.openai_codex.catalog.interfaces import ICodexModelCatalog
 from src.core.app.stages.codex_model_catalog import (
     CodexModelCatalogStage,
     resolve_codex_model_catalog_config,
@@ -60,12 +60,21 @@ def _config_with_model_catalog(model_catalog: dict) -> AppConfig:
     backend = BackendConfig(extra={"codex": {"model_catalog": model_catalog}})
     base = AppConfig()
     return base.model_copy(
-        update={
-            "backends": base.backends.model_copy(
-                update={"openai_codex": backend}
-            )
-        }
+        update={"backends": base.backends.model_copy(update={"openai_codex": backend})}
     )
+
+
+def _assert_catalog_config_equal(
+    actual: CodexModelCatalogConfig,
+    expected: CodexModelCatalogConfig,
+) -> None:
+    """Compare catalog configs by fields, not class identity.
+
+    Autodiscovery tests may reload ``src.connectors*`` mid-suite; comparing
+    dataclass instances from different class objects fails even when values
+    match. Field comparison stays stable across reloads.
+    """
+    assert asdict(actual) == asdict(expected)
 
 
 class TestStageMetadata:
@@ -80,7 +89,7 @@ class TestResolveModelCatalogConfig:
     def test_defaults_when_no_model_catalog_section(self) -> None:
         config = AppConfig()
         cfg = resolve_codex_model_catalog_config(config)
-        assert cfg == DEFAULT_CODEX_MODEL_CATALOG_CONFIG
+        _assert_catalog_config_equal(cfg, DEFAULT_CODEX_MODEL_CATALOG_CONFIG)
 
     def test_reads_from_openai_codex_backend(self) -> None:
         config = _config_with_model_catalog(
@@ -91,10 +100,13 @@ class TestResolveModelCatalogConfig:
             }
         )
         cfg = resolve_codex_model_catalog_config(config)
-        assert cfg == CodexModelCatalogConfig(
-            discovery_enabled=False,
-            fallback_path="/x/catalog.json",
-            discovery_timeout_seconds=7.0,
+        _assert_catalog_config_equal(
+            cfg,
+            CodexModelCatalogConfig(
+                discovery_enabled=False,
+                fallback_path="/x/catalog.json",
+                discovery_timeout_seconds=7.0,
+            ),
         )
 
     def test_reads_from_v2_when_v1_absent(self) -> None:
@@ -131,6 +143,10 @@ class TestStageExecute:
         stage = CodexModelCatalogStage()
         await stage.execute(services, config)
 
+        # Import the interface after execute so DI key matches the stage's type
+        # object even if connector modules were reloaded earlier in the suite.
+        from src.connectors.openai_codex.catalog.interfaces import ICodexModelCatalog
+
         provider = services.build_service_provider()
         catalog = provider.get_required_service(cast(type, ICodexModelCatalog))
         assert catalog.routable_slugs() == ("gpt-5.6-sol", "gpt-5.5")
@@ -146,7 +162,9 @@ class TestStageExecute:
         # Force discovery to find no binary so it falls back to the override path.
         import src.connectors.openai_codex.catalog.discovery_service as ds_mod
 
-        monkeypatch.setattr(ds_mod, "candidate_codex_executables", lambda configured: [])
+        monkeypatch.setattr(
+            ds_mod, "candidate_codex_executables", lambda configured: []
+        )
         config = _config_with_model_catalog(
             {"discovery_enabled": True, "fallback_path": str(catalog_file)}
         )
@@ -154,6 +172,8 @@ class TestStageExecute:
         services = ServiceCollection()
         stage = CodexModelCatalogStage()
         await stage.execute(services, config)
+
+        from src.connectors.openai_codex.catalog.interfaces import ICodexModelCatalog
 
         provider = services.build_service_provider()
         catalog = provider.get_required_service(cast(type, ICodexModelCatalog))
