@@ -15,6 +15,7 @@ Backend IDs are the `type:` values in YAML and the `backend_type` carried on req
 | `openai-codex` | OpenAI (ChatGPT / Codex CLI) | Local OAuth token | ChatGPT login instead of an API key |
 | `openai-codex-app-server` | OpenAI (Codex CLI `app-server --stdio`) | Local OAuth token | Local Codex agent over stdio (native app-server JSON-RPC, not ACP); requires `codex` on PATH or `CODEX_BIN`; local/single-user only |
 | `anthropic` | Anthropic | API Key | Claude via the standard Anthropic API |
+| `alibaba-token-plan-intl` | Alibaba Cloud Model Studio Token Plan (International) | API Key (`ALIBABA_TOKEN_PLAN_API_KEY`) | Anthropic-compatible agent traffic with dynamic plan-specific model discovery |
 | `gemini` | Google Gemini | API Key | Metered API usage, production apps |
 | `gemini-cli-acp` | Google Gemini (ACP via Gemini CLI) | Local OAuth token | Sub-agents and tooling via Gemini CLI |
 | `cursor-cli-acp` | Cursor (ACP via Cursor CLI `agent acp`) | Local Cursor login (`agent login`); optional `CURSOR_API_KEY` discovery fallback | Cursor-hosted models through the official CLI; requires `agent` on PATH or `CURSOR_AGENT_BIN` |
@@ -142,6 +143,7 @@ Backends are configured through environment variables and the proxy configuratio
 # Set API keys for the backends you want to use
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
+export ALIBABA_TOKEN_PLAN_API_KEY="sk-sp-..."
 export GEMINI_API_KEY="AIza..."
 export OPENROUTER_API_KEY="sk-or-..."
 export NVIDIA_API_KEY="..."
@@ -204,6 +206,7 @@ For detailed configuration and usage information for each backend, see:
 - [OpenAI and OpenAI Responses](openai.md) (`openai`, `openai-responses`)
 - [OpenAI Codex](openai-codex.md) (`openai-codex`)
 - [Anthropic](anthropic.md)
+- [Alibaba Token Plan (International)](alibaba-token-plan-intl.md) (`alibaba-token-plan-intl`)
 - [Gemini](gemini.md) (API keys, CLI OAuth variants, `gemini-cli-acp`, and `gemini-cli-cloud-project`)
 - **Cursor CLI ACP** (`cursor-cli-acp`): same idea as Gemini CLI ACP but via Cursor’s `agent acp` CLI; install and log in with `agent login` (preferred for ACP). Optional `CURSOR_API_KEY` can help model discovery on CLI builds that reject cookie-only `--list-models`. Ensure `agent` is on `PATH` or set `CURSOR_AGENT_BIN`. There is no separate backend guide page yet.
 - [OpenRouter](openrouter.md)

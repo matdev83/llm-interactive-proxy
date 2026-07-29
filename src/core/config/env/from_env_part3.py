@@ -362,6 +362,22 @@ def apply_config_part3(
                 origin="KIMI_API_KEY",
             )
 
+    if env.get("ALIBABA_TOKEN_PLAN_API_KEY"):
+        config_backends["alibaba-token-plan-intl"] = config_backends.get(
+            "alibaba-token-plan-intl", {}
+        )
+        # Presence registers the backend; the connector always reads the live env value.
+        config_backends["alibaba-token-plan-intl"]["api_key"] = env[
+            "ALIBABA_TOKEN_PLAN_API_KEY"
+        ]
+        if resolution is not None:
+            resolution.record(
+                "backends.alibaba-token-plan-intl.api_key",
+                config_backends["alibaba-token-plan-intl"]["api_key"],
+                ParameterSource.ENVIRONMENT,
+                origin="ALIBABA_TOKEN_PLAN_API_KEY",
+            )
+
     if env.get("OPENCODE_GO_API_KEY") and not _has_numbered_env_variants(
         env, "OPENCODE_GO_API_KEY"
     ):

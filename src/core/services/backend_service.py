@@ -462,6 +462,7 @@ class BackendService(IBackendService):
                 "openrouter": "OPENROUTER_API_KEY",
                 "gemini": "GEMINI_API_KEY",
                 "anthropic": "ANTHROPIC_API_KEY",
+                "alibaba-token-plan-intl": "ALIBABA_TOKEN_PLAN_API_KEY",
                 "zai": "ZAI_API_KEY",
                 "zai-coding-plan": "ZAI_CODING_PLAN_API_KEY",
                 "zenmux": "ZENMUX_API_KEY",

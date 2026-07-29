@@ -92,6 +92,7 @@ _API_KEY_BACKENDS: dict[str, str] = {
     "openai-responses": "OPENAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
+    "alibaba-token-plan-intl": "ALIBABA_TOKEN_PLAN_API_KEY",
     "gemini": "GEMINI_API_KEY",
     "minimax": "MINIMAX_API_KEY",
     "zenmux": "ZENMUX_API_KEY",
