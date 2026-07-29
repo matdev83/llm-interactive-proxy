@@ -16,6 +16,7 @@ import httpx
 from src.connectors.acp_core.base_connector import BaseAcpConnector
 from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
 from src.connectors.acp_core.workspace_policy import resolve_backend_init_acp_workspace
+from src.connectors.agy_acp_wrapper_installer import install_latest_wrapper
 from src.connectors.base import strip_vendor_prefix
 from src.core.common.exceptions import BackendError, ConfigurationError
 from src.core.config.app_config import AppConfig
@@ -207,12 +208,26 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                 self._extra_wrapper_args = []
 
             resolved = resolve_agy_acp_wrapper_executable(self._wrapper_executable)
+            auto_download = bool(kwargs.get("wrapper_auto_download", True))
+            if os.environ.get("AGY_ACP_WRAPPER_AUTO_DOWNLOAD", "").strip().lower() in {
+                "0",
+                "false",
+                "no",
+                "off",
+            }:
+                auto_download = False
+            if resolved is None and auto_download:
+                cache_dir = kwargs.get("wrapper_cache_dir")
+                resolved = await install_latest_wrapper(
+                    self.client,
+                    cache_dir=Path(str(cache_dir)).expanduser() if cache_dir else None,
+                )
             if resolved is None:
                 raise ConfigurationError(
                     message="go-agy-acp-wrapper executable not found",
                     details={
                         "configured": self._wrapper_executable,
-                        "hint": "Build go-agy-acp-wrapper and put it on PATH, "
+                        "hint": "Enable wrapper_auto_download, put the wrapper on PATH, "
                         "or set AGY_ACP_WRAPPER_BIN / wrapper_executable.",
                     },
                 )
