@@ -11,6 +11,8 @@ from src.connectors.acp_core.types import ACPNotification
 from src.connectors.agy_cli_acp import (
     AgyCliAcpConnector,
     build_agy_acp_wrapper_command,
+    canonicalize_agy_model_id,
+    parse_agy_models_catalog,
     resolve_agy_acp_wrapper_executable,
 )
 from src.connectors.contracts import ConnectorChatCompletionsRequest
@@ -57,6 +59,22 @@ def _make_request(
 
 
 class TestAgyCliAcpHelpers:
+    def test_parse_models_catalog_collapses_effort_variants(self) -> None:
+        assert parse_agy_models_catalog(
+            "gemini-3.6-flash-high\n"
+            "gemini-3.6-flash-medium\n"
+            "gemini-3.6-flash-low\n"
+            "claude-opus-4-6-thinking\n"
+            "gpt-oss-120b-medium\n"
+        ) == [
+            "google/gemini-3.6-flash",
+            "anthropic/claude-opus-4.6",
+            "openai/gpt-oss-120b",
+        ]
+
+    def test_canonicalize_rejects_unknown_family(self) -> None:
+        assert canonicalize_agy_model_id("future-model-high") is None
+
     def test_build_agy_acp_wrapper_command_full(self) -> None:
         cmd = build_agy_acp_wrapper_command(
             r"C:\tools\go-agy-acp-wrapper.exe",
@@ -221,10 +239,30 @@ class TestAgyCliAcpRuntime:
         )
         assert runtime.project_dir == other.resolve()
 
-    def test_available_models_are_empty_without_explicit_configuration(
+    def test_available_models_are_empty_before_initialization(
         self, connector: AgyCliAcpConnector
     ) -> None:
         assert connector.get_available_models() == []
+
+    async def test_initialize_discovers_models_when_not_configured(
+        self,
+        connector: AgyCliAcpConnector,
+        temp_workspace: Path,
+    ) -> None:
+        fake = str(temp_workspace / "go-agy-acp-wrapper.exe")
+        Path(fake).write_text("noop", encoding="utf-8")
+        with (
+            patch.object(connector, "_check_wrapper_available", return_value=True),
+            patch.object(
+                connector,
+                "_discover_models",
+                AsyncMock(return_value=["google/gemini-3.6-flash"]),
+            ) as discover,
+        ):
+            await connector.initialize(wrapper_executable=fake)
+
+        discover.assert_awaited_once()
+        assert connector.get_available_models() == ["google/gemini-3.6-flash"]
 
     async def test_available_models_preserve_explicit_configuration(
         self,

@@ -26,6 +26,65 @@ logger = logging.getLogger(__name__)
 ACP_PROTOCOL_VERSION = 1
 
 
+def canonicalize_agy_model_id(native_id: str) -> str | None:
+    """Collapse an agy-native effort variant into a canonical provider model ID."""
+    model = native_id.strip()
+    if not model or any(char.isspace() for char in model):
+        return None
+    for suffix in ("-low", "-medium", "-high"):
+        if model.endswith(suffix):
+            model = model[: -len(suffix)]
+            break
+    if model.endswith("-thinking"):
+        model = model[: -len("-thinking")]
+
+    if model.startswith("gemini-"):
+        return f"google/{model}"
+    if model.startswith("claude-"):
+        parts = model.split("-")
+        for index in range(1, len(parts) - 1):
+            if parts[index].isdigit() and parts[index + 1].isdigit():
+                parts[index] = f"{parts[index]}.{parts[index + 1]}"
+                del parts[index + 1]
+                break
+        return f"anthropic/{'-'.join(parts)}"
+    if model.startswith("gpt-"):
+        return f"openai/{model}"
+    return None
+
+
+def parse_agy_models_catalog(stdout: str) -> list[str]:
+    """Parse and deduplicate canonical identities from ``agy models`` output."""
+    models: list[str] = []
+    seen: set[str] = set()
+    for line in stdout.splitlines():
+        canonical = canonicalize_agy_model_id(line)
+        if canonical is None or canonical in seen:
+            continue
+        seen.add(canonical)
+        models.append(canonical)
+    return models
+
+
+def resolve_agy_executable(configured: str | None) -> str | None:
+    for candidate in (
+        (configured or "").strip(),
+        os.environ.get("AGY_BINARY", "").strip(),
+        "agy",
+        "agy.exe",
+        "agy.cmd",
+    ):
+        if not candidate:
+            continue
+        path = Path(candidate)
+        if path.is_file():
+            return str(path.resolve())
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return None
+
+
 def resolve_agy_acp_wrapper_executable(configured: str | None) -> str | None:
     """Resolve go-agy-acp-wrapper binary suitable for subprocess.Popen."""
     for candidate in (
@@ -88,7 +147,7 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self.name = "agy-cli-acp"
         self._wrapper_executable = "go-agy-acp-wrapper"
         self._agy_binary: str | None = None
-        self._model = "google/gemini-3.5-flash-high"
+        self._model = "google/gemini-3.5-flash"
         self._configured_models: list[str] = []
         self._skip_permissions = True
         self._mcp_servers: list[Any] = []
@@ -165,6 +224,9 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     details={"executable": self._wrapper_executable},
                 )
 
+            if not self._configured_models:
+                self._configured_models = await self._discover_models()
+
             self._validation_errors = []
             self._initialization_failed = False
             self.is_functional = True
@@ -173,6 +235,36 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             self.is_functional = False
             self._validation_errors = ["agy-cli-acp initialization failed"]
             raise
+
+    async def _discover_models(self) -> list[str]:
+        binary = resolve_agy_executable(self._agy_binary)
+        if binary is None:
+            logger.warning("agy model discovery skipped: agy executable not found")
+            return []
+
+        def run_models() -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                [binary, "models"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+                shell=False,
+            )
+
+        try:
+            result = await asyncio.to_thread(run_models)
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            logger.warning("agy model discovery failed", exc_info=True)
+            return []
+        if result.returncode != 0:
+            logger.warning(
+                "agy model discovery exited with code %s: %s",
+                result.returncode,
+                (result.stderr or "").strip(),
+            )
+            return []
+        return parse_agy_models_catalog(result.stdout or "")
 
     async def _check_wrapper_available(self) -> bool:
         try:
@@ -272,6 +364,40 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
 
         runtime.session_id = session_id
         runtime.initialized = True
+
+    async def _prepare_turn_request_locked(
+        self,
+        runtime: ACPProcessRuntime,
+        request: Any,
+    ) -> tuple[int, str]:
+        # The effort option is session-scoped, so establish the ACP session before
+        # sending session/set_config_option. The base implementation's repeated
+        # spawn/initialize calls are idempotent.
+        await self._spawn_process(runtime)
+        await self._initialize_runtime(runtime)
+
+        effort = getattr(request.request, "reasoning_effort", None)
+        if not effort:
+            extra_body = getattr(request.request, "extra_body", None)
+            if isinstance(extra_body, dict):
+                effort = extra_body.get("reasoning_effort")
+        if isinstance(effort, str) and effort.strip():
+            config_id = await self._send_jsonrpc_message(
+                runtime,
+                "session/set_config_option",
+                {
+                    "sessionId": runtime.session_id,
+                    "configId": "reasoning_effort",
+                    "value": effort.strip().lower(),
+                },
+            )
+            response = await self._await_response(runtime, config_id)
+            if response.is_error and response.error is not None:
+                raise BackendError(
+                    message=f"agy ACP reasoning effort failed: {response.error.message}",
+                    details=response.error.model_dump(),
+                )
+        return await super()._prepare_turn_request_locked(runtime, request)
 
     async def _handle_server_request(
         self, runtime: ACPProcessRuntime, msg: ACPNotification
