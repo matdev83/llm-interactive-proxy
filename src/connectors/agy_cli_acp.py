@@ -6,7 +6,6 @@ import asyncio
 import logging
 import os
 import shutil
-import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -251,48 +250,55 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             self._validation_errors = ["agy-cli-acp initialization failed"]
             raise
 
+    async def _run_probe(
+        self, command: list[str], *, timeout: float
+    ) -> tuple[int, bytes, bytes]:
+        """Run a short-lived probe without leaking executor threads on cancellation."""
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout)
+        except BaseException:
+            if process.returncode is None:
+                process.kill()
+            # Reap the child and close its pipe transports before propagating
+            # cancellation/timeout; event-loop teardown must not own this cleanup.
+            await process.communicate()
+            raise
+        return process.returncode or 0, stdout, stderr
+
     async def _discover_models(self) -> list[str]:
         binary = resolve_agy_executable(self._agy_binary)
         if binary is None:
             logger.warning("agy model discovery skipped: agy executable not found")
             return []
 
-        def run_models() -> subprocess.CompletedProcess[str]:
-            return subprocess.run(
-                [binary, "models"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                check=False,
-                shell=False,
-            )
-
         try:
-            result = await asyncio.to_thread(run_models)
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            returncode, stdout, stderr = await self._run_probe(
+                [binary, "models"], timeout=15
+            )
+        except (TimeoutError, FileNotFoundError, OSError):
             logger.warning("agy model discovery failed", exc_info=True)
             return []
-        if result.returncode != 0:
+        if returncode != 0:
             logger.warning(
                 "agy model discovery exited with code %s: %s",
-                result.returncode,
-                (result.stderr or "").strip(),
+                returncode,
+                stderr.decode("utf-8", errors="replace").strip(),
             )
             return []
-        return parse_agy_models_catalog(result.stdout or "")
+        return parse_agy_models_catalog(stdout.decode("utf-8", errors="replace"))
 
     async def _check_wrapper_available(self) -> bool:
         try:
-            result = await asyncio.to_thread(
-                subprocess.run,
-                [self._wrapper_executable, "--version"],
-                capture_output=True,
-                timeout=10,
-                check=False,
-                shell=False,
+            returncode, _, _ = await self._run_probe(
+                [self._wrapper_executable, "--version"], timeout=10
             )
-            return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return returncode == 0
+        except (TimeoutError, FileNotFoundError, OSError):
             return False
 
     async def _build_subprocess_command(self, runtime: ACPProcessRuntime) -> list[str]:

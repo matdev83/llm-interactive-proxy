@@ -187,12 +187,22 @@ async def install_latest_wrapper(
                 executable = _extract(archive, temp_dir)
                 target_dir = root / tag
                 if not target_dir.exists():
-                    temp_install = root / f".{tag}.installing"
-                    if temp_install.exists():
-                        shutil.rmtree(temp_install)
-                    temp_install.mkdir()
-                    shutil.move(str(executable), temp_install / executable.name)
-                    temp_install.replace(target_dir)
+                    # The asyncio lock only coordinates one process. xdist workers
+                    # share the cache, so each installer needs its own staging path.
+                    temp_install = Path(
+                        tempfile.mkdtemp(prefix=f".{tag}.installing-", dir=root)
+                    )
+                    try:
+                        shutil.move(str(executable), temp_install / executable.name)
+                        try:
+                            temp_install.replace(target_dir)
+                        except OSError:
+                            # Another process may have atomically installed this tag.
+                            if not installed.is_file():
+                                raise
+                    finally:
+                        if temp_install.exists():
+                            shutil.rmtree(temp_install)
             return str(installed)
         except (httpx.HTTPError, OSError, ValueError, RuntimeError):
             cached = _cached_executables(root) if root.exists() else []

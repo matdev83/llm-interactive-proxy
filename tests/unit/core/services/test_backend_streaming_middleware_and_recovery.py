@@ -1427,3 +1427,47 @@ class TestEmptyStreamRecovery:
         assert warn_dict.get("type") == "empty_stream_after_retries"
 
         mock_backend_processor.process_backend_request.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_code_content_with_error_string_not_flagged_as_terminal_error(
+        self,
+        handler: BackendStreamingResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Code output containing 'error' substring should yield as normal content."""
+        code_chunk = ProcessedResponse(
+            content='data: {"choices":[{"delta":{"content":"print(\\"error log\\")"},"finish_reason":null}]}\n\n',
+            metadata={},
+        )
+        input_stream = async_chunk_iterator([code_chunk])
+        stream_envelope = StreamingResponseEnvelope(content=input_stream)
+        mock_response_processor.process_streaming_response.return_value = (
+            async_chunk_iterator([code_chunk])
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result.content is not None
+        chunks = [ch async for ch in result.content]
+        assert len(chunks) == 1
+        assert "error log" in str(chunks[0].content)

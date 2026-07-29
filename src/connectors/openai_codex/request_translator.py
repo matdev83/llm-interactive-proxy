@@ -6,6 +6,7 @@ that implements the IRequestTranslator interface.
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
@@ -146,7 +147,11 @@ class RequestTranslator(IRequestTranslator):
 
             item_dict: dict[str, Any] = {
                 "type": "function_call",
-                "call_id": tool_call.id or "",
+                "call_id": (
+                    tool_call.id.strip()
+                    if isinstance(tool_call.id, str) and tool_call.id.strip()
+                    else f"call_{uuid.uuid4().hex[:16]}"
+                ),
                 "name": function_name.strip(),
                 "arguments": arguments or "{}",
             }

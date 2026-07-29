@@ -339,11 +339,14 @@ class CodexRequestTranslator:
                 tool_call_id = message.get("tool_call_id")
             if tool_call_id is not None and not isinstance(tool_call_id, str):
                 tool_call_id = str(tool_call_id)
+            if not (isinstance(tool_call_id, str) and tool_call_id.strip()):
+                # Orphan tool result (e.g. pi "Tool  not found" with call_id="").
+                return
             output_payload = {"output": text}
             input_items.append(
                 {
                     "type": "function_call_output",
-                    "call_id": tool_call_id or "",
+                    "call_id": tool_call_id.strip(),
                     "output": json.dumps(output_payload),
                 }
             )
@@ -421,10 +424,12 @@ class CodexRequestTranslator:
         call_id = getattr(message, "tool_call_id", None)
         if call_id is None and isinstance(message, dict):
             call_id = message.get("tool_call_id")
+        if not (isinstance(call_id, str) and call_id.strip()):
+            return
         input_items.append(
             {
                 "type": "function_call_output",
-                "call_id": call_id or "",
+                "call_id": call_id.strip(),
                 "output": json.dumps({"output": ""}),
             }
         )
@@ -512,6 +517,8 @@ class CodexRequestTranslator:
         call_id = getattr(message, "tool_call_id", None)
         if call_id is None and isinstance(message, dict):
             call_id = message.get("tool_call_id")
+        if not (isinstance(call_id, str) and call_id.strip()):
+            return
 
         output_payload: dict[str, Any] = {"output": text or ""}
 
@@ -531,7 +538,7 @@ class CodexRequestTranslator:
         input_items.append(
             {
                 "type": "function_call_output",
-                "call_id": call_id or "",
+                "call_id": call_id.strip(),
                 "output": json.dumps(output_payload),
             }
         )

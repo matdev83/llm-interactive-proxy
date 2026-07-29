@@ -166,6 +166,51 @@ class TestPayloadBuilder:
         assert payload.model == sample_context.effective_model
         mock_request_translator.translate_messages.assert_called_once()
 
+    def test_build_translated_payload_drops_empty_call_id_tool_output(
+        self, builder, mock_connector, sample_context, mock_request_translator
+    ):
+        """Regression: pi orphan tool results must not reach Codex as call_id=\"\".
+
+        Live failure 2026-07-28: HTTP 400
+        Invalid 'input[N].call_id': empty string (function_call_output,
+        output \"Tool  not found\"). Translated path previously skipped
+        sanitize_responses_input.
+        """
+        mock_connector._is_native_responses_payload.return_value = False
+        mock_request_translator.translate_messages.return_value = [
+            CodexInputItem(
+                type="message",
+                role="user",
+                content=[{"type": "input_text", "text": "review"}],
+            ),
+            CodexInputItem(
+                type="function_call",
+                call_id="call_good",
+                name="bash",
+                arguments='{"command":"ls"}',
+            ),
+            CodexInputItem(
+                type="function_call_output",
+                call_id="call_good",
+                output='{"output":"ok"}',
+            ),
+            CodexInputItem(
+                type="function_call_output",
+                call_id="",
+                output='{"output":"Tool  not found"}',
+            ),
+        ]
+
+        payload = builder.build_payload(sample_context)
+
+        call_ids = [
+            getattr(item, "call_id", None)
+            for item in payload.input
+            if getattr(item, "type", None) in {"function_call", "function_call_output"}
+        ]
+        assert call_ids == ["call_good", "call_good"]
+        assert all(isinstance(cid, str) and cid.strip() for cid in call_ids)
+
     def test_build_translated_payload_uses_proxy_session_id_as_prompt_cache_key_fallback(
         self,
         builder,

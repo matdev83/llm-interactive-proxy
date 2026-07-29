@@ -108,3 +108,44 @@ class TestSanitizeResponsesInputForEmptyNames:
         ]
         assert sanitized[1]["name"] == "bash"
         assert "name" not in sanitized[3]
+
+    def test_drops_function_call_with_empty_call_id(self) -> None:
+        items = [
+            {
+                "type": "function_call",
+                "call_id": "",
+                "name": "bash",
+                "arguments": '{"command":"ls"}',
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_good",
+                "output": "ok",
+            },
+        ]
+        sanitized, removed = sanitize_responses_input_for_empty_names(items)
+        assert removed == 1
+        assert len(sanitized) == 1
+        assert sanitized[0]["call_id"] == "call_good"
+
+    def test_coerces_pydantic_codex_input_items(self) -> None:
+        from src.connectors.openai_codex.contracts import CodexInputItem
+
+        items = [
+            CodexInputItem(
+                type="function_call",
+                call_id="call_good",
+                name="bash",
+                arguments='{"command":"ls"}',
+            ),
+            CodexInputItem(
+                type="function_call_output",
+                call_id="",
+                output='{"output":"Tool  not found"}',
+            ),
+        ]
+        sanitized, removed = sanitize_responses_input_for_empty_names(items)
+        assert removed == 1
+        assert len(sanitized) == 1
+        assert sanitized[0]["call_id"] == "call_good"
+        assert sanitized[0]["type"] == "function_call"

@@ -320,8 +320,8 @@ class RequestDeduplicationService:
             elif status_code is not None:
                 if status_code in (200, 201, 202, 204):
                     new_status = RequestStatus.SUCCESS
-                elif status_code in (429, 503, 502, 504, 408):
-                    # Retriable errors: rate limit, service unavailable, timeouts
+                elif status_code in (429, 500, 502, 503, 504, 408):
+                    # Retriable errors: rate limit, internal server error, service unavailable, timeouts
                     new_status = RequestStatus.RETRIABLE_ERROR
                 else:
                     # Non-retriable errors (400, 401, 403, 404, 500, etc)

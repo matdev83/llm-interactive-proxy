@@ -311,6 +311,27 @@ class PayloadBuilder(IPayloadBuilder):
         input_items = self._request_translator.translate_messages(
             context.processed_messages, context=context
         )
+        # Translated path previously skipped sanitization (only passthrough
+        # convert_dict_to_payload called it). Drop empty call_id / name items
+        # before Codex submit — same gate as http passthrough.
+        sanitized_dicts = self._sanitize_responses_input(
+            [
+                (
+                    item.model_dump(exclude_none=False)
+                    if hasattr(item, "model_dump") and not isinstance(item, dict)
+                    else item
+                )
+                for item in input_items
+            ]
+        )
+        input_items = [
+            (
+                CodexInputItem(**item_dict)
+                if isinstance(item_dict, dict)
+                else CodexInputItem(type="message", content=str(item_dict))
+            )
+            for item_dict in sanitized_dicts
+        ]
 
         # Resolve tool schemas
         tool_schemas = self._tool_schema_resolver.resolve_tool_schema(context)

@@ -127,6 +127,7 @@ class TestAgyCliAcpInitialization:
                 wrapper_executable=fake,
                 agy_binary="agy.exe",
                 model="google/gemini-3.5-flash-medium",
+                models=["google/gemini-3.5-flash-medium"],
             )
         assert connector.is_backend_functional() is True
         assert connector._default_project_dir == temp_workspace.resolve()
@@ -148,7 +149,10 @@ class TestAgyCliAcpInitialization:
         fake = str(temp_workspace / "go-agy-acp-wrapper.exe")
         Path(fake).write_text("noop", encoding="utf-8")
         with patch.object(connector, "_check_wrapper_available", return_value=True):
-            await connector.initialize(wrapper_executable=fake)
+            await connector.initialize(
+                wrapper_executable=fake,
+                models=["google/gemini-3.5-flash"],
+            )
         assert connector.is_backend_functional() is True
         assert connector._default_project_dir is None
 

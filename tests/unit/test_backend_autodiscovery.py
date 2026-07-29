@@ -188,6 +188,7 @@ class TestBackendAutoDiscovery:
             "gemini_oauth_free",
             "gemini_oauth_plan",
             "qwen_oauth",
+            "agy_acp_wrapper_installer",
         )
         backend_files = [
             f.stem

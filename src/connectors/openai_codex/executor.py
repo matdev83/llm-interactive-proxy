@@ -1265,6 +1265,14 @@ class ResponseExecutor(IResponseExecutor):
                                 detail=detail,
                             ) from exc
                         else:
+                            if (
+                                observed_response_id_persisted
+                                or observed_response_id is not None
+                            ):
+                                await self._invalidate_continuation_on_rotation(
+                                    continuation_context,
+                                    reason=f"streaming_error:{type(exc).__name__}",
+                                )
                             raise
 
                     # If stream completed successfully without auth errors, exit retry loop

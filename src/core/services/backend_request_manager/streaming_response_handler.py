@@ -1874,14 +1874,33 @@ class BackendStreamingResponseHandler:
                 c = getattr(ch, "content", None)
                 if isinstance(c, dict) and c.get("error"):
                     return True
+
+                raw_str: str | None = None
                 if isinstance(c, str):
-                    return '"finish_reason": "error"' in c or '"error"' in c
-                if isinstance(c, bytes | bytearray):
+                    raw_str = c
+                elif isinstance(c, bytes | bytearray):
                     try:
-                        decoded = c.decode("utf-8")
+                        raw_str = c.decode("utf-8")
                     except UnicodeDecodeError:
-                        decoded = c.decode("utf-8", errors="ignore")
-                    return '"finish_reason": "error"' in decoded or '"error"' in decoded
+                        raw_str = c.decode("utf-8", errors="ignore")
+
+                if raw_str:
+                    if (
+                        '"finish_reason": "error"' in raw_str
+                        or '"finish_reason":"error"' in raw_str
+                    ):
+                        return True
+                    if '"error"' in raw_str:
+                        payload_str = raw_str.strip()
+                        if payload_str.startswith("data:"):
+                            payload_str = payload_str[5:].strip()
+                        if payload_str.startswith("{") and payload_str.endswith("}"):
+                            try:
+                                parsed = json.loads(payload_str)
+                                if isinstance(parsed, dict) and parsed.get("error"):
+                                    return True
+                            except Exception:
+                                pass
                 return False
 
             try:

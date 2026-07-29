@@ -22,6 +22,32 @@ _NAMED_TOOL_ITEM_TYPES = frozenset(
     }
 )
 
+# Responses / Codex item types that require a non-empty ``call_id``.
+_CALL_ID_REQUIRED_ITEM_TYPES = frozenset(
+    {
+        "function_call",
+        "function_call_output",
+        "custom_tool_call",
+        "custom_tool_call_output",
+        "local_shell_call",
+        "local_shell_call_output",
+    }
+)
+
+
+def _coerce_responses_input_item(item: Any) -> dict[str, Any] | None:
+    """Return a mutable dict copy of a Responses input item, if coercible."""
+    if isinstance(item, MutableMapping):
+        return dict(item)
+    model_dump = getattr(item, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump(exclude_none=False)
+        if isinstance(dumped, dict):
+            return dumped
+    if isinstance(item, Mapping):
+        return dict(item)
+    return None
+
 
 def is_nonempty_tool_name(value: Any) -> bool:
     """Return True when ``value`` is a usable tool/function name."""
@@ -117,18 +143,22 @@ def sanitize_chat_messages_for_empty_tool_names(
 def sanitize_responses_input_for_empty_names(
     input_items: Sequence[Any],
 ) -> tuple[list[Any], int]:
-    """Drop Responses ``input`` items that would 400 on empty ``name``/``call_id``."""
+    """Drop Responses ``input`` items that would 400 on empty ``name``/``call_id``.
+
+    Accepts plain dicts and Pydantic models (``CodexInputItem``). Opaque
+    non-mapping items are preserved unchanged.
+    """
     if not isinstance(input_items, list | tuple):
         return list(input_items) if input_items else [], 0
 
     sanitized: list[Any] = []
     removed = 0
     for item in input_items:
-        if not isinstance(item, MutableMapping):
+        entry = _coerce_responses_input_item(item)
+        if entry is None:
             sanitized.append(item)
             continue
 
-        entry = dict(item)
         item_type = str(entry.get("type") or "").strip().casefold()
 
         # Optional message.name must not be an empty string.
@@ -145,11 +175,13 @@ def sanitize_responses_input_for_empty_names(
             removed += 1
             continue
 
-        if item_type == "function_call_output":
-            call_id = entry.get("call_id")
-            if not is_nonempty_tool_name(call_id):
-                removed += 1
-                continue
+        if item_type in _CALL_ID_REQUIRED_ITEM_TYPES and not is_nonempty_tool_name(
+            entry.get("call_id")
+        ):
+            # pi and similar harnesses replay orphan tool results with
+            # call_id="" / "Tool  not found"; Codex rejects empty_string.
+            removed += 1
+            continue
 
         sanitized.append(entry)
 

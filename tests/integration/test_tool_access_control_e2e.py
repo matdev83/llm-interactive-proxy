@@ -29,6 +29,14 @@ from tests.unit.fixtures.markers import real_time
 class TestToolAccessControlEndToEnd:
     """Comprehensive end-to-end tests for tool access control."""
 
+    @pytest.fixture(autouse=True)
+    async def _dispose_service_providers(self):
+        """Release singleton resources created by each integration test."""
+        self._service_providers = []
+        yield
+        for provider in reversed(self._service_providers):
+            await provider.dispose()
+
     @pytest.fixture
     def base_config(self):
         """Create a base AppConfig."""
@@ -48,10 +56,12 @@ class TestToolAccessControlEndToEnd:
         return config.model_copy(update={"session": session_config})
 
     def create_service_provider(self, config: AppConfig):
-        """Helper to create service provider with config."""
+        """Helper to create a tracked service provider with config."""
         collection = ServiceCollection()
         register_core_services(collection, config)
-        return collection.build_service_provider()
+        provider = collection.build_service_provider()
+        self._service_providers.append(provider)
+        return provider
 
     def create_chat_request_with_tools(
         self, tools: list[dict], model: str = "test-model"
