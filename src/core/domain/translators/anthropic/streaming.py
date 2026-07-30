@@ -67,7 +67,12 @@ def anthropic_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         if delta_type == "text_delta":
             content = delta.get("text", "")
         elif delta_type in {"thinking_delta", "reasoning_delta"}:
-            reasoning_content = delta.get("text", "")
+            reasoning_content = (
+                delta.get("thinking")
+                or delta.get("reasoning")
+                or delta.get("text")
+                or ""
+            )
     elif event_type == "message_delta":
         delta = chunk.get("delta", {})
         stop_reason = delta.get("stop_reason")

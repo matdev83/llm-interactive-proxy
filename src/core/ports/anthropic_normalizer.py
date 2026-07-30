@@ -139,7 +139,38 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                             except (TypeError, ValueError):
                                 idx = 0
                         block = event_data.get("content_block") or {}
-                        if block.get("type") == "tool_use":
+                        block_type = block.get("type")
+                        if block_type in {"thinking", "reasoning"}:
+                            reasoning_content = (
+                                block.get("thinking")
+                                or block.get("reasoning")
+                                or block.get("text")
+                                or ""
+                            )
+                            if reasoning_content:
+                                start_chunk = self.create_normalized_chunk(
+                                    content="",
+                                    metadata={
+                                        "model": model,
+                                        "id": message_id,
+                                        "index": idx,
+                                        "reasoning_content": reasoning_content,
+                                    },
+                                    is_empty=False,
+                                    stream_id=stream_id,
+                                )
+                                if self.validate_chunk(start_chunk):
+                                    emitted_any = True
+                                    yield start_chunk
+                                else:
+                                    logger.warning(
+                                        "Dropping invalid reasoning start chunk",
+                                        extra={
+                                            "provider": self.provider,
+                                            "stream_id": stream_id,
+                                        },
+                                    )
+                        elif block_type == "tool_use":
                             raw_name = block.get("name")
                             tool_blocks[idx] = {
                                 "id": block.get("id"),
@@ -216,6 +247,37 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                                         "stream_id": stream_id,
                                     },
                                 )
+
+                        elif delta_type in {"thinking_delta", "reasoning_delta"}:
+                            reasoning_content = (
+                                delta.get("thinking")
+                                or delta.get("reasoning")
+                                or delta.get("text")
+                                or ""
+                            )
+                            if reasoning_content:
+                                chunk = self.create_normalized_chunk(
+                                    content="",
+                                    metadata={
+                                        "model": model,
+                                        "id": message_id,
+                                        "index": index,
+                                        "reasoning_content": reasoning_content,
+                                    },
+                                    is_empty=False,
+                                    stream_id=stream_id,
+                                )
+                                if self.validate_chunk(chunk):
+                                    emitted_any = True
+                                    yield chunk
+                                else:
+                                    logger.warning(
+                                        "Dropping invalid reasoning delta chunk",
+                                        extra={
+                                            "provider": self.provider,
+                                            "stream_id": stream_id,
+                                        },
+                                    )
 
                         elif delta_type == "input_json_delta":
                             partial_json = delta.get("partial_json", "") or ""

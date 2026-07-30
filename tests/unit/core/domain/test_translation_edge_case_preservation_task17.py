@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from src.core.domain.chat import (
@@ -189,17 +190,24 @@ def test_gemini_stream_chunk_preserves_reasoning_parts() -> None:
     assert delta_dict["reasoning_content"] == "plan"
 
 
-def test_anthropic_stream_chunk_preserves_reasoning_delta() -> None:
+@pytest.mark.parametrize(
+    ("delta", "expected"),
+    [
+        ({"type": "thinking_delta", "thinking": "careful plan"}, "careful plan"),
+        ({"type": "reasoning_delta", "reasoning": "verify plan"}, "verify plan"),
+        ({"type": "thinking_delta", "text": "fallback plan"}, "fallback plan"),
+    ],
+)
+def test_anthropic_stream_chunk_preserves_reasoning_delta(
+    delta: dict[str, str], expected: str
+) -> None:
     """
     **Feature: cross-api-translation-refactoring, Property 6: Edge Case Handling Preservation**
     **Validates: Requirements 10.3**
     """
-    chunk = {
-        "type": "content_block_delta",
-        "delta": {"type": "thinking_delta", "text": "careful plan"},
-    }
+    chunk = {"type": "content_block_delta", "delta": delta}
     mapped = Translation.anthropic_to_domain_stream_chunk(chunk)
-    assert mapped["choices"][0]["delta"]["reasoning_content"] == "careful plan"
+    assert mapped["choices"][0]["delta"]["reasoning_content"] == expected
 
 
 def test_from_domain_to_anthropic_request_serializes_multimodal_images() -> None:

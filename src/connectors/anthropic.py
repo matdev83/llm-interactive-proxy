@@ -70,6 +70,7 @@ _NON_FORWARDABLE_EXTRA_BODY_KEYS = frozenset(
         "b_seq",
         "auth_scope_id",
         "client_session_id",
+        "anthropic_beta",
     }
 )
 _LLM_PROXY_REQUEST_ID_KEY = "_llm_proxy_request_id"
@@ -1422,6 +1423,22 @@ class AnthropicBackend(LLMBackend):
 
         # Ensure streaming is enabled
         payload["stream"] = True
+
+        beta_features: list[str] = []
+        thinking_config = payload.get("thinking")
+        thinking_enabled = bool(thinking_config) and not (
+            isinstance(thinking_config, dict)
+            and str(thinking_config.get("type", "")).lower() == "disabled"
+        )
+        if thinking_enabled:
+            beta_features.append("interleaved-thinking-2025-05-14")
+        explicit_betas = extra_body.get("anthropic_beta", [])
+        if isinstance(explicit_betas, str):
+            explicit_betas = [explicit_betas]
+        if isinstance(explicit_betas, list):
+            beta_features.extend(str(beta) for beta in explicit_betas)
+        if beta_features:
+            request_headers["anthropic-beta"] = ",".join(beta_features)
 
         # Build and send request
         http_request = self.client.build_request(

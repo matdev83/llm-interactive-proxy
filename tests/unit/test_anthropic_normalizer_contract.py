@@ -56,6 +56,77 @@ class TestAnthropicStreamNormalizerContract:
         assert chunk.is_empty is True
 
     @pytest.mark.asyncio
+    async def test_thinking_events_emit_reasoning_content(
+        self, normalizer: AnthropicStreamNormalizer
+    ) -> None:
+        """Thinking block content and deltas must be forwarded as reasoning."""
+
+        async def mock_stream():
+            yield (
+                b"event: message_start\n"
+                b'data: {"type":"message_start","message":'
+                b'{"id":"msg_reasoning","role":"assistant","model":"qwen3.7-plus"}}\n\n'
+            )
+            yield (
+                b"event: content_block_start\n"
+                b'data: {"type":"content_block_start","index":0,'
+                b'"content_block":{"type":"thinking","thinking":"Plan"}}\n\n'
+            )
+            yield (
+                b"event: content_block_delta\n"
+                b'data: {"type":"content_block_delta","index":0,'
+                b'"delta":{"type":"thinking_delta","thinking":" carefully"}}\n\n'
+            )
+            yield (
+                b"event: content_block_delta\n"
+                b'data: {"type":"content_block_delta","index":0,'
+                b'"delta":{"type":"reasoning_delta","reasoning":" now"}}\n\n'
+            )
+            yield (
+                b"event: content_block_delta\n"
+                b'data: {"type":"content_block_delta","index":1,'
+                b'"delta":{"type":"text_delta","text":"Answer"}}\n\n'
+            )
+
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "anthropic")
+        ]
+
+        assert [
+            chunk.metadata.get("reasoning_content")
+            for chunk in chunks
+            if chunk.metadata.get("reasoning_content")
+        ] == ["Plan", " carefully", " now"]
+        assert all(
+            chunk.is_empty is False
+            for chunk in chunks
+            if chunk.metadata.get("reasoning_content")
+        )
+        assert chunks[-1].content == "Answer"
+
+    @pytest.mark.asyncio
+    async def test_thinking_delta_accepts_text_field_fallback(
+        self, normalizer: AnthropicStreamNormalizer
+    ) -> None:
+        """Anthropic-compatible providers may put thinking text in `text`."""
+
+        async def mock_stream():
+            yield (
+                b"event: content_block_delta\n"
+                b'data: {"type":"content_block_delta","index":0,'
+                b'"delta":{"type":"thinking_delta","text":"fallback"}}\n\n'
+            )
+
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "anthropic")
+        ]
+
+        assert len(chunks) == 1
+        assert chunks[0].metadata["reasoning_content"] == "fallback"
+
+    @pytest.mark.asyncio
     async def test_input_json_delta_emits_tool_calls_not_assistant_text(
         self, normalizer: AnthropicStreamNormalizer
     ) -> None:
