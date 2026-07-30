@@ -10,15 +10,19 @@ from pydantic.types import JsonValue
 from src.connectors.acp_core.types import ACPNotification
 from src.connectors.agy_cli_acp import (
     AgyCliAcpConnector,
+    AgyCliConfiguredModelEnumerator,
     build_agy_acp_wrapper_command,
+    build_agy_model_catalog_command,
     canonicalize_agy_model_id,
     parse_agy_models_catalog,
+    parse_wrapper_model_catalog,
     resolve_agy_acp_wrapper_executable,
 )
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.core.common.exceptions import ConfigurationError
-from src.core.config.app_config import AppConfig
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.services.model_capability_index import ModelCapabilityIndex
 from src.core.services.translation_service import TranslationService
 
 
@@ -108,6 +112,29 @@ class TestAgyCliAcpHelpers:
             extra_args=None,
         )
         assert cmd == ["go-agy-acp-wrapper", "--no-skip-permissions"]
+
+    def test_build_wrapper_catalog_command(self) -> None:
+        assert build_agy_model_catalog_command(
+            r"C:\tools\go-agy-acp-wrapper.exe",
+            agy_binary=r"C:\tools\agy.exe",
+        ) == [
+            r"C:\tools\go-agy-acp-wrapper.exe",
+            "--list-models",
+            "--agy-binary",
+            r"C:\tools\agy.exe",
+        ]
+
+    def test_parse_wrapper_catalog_accepts_only_canonical_models(self) -> None:
+        assert parse_wrapper_model_catalog(
+            "google/gemini-3.6-flash\n"
+            "anthropic/claude-opus-4.6\n"
+            "google/gemini-3.6-flash\n"
+            "gemini-3.6-flash-high\n"
+            "invalid model\n"
+        ) == [
+            "google/gemini-3.6-flash",
+            "anthropic/claude-opus-4.6",
+        ]
 
     def test_resolve_wrapper_prefers_existing_file(self, tmp_path: Path) -> None:
         exe = tmp_path / "go-agy-acp-wrapper.exe"
@@ -268,6 +295,39 @@ class TestAgyCliAcpRuntime:
         discover.assert_awaited_once()
         assert connector.get_available_models() == ["google/gemini-3.6-flash"]
 
+    async def test_discover_models_uses_wrapper_catalog_command(
+        self,
+        connector: AgyCliAcpConnector,
+    ) -> None:
+        connector._wrapper_executable = r"C:\tools\go-agy-acp-wrapper.exe"
+        connector._agy_binary = r"C:\tools\agy.exe"
+        with patch.object(
+            connector,
+            "_run_probe",
+            AsyncMock(
+                return_value=(
+                    0,
+                    b"google/gemini-3.6-flash\nanthropic/claude-opus-4.6\n",
+                    b"",
+                )
+            ),
+        ) as run_probe:
+            models = await connector._discover_models()
+
+        run_probe.assert_awaited_once_with(
+            [
+                r"C:\tools\go-agy-acp-wrapper.exe",
+                "--list-models",
+                "--agy-binary",
+                r"C:\tools\agy.exe",
+            ],
+            timeout=15,
+        )
+        assert models == [
+            "google/gemini-3.6-flash",
+            "anthropic/claude-opus-4.6",
+        ]
+
     async def test_available_models_preserve_explicit_configuration(
         self,
         connector: AgyCliAcpConnector,
@@ -287,4 +347,52 @@ class TestAgyCliAcpRuntime:
         assert connector.get_available_models() == [
             "google/gemini-3.5-flash-high",
             "anthropic/claude-sonnet-4.6-thinking",
+        ]
+
+
+class TestAgyCliConfiguredModelEnumerator:
+    async def test_enumerates_wrapper_canonical_catalog(self, tmp_path: Path) -> None:
+        wrapper = tmp_path / "go-agy-acp-wrapper.exe"
+        wrapper.write_text("fixture", encoding="utf-8")
+        enumerator = AgyCliConfiguredModelEnumerator()
+
+        with patch(
+            "src.connectors.agy_cli_acp.run_agy_model_catalog_probe",
+            AsyncMock(
+                return_value=(
+                    0,
+                    b"google/gemini-3.6-flash\nopenai/gpt-oss-120b\n",
+                    b"",
+                )
+            ),
+        ):
+            result = await enumerator.enumerate(
+                "agy-cli-acp.default",
+                BackendConfig(
+                    connector="agy-cli-acp",
+                    extra={
+                        "wrapper_executable": str(wrapper),
+                        "agy_binary": "agy.exe",
+                    },
+                ),
+            )
+
+        assert result.models == (
+            "google/gemini-3.6-flash",
+            "openai/gpt-oss-120b",
+        )
+        assert result.source == "agy_wrapper"
+        assert result.instance_pinned is True
+
+        index = ModelCapabilityIndex(
+            ModelCapabilityIndex.build_snapshot(
+                {"agy-cli-acp.default": result.models},
+                generation=1,
+                instance_route_policy={
+                    "agy-cli-acp.default": "instance_pinned",
+                },
+            )
+        )
+        assert index.get_candidates("agy-cli-acp:google/gemini-3.6-flash") == [
+            "agy-cli-acp.default"
         ]

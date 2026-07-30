@@ -26,6 +26,9 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
         def _routing_service_factory(
             provider: IServiceProvider,
         ) -> BackendRoutingService:
+            from src.connectors.agy_cli_acp import (
+                AgyCliConfiguredModelEnumerator,
+            )
             from src.connectors.cursor_cli_acp import (
                 CursorCliConfiguredModelEnumerator,
             )
@@ -72,7 +75,8 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
             )
             enumerators.register(
                 "agy-cli-acp",
-                ExplicitConfiguredModelEnumerator(connector="agy-cli-acp"),
+                AgyCliConfiguredModelEnumerator(),
+                timeout_seconds=None,
             )
             codex_catalog_provider = provider.get_service(CodexModelCatalogProvider)
             if codex_catalog_provider is not None:

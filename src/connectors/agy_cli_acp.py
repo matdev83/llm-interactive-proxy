@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
@@ -18,12 +19,16 @@ from src.connectors.acp_core.workspace_policy import resolve_backend_init_acp_wo
 from src.connectors.agy_acp_wrapper_installer import install_latest_wrapper
 from src.connectors.base import strip_vendor_prefix
 from src.core.common.exceptions import BackendError, ConfigurationError
-from src.core.config.app_config import AppConfig
+from src.core.common.model_catalog import BackendModelEnumeration
+from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
 
 ACP_PROTOCOL_VERSION = 1
+CANONICAL_MODEL_ID_PATTERN = re.compile(
+    r"^[a-z0-9][a-z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._-]*$"
+)
 
 
 def canonicalize_agy_model_id(native_id: str) -> str | None:
@@ -66,6 +71,19 @@ def parse_agy_models_catalog(stdout: str) -> list[str]:
     return models
 
 
+def parse_wrapper_model_catalog(stdout: str) -> list[str]:
+    """Parse canonical model IDs emitted by the wrapper."""
+    models: list[str] = []
+    seen: set[str] = set()
+    for line in stdout.splitlines():
+        model = line.strip()
+        if not CANONICAL_MODEL_ID_PATTERN.fullmatch(model) or model in seen:
+            continue
+        seen.add(model)
+        models.append(model)
+    return models
+
+
 def resolve_agy_executable(configured: str | None) -> str | None:
     for candidate in (
         (configured or "").strip(),
@@ -103,6 +121,12 @@ def resolve_agy_acp_wrapper_executable(configured: str | None) -> str | None:
         resolved = shutil.which(name)
         if resolved:
             return resolved
+    for dev_path in (
+        Path("C:/Users/Mateusz/source/repos/go-agy-acp-wrapper/go-agy-acp-wrapper.exe"),
+        Path.home() / "source/repos/go-agy-acp-wrapper/go-agy-acp-wrapper.exe",
+    ):
+        if dev_path.is_file():
+            return str(dev_path.resolve())
     return None
 
 
@@ -126,6 +150,116 @@ def build_agy_acp_wrapper_command(
     if extra_args:
         cmd.extend(list(extra_args))
     return cmd
+
+
+def build_agy_model_catalog_command(
+    executable: str,
+    *,
+    agy_binary: str | None,
+) -> list[str]:
+    """Build the wrapper's non-interactive canonical catalog command."""
+    cmd = [executable, "--list-models"]
+    if agy_binary:
+        cmd.extend(["--agy-binary", agy_binary])
+    return cmd
+
+
+async def run_agy_model_catalog_probe(
+    command: list[str], *, timeout: float
+) -> tuple[int, bytes, bytes]:
+    """Run wrapper catalog discovery without a shell or ACP session."""
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout)
+    except BaseException:
+        if process.returncode is None:
+            process.kill()
+        await process.communicate()
+        raise
+    return process.returncode or 0, stdout, stderr
+
+
+class AgyCliConfiguredModelEnumerator:
+    """Enumerate canonical AGY routes through the configured wrapper."""
+
+    async def enumerate(
+        self, instance_name: str, config: BackendConfig
+    ) -> BackendModelEnumeration:
+        extra = config.extra
+        configured = extra.get("wrapper_executable") or extra.get(
+            "agy_acp_wrapper_executable"
+        )
+        executable = resolve_agy_acp_wrapper_executable(
+            str(configured) if configured else None
+        )
+        auto_download = bool(extra.get("wrapper_auto_download", True))
+        if os.environ.get("AGY_ACP_WRAPPER_AUTO_DOWNLOAD", "").strip().lower() in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            auto_download = False
+        if executable is None and auto_download:
+            cache_dir = extra.get("wrapper_cache_dir")
+            async with httpx.AsyncClient() as client:
+                executable = await install_latest_wrapper(
+                    client,
+                    cache_dir=(
+                        Path(str(cache_dir)).expanduser() if cache_dir else None
+                    ),
+                )
+        if executable is None:
+            return BackendModelEnumeration.unavailable(
+                instance_name=instance_name,
+                connector="agy-cli-acp",
+                source="agy_wrapper",
+                error_code="wrapper_not_found",
+                instance_pinned=True,
+            )
+
+        agy_binary = extra.get("agy_binary") or os.environ.get("AGY_BINARY")
+        command = build_agy_model_catalog_command(
+            executable,
+            agy_binary=str(agy_binary).strip() if agy_binary else None,
+        )
+        timeout = float(extra.get("model_discovery_timeout_seconds", 15.0))
+        try:
+            returncode, stdout, _ = await run_agy_model_catalog_probe(
+                command, timeout=timeout
+            )
+        except (TimeoutError, FileNotFoundError, OSError):
+            return BackendModelEnumeration.unavailable(
+                instance_name=instance_name,
+                connector="agy-cli-acp",
+                source="agy_wrapper",
+                error_code="catalog_probe_failed",
+                instance_pinned=True,
+            )
+        models = (
+            parse_wrapper_model_catalog(stdout.decode("utf-8", errors="replace"))
+            if returncode == 0
+            else []
+        )
+        if not models:
+            return BackendModelEnumeration.unavailable(
+                instance_name=instance_name,
+                connector="agy-cli-acp",
+                source="agy_wrapper",
+                error_code="catalog_unavailable",
+                instance_pinned=True,
+            )
+        return BackendModelEnumeration.available(
+            instance_name=instance_name,
+            connector="agy-cli-acp",
+            models=models,
+            source="agy_wrapper",
+            instance_pinned=True,
+        )
 
 
 class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
@@ -271,26 +405,23 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         return process.returncode or 0, stdout, stderr
 
     async def _discover_models(self) -> list[str]:
-        binary = resolve_agy_executable(self._agy_binary)
-        if binary is None:
-            logger.warning("agy model discovery skipped: agy executable not found")
-            return []
-
+        command = build_agy_model_catalog_command(
+            self._wrapper_executable,
+            agy_binary=self._agy_binary,
+        )
         try:
-            returncode, stdout, stderr = await self._run_probe(
-                [binary, "models"], timeout=15
-            )
+            returncode, stdout, stderr = await self._run_probe(command, timeout=15)
         except (TimeoutError, FileNotFoundError, OSError):
             logger.warning("agy model discovery failed", exc_info=True)
             return []
         if returncode != 0:
             logger.warning(
-                "agy model discovery exited with code %s: %s",
+                "agy wrapper model discovery exited with code %s: %s",
                 returncode,
                 stderr.decode("utf-8", errors="replace").strip(),
             )
             return []
-        return parse_agy_models_catalog(stdout.decode("utf-8", errors="replace"))
+        return parse_wrapper_model_catalog(stdout.decode("utf-8", errors="replace"))
 
     async def _check_wrapper_available(self) -> bool:
         try:
