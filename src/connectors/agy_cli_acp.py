@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shutil
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -167,18 +168,27 @@ def build_agy_model_catalog_command(
 async def run_agy_model_catalog_probe(
     command: list[str], *, timeout: float
 ) -> tuple[int, bytes, bytes]:
-    """Run wrapper catalog discovery without a shell or ACP session."""
-    process = await asyncio.create_subprocess_exec(
-        *command,
+    """Run a wrapper probe without requiring asyncio subprocess support.
+
+    The proxy uses ``WindowsSelectorEventLoopPolicy`` to avoid shutdown hangs,
+    and that loop cannot create subprocess transports. Keep short-lived wrapper
+    probes on the same ``subprocess.Popen`` path used by ACP runtimes.
+    """
+    process = subprocess.Popen(
+        command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        shell=False,
     )
+    communicate_task = asyncio.create_task(asyncio.to_thread(process.communicate))
     try:
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout)
+        stdout, stderr = await asyncio.wait_for(
+            asyncio.shield(communicate_task), timeout
+        )
     except BaseException:
-        if process.returncode is None:
+        if process.poll() is None:
             process.kill()
-        await process.communicate()
+        await communicate_task
         raise
     return process.returncode or 0, stdout, stderr
 
@@ -388,21 +398,7 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self, command: list[str], *, timeout: float
     ) -> tuple[int, bytes, bytes]:
         """Run a short-lived probe without leaking executor threads on cancellation."""
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout)
-        except BaseException:
-            if process.returncode is None:
-                process.kill()
-            # Reap the child and close its pipe transports before propagating
-            # cancellation/timeout; event-loop teardown must not own this cleanup.
-            await process.communicate()
-            raise
-        return process.returncode or 0, stdout, stderr
+        return await run_agy_model_catalog_probe(command, timeout=timeout)
 
     async def _discover_models(self) -> list[str]:
         command = build_agy_model_catalog_command(

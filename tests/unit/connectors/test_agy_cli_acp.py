@@ -17,6 +17,7 @@ from src.connectors.agy_cli_acp import (
     parse_agy_models_catalog,
     parse_wrapper_model_catalog,
     resolve_agy_acp_wrapper_executable,
+    run_agy_model_catalog_probe,
 )
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.core.common.exceptions import ConfigurationError
@@ -63,6 +64,36 @@ def _make_request(
 
 
 class TestAgyCliAcpHelpers:
+    async def test_wrapper_probe_does_not_require_asyncio_subprocess_support(
+        self,
+    ) -> None:
+        process = MagicMock()
+        process.communicate.return_value = (b"google/gemini-3.6-flash\n", b"")
+        process.returncode = 0
+
+        with (
+            patch(
+                "asyncio.create_subprocess_exec",
+                AsyncMock(side_effect=NotImplementedError),
+            ),
+            patch(
+                "src.connectors.agy_cli_acp.subprocess.Popen",
+                return_value=process,
+            ) as popen,
+        ):
+            result = await run_agy_model_catalog_probe(
+                ["go-agy-acp-wrapper.exe", "--list-models"],
+                timeout=1,
+            )
+
+        assert result == (0, b"google/gemini-3.6-flash\n", b"")
+        popen.assert_called_once_with(
+            ["go-agy-acp-wrapper.exe", "--list-models"],
+            stdout=-1,
+            stderr=-1,
+            shell=False,
+        )
+
     def test_parse_models_catalog_collapses_effort_variants(self) -> None:
         assert parse_agy_models_catalog(
             "gemini-3.6-flash-high\n"

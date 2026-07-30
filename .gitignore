@@ -104,6 +104,7 @@ forcepytest.run
 test_status.json
 data/test_suite_state.json
 .ck/
+.pi-subagents/
 dev/test_anthropic_client.py
 complexity_analysis.json
 nul
