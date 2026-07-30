@@ -104,6 +104,7 @@ Backend provider configuration and usage:
 - **[OpenAI Backend](backends/openai.md)** - OpenAI API and ChatGPT OAuth configuration
 - **[OpenAI Codex Backend](backends/openai-codex.md)** - Codex CLI authentication and debugging-only usage
 - **[Anthropic Backend](backends/anthropic.md)** - Claude API key configuration
+- **[Alibaba Token Plan (International)](backends/alibaba-token-plan-intl.md)** - Token Plan models through Alibaba's Anthropic-compatible API
 - **[Cline Backend](backends/cline.md)** - Internal development & debugging backend
 - **[Gemini Backends](backends/gemini.md)** - Google Gemini API, OAuth, and GCP configurations
 - **[Gemini OAuth Auto Backend](backends/gemini-oauth-auto.md)** - Multi-account Google Gemini with automatic rotation

@@ -152,7 +152,7 @@ class PhaseExecutor:
 
                 validator = URIParameterValidator()
                 normalized_params, validation_errors = validator.validate_and_normalize(
-                    uri_params
+                    uri_params, backend_type=reasoning_backend
                 )
 
                 if validation_errors:
@@ -588,7 +588,7 @@ class PhaseExecutor:
 
                 validator = URIParameterValidator()
                 normalized_params, validation_errors = validator.validate_and_normalize(
-                    uri_params
+                    uri_params, backend_type=execution_backend
                 )
 
                 if validation_errors:

@@ -270,6 +270,40 @@ class TestURIParameterApplicatorReasoningEffort:
         assert result.extra_body is not None
         assert result.extra_body.get("reasoning_effort") == "high"
 
+    def test_uri_none_applied_only_to_alibaba_token_plan(self) -> None:
+        backend_type = "alibaba-token-plan-intl"
+        request = ChatRequest(
+            model="alibaba-token-plan-intl:qwen3.7-plus",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=None).apply(
+            request=request,
+            uri_params=_uri(reasoning_effort="none"),
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.reasoning_effort == "none"
+        assert result.extra_body is not None
+        assert result.extra_body.get("reasoning_effort") == "none"
+
+    def test_uri_none_is_excluded_for_other_backends(self) -> None:
+        request = ChatRequest(
+            model="anthropic:claude-sonnet-4-5",
+            messages=[ChatMessage(role="user", content="hi")],
+        )
+
+        result = URIParameterApplicator(config=None).apply(
+            request=request,
+            uri_params=_uri(reasoning_effort="none"),
+            backend_type="anthropic",
+            session=None,
+        )
+
+        assert result.reasoning_effort is None
+        assert not result.extra_body or "reasoning_effort" not in result.extra_body
+
     def test_uri_xhigh_applied_to_request_for_codex(self) -> None:
         backend_type = "openai-codex"
         config = _make_config(backend_type, extra={})

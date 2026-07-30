@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import replace
 from typing import Any
 
@@ -11,7 +10,8 @@ import httpx
 from src.connectors.anthropic import AnthropicBackend
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.contracts import ConnectorChatCompletionsRequest
-from src.core.common.exceptions import ConfigurationError
+from src.core.common.env_utils import get_env_value_with_windows_persistent_fallback
+from src.core.common.exceptions import ConfigurationError, InvalidRequestError
 from src.core.config.app_config import AppConfig
 from src.core.domain.models_listing import ModelsListingResponse
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -26,6 +26,32 @@ ALIBABA_TOKEN_PLAN_INTL_DEFAULT_BASE_URL = (
 ALIBABA_TOKEN_PLAN_INTL_MODELS_BASE_URL = (
     "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
 )
+
+
+def _normalize_tool(tool: Any) -> dict[str, Any] | None:
+    if hasattr(tool, "model_dump"):
+        tool = tool.model_dump(exclude_none=True)
+    if not isinstance(tool, dict):
+        return None
+
+    function = tool.get("function")
+    source = function if isinstance(function, dict) else tool
+    name = source.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+
+    schema_key = "parameters" if isinstance(function, dict) else "input_schema"
+    schema = source.get(schema_key)
+    if not isinstance(schema, dict):
+        schema = {"type": "object", "properties": {}}
+    normalized: dict[str, Any] = {
+        "name": name.strip(),
+        "input_schema": schema,
+    }
+    description = source.get("description")
+    if isinstance(description, str) and description.strip():
+        normalized["description"] = description.strip()
+    return normalized
 
 
 class AlibabaTokenPlanIntlBackend(AnthropicBackend):
@@ -43,7 +69,10 @@ class AlibabaTokenPlanIntlBackend(AnthropicBackend):
         self.available_models = []
 
     async def initialize(self, **kwargs: Any) -> None:
-        api_key = os.environ.get(ALIBABA_TOKEN_PLAN_INTL_API_KEY_ENV, "").strip()
+        api_key, _ = get_env_value_with_windows_persistent_fallback(
+            ALIBABA_TOKEN_PLAN_INTL_API_KEY_ENV
+        )
+        api_key = (api_key or "").strip()
         if not api_key:
             raise ConfigurationError(
                 message=(
@@ -107,7 +136,19 @@ class AlibabaTokenPlanIntlBackend(AnthropicBackend):
                 if isinstance(message, dict)
                 else getattr(message, "role", None)
             )
-            if role in {"user", "system"}:
+            has_tool_calls = bool(
+                message.get("tool_calls")
+                if isinstance(message, dict)
+                else getattr(message, "tool_calls", None)
+            )
+            has_tool_call_id = bool(
+                message.get("tool_call_id")
+                if isinstance(message, dict)
+                else getattr(message, "tool_call_id", None)
+            )
+            if role in {"user", "system"} or (
+                role == "assistant" and has_tool_calls
+            ) or (role == "tool" and has_tool_call_id):
                 normalized_messages.append(message)
             elif isinstance(message, dict):
                 normalized_messages.append({**message, "role": "user"})
@@ -116,13 +157,55 @@ class AlibabaTokenPlanIntlBackend(AnthropicBackend):
             else:
                 normalized_messages.append(message)
 
-        return super()._prepare_anthropic_payload(
+        payload = super()._prepare_anthropic_payload(
             request_data,
             normalized_messages,
             effective_model,
             project,
             context,
         )
+        tool_choice = request_data.tool_choice
+        normalized_tool_choice = (
+            tool_choice.strip().lower() if isinstance(tool_choice, str) else tool_choice
+        )
+        if normalized_tool_choice not in (None, "auto", "none"):
+            # Token Plan accepts tools but currently rejects tool_choice.
+            raise InvalidRequestError(
+                message=(
+                    "Alibaba Token Plan supports only tool_choice='auto' or "
+                    "tool_choice='none'"
+                ),
+                code="unsupported_tool_choice",
+            )
+
+        if request_data.tools is not None:
+            normalized_tools: list[dict[str, Any]] = []
+            for index, tool in enumerate(request_data.tools):
+                normalized_tool = _normalize_tool(tool)
+                if normalized_tool is None:
+                    raise InvalidRequestError(
+                        message=f"Invalid tool definition at index {index}",
+                        code="invalid_tool_definition",
+                    )
+                normalized_tools.append(normalized_tool)
+
+            if normalized_tool_choice == "none":
+                payload.pop("tools", None)
+            else:
+                payload["tools"] = normalized_tools
+        payload.pop("tool_choice", None)
+
+        reasoning_effort = getattr(request_data, "reasoning_effort", None)
+        if isinstance(reasoning_effort, str) and reasoning_effort.strip():
+            payload.pop("reasoning_effort", None)
+            payload["thinking"] = {
+                "type": (
+                    "disabled"
+                    if reasoning_effort.strip().lower() == "none"
+                    else "enabled"
+                )
+            }
+        return payload
 
     async def _chat_completions_canonical(
         self, request: ConnectorChatCompletionsRequest
@@ -130,10 +213,27 @@ class AlibabaTokenPlanIntlBackend(AnthropicBackend):
         raw_model = strip_vendor_prefix(
             request.effective_model, ALIBABA_TOKEN_PLAN_INTL_BACKEND_TYPE
         )
-        env_api_key = os.environ.get(ALIBABA_TOKEN_PLAN_INTL_API_KEY_ENV, "").strip()
+        # Alibaba's catalog uses bare model IDs, while some clients qualify
+        # Model Studio models with the provider namespace.
+        raw_model = strip_vendor_prefix(raw_model, "alibaba")
+        extra_body = dict(request.request.extra_body or {})
+        if "model" in extra_body:
+            extra_body["model"] = raw_model
+        domain_request = request.request.model_copy(
+            update={"model": raw_model, "extra_body": extra_body}
+        )
+        env_api_key, _ = get_env_value_with_windows_persistent_fallback(
+            ALIBABA_TOKEN_PLAN_INTL_API_KEY_ENV
+        )
+        env_api_key = (env_api_key or "").strip()
         options = dict(request.options)
         options["api_key"] = env_api_key
-        normalized = replace(request, effective_model=raw_model, options=options)
+        normalized = replace(
+            request,
+            request=domain_request,
+            effective_model=raw_model,
+            options=options,
+        )
         return await super()._chat_completions_canonical(normalized)
 
 

@@ -303,7 +303,9 @@ class TestPhaseExecutor:
             )
 
             assert result.__class__.__name__ == "ReasoningPhaseResult"
-            mock_validator.validate_and_normalize.assert_called_once_with(uri_params)
+            mock_validator.validate_and_normalize.assert_called_once_with(
+                uri_params, backend_type="openai"
+            )
 
     @pytest.mark.asyncio
     async def test_execute_reasoning_phase_stream_cancellation(
@@ -475,7 +477,9 @@ class TestPhaseExecutor:
                 uri_params=uri_params,
             )
 
-            mock_validator.validate_and_normalize.assert_called_once_with(uri_params)
+            mock_validator.validate_and_normalize.assert_called_once_with(
+                uri_params, backend_type="openai"
+            )
 
     @pytest.mark.asyncio
     async def test_execute_execution_phase_backend_registry_none(

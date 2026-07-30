@@ -32,6 +32,16 @@ alibaba-token-plan-intl:qwen3.7-plus
 
 Use the colon form for explicit routing. Model IDs returned by `/v1/models` are discovery identifiers and may use a slash-prefixed display form.
 
+### Thinking Mode
+
+Qwen models use Alibaba's Anthropic-compatible `thinking` switch rather than graded `reasoning_effort` values. In a model URI, `reasoning_effort=none` sends `thinking.type=disabled`; any other non-empty value sends `thinking.type=enabled`. For example:
+
+```text
+alibaba-token-plan-intl:qwen3.8-max-preview?reasoning_effort=high
+```
+
+The effort name does not control thinking intensity for Qwen. It is only a proxy-compatible on/off selector. If no `reasoning_effort` is supplied, the connector leaves the provider's thinking default unchanged. Thinking-only models, including `qwen3.8-max-preview`, reject `reasoning_effort=none`; use `none` only with a hybrid-thinking model that supports disabling thinking.
+
 ## Model Discovery
 
 The backend does not hardcode Token Plan models. During backend initialization it queries Alibaba's Token Plan `/models` catalog, caches the resulting connector-instance snapshot, and publishes the models through the proxy's standard discovery and routing interfaces. This ensures `/v1/models` and automated routing expose only models currently enabled for the plan rather than the full Alibaba Model Studio catalog.
@@ -52,7 +62,7 @@ The completion endpoint can be overridden with `anthropic_api_base_url` or `api_
 
 ## Message Compatibility
 
-Alibaba's Token Plan Messages endpoint is stricter than the standard Anthropic API for message roles. The connector preserves `system` and `user`; every other incoming role, including `assistant`, `developer`, and unknown roles, is converted to `user` before transmission. System content is emitted through the Anthropic top-level `system` field.
+Alibaba's Token Plan Messages endpoint is stricter than the standard Anthropic API for message roles. The connector preserves `system` and `user`, along with structured assistant tool calls and their matching tool results. Plain assistant messages, `developer`, and unknown roles are converted to `user` before transmission. System content is emitted through the Anthropic top-level `system` field.
 
 The backend supports streaming through the proxy's OpenAI Chat Completions frontend:
 

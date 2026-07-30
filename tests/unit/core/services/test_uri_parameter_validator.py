@@ -229,6 +229,30 @@ class TestURIParameterValidator:
         assert normalized == {"reasoning_effort": "max"}
         assert errors == []
 
+    def test_reasoning_effort_valid_none(self, validator):
+        """Alibaba Token Plan accepts the provider-specific 'none' value."""
+        params = {"reasoning_effort": "none"}
+        normalized, errors = validator.validate_and_normalize(
+            params, backend_type="alibaba-token-plan-intl"
+        )
+
+        assert normalized == {"reasoning_effort": "none"}
+        assert errors == []
+
+    @pytest.mark.parametrize("backend_type", [None, "anthropic"])
+    def test_reasoning_effort_none_rejected_for_other_backends(
+        self, validator, backend_type
+    ):
+        """Provider-specific 'none' must not leak into unrelated backends."""
+        normalized, errors = validator.validate_and_normalize(
+            {"reasoning_effort": "none"}, backend_type=backend_type
+        )
+
+        assert normalized == {}
+        assert errors == [
+            "reasoning_effort: 'none' is supported only by alibaba-token-plan-intl"
+        ]
+
     def test_reasoning_effort_invalid_value(self, validator):
         """Test reasoning_effort validation with invalid value."""
         params = {"reasoning_effort": "extreme"}
@@ -402,7 +426,7 @@ class TestURIParameterValidator:
         params = {"temperature": "5.0"}
 
         with caplog.at_level(logging.ERROR):
-            normalized, errors = validator.validate_and_normalize(params)
+            validator.validate_and_normalize(params)
 
         assert "Invalid URI parameter value" in caplog.text
         assert "temperature=5.0" in caplog.text
@@ -423,7 +447,7 @@ class TestURIParameterValidator:
     def test_error_messages_descriptive(self, validator):
         """Test that error messages are descriptive and helpful."""
         params = {"temperature": "3.0"}
-        normalized, errors = validator.validate_and_normalize(params)
+        _, errors = validator.validate_and_normalize(params)
 
         assert len(errors) == 1
         error_msg = errors[0]

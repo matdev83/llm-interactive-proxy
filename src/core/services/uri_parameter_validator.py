@@ -42,7 +42,7 @@ class URIParameterValidator:
         },
         "reasoning_effort": {
             "type": str,
-            "allowed": ["low", "medium", "high", "xhigh", "max"],
+            "allowed": ["none", "low", "medium", "high", "xhigh", "max"],
             "description": (
                 "Controls computational effort for reasoning (includes provider-specific "
                 "levels such as xhigh and max where the upstream API supports them)"
@@ -70,13 +70,14 @@ class URIParameterValidator:
     }
 
     def validate_and_normalize(
-        self, params: dict[str, Any]
+        self, params: dict[str, Any], backend_type: str | None = None
     ) -> tuple[dict[str, JsonValue], list[str]]:
         """
         Validate and normalize URI parameters.
 
         Args:
             params: Raw URI parameters extracted from model string
+            backend_type: Optional backend used for provider-specific validation
 
         Returns:
             Tuple of (normalized_params, validation_errors)
@@ -148,6 +149,15 @@ class URIParameterValidator:
                         f"{param_name}: unsupported parameter type"
                     )
                     continue
+
+                if (
+                    param_name == "reasoning_effort"
+                    and normalized_value == "none"
+                    and backend_type != "alibaba-token-plan-intl"
+                ):
+                    raise ValueError(
+                        "'none' is supported only by alibaba-token-plan-intl"
+                    )
 
                 # Add to normalized params if validation passed
                 normalized_params[param_name] = normalized_value
