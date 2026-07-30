@@ -711,6 +711,7 @@ class TestCursorCliAcpRuntimeReuse:
             )
 
         assert runtime is expected
+        assert acquire.await_args is not None
         passed = acquire.await_args.args[0]
         assert passed.effective_model == "cursor-grok-4.5-high"
 
@@ -1365,6 +1366,29 @@ class TestCursorCliDualAuthDiscovery:
                 requested_model="grok-4.5-high",
             )
             == "cursor-grok-4.5-high"
+        )
+
+    def test_resolve_cursor_cli_model_id_explicitly_disables_fast_variant(self) -> None:
+        cli_ids = {
+            "cursor/composer-2.5": "composer-2.5",
+            "cursor/composer-2.5-fast": "composer-2.5-fast",
+        }
+
+        assert (
+            resolve_cursor_cli_model_id(
+                "cursor/composer-2.5",
+                cli_ids=cli_ids,
+                requested_model="composer-2.5",
+            )
+            == "composer-2.5[fast=false]"
+        )
+        assert (
+            resolve_cursor_cli_model_id(
+                "cursor/composer-2.5-fast",
+                cli_ids=cli_ids,
+                requested_model="composer-2.5-fast",
+            )
+            == "composer-2.5-fast"
         )
 
     def test_build_cursor_cli_env_modes(self) -> None:

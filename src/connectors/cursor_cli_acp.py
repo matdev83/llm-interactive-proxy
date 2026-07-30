@@ -99,6 +99,8 @@ def resolve_cursor_cli_model_id(
 
     mapped = cli_ids.get(advertised)
     if mapped:
+        if f"{advertised}-fast" in cli_ids:
+            return f"{mapped}[fast=false]"
         return mapped
     stripped = strip_vendor_prefix(requested_model or advertised, "cursor")
     if not stripped:
