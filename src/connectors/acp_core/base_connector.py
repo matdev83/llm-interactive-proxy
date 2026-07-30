@@ -34,6 +34,7 @@ from src.connectors.acp_core.tool_markdown import (
 )
 from src.connectors.acp_core.transcript import ACPTranscriptSerializer
 from src.connectors.acp_core.types import (
+    ACPError,
     ACPNotification,
     ACPProcessRuntime,
     ACPSessionUpdate,
@@ -87,6 +88,24 @@ ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS = 12.0
 # Default idle delay after a completed chat turn before terminating the pooled ACP child.
 # Override with ``stale_acp_agent_kill_idle_seconds`` (config / env / CLI).
 DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS = 3600.0
+
+
+def _format_acp_error(error: ACPError) -> str:
+    """Include JSON-RPC error data that generic ACP messages otherwise hide."""
+    message = error.message.strip() or "Unknown ACP error"
+    detail: str | None = None
+    if isinstance(error.data, str):
+        detail = error.data.strip()
+    elif isinstance(error.data, dict):
+        for key in ("error", "message", "details"):
+            value = error.data.get(key)
+            if isinstance(value, str) and value.strip():
+                detail = value.strip()
+                break
+
+    if detail and detail.casefold() not in message.casefold():
+        return f"{message}: {detail}"
+    return message
 _STALE_ACP_KILL_DELAY_MAX_SECONDS = 604800.0  # 7 days
 # Increment when the canonicalization used for ACP history prefix hashes changes.
 HISTORY_PREFIX_HASH_VERSION = 2
@@ -1340,7 +1359,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 if response.id == prompt_request_id:
                     if response.is_error and response.error is not None:
                         raise BackendError(
-                            message=f"ACP process error: {response.error.message}",
+                            message=(
+                                "ACP process error: "
+                                f"{_format_acp_error(response.error)}"
+                            ),
                             details=response.error.model_dump(),
                         )
                     if runtime.acp_thinking_block_open:

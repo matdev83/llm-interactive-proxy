@@ -109,6 +109,41 @@ def connector() -> DummyAcpConnector:
 
 
 @pytest.mark.asyncio
+async def test_acp_error_includes_structured_detail(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "dummy/model")
+    runtime.session_id = "dummy-session"
+    response = ACPNotification(
+        id=7,
+        error={
+            "code": -32603,
+            "message": "Internal error",
+            "data": {"error": "Gemini quota exhausted for this account"},
+        },
+    )
+
+    with (
+        patch.object(connector, "_read_jsonrpc_message", AsyncMock(return_value=response)),
+        pytest.raises(
+            BackendError,
+            match=(
+                "ACP process error: Internal error: "
+                "Gemini quota exhausted for this account"
+            ),
+        ) as exc_info,
+    ):
+        await connector._iter_acp_stream_pieces(
+            runtime, 7, "dummy/model"
+        ).__anext__()
+
+    assert exc_info.value.details["code"] == -32603
+    assert exc_info.value.details["data"] == {
+        "error": "Gemini quota exhausted for this account"
+    }
+
+
+@pytest.mark.asyncio
 async def test_windows_terminate_kills_tree_before_root_process(
     connector: DummyAcpConnector,
 ) -> None:
