@@ -19,6 +19,7 @@ _TERMINAL_TOOL_STATUSES = frozenset(
         "done",
     }
 )
+_MAX_TOOL_ARGUMENT_CHARS = 1024
 
 
 def utc_now_iso() -> str:
@@ -68,10 +69,14 @@ def _filtered_tool_input_fallback(tc: dict[str, Any]) -> Any | None:
     for key, value in tc.items():
         if key in excluded_keys or value is None:
             continue
-        if (
-            key in {"rawInput", "rawArguments", "arguments", "input", "params", "args"}
-            and _is_placeholder_tool_input(value)
-        ):
+        if key in {
+            "rawInput",
+            "rawArguments",
+            "arguments",
+            "input",
+            "params",
+            "args",
+        } and _is_placeholder_tool_input(value):
             continue
         if key == "function" and isinstance(value, dict):
             function_fallback = {
@@ -80,8 +85,7 @@ def _filtered_tool_input_fallback(tc: dict[str, Any]) -> Any | None:
                 if inner_key != "name"
                 and inner_value is not None
                 and not (
-                    inner_key == "arguments"
-                    and _is_placeholder_tool_input(inner_value)
+                    inner_key == "arguments" and _is_placeholder_tool_input(inner_value)
                 )
             }
             if function_fallback:
@@ -94,24 +98,57 @@ def _filtered_tool_input_fallback(tc: dict[str, Any]) -> Any | None:
 def format_acp_tool_completion_summary(
     tool_name: str,
     *,
+    input_payload: Any | None,
     input_bytes: int,
     output_bytes: int,
     started_iso: str,
     ended_iso: str,
     elapsed_s: float,
 ) -> str:
-    """Single compact fenced block after a tool finishes (no raw I/O)."""
+    """Single compact fenced block after a tool finishes."""
     lines = [
         "---",
         "```text",
         f"Tool: {tool_name}",
-        f"Input size: {input_bytes} bytes",
-        f"Started: {started_iso}",
-        f"Ended: {ended_iso} ({elapsed_s:.3f} s)",
-        f"Output size: {output_bytes} bytes",
-        "```",
-        "",
     ]
+    if input_payload is not None:
+        if isinstance(input_payload, str):
+            try:
+                render_value = json.loads(input_payload)
+            except (json.JSONDecodeError, TypeError):
+                rendered_input = input_payload
+            else:
+                rendered_input = json.dumps(
+                    render_value,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    default=str,
+                )
+        else:
+            try:
+                rendered_input = json.dumps(
+                    input_payload,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    default=str,
+                )
+            except (TypeError, ValueError):
+                rendered_input = str(input_payload)
+        if len(rendered_input) > _MAX_TOOL_ARGUMENT_CHARS:
+            rendered_input = (
+                rendered_input[:_MAX_TOOL_ARGUMENT_CHARS].rstrip() + "… [truncated]"
+            )
+        lines.append(f"Arguments: {rendered_input}")
+    lines.extend(
+        [
+            f"Input size: {input_bytes} bytes",
+            f"Started: {started_iso}",
+            f"Ended: {ended_iso} ({elapsed_s:.3f} s)",
+            f"Output size: {output_bytes} bytes",
+            "```",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -228,7 +265,7 @@ def _acp_merge_tool_root_keys(
 
 
 def iter_coalesced_acp_tool_session_dicts(
-    update: dict[str, Any]
+    update: dict[str, Any],
 ) -> Iterator[dict[str, Any]]:
     """Yield one merged tool dict per ``toolCall`` entry (lists are not squashed)."""
     nested = (

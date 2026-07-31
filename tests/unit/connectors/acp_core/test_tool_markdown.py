@@ -30,6 +30,7 @@ def test_extract_tool_fields() -> None:
 def test_format_acp_tool_completion_summary_shape() -> None:
     text = format_acp_tool_completion_summary(
         "list_dir",
+        input_payload={"path": "src", "depth": 2},
         input_bytes=12,
         output_bytes=34,
         started_iso="2026-01-01T00:00:00+00:00",
@@ -37,12 +38,30 @@ def test_format_acp_tool_completion_summary_shape() -> None:
         elapsed_s=1.25,
     )
     assert text.startswith("---\n```text\nTool: list_dir")
+    assert 'Arguments: {"path":"src","depth":2}' in text
     assert "Input size: 12 bytes" in text
     assert "Output size: 34 bytes" in text
     assert "Started: 2026-01-01T00:00:00+00:00" in text
     assert "Ended: 2026-01-01T00:00:01+00:00" in text
     assert "(1.250 s)" in text
     assert text.endswith("```\n")
+
+
+def test_format_acp_tool_completion_summary_truncates_large_arguments() -> None:
+    text = format_acp_tool_completion_summary(
+        "grep_search",
+        input_payload={"query": "x" * 5000},
+        input_bytes=5012,
+        output_bytes=0,
+        started_iso="2026-01-01T00:00:00+00:00",
+        ended_iso="2026-01-01T00:00:01+00:00",
+        elapsed_s=1.0,
+    )
+    arguments_line = next(
+        line for line in text.splitlines() if line.startswith("Arguments: ")
+    )
+    assert len(arguments_line.encode("utf-8")) <= 1100
+    assert arguments_line.endswith("… [truncated]")
 
 
 def test_payload_utf8_byte_length() -> None:

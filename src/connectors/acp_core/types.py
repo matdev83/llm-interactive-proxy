@@ -95,7 +95,7 @@ class AcpSubprocessIdentity:
 
 @dataclass(slots=True)
 class AcpToolStreamAccum:
-    """Per-tool-call state for one ACP prompt stream (sizes and timing only)."""
+    """Per-tool-call state for one ACP prompt stream."""
 
     tool_name: str = "tool"
     started_wall_iso: str = ""
@@ -105,6 +105,7 @@ class AcpToolStreamAccum:
     summary_emitted: bool = False
     #: Terminal status arrived before any output bytes were observed.
     pending_terminal_summary: bool = False
+    last_input: Any | None = None
     last_input_bytes: int = 0
     last_output_bytes: int = 0
 

@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.acp_core.base_connector import BaseAcpConnector
-from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
+from src.connectors.acp_core.types import ACPError, ACPNotification, ACPProcessRuntime
 from src.connectors.acp_core.types import AcpStreamPiece as AcpStreamPiece
 from src.connectors.acp_core.workspace_policy import ACP_MISSING_PROJECT_WORKSPACE_CODE
 from src.connectors.contracts import (
@@ -116,15 +116,17 @@ async def test_acp_error_includes_structured_detail(
     runtime.session_id = "dummy-session"
     response = ACPNotification(
         id=7,
-        error={
-            "code": -32603,
-            "message": "Internal error",
-            "data": {"error": "Gemini quota exhausted for this account"},
-        },
+        error=ACPError(
+            code=-32603,
+            message="Internal error",
+            data={"error": "Gemini quota exhausted for this account"},
+        ),
     )
 
     with (
-        patch.object(connector, "_read_jsonrpc_message", AsyncMock(return_value=response)),
+        patch.object(
+            connector, "_read_jsonrpc_message", AsyncMock(return_value=response)
+        ),
         pytest.raises(
             BackendError,
             match=(
@@ -133,9 +135,7 @@ async def test_acp_error_includes_structured_detail(
             ),
         ) as exc_info,
     ):
-        await connector._iter_acp_stream_pieces(
-            runtime, 7, "dummy/model"
-        ).__anext__()
+        await connector._iter_acp_stream_pieces(runtime, 7, "dummy/model").__anext__()
 
     assert exc_info.value.details["code"] == -32603
     assert exc_info.value.details["data"] == {
@@ -514,8 +514,8 @@ def test_session_update_tool_call_emits_summary_when_completed(
     assert "Status:" not in joined
     assert joined.startswith("---\n```text\nTool: read_file")
     assert "Tool: read_file" in joined
+    assert 'Arguments: {"path":"/x"}' in joined
     assert "Input size:" in joined
-    assert "/x" not in joined
 
 
 def test_session_update_tool_call_update_emits_status_and_size_summary(

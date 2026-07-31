@@ -106,6 +106,8 @@ def _format_acp_error(error: ACPError) -> str:
     if detail and detail.casefold() not in message.casefold():
         return f"{message}: {detail}"
     return message
+
+
 _STALE_ACP_KILL_DELAY_MAX_SECONDS = 604800.0  # 7 days
 # Increment when the canonicalization used for ACP history prefix hashes changes.
 HISTORY_PREFIX_HASH_VERSION = 2
@@ -1084,7 +1086,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         acc: AcpToolStreamAccum, merged: dict[str, Any]
     ) -> None:
         inp = extract_tool_input(merged)
-        acc.last_input_bytes = max(acc.last_input_bytes, payload_utf8_byte_length(inp))
+        input_bytes = payload_utf8_byte_length(inp)
+        if inp is not None and input_bytes >= acc.last_input_bytes:
+            acc.last_input = inp
+            acc.last_input_bytes = input_bytes
         out = extract_tool_output(merged)
         if out is not None:
             acc.last_output_bytes = max(
@@ -1123,6 +1128,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         elapsed = max(0.0, end_perf - started_perf)
         text = format_acp_tool_completion_summary(
             acc.tool_name,
+            input_payload=acc.last_input,
             input_bytes=acc.last_input_bytes,
             output_bytes=acc.last_output_bytes,
             started_iso=acc.started_wall_iso,
