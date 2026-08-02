@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 def _tool_call_dicts_have_meaningful_arguments(
-    tool_calls: list[dict[str, Any]]
+    tool_calls: list[dict[str, Any]],
 ) -> bool:
     """True if any tool call carries non-empty JSON/object arguments (not ``{}``)."""
     for tc in tool_calls:
@@ -966,8 +966,16 @@ class SSESerializer:
         if not is_virtual:
             self._inject_tool_calls(delta, chunk.metadata.tool_calls)
 
-        if not content.metadata.get("_suppress_reasoning_fields"):
-            self._inject_reasoning_content(delta, chunk.metadata.reasoning_content)
+        reasoning = chunk.metadata.reasoning_content
+        suppress_reasoning = bool(content.metadata.get("_suppress_reasoning_fields"))
+        if not suppress_reasoning:
+            self._inject_reasoning_content(delta, reasoning)
+        elif content.metadata.get("_keep_reasoning_content"):
+            # Normalized provider streams carry reasoning in metadata rather than
+            # inside an OpenAI-shaped payload. Preserve it for clients that opt
+            # into the canonical reasoning_content field even when aliases are
+            # suppressed.
+            self._inject_reasoning_content(delta, reasoning)
 
     def _serialize_normal_chunk(
         self, chunk: StreamingChunk, content: StreamingContent
@@ -1097,6 +1105,20 @@ class SSESerializer:
                     delta["content"] = ""
         else:
             delta["content"] = ""
+
+        reasoning = chunk.metadata.reasoning_content
+        suppress_reasoning = bool(content.metadata.get("_suppress_reasoning_fields"))
+        if (
+            suppress_reasoning
+            and not content.metadata.get("_keep_reasoning_content")
+            and content.metadata.get("_coerce_reasoning_into_content", True)
+            and reasoning
+            and not delta.get("content")
+        ):
+            # The coerce policy must also work for metadata-only chunks. The
+            # existing alias sanitizer handles dict payloads, but normalized
+            # Anthropic/Alibaba thinking chunks have no content payload to edit.
+            delta["content"] = reasoning
 
         created = (
             content.metadata.get("created")

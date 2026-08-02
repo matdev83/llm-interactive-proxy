@@ -66,6 +66,56 @@ class TestStreamingReasoningRegression:
         assert "reasoning_content" in delta
         assert delta["reasoning_content"] == "I am thinking..."
 
+    def test_sse_serializer_coerces_metadata_reasoning_to_content(self) -> None:
+        """Coercion must handle normalized metadata-only reasoning chunks."""
+        serializer = SSESerializer()
+        content = StreamingContent(
+            content="",
+            metadata={
+                "reasoning_content": "full thinking fragment",
+                "_suppress_reasoning_fields": True,
+                "_coerce_reasoning_into_content": True,
+                "model": "qwen3.7-plus",
+            },
+        )
+
+        payload = json.loads(
+            next(
+                line[6:]
+                for line in serializer.serialize(content).decode().splitlines()
+                if line.startswith("data: {")
+            )
+        )
+
+        assert payload["choices"][0]["delta"] == {"content": "full thinking fragment"}
+
+    def test_sse_serializer_keeps_metadata_reasoning_when_requested(self) -> None:
+        """Keep mode must preserve canonical reasoning for normalized chunks."""
+        serializer = SSESerializer()
+        content = StreamingContent(
+            content="",
+            metadata={
+                "reasoning_content": "full thinking fragment",
+                "_suppress_reasoning_fields": True,
+                "_keep_reasoning_content": True,
+                "_coerce_reasoning_into_content": False,
+                "model": "qwen3.7-plus",
+            },
+        )
+
+        payload = json.loads(
+            next(
+                line[6:]
+                for line in serializer.serialize(content).decode().splitlines()
+                if line.startswith("data: {")
+            )
+        )
+
+        assert payload["choices"][0]["delta"] == {
+            "reasoning_content": "full thinking fragment",
+            "content": "",
+        }
+
     @pytest.mark.asyncio
     async def test_content_accumulation_extracts_reasoning(self) -> None:
         """
