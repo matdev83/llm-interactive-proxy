@@ -138,6 +138,7 @@ leveldb_test/
 
 # Cache directory
 var/cache/
+.codegraph/
 
 # Local test configs
 config/configtest1.yaml
