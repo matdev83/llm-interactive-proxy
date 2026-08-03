@@ -423,6 +423,16 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 metadata_out["tool_calls"] = unique_calls
             if state.reasoning_chunks:
                 metadata_out["accumulated_reasoning"] = "".join(state.reasoning_chunks)
+                current_metadata = content.metadata or {}
+                reasoning_keys = (
+                    "reasoning_content",
+                    "reasoning",
+                    "thinking",
+                    "thought",
+                )
+                if not any(current_metadata.get(key) for key in reasoning_keys):
+                    for key in reasoning_keys:
+                        metadata_out.pop(key, None)
             metadata_out["accumulated_content"] = final_content
 
             state.chunks.clear()

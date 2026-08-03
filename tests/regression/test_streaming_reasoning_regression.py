@@ -157,6 +157,61 @@ class TestStreamingReasoningRegression:
         assert final_result.metadata.get("accumulated_content") == "Hello"
         assert final_result.metadata.get("accumulated_reasoning") == "Thinking..."
 
+    @pytest.mark.asyncio
+    async def test_tool_call_terminal_does_not_repeat_last_reasoning_fragment(
+        self,
+    ) -> None:
+        """A terminal tool-call chunk must not re-emit stale reasoning metadata."""
+        registry = StreamingContextRegistry()
+        processor = ContentAccumulationProcessor(registry=registry)
+        stream_id = "alibaba-tool-reasoning-stream"
+
+        await processor.process(
+            StreamingContent(
+                content="",
+                metadata={
+                    "stream_id": stream_id,
+                    "reasoning_content": "The git log output was empty? ",
+                },
+            )
+        )
+        await processor.process(
+            StreamingContent(
+                content="",
+                metadata={
+                    "stream_id": stream_id,
+                    "reasoning_content": "retry.",
+                },
+            )
+        )
+
+        final_result = await processor.process(
+            StreamingContent(
+                content="",
+                is_done=True,
+                metadata={
+                    "stream_id": stream_id,
+                    "finish_reason": "tool_calls",
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "toolu_1",
+                            "type": "function",
+                            "function": {"name": "bash", "arguments": "{}"},
+                        }
+                    ],
+                },
+            )
+        )
+
+        assert final_result.metadata["accumulated_reasoning"] == (
+            "The git log output was empty? retry."
+        )
+        assert "reasoning_content" not in final_result.metadata
+        assert "reasoning" not in final_result.metadata
+        assert "thinking" not in final_result.metadata
+        assert "thought" not in final_result.metadata
+
     def test_openai_translator_includes_reasoning_alias(self) -> None:
         """
         Regression test: Ensure OpenAI translator includes 'reasoning' alias
