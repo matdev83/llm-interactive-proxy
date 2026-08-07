@@ -56,20 +56,27 @@ class RateLimitRegistry:
     ) -> float | None:
         """Return earliest retry timestamp for given combinations."""
         now = time.time()
-        valid_times: list[float] = []
 
         with self._lock:
             if combos is None or not combos:  # Changed: handle empty list like None
-                # Iterate over all items in the cache
-                for key, ts in list(
-                    self._until.items()
-                ):  # Use list() to iterate over a copy
+                min_ts: float | None = None
+                keys_to_delete = []
+
+                # Iterate over all items in the cache directly
+                for key, ts in self._until.items():
                     if now >= ts:
-                        with contextlib.suppress(KeyError):
-                            del self._until[key]
+                        keys_to_delete.append(key)
                         continue
-                    valid_times.append(ts)
+                    if min_ts is None or ts < min_ts:
+                        min_ts = ts
+
+                for key in keys_to_delete:
+                    with contextlib.suppress(KeyError):
+                        del self._until[key]
+
+                return min_ts
             else:
+                min_ts: float | None = None
                 for backend, model, key_name in combos:
                     key = (backend, model or "", key_name)
                     retry_ts: float | None = self._until.get(key)
@@ -79,11 +86,10 @@ class RateLimitRegistry:
                         with contextlib.suppress(KeyError):
                             del self._until[key]
                         continue
-                    valid_times.append(retry_ts)
+                    if min_ts is None or retry_ts < min_ts:
+                        min_ts = retry_ts
 
-        if not valid_times:
-            return None
-        return min(valid_times)
+                return min_ts
 
 
 def _find_retry_delay_in_details(details_list: list[Any]) -> float | None:
