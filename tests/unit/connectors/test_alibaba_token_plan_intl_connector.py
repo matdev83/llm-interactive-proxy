@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -189,7 +190,7 @@ def test_payload_rejects_unsupported_tool_choice(tool_choice: object) -> None:
                 },
             }
         ],
-        tool_choice=tool_choice,
+        tool_choice=cast(str | dict[str, Any], tool_choice),
     )
 
     with pytest.raises(InvalidRequestError, match="supports only tool_choice"):
@@ -209,7 +210,7 @@ def test_payload_rejects_unsupported_tool_choice_without_tools(
     request = CanonicalChatRequest(
         model="qwen3.7-plus",
         messages=[ChatMessage(role="user", content="check status")],
-        tool_choice=tool_choice,
+        tool_choice=cast(str | dict[str, Any], tool_choice),
     )
 
     with pytest.raises(InvalidRequestError, match="supports only tool_choice"):
@@ -230,7 +231,7 @@ def test_payload_rejects_invalid_tool_definition(tool: object) -> None:
     request = CanonicalChatRequest(
         model="qwen3.7-plus",
         messages=[ChatMessage(role="user", content="check status")],
-        tools=[tool],
+        tools=cast(list[dict[str, Any]], [tool]),
     )
 
     with pytest.raises(InvalidRequestError, match="Invalid tool definition at index 0"):
@@ -309,16 +310,19 @@ def test_payload_preserves_structured_tool_history() -> None:
             ChatMessage(
                 role="assistant",
                 content="",
-                tool_calls=[
-                    {
-                        "id": "call_1",
-                        "type": "function",
-                        "function": {
-                            "name": "bash",
-                            "arguments": '{"command":"git status"}',
-                        },
-                    }
-                ],
+                tool_calls=cast(
+                    Any,
+                    [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command":"git status"}',
+                            },
+                        }
+                    ],
+                ),
             ),
             ChatMessage(role="tool", content="clean", tool_call_id="call_1"),
         ],
@@ -328,8 +332,7 @@ def test_payload_preserves_structured_tool_history() -> None:
 
     assert payload["messages"][0]["role"] == "assistant"
     assert any(
-        block["type"] == "tool_use"
-        for block in payload["messages"][0]["content"]
+        block["type"] == "tool_use" for block in payload["messages"][0]["content"]
     )
     assert payload["messages"][1] == {
         "role": "user",
@@ -343,7 +346,7 @@ def test_payload_preserves_structured_tool_history() -> None:
     }
 
 
-def test_payload_converts_every_non_user_or_system_role_to_user() -> None:
+def test_payload_preserves_assistant_role_in_conversation_history() -> None:
     backend = _backend()
     request = CanonicalChatRequest(
         model="qwen3.7-plus",
@@ -364,10 +367,63 @@ def test_payload_converts_every_non_user_or_system_role_to_user() -> None:
 
     assert payload["system"] == "rules"
     assert payload["messages"] == [
-        {"role": "user", "content": "previous answer"},
+        {"role": "assistant", "content": "previous answer"},
         {"role": "user", "content": "extra rules"},
         {"role": "user", "content": "question"},
     ]
+
+
+def test_payload_preserves_interleaved_reasoning_before_tool_use() -> None:
+    backend = _backend()
+    request = CanonicalChatRequest(
+        model="qwen3.8-max-preview",
+        messages=[ChatMessage(role="user", content="unused")],
+        reasoning_effort="high",
+    )
+
+    payload = backend._prepare_anthropic_payload(
+        request,
+        [
+            ChatMessage(role="user", content="Inspect the repository"),
+            ChatMessage(
+                role="assistant",
+                content="",
+                reasoning_content="I need to inspect the steering files first.",
+                tool_calls=cast(
+                    Any,
+                    [
+                        {
+                            "id": "toolu_1",
+                            "type": "function",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command":"git log -5"}',
+                            },
+                        }
+                    ],
+                ),
+            ),
+            ChatMessage(
+                role="tool",
+                tool_call_id="toolu_1",
+                content="commit output",
+            ),
+        ],
+        "qwen3.8-max-preview",
+        None,
+    )
+
+    assistant_content = payload["messages"][1]["content"]
+    assert assistant_content[0] == {
+        "type": "thinking",
+        "thinking": "I need to inspect the steering files first.",
+    }
+    assert assistant_content[1]["type"] == "tool_use"
+    assert payload["messages"][2]["content"][0] == {
+        "type": "tool_result",
+        "tool_use_id": "toolu_1",
+        "content": "commit output",
+    }
 
 
 @pytest.mark.parametrize(
@@ -424,6 +480,7 @@ async def test_stream_completion_sends_extended_thinking_beta_header() -> None:
         chunks = [chunk async for chunk in backend.stream_completion(request)]
 
     assert chunks == ['data: {"type":"message_stop"}']
+    assert capture_client.send.await_args is not None
     upstream_request = capture_client.send.await_args.args[0]
     assert (
         upstream_request.headers["anthropic-beta"]
@@ -460,6 +517,7 @@ async def test_stream_completion_omits_beta_header_when_thinking_disabled() -> N
         chunks = [chunk async for chunk in backend.stream_completion(request)]
 
     assert chunks == ['data: {"type":"message_stop"}']
+    assert capture_client.send.await_args is not None
     upstream_request = capture_client.send.await_args.args[0]
     assert "anthropic-beta" not in upstream_request.headers
     await backend.client.aclose()

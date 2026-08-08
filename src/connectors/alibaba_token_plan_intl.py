@@ -136,19 +136,37 @@ class AlibabaTokenPlanIntlBackend(AnthropicBackend):
                 if isinstance(message, dict)
                 else getattr(message, "role", None)
             )
-            has_tool_calls = bool(
-                message.get("tool_calls")
-                if isinstance(message, dict)
-                else getattr(message, "tool_calls", None)
-            )
+            if role == "assistant":
+                reasoning_content = (
+                    message.get("reasoning_content")
+                    if isinstance(message, dict)
+                    else getattr(message, "reasoning_content", None)
+                )
+                if isinstance(reasoning_content, str) and reasoning_content:
+                    content = (
+                        message.get("content")
+                        if isinstance(message, dict)
+                        else getattr(message, "content", None)
+                    )
+                    content_blocks: list[Any] = [
+                        {"type": "thinking", "thinking": reasoning_content}
+                    ]
+                    if isinstance(content, list | tuple):
+                        content_blocks.extend(content)
+                    elif isinstance(content, str) and content:
+                        content_blocks.append({"type": "text", "text": content})
+                    if isinstance(message, dict):
+                        message = {**message, "content": content_blocks}
+                    elif hasattr(message, "model_copy"):
+                        message = message.model_copy(update={"content": content_blocks})
             has_tool_call_id = bool(
                 message.get("tool_call_id")
                 if isinstance(message, dict)
                 else getattr(message, "tool_call_id", None)
             )
-            if role in {"user", "system"} or (
-                role == "assistant" and has_tool_calls
-            ) or (role == "tool" and has_tool_call_id):
+            if role in {"user", "system", "assistant"} or (
+                role == "tool" and has_tool_call_id
+            ):
                 normalized_messages.append(message)
             elif isinstance(message, dict):
                 normalized_messages.append({**message, "role": "user"})
