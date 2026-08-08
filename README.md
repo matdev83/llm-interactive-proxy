@@ -245,6 +245,5 @@ python -m ruff check --fix .
 python -m black .
 ```
 See the [Development Guide](docs/development_guide/index.md) for architecture, contribution workflow, and extra dev scripts.
-
 ## Support & License
 [GitHub Issues](https://github.com/matdev83/llm-interactive-proxy/issues) and [Discussions](https://github.com/matdev83/llm-interactive-proxy/discussions). Licensed under [GNU AGPL v3.0 or later](LICENSE).

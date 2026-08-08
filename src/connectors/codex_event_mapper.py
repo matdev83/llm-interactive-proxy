@@ -203,6 +203,7 @@ class CodexEventMapper:
         )
         text = format_acp_tool_completion_summary(
             _command_basename(actual_command) or "command",
+            input_payload=None,
             input_bytes=len(actual_command.encode("utf-8")),
             # Only the output SIZE is surfaced (ACP-style); raw stdout is never streamed.
             output_bytes=output_bytes,
@@ -226,6 +227,7 @@ class CodexEventMapper:
         ended_dt = datetime.now(timezone.utc)
         text = format_acp_tool_completion_summary(
             _FILE_CHANGE_TYPE,
+            input_payload=None,
             input_bytes=len(", ".join(paths).encode("utf-8")) if paths else 0,
             # The diff body is never streamed; output size stays 0.
             output_bytes=0,
