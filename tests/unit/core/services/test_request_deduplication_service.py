@@ -407,6 +407,21 @@ class TestStatusAwareDeduplication:
         assert is_dup is True, "Retry after 400 should be blocked"
 
     @pytest.mark.asyncio
+    async def test_request_outcome_exposes_blocked_status_code(
+        self, service, sample_request
+    ):
+        """Callers can distinguish a cached upstream 403 from a successful duplicate."""
+        is_dup, content_hash, _ = await service.check_and_register(
+            sample_request, "session-1"
+        )
+        assert is_dup is False
+
+        await service.mark_request_complete(content_hash, "session-1", status_code=403)
+
+        outcome = await service.get_request_outcome(content_hash, "session-1")
+        assert outcome == ("success", 403)
+
+    @pytest.mark.asyncio
     async def test_retry_after_403_blocked_for_longer(
         self, service: RequestDeduplicationService, sample_request: ChatRequest
     ) -> None:

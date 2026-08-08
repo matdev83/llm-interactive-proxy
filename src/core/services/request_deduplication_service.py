@@ -411,6 +411,19 @@ class RequestDeduplicationService:
 
             return initial_size - len(self._cache)
 
+    async def get_request_outcome(
+        self, content_hash: str, session_id: str
+    ) -> tuple[str, int | None] | None:
+        """Return the tracked status and HTTP code for a request, if present."""
+        if not self._enabled:
+            return None
+        cache_key = f"{session_id}:{content_hash}"
+        async with self._lock:
+            tracked = self._cache.get(cache_key)
+            if tracked is None:
+                return None
+            return tracked.status.value, tracked.status_code
+
     def get_stats(self) -> DeduplicationStats:
         """Return deduplication statistics (non-blocking read).
 

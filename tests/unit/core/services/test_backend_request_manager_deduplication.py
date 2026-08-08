@@ -8,7 +8,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.common.exceptions import DuplicateRequestError
+from src.core.common.exceptions import BackendError, DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -136,6 +136,34 @@ class TestBackendRequestManagerDeduplication:
             )
 
         # Backend should not be called on duplicate
+        mock_backend_processor.process_backend_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_duplicate_replays_cached_upstream_error(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """A cached HTTP error is not reported as a successful duplicate."""
+        request = ChatRequest(
+            model="deepseek-v4-flash",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        mock_dedup_service.check_and_register.return_value = (True, "hash403")
+        mock_dedup_service.get_request_outcome.return_value = ("success", 403)
+
+        with pytest.raises(BackendError) as exc_info:
+            await backend_request_manager.process_backend_request(
+                request,
+                "test-session",
+                RequestContext(
+                    headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+                ),
+            )
+
+        assert exc_info.value.status_code == 403
         mock_backend_processor.process_backend_request.assert_not_called()
 
     @pytest.mark.asyncio

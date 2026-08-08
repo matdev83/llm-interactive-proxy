@@ -344,6 +344,35 @@ class BackendRequestManager(IBackendRequestManager):
                 except ValueError:
                     is_duplicate, content_hash = cast(tuple[bool, str], dedup_result)
                 if is_duplicate:
+                    # A cached upstream failure must not be converted into an empty successful
+                    # stream. That makes clients appear hung and prevents useful retries.
+                    if content_hash and self._dedup_service is not None:
+                        outcome = await self._dedup_service.get_request_outcome(
+                            content_hash, session_id
+                        )
+                        if isinstance(outcome, tuple) and len(outcome) == 2:
+                            outcome_status, outcome_code = outcome
+                            if (
+                                outcome_status == "success"
+                                and isinstance(outcome_code, int)
+                                and outcome_code >= 400
+                            ):
+                                logger.warning(
+                                    "Replaying cached backend error for duplicate: "
+                                    "hash=%s session=%s status=%s",
+                                    content_hash[:8],
+                                    session_id,
+                                    outcome_code,
+                                )
+                                raise BackendError(
+                                    message=(
+                                        "Previous identical request failed upstream "
+                                        f"with HTTP {outcome_code}"
+                                    ),
+                                    status_code=outcome_code,
+                                    code=str(outcome_code),
+                                )
+
                     # Use debug level to avoid log spam during tight retry loops
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(

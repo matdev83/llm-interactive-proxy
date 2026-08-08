@@ -68,6 +68,12 @@ class IRequestDeduplicationService(Protocol):
         """
         ...
 
+    async def get_request_outcome(
+        self, content_hash: str, session_id: str
+    ) -> tuple[str, int | None] | None:
+        """Return the tracked status and HTTP code for a request, if present."""
+        ...
+
     def get_stats(self) -> DeduplicationStats:
         """Return deduplication statistics.
 
