@@ -186,6 +186,56 @@ def _openai_tool_call_to_anthropic_tool_use(tc: Any) -> dict[str, Any]:
     }
 
 
+def _to_content_blocks(content: Any) -> list[dict[str, Any]]:
+    """Helper to convert str, list, or dict content into a list of Anthropic content blocks."""
+    if isinstance(content, list):
+        blocks: list[dict[str, Any]] = []
+        for item in content:
+            if isinstance(item, dict):
+                blocks.append(dict(item))
+            elif isinstance(item, str) and item:
+                blocks.append({"type": "text", "text": item})
+        return blocks
+    elif isinstance(content, str):
+        if content:
+            return [{"type": "text", "text": content}]
+        return []
+    elif content is not None:
+        return [{"type": "text", "text": str(content)}]
+    return []
+
+
+def _merge_consecutive_anthropic_messages(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge consecutive Anthropic messages with the same role into a single message.
+
+    The Anthropic Messages API requires messages to strictly alternate roles
+    between 'user' and 'assistant'. When multiple tool calls occur in a turn or
+    consecutive user/assistant messages are provided, this merges their content blocks
+    into a single message.
+    """
+    if not messages:
+        return []
+
+    merged: list[dict[str, Any]] = []
+    for msg in messages:
+        if not merged:
+            merged.append(dict(msg))
+            continue
+
+        prev_msg = merged[-1]
+        if prev_msg.get("role") == msg.get("role"):
+            prev_blocks = _to_content_blocks(prev_msg.get("content"))
+            curr_blocks = _to_content_blocks(msg.get("content"))
+            merged_blocks = prev_blocks + curr_blocks
+            prev_msg["content"] = merged_blocks if merged_blocks else ""
+        else:
+            merged.append(dict(msg))
+
+    return merged
+
+
 def _openai_list_content_to_anthropic_parts(
     content: list[Any], *, log_extra: dict[str, Any] | None = None
 ) -> list[Any]:
@@ -708,7 +758,7 @@ class AnthropicBackend(LLMBackend):
             else:
                 anth_messages.append({"role": role, "content": str(content)})
 
-        payload["messages"] = anth_messages
+        payload["messages"] = _merge_consecutive_anthropic_messages(anth_messages)
         if system_prompt:
             payload["system"] = system_prompt
         if request_data.temperature is not None:

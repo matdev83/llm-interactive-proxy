@@ -368,8 +368,86 @@ def test_payload_preserves_assistant_role_in_conversation_history() -> None:
     assert payload["system"] == "rules"
     assert payload["messages"] == [
         {"role": "assistant", "content": "previous answer"},
-        {"role": "user", "content": "extra rules"},
-        {"role": "user", "content": "question"},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "extra rules"},
+                {"type": "text", "text": "question"},
+            ],
+        },
+    ]
+
+
+def test_payload_merges_multiple_tool_results_into_single_user_message() -> None:
+    backend = _backend()
+    request = CanonicalChatRequest(
+        model="qwen3.8-max",
+        messages=[ChatMessage(role="user", content="unused")],
+    )
+
+    payload = backend._prepare_anthropic_payload(
+        request,
+        [
+            ChatMessage(role="user", content="run two checks"),
+            ChatMessage(
+                role="assistant",
+                content="",
+                reasoning_content="Executing two tool calls...",
+                tool_calls=cast(
+                    Any,
+                    [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command":"git status"}',
+                            },
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": {
+                                "name": "bash",
+                                "arguments": '{"command":"git diff"}',
+                            },
+                        },
+                    ],
+                ),
+            ),
+            ChatMessage(role="tool", tool_call_id="call_1", content="status output"),
+            ChatMessage(role="tool", tool_call_id="call_2", content="diff output"),
+        ],
+        "qwen3.8-max",
+        None,
+    )
+
+    assert len(payload["messages"]) == 3
+    assert payload["messages"][0] == {"role": "user", "content": "run two checks"}
+    assert payload["messages"][1]["role"] == "assistant"
+    assert len(payload["messages"][1]["content"]) == 3
+    assert payload["messages"][1]["content"][0] == {
+        "type": "thinking",
+        "thinking": "Executing two tool calls...",
+    }
+    assert payload["messages"][1]["content"][1]["type"] == "tool_use"
+    assert payload["messages"][1]["content"][1]["id"] == "call_1"
+    assert payload["messages"][1]["content"][2]["type"] == "tool_use"
+    assert payload["messages"][1]["content"][2]["id"] == "call_2"
+
+    user_tool_results = payload["messages"][2]
+    assert user_tool_results["role"] == "user"
+    assert user_tool_results["content"] == [
+        {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": "status output",
+        },
+        {
+            "type": "tool_result",
+            "tool_use_id": "call_2",
+            "content": "diff output",
+        },
     ]
 
 
