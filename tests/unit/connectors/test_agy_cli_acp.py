@@ -9,6 +9,7 @@ import pytest
 from pydantic.types import JsonValue
 from src.connectors.acp_core.types import ACPNotification
 from src.connectors.agy_cli_acp import (
+    DEFAULT_AGY_PROCESS_TIMEOUT_SECONDS,
     AgyCliAcpConnector,
     AgyCliConfiguredModelEnumerator,
     build_agy_acp_wrapper_command,
@@ -172,6 +173,12 @@ class TestAgyCliAcpHelpers:
         exe.write_text("noop", encoding="utf-8")
         assert resolve_agy_acp_wrapper_executable(str(exe)) == str(exe.resolve())
 
+    def test_connector_default_process_timeout_is_four_hours(
+        self, connector: AgyCliAcpConnector
+    ) -> None:
+        assert connector._process_timeout == DEFAULT_AGY_PROCESS_TIMEOUT_SECONDS
+        assert DEFAULT_AGY_PROCESS_TIMEOUT_SECONDS == 14400.0
+
 
 class TestAgyCliAcpInitialization:
     async def test_initialize_with_project_dir(
@@ -190,6 +197,7 @@ class TestAgyCliAcpInitialization:
         assert connector.is_backend_functional() is True
         assert connector._default_project_dir == temp_workspace.resolve()
         assert connector._model == "google/gemini-3.5-flash-medium"
+        assert connector._process_timeout == DEFAULT_AGY_PROCESS_TIMEOUT_SECONDS
 
     async def test_initialize_requires_existing_workspace(
         self, connector: AgyCliAcpConnector, tmp_path: Path

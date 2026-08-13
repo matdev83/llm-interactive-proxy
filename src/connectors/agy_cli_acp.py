@@ -27,6 +27,10 @@ from src.core.services.translation_service import TranslationService
 logger = logging.getLogger(__name__)
 
 ACP_PROTOCOL_VERSION = 1
+# Match go-agy-acp-wrapper's 4-hour per-turn ceiling. This is both the ACP
+# JSON-RPC wait and --timeout-seconds forwarded to the wrapper; agy's own
+# --print-timeout default is only 5 minutes.
+DEFAULT_AGY_PROCESS_TIMEOUT_SECONDS = 14400.0
 CANONICAL_MODEL_ID_PATTERN = re.compile(
     r"^[a-z0-9][a-z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._-]*$"
 )
@@ -296,6 +300,7 @@ class AgyCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self._skip_permissions = True
         self._mcp_servers: list[Any] = []
         self._extra_wrapper_args: list[str] = []
+        self._process_timeout = DEFAULT_AGY_PROCESS_TIMEOUT_SECONDS
 
     async def initialize(self, **kwargs: Any) -> None:
         try:
