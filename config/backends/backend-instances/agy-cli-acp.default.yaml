@@ -6,7 +6,9 @@ connector: agy-cli-acp
 extra:
   # workspace_path omitted: project root comes from session auto-detection (per-request project_dir).
   model: "auto"
-  process_timeout: 300
+  # 4 hours. Forwarded to the wrapper as --timeout-seconds (agy --print-timeout).
+  # agy's own print-mode default is 5 minutes and will abort long tool waits.
+  process_timeout: 14400
   idle_timeout: 120
   skip_permissions: true
   mcp_servers: []
