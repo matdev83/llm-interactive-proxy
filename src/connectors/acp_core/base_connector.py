@@ -1391,6 +1391,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                                 await read_task
                             read_task = None
                         return
+                    if read_task is None:
+                        continue
                     response = read_task.result()
                     read_task = None
                 else:
