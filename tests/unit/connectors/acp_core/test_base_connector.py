@@ -82,9 +82,7 @@ def _make_request(
     )
 
     request = CanonicalChatRequest(
-        model="dummy/model",
-        stream=stream,
-        messages=resolved_messages,
+        model="dummy/model", stream=stream, messages=resolved_messages
     )
     context: ConnectorRequestContext | None = None
     if session_id is not None:
@@ -141,6 +139,37 @@ async def test_acp_error_includes_structured_detail(
     assert exc_info.value.details["data"] == {
         "error": "Gemini quota exhausted for this account"
     }
+
+
+@pytest.mark.asyncio
+async def test_acp_quota_error_code_is_forwarded(connector: DummyAcpConnector) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "dummy/model")
+    runtime.session_id = "dummy-session"
+    response = ACPNotification(
+        id=7,
+        error=ACPError(
+            code=-32003,
+            message="Model provider quota or rate limit exceeded",
+            data={"error": "RESOURCE_EXHAUSTED (code 429): Individual quota reached"},
+        ),
+    )
+
+    with (
+        patch.object(
+            connector, "_read_jsonrpc_message", AsyncMock(return_value=response)
+        ),
+        pytest.raises(
+            BackendError,
+            match=(
+                "ACP process error: Model provider quota or rate limit exceeded: "
+                "RESOURCE_EXHAUSTED"
+            ),
+        ) as exc_info,
+    ):
+        await connector._iter_acp_stream_pieces(runtime, 7, "dummy/model").__anext__()
+
+    assert exc_info.value.details["code"] == -32003
+    assert "RESOURCE_EXHAUSTED" in str(exc_info.value.details["data"]["error"])
 
 
 @pytest.mark.asyncio
@@ -235,10 +264,7 @@ async def test_spawn_clears_stderr_tail_before_reader_starts(
             "src.connectors.acp_core.base_connector.subprocess.Popen",
             return_value=process,
         ),
-        patch(
-            "src.connectors.acp_core.base_connector.threading.Thread",
-            FakeThread,
-        ),
+        patch("src.connectors.acp_core.base_connector.threading.Thread", FakeThread),
         patch(
             "src.connectors.acp_core.base_connector.capture_acp_subprocess_identity",
             return_value=None,
@@ -259,9 +285,7 @@ async def test_stale_stream_cancel_callback_does_not_touch_new_generation(
     runtime.active_request_generation = 2
 
     cancelled = await connector._cancel_active_request(
-        runtime,
-        prompt_request_id=1,
-        expected_generation=1,
+        runtime, prompt_request_id=1, expected_generation=1
     )
 
     assert cancelled is False
@@ -295,10 +319,7 @@ async def test_cancel_active_request_cleans_up_already_exited_process(
     await runtime.request_lock.acquire()
 
     with patch.object(connector, "_kill_runtime", AsyncMock()) as kill_mock:
-        cancelled = await connector._cancel_active_request(
-            runtime,
-            prompt_request_id=1,
-        )
+        cancelled = await connector._cancel_active_request(runtime, prompt_request_id=1)
 
     assert cancelled is True
     kill_mock.assert_not_called()
@@ -481,7 +502,10 @@ def test_session_update_flat_acp_tool_call_spec_shape(
         },
     )
     piece = connector._session_update_to_stream_piece(msg, runtime)
-    assert piece is None
+    assert piece is not None
+    assert piece.content is not None
+    assert "Status: started" in piece.content
+    assert "Tool: Reading configuration file" in piece.content
     flush = connector._flush_incomplete_acp_tool_streams(runtime)
     assert len(flush) == 1
     assert flush[0].content is not None
@@ -516,6 +540,7 @@ def test_session_update_tool_call_emits_summary_when_completed(
     assert "Tool: read_file" in joined
     assert 'Arguments: {"path":"/x"}' in joined
     assert "Input size:" in joined
+    assert "Status: started" not in joined
 
 
 def test_session_update_tool_call_update_emits_status_and_size_summary(
@@ -554,7 +579,11 @@ def test_session_update_tool_call_update_emits_status_and_size_summary(
     )
     first = connector._session_update_to_stream_pieces(call, runtime)
     second = connector._session_update_to_stream_pieces(upd, runtime)
-    assert first == []
+    started = "".join(p.content or "" for p in first)
+    assert "Status: started" in started
+    assert "Tool: list_dir" in started
+    assert 'Arguments: {"path":"."}' in started
+    assert "Ended:" not in started
     joined = "".join(p.content or "" for p in second)
     assert "Status:" not in joined
     assert joined.startswith("---\n```text\nTool: list_dir")
@@ -715,16 +744,15 @@ def test_session_update_tool_call_update_seen_empty_tail_returns_none(
             "sessionId": "s1",
             "update": {
                 "sessionUpdate": "tool_call_update",
-                "toolCallUpdate": {
-                    "toolCallId": "tc-1",
-                    "name": "list_dir",
-                },
+                "toolCallUpdate": {"toolCallId": "tc-1", "name": "list_dir"},
             },
         },
     )
     first = connector._session_update_to_stream_piece(call, runtime)
     second = connector._session_update_to_stream_piece(redundant, runtime)
-    assert first is None
+    assert first is not None
+    assert first.content is not None
+    assert "Status: started" in first.content
     assert second is None
 
 
@@ -1027,8 +1055,7 @@ async def test_parallel_acquire_after_idle_reap_uses_same_pool_runtime(
 
     with (
         patch(
-            "src.connectors.acp_core.base_connector.time.monotonic",
-            return_value=100.0,
+            "src.connectors.acp_core.base_connector.time.monotonic", return_value=100.0
         ),
         patch.object(connector, "_terminate_process", AsyncMock()),
     ):
@@ -1109,3 +1136,80 @@ async def test_requires_explicit_workspace_accepts_options_project_dir(
     req = replace(base, options={"project_dir": str(workspace)})
     resolved = connector._resolve_project_dir_for_request(req)
     assert resolved == workspace.resolve()
+
+
+def test_in_progress_heartbeat_emits_after_interval(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    connector._acp_tool_heartbeat_seconds = 0.01
+    call = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCall": {
+                    "toolCallId": "tc-hb",
+                    "name": "run_command",
+                    "status": "in_progress",
+                    "rawInput": {"CommandLine": "npm test"},
+                },
+            },
+        },
+    )
+    start_pieces = connector._session_update_to_stream_pieces(call, runtime)
+    assert any("Status: started" in (p.content or "") for p in start_pieces)
+    acc = next(iter(runtime.acp_tool_stream_accum.values()))
+    acc.last_heartbeat_perf = acc.started_perf - 1.0
+    acc.started_perf = acc.started_perf - 45.0
+    heartbeats = connector._acp_in_progress_heartbeat_pieces(runtime)
+    assert len(heartbeats) == 1
+    assert heartbeats[0].content is not None
+    assert heartbeats[0].content.startswith("Tool still running: run_command")
+    assert connector._acp_in_progress_heartbeat_pieces(runtime) == []
+
+
+@pytest.mark.asyncio
+async def test_iter_acp_stream_emits_heartbeat_while_tool_in_progress(
+    connector: DummyAcpConnector,
+) -> None:
+    runtime = connector._create_runtime(Path("/tmp/ws"), "m")
+    runtime.session_id = "dummy-session"
+    connector._acp_tool_heartbeat_seconds = 0.05
+    connector._process_timeout = 2.0
+    start = ACPNotification(
+        method="session/update",
+        params={
+            "sessionId": "s1",
+            "update": {
+                "sessionUpdate": "tool_call",
+                "toolCallId": "tc-wait",
+                "title": "run_command",
+                "status": "in_progress",
+            },
+        },
+    )
+    done = ACPNotification(id=7, result={"stopReason": "end_turn"})
+
+    async def delayed_messages() -> Any:
+        yield start
+        await asyncio.sleep(0.16)
+        yield done
+
+    gen = delayed_messages()
+
+    async def next_message(_runtime: Any) -> ACPNotification:
+        return await anext(gen)
+
+    with patch.object(connector, "_read_jsonrpc_message", side_effect=next_message):
+        pieces = [
+            piece
+            async for piece in connector._iter_acp_stream_pieces(
+                runtime, 7, "dummy/model"
+            )
+        ]
+
+    contents = [p.content or "" for p in pieces]
+    assert any("Status: started" in text for text in contents)
+    assert any("Tool still running: run_command" in text for text in contents)

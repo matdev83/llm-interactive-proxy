@@ -27,6 +27,8 @@ from src.connectors.acp_core.tool_markdown import (
     extract_tool_name,
     extract_tool_output,
     format_acp_tool_completion_summary,
+    format_acp_tool_heartbeat_line,
+    format_acp_tool_started_summary,
     is_terminal_tool_status,
     iter_coalesced_acp_tool_session_dicts,
     payload_utf8_byte_length,
@@ -78,6 +80,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_PROCESS_TIMEOUT = 300.0
 DEFAULT_IDLE_TIMEOUT = 30.0
+DEFAULT_ACP_TOOL_HEARTBEAT_SECONDS = 30.0
 MAX_RESPONSE_LINE_SIZE = 10 * 1024 * 1024
 MAX_STDERR_TAIL_SIZE = 16 * 1024
 ACP_UPDATE_METHOD = "session/update"
@@ -130,8 +133,7 @@ def _canonical_chat_message_for_history_hash(message: ChatMessage) -> dict[str, 
 
 
 def _hash_chat_messages_prefix_stable(
-    messages: Sequence[ChatMessage],
-    end_exclusive: int,
+    messages: Sequence[ChatMessage], end_exclusive: int
 ) -> str:
     """SHA-256 hex digest of the first ``end_exclusive`` messages (conversation prefix)."""
 
@@ -171,10 +173,7 @@ class _RuntimeCancellable(Generic[RuntimeT]):
             return
         connector = cast(Any, self._connector)
         task = loop.create_task(
-            connector._cancel_active_request(
-                self._runtime,
-                self._prompt_request_id,
-            )
+            connector._cancel_active_request(self._runtime, self._prompt_request_id)
         )
         task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
 
@@ -197,6 +196,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         self._model = "auto"
         self._process_timeout = DEFAULT_PROCESS_TIMEOUT
         self._idle_timeout = DEFAULT_IDLE_TIMEOUT
+        self._acp_tool_heartbeat_seconds = DEFAULT_ACP_TOOL_HEARTBEAT_SECONDS
         self._runtime_pool_lock = asyncio.Lock()
         self._runtimes: dict[tuple[str, str, str], RuntimeT] = {}
 
@@ -426,8 +426,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
     ) -> RuntimeT:
         project_dir = self._resolve_project_dir_for_request(request)
         requested_model = strip_vendor_prefix(
-            request.effective_model or self._model,
-            self.VENDOR_PREFIX,
+            request.effective_model or self._model, self.VENDOR_PREFIX
         )
         client_session_id = self._resolve_client_session_id(request)
         runtime_key = self._build_runtime_key(
@@ -463,9 +462,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         options = cast(dict[str, Any] | None, request.options)
 
         usable = first_usable_workspace_dir(
-            extra_dict,
-            options,
-            is_usable=is_usable_workspace_directory,
+            extra_dict, options, is_usable=is_usable_workspace_directory
         )
         if usable is not None:
             return usable
@@ -475,10 +472,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             if hint is not None:
                 raise BackendError(
                     message=f"Unusable ACP workspace directory: {hint}",
-                    details={
-                        "code": ACP_MISSING_PROJECT_WORKSPACE_CODE,
-                        "hint": hint,
-                    },
+                    details={"code": ACP_MISSING_PROJECT_WORKSPACE_CODE, "hint": hint},
                 )
             raise BackendError(
                 message=(
@@ -490,10 +484,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
 
         hint = first_workspace_hint_str(extra_dict, options)
         if hint is not None and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Ignoring unusable ACP project_dir override: %s",
-                hint,
-            )
+            logger.debug("Ignoring unusable ACP project_dir override: %s", hint)
 
         if self._default_project_dir is None:
             raise ConfigurationError(
@@ -503,9 +494,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         return self._default_project_dir
 
     async def _reap_idle_runtime(
-        self,
-        runtime_key: tuple[str, str, str],
-        runtime: RuntimeT,
+        self, runtime_key: tuple[str, str, str], runtime: RuntimeT
     ) -> RuntimeT:
         """Drop idle subprocesses and swap in a fresh :class:`ACPProcessRuntime` slot.
 
@@ -541,9 +530,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             current = self._runtimes.get(runtime_key)
             if current is runtime:
                 replacement = self._create_runtime(
-                    runtime.project_dir,
-                    runtime.model,
-                    runtime.client_session_id,
+                    runtime.project_dir, runtime.model, runtime.client_session_id
                 )
                 self._runtimes[runtime_key] = replacement
                 return replacement
@@ -655,9 +642,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             await self._kill_runtime(runtime)
 
     def _cleanup_runtime_state(
-        self,
-        runtime: RuntimeT,
-        process: subprocess.Popen[bytes] | None = None,
+        self, runtime: RuntimeT, process: subprocess.Popen[bytes] | None = None
     ) -> None:
         self._stop_stderr_drain(runtime)
         self._cleanup_process(process or runtime.process)
@@ -748,9 +733,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 stderr_bytes.append(bytes(stream.read()))
 
         reader = threading.Thread(
-            target=_read_all,
-            name=f"acp-stderr-fallback-{process.pid}",
-            daemon=True,
+            target=_read_all, name=f"acp-stderr-fallback-{process.pid}", daemon=True
         )
         reader.start()
         while reader.is_alive():
@@ -808,8 +791,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
 
         try:
             await asyncio.wait_for(
-                asyncio.to_thread(_write),
-                timeout=self._process_timeout,
+                asyncio.to_thread(_write), timeout=self._process_timeout
             )
         except asyncio.TimeoutError as exc:
             # A blocked pipe means the child is no longer making progress.  Tear
@@ -823,10 +805,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         runtime.last_activity = time.monotonic()
 
     async def _send_jsonrpc_message(
-        self,
-        runtime: RuntimeT,
-        method: str,
-        params: dict[str, Any],
+        self, runtime: RuntimeT, method: str, params: dict[str, Any]
     ) -> int:
         message_id = self._get_next_message_id(runtime)
         payload = {
@@ -849,8 +828,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         self, runtime: RuntimeT, request_id: int, result: dict[str, Any]
     ) -> None:
         await self._write_json_line(
-            runtime,
-            {"jsonrpc": "2.0", "id": request_id, "result": result},
+            runtime, {"jsonrpc": "2.0", "id": request_id, "result": result}
         )
 
     async def _read_jsonrpc_message(self, runtime: RuntimeT) -> ACPNotification | None:
@@ -897,9 +875,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             ) from exc
 
     async def _await_response(
-        self,
-        runtime: RuntimeT,
-        request_id: int,
+        self, runtime: RuntimeT, request_id: int
     ) -> ACPNotification:
         deadline = time.monotonic() + self._process_timeout
         while True:
@@ -911,8 +887,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 )
 
             response = await asyncio.wait_for(
-                self._read_jsonrpc_message(runtime),
-                timeout=remaining,
+                self._read_jsonrpc_message(runtime), timeout=remaining
             )
             if response is None:
                 continue
@@ -1060,11 +1035,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         return None
 
     def _resolve_tool_stream_key(
-        self,
-        runtime: RuntimeT,
-        tc: dict[str, Any],
-        *,
-        for_new_invocation: bool,
+        self, runtime: RuntimeT, tc: dict[str, Any], *, for_new_invocation: bool
     ) -> str:
         ck = extract_tool_correlation_key(tc)
         if ck:
@@ -1139,6 +1110,53 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         acc.pending_terminal_summary = False
         return [AcpStreamPiece(content=text)]
 
+    def _acp_start_summary_pieces(
+        self, acc: AcpToolStreamAccum
+    ) -> list[AcpStreamPiece]:
+        if acc.start_emitted or acc.summary_emitted or not acc.started_wall_iso:
+            return []
+        text = format_acp_tool_started_summary(
+            acc.tool_name,
+            input_payload=acc.last_input,
+            input_bytes=acc.last_input_bytes,
+            started_iso=acc.started_wall_iso,
+        )
+        acc.start_emitted = True
+        acc.last_heartbeat_perf = (
+            acc.started_perf if acc.started_perf > 0 else time.perf_counter()
+        )
+        return [AcpStreamPiece(content=text)]
+
+    def _acp_in_progress_heartbeat_pieces(
+        self, runtime: RuntimeT
+    ) -> list[AcpStreamPiece]:
+        interval = self._acp_tool_heartbeat_seconds
+        if interval <= 0:
+            return []
+        now = time.perf_counter()
+        out: list[AcpStreamPiece] = []
+        for acc in runtime.acp_tool_stream_accum.values():
+            if acc.summary_emitted or not acc.start_emitted:
+                continue
+            last = acc.last_heartbeat_perf or acc.started_perf
+            if last > 0 and (now - last) < interval:
+                continue
+            started = acc.started_perf if acc.started_perf > 0 else now
+            elapsed = max(0.0, now - started)
+            out.append(
+                AcpStreamPiece(
+                    content=format_acp_tool_heartbeat_line(acc.tool_name, elapsed)
+                )
+            )
+            acc.last_heartbeat_perf = now
+        return out
+
+    def _acp_has_in_progress_tools(self, runtime: RuntimeT) -> bool:
+        return any(
+            acc.start_emitted and not acc.summary_emitted
+            for acc in runtime.acp_tool_stream_accum.values()
+        )
+
     def _acp_terminal_summary_pieces(
         self,
         acc: AcpToolStreamAccum,
@@ -1203,6 +1221,8 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 status_str,
                 allow_defer=not batch_multi,
             )
+            if not pieces and not is_terminal_tool_status(status_str):
+                pieces = self._acp_start_summary_pieces(acc)
             out.extend(pieces)
         return out
 
@@ -1223,9 +1243,12 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         self._acp_update_tool_sizes_from_merged(acc, merged)
         status_raw = merged.get("status") or merged.get("state")
         status_str = status_raw.strip() if isinstance(status_raw, str) else None
-        return self._acp_terminal_summary_pieces(
+        pieces = self._acp_terminal_summary_pieces(
             acc, merged, status_str, allow_defer=True
         )
+        if pieces or is_terminal_tool_status(status_str):
+            return pieces
+        return self._acp_start_summary_pieces(acc)
 
     def _flush_incomplete_acp_tool_streams(
         self, runtime: RuntimeT
@@ -1250,8 +1273,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "ACP session/update params could not be parsed",
-                    exc_info=True,
+                    "ACP session/update params could not be parsed", exc_info=True
                 )
             return []
         upd = envelope.update
@@ -1264,8 +1286,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         if kind == ACP_AGENT_MESSAGE_CHUNK:
             if text:
                 return self._prepend_thinking_close_if_needed(
-                    runtime,
-                    [AcpStreamPiece(content=text)],
+                    runtime, [AcpStreamPiece(content=text)]
                 )
             return []
         if kind == ACP_AGENT_THOUGHT_CHUNK:
@@ -1274,13 +1295,11 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             return []
         if kind == "tool_call":
             return self._prepend_thinking_close_if_needed(
-                runtime,
-                self._acp_pieces_for_tool_call(runtime, upd),
+                runtime, self._acp_pieces_for_tool_call(runtime, upd)
             )
         if kind == "tool_call_update":
             return self._prepend_thinking_close_if_needed(
-                runtime,
-                self._acp_pieces_for_tool_call_update(runtime, upd),
+                runtime, self._acp_pieces_for_tool_call_update(runtime, upd)
             )
 
         progress = self._acp_progress_reasoning_line(kind, upd)
@@ -1307,25 +1326,38 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         )
 
     async def _iter_acp_stream_pieces(
-        self,
-        runtime: RuntimeT,
-        prompt_request_id: int,
-        response_model: str,
+        self, runtime: RuntimeT, prompt_request_id: int, response_model: str
     ) -> AsyncGenerator[AcpStreamPiece, None]:
         runtime.acp_tool_stream_accum.clear()
         runtime.acp_anon_tool_seq = 0
         runtime.acp_last_anon_stream_key = None
         runtime.acp_thinking_block_open = False
+        deadline = time.monotonic() + self._process_timeout
+        read_task: asyncio.Task[ACPNotification | None] | None = None
         try:
             while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError()
+                interval = self._acp_tool_heartbeat_seconds
+                slice_for_heartbeat = interval > 0 and self._acp_has_in_progress_tools(
+                    runtime
+                )
+                wait_timeout = (
+                    min(interval, remaining) if slice_for_heartbeat else remaining
+                )
+
                 if runtime.cancellation_event is not None:
-                    read_task = asyncio.create_task(self._read_jsonrpc_message(runtime))
+                    if read_task is None:
+                        read_task = asyncio.create_task(
+                            self._read_jsonrpc_message(runtime)
+                        )
                     cancel_task = asyncio.create_task(runtime.cancellation_event.wait())
                     try:
                         done, pending = await asyncio.wait(
                             {read_task, cancel_task},
                             return_when=asyncio.FIRST_COMPLETED,
-                            timeout=self._process_timeout,
+                            timeout=wait_timeout,
                         )
                     except asyncio.CancelledError:
                         read_task.cancel()
@@ -1334,26 +1366,56 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                             await read_task
                         with contextlib.suppress(asyncio.CancelledError):
                             await cancel_task
+                        read_task = None
                         raise
+                    if cancel_task not in done:
+                        cancel_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await cancel_task
                     if not done:
-                        for t in pending:
-                            t.cancel()
-                            with contextlib.suppress(asyncio.CancelledError):
-                                await t
-                        raise asyncio.TimeoutError()
+                        for piece in self._acp_in_progress_heartbeat_pieces(runtime):
+                            if piece.content or piece.reasoning_content:
+                                yield piece
+                        continue
                     for t in pending:
+                        if t is read_task:
+                            continue
                         t.cancel()
                         with contextlib.suppress(asyncio.CancelledError):
                             await t
 
                     if cancel_task in done:
+                        if read_task is not None:
+                            read_task.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await read_task
+                            read_task = None
                         return
                     response = read_task.result()
+                    read_task = None
                 else:
-                    response = await asyncio.wait_for(
-                        self._read_jsonrpc_message(runtime),
-                        timeout=self._process_timeout,
-                    )
+                    if read_task is None:
+                        read_task = asyncio.create_task(
+                            self._read_jsonrpc_message(runtime)
+                        )
+                    try:
+                        response = await asyncio.wait_for(
+                            asyncio.shield(read_task), timeout=wait_timeout
+                        )
+                        read_task = None
+                    except asyncio.TimeoutError:
+                        if time.monotonic() >= deadline:
+                            pending_read = read_task
+                            if pending_read is not None:
+                                pending_read.cancel()
+                                with contextlib.suppress(asyncio.CancelledError):
+                                    await pending_read
+                            read_task = None
+                            raise
+                        for piece in self._acp_in_progress_heartbeat_pieces(runtime):
+                            if piece.content or piece.reasoning_content:
+                                yield piece
+                        continue
 
                 if response is None:
                     continue
@@ -1387,12 +1449,14 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 message="Timeout waiting for ACP response",
                 details={"timeout": self._process_timeout, "model": response_model},
             ) from exc
+        finally:
+            if read_task is not None and not read_task.done():
+                read_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await read_task
 
     async def _iter_stream_pieces(
-        self,
-        runtime: RuntimeT,
-        request_id: int,
-        response_model: str,
+        self, runtime: RuntimeT, request_id: int, response_model: str
     ) -> AsyncGenerator[AcpStreamPiece, None]:
         """Dispatch to the protocol-specific stream-piece iterator.
 
@@ -1452,9 +1516,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             ],
         )
         envelope = ResponseEnvelope(
-            content=response.model_dump(exclude_none=True),
-            headers={},
-            status_code=200,
+            content=response.model_dump(exclude_none=True), headers={}, status_code=200
         )
         return self.ensure_usage_in_response(
             envelope, list(request.processed_messages), requested_model
@@ -1475,13 +1537,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": model,
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": delta,
-                    "finish_reason": None,
-                }
-            ],
+            "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
         }
         return f"data: {json.dumps(payload)}\n\n"
 
@@ -1493,13 +1549,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
     def _is_terminal_finish_reason(value: Any) -> bool:
         """Return whether a finish reason terminates an OpenAI stream."""
 
-        return value in {
-            "stop",
-            "length",
-            "content_filter",
-            "tool_calls",
-            "error",
-        }
+        return value in {"stop", "length", "content_filter", "tool_calls", "error"}
 
     @classmethod
     def _stream_chunk_is_terminal(cls, chunk: ProcessedResponse) -> bool:
@@ -1567,10 +1617,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         return False
 
     async def _stream_response(
-        self,
-        runtime: RuntimeT,
-        requested_model: str,
-        prompt_request_id: int,
+        self, runtime: RuntimeT, requested_model: str, prompt_request_id: int
     ) -> AsyncGenerator[ProcessedResponse, None]:
         chunk_id = str(uuid.uuid4())
         async for piece in self._iter_stream_pieces(
@@ -1587,9 +1634,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         yield ProcessedResponse(content=self._create_sse_done_chunk())
 
     async def _compute_history_and_user_message(
-        self,
-        runtime: RuntimeT,
-        messages: Sequence[ChatMessage],
+        self, runtime: RuntimeT, messages: Sequence[ChatMessage]
     ) -> tuple[str, HistoryState]:
         """Compute the user-message text and resulting history state for a turn.
 
@@ -1663,9 +1708,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         return user_message, new_history_state
 
     async def _prepare_turn_request_locked(
-        self,
-        runtime: RuntimeT,
-        request: ConnectorChatCompletionsRequest,
+        self, runtime: RuntimeT, request: ConnectorChatCompletionsRequest
     ) -> tuple[int, str]:
         """Build ``session/prompt`` text and JSON-RPC id under ``runtime.request_lock``.
 
@@ -1691,8 +1734,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             raise BackendError(message="No user message found in request")
 
         requested_model = request.effective_model or add_vendor_prefix(
-            runtime.model,
-            self.VENDOR_PREFIX,
+            runtime.model, self.VENDOR_PREFIX
         )
         prompt_params: dict[str, Any] = {
             "sessionId": runtime.session_id,
@@ -1700,9 +1742,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             "messageId": str(uuid.uuid4()),
         }
         prompt_request_id = await self._send_jsonrpc_message(
-            runtime,
-            "session/prompt",
-            prompt_params,
+            runtime, "session/prompt", prompt_params
         )
         runtime.history_state = new_history_state
         return prompt_request_id, requested_model
@@ -1842,17 +1882,12 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             )
 
     async def _wait_for_process_exit(
-        self,
-        process: subprocess.Popen[bytes],
-        timeout_s: float,
+        self, process: subprocess.Popen[bytes], timeout_s: float
     ) -> bool:
         if process.poll() is not None:
             return True
         try:
-            await asyncio.wait_for(
-                asyncio.to_thread(process.wait),
-                timeout=timeout_s,
-            )
+            await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=timeout_s)
             return True
         except asyncio.TimeoutError:
             return False
@@ -1860,10 +1895,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             return process.poll() is not None
 
     async def _attempt_graceful_cancel(
-        self,
-        runtime: RuntimeT,
-        request_id: int,
-        total_timeout_s: float,
+        self, runtime: RuntimeT, request_id: int, total_timeout_s: float
     ) -> bool:
         process = runtime.process
         if process is None or process.poll() is not None:
@@ -1890,8 +1922,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 continue
 
             exited = await self._wait_for_process_exit(
-                process,
-                timeout_s=min(remaining, 1.5),
+                process, timeout_s=min(remaining, 1.5)
             )
             if exited:
                 return True
@@ -1901,8 +1932,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 process.stdin.close()
             remaining = deadline - time.monotonic()
             if remaining > 0 and await self._wait_for_process_exit(
-                process,
-                timeout_s=min(remaining, 3.0),
+                process, timeout_s=min(remaining, 3.0)
             ):
                 return True
 
@@ -1969,9 +1999,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                     )
 
                 graceful_cancelled = await self._attempt_graceful_cancel(
-                    runtime,
-                    prompt_request_id,
-                    ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS,
+                    runtime, prompt_request_id, ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS
                 )
 
                 if graceful_cancelled:
@@ -2008,8 +2036,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         return True
 
     async def chat_completions(  # type: ignore[override]
-        self,
-        request: ConnectorChatCompletionsRequest,
+        self, request: ConnectorChatCompletionsRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         if (
             request.cancellation_coordinator is not None
@@ -2033,9 +2060,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         if bool(getattr(request.request, "stream", False)):
             await self._acquire_runtime_request_lock(runtime)
             try:
-                prompt_request_id, requested_model = (
-                    await self._prepare_turn_request_locked(runtime, request)
-                )
+                (
+                    prompt_request_id,
+                    requested_model,
+                ) = await self._prepare_turn_request_locked(runtime, request)
             except Exception:
                 runtime.request_lock.release()
                 raise
@@ -2046,9 +2074,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
 
             async def _cancel_streaming_request() -> None:
                 await self._cancel_active_request(
-                    runtime,
-                    prompt_request_id,
-                    expected_generation=request_generation,
+                    runtime, prompt_request_id, expected_generation=request_generation
                 )
 
             stream_id: str | None = getattr(request.request, "session_id", None)
@@ -2057,10 +2083,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
 
             async def _stream_with_keepalive() -> AsyncIterator[ProcessedResponse]:
                 inner = self._stream_response_with_lock(
-                    runtime,
-                    requested_model,
-                    prompt_request_id,
-                    request_generation,
+                    runtime, requested_model, prompt_request_id, request_generation
                 )
                 async for chunk in wrap_processed_stream_with_idle_keepalive(
                     inner,
@@ -2087,9 +2110,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         # acquire the lock against a half-torn-down child.
         await self._acquire_runtime_request_lock(runtime)
         try:
-            prompt_request_id, requested_model = (
-                await self._prepare_turn_request_locked(runtime, request)
-            )
+            (
+                prompt_request_id,
+                requested_model,
+            ) = await self._prepare_turn_request_locked(runtime, request)
             cancellable_registered = False
             if (
                 request.cancellation_coordinator is not None

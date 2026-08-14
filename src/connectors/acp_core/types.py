@@ -108,6 +108,8 @@ class AcpToolStreamAccum:
     last_input: Any | None = None
     last_input_bytes: int = 0
     last_output_bytes: int = 0
+    start_emitted: bool = False
+    last_heartbeat_perf: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

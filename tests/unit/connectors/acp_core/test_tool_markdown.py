@@ -8,10 +8,34 @@ from src.connectors.acp_core.tool_markdown import (
     extract_tool_name,
     extract_tool_output,
     format_acp_tool_completion_summary,
+    format_acp_tool_heartbeat_line,
+    format_acp_tool_started_summary,
     is_terminal_tool_status,
     iter_coalesced_acp_tool_session_dicts,
     payload_utf8_byte_length,
 )
+
+
+def test_format_acp_tool_started_summary_shape() -> None:
+    text = format_acp_tool_started_summary(
+        "list_dir",
+        input_payload={"path": "src", "depth": 2},
+        input_bytes=12,
+        started_iso="2026-01-01T00:00:00+00:00",
+    )
+    assert text.startswith("---\n```text\nTool: list_dir")
+    assert "Status: started" in text
+    assert 'Arguments: {"path":"src","depth":2}' in text
+    assert "Started: 2026-01-01T00:00:00+00:00" in text
+    assert "Ended:" not in text
+    assert "Output size:" not in text
+    assert text.endswith("```\n")
+
+
+def test_format_acp_tool_heartbeat_line() -> None:
+    assert format_acp_tool_heartbeat_line("run_command", 45.2) == (
+        "Tool still running: run_command (45s)\n"
+    )
 
 
 def test_extract_tool_fields() -> None:
@@ -112,10 +136,7 @@ def test_coalesce_tool_call_update_flattens_content_blocks() -> None:
         "sessionUpdate": "tool_call_update",
         "toolCallId": "call_001",
         "content": [
-            {
-                "type": "content",
-                "content": {"type": "text", "text": "Found 3 files"},
-            }
+            {"type": "content", "content": {"type": "text", "text": "Found 3 files"}}
         ],
     }
     merged = coalesce_acp_tool_call_update_session_dict(upd)
