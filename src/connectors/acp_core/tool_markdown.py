@@ -95,6 +95,48 @@ def _filtered_tool_input_fallback(tc: dict[str, Any]) -> Any | None:
     return fallback or None
 
 
+def _render_tool_arguments(input_payload: Any) -> str:
+    if isinstance(input_payload, str):
+        try:
+            render_value = json.loads(input_payload)
+        except (json.JSONDecodeError, TypeError):
+            rendered_input = input_payload
+        else:
+            rendered_input = json.dumps(
+                render_value, ensure_ascii=False, separators=(",", ":"), default=str
+            )
+    else:
+        try:
+            rendered_input = json.dumps(
+                input_payload, ensure_ascii=False, separators=(",", ":"), default=str
+            )
+        except (TypeError, ValueError):
+            rendered_input = str(input_payload)
+    if len(rendered_input) > _MAX_TOOL_ARGUMENT_CHARS:
+        rendered_input = (
+            rendered_input[:_MAX_TOOL_ARGUMENT_CHARS].rstrip() + "… [truncated]"
+        )
+    return rendered_input
+
+
+def format_acp_tool_started_summary(
+    tool_name: str, *, input_payload: Any | None, input_bytes: int, started_iso: str
+) -> str:
+    """Compact fenced block when a tool starts (no Ended/Output)."""
+    lines = ["---", "```text", f"Tool: {tool_name}", "Status: started"]
+    if input_payload is not None:
+        lines.append(f"Arguments: {_render_tool_arguments(input_payload)}")
+    lines.extend(
+        [f"Input size: {input_bytes} bytes", f"Started: {started_iso}", "```", ""]
+    )
+    return "\n".join(lines)
+
+
+def format_acp_tool_heartbeat_line(tool_name: str, elapsed_s: float) -> str:
+    elapsed_display = int(elapsed_s) if elapsed_s >= 1 else 0
+    return f"Tool still running: {tool_name} ({elapsed_display}s)\n"
+
+
 def format_acp_tool_completion_summary(
     tool_name: str,
     *,
@@ -106,39 +148,9 @@ def format_acp_tool_completion_summary(
     elapsed_s: float,
 ) -> str:
     """Single compact fenced block after a tool finishes."""
-    lines = [
-        "---",
-        "```text",
-        f"Tool: {tool_name}",
-    ]
+    lines = ["---", "```text", f"Tool: {tool_name}"]
     if input_payload is not None:
-        if isinstance(input_payload, str):
-            try:
-                render_value = json.loads(input_payload)
-            except (json.JSONDecodeError, TypeError):
-                rendered_input = input_payload
-            else:
-                rendered_input = json.dumps(
-                    render_value,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    default=str,
-                )
-        else:
-            try:
-                rendered_input = json.dumps(
-                    input_payload,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                    default=str,
-                )
-            except (TypeError, ValueError):
-                rendered_input = str(input_payload)
-        if len(rendered_input) > _MAX_TOOL_ARGUMENT_CHARS:
-            rendered_input = (
-                rendered_input[:_MAX_TOOL_ARGUMENT_CHARS].rstrip() + "… [truncated]"
-            )
-        lines.append(f"Arguments: {rendered_input}")
+        lines.append(f"Arguments: {_render_tool_arguments(input_payload)}")
     lines.extend(
         [
             f"Input size: {input_bytes} bytes",
@@ -159,10 +171,7 @@ def format_transcript_assistant_tool_record(name: str, arguments: Any) -> str:
 
 
 def format_transcript_tool_message_record(
-    *,
-    tool_call_id: str | None,
-    name: str | None,
-    content: Any,
+    *, tool_call_id: str | None, name: str | None, content: Any
 ) -> str:
     """History text for a ``role: tool`` message (output size only)."""
     label = (name or "").strip() or "tool"

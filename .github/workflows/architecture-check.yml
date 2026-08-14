@@ -12,6 +12,10 @@ jobs:
 
     steps:
     - uses: actions/checkout@v5
+      with:
+        # Need merge-base history so PR diffs are commit-to-commit, not
+        # working-tree vs origin/base (CRLF checkout noise lists the whole repo).
+        fetch-depth: 0
     
     - name: Set up Python
       uses: actions/setup-python@v6
@@ -26,9 +30,9 @@ jobs:
     - name: Run architectural linter on changed files
       run: |
         if [ "${{ github.event_name }}" == "pull_request" ]; then
-          # Get list of changed Python files in the PR
-          git fetch origin ${{ github.base_ref }} --depth=1
-          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }} | grep "\.py$" || true)
+          # Get list of changed Python files in the PR (three-dot, commits only)
+          git fetch origin ${{ github.base_ref }}
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep "\.py$" || true)
         else
           # Get list of changed Python files in the push
           git fetch origin ${{ github.event.before }} --depth=1
