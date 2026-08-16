@@ -411,6 +411,20 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             raw = getattr(request.request, "session_id", None)
             if isinstance(raw, str) and raw.strip():
                 sid = raw
+        if not sid and request.options:
+            for key in ("session_id", "client_session_id"):
+                raw_opt = request.options.get(key)
+                if isinstance(raw_opt, str) and raw_opt.strip():
+                    sid = raw_opt
+                    break
+        if not sid:
+            extra_body = getattr(request.request, "extra_body", None)
+            if isinstance(extra_body, dict):
+                for key in ("session_id", "client_session_id"):
+                    raw_eb = extra_body.get(key)
+                    if isinstance(raw_eb, str) and raw_eb.strip():
+                        sid = raw_eb
+                        break
         if isinstance(sid, str) and sid.strip():
             return sid.strip()
         return "default"
@@ -638,8 +652,11 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             runtimes = list(self._runtimes.values())
             self._runtimes.clear()
 
-        for runtime in runtimes:
-            await self._kill_runtime(runtime)
+        if runtimes:
+            await asyncio.gather(
+                *(self._kill_runtime(runtime) for runtime in runtimes),
+                return_exceptions=True,
+            )
 
     def _cleanup_runtime_state(
         self, runtime: RuntimeT, process: subprocess.Popen[bytes] | None = None

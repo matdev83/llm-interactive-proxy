@@ -69,6 +69,7 @@ def _make_request(
     *,
     messages: list[ChatMessage] | None = None,
     session_id: str | None = None,
+    extra_body: dict[str, Any] | None = None,
 ) -> ConnectorChatCompletionsRequest:
     resolved_messages = messages or (
         [
@@ -82,7 +83,10 @@ def _make_request(
     )
 
     request = CanonicalChatRequest(
-        model="dummy/model", stream=stream, messages=resolved_messages
+        model="dummy/model",
+        stream=stream,
+        messages=resolved_messages,
+        extra_body=extra_body,
     )
     context: ConnectorRequestContext | None = None
     if session_id is not None:
@@ -781,6 +785,19 @@ def test_resolve_client_session_id_defaults(connector: DummyAcpConnector) -> Non
 def test_resolve_client_session_id_from_context(connector: DummyAcpConnector) -> None:
     req = _make_request(session_id="  abc  ")
     assert connector._resolve_client_session_id(req) == "abc"
+
+
+def test_resolve_client_session_id_from_options(connector: DummyAcpConnector) -> None:
+    req = _make_request()
+    req.options = {"session_id": "opt-sess-123"}
+    assert connector._resolve_client_session_id(req) == "opt-sess-123"
+
+
+def test_resolve_client_session_id_from_extra_body(
+    connector: DummyAcpConnector,
+) -> None:
+    req = _make_request(extra_body={"session_id": "eb-sess-456"})
+    assert connector._resolve_client_session_id(req) == "eb-sess-456"
 
 
 @pytest.mark.asyncio
