@@ -22,7 +22,8 @@ def test_backend_settings_default_interleaved_thinking_instructions_file_points_
     prompt_path = Path(settings.interleaved_thinking_instructions_file)
     assert prompt_path.is_file()
     prompt = prompt_path.read_text(encoding="utf-8")
-    assert "<proxy_thinker_memo>" in prompt
+    assert "Session Steering Memo" in prompt
+    assert "<proxy_thinker_memo>" not in prompt
 
 
 def test_env_loader_defaults_interleaved_thinking_instructions_file_to_shipped_prompt() -> (

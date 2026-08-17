@@ -13,18 +13,17 @@ Focus on:
 - up to three plausible next actions,
 - the single best next action and why it is better.
 
-Please think out laudly. This is important to provide the execution model with proper understanding of your reasoning. Provide concise, actionable planning context and a short rationale. Keep it brief with high signal/noise ratio.
+Please think out loud. This is important to provide the execution model with proper understanding of your reasoning. Provide concise, actionable planning context and a short rationale. Keep it brief with high signal/noise ratio.
 
-When you have enough context to produce the memo, return only this block:
+When you have enough context to produce the memo, format your response in clear, structured markdown:
 
-<proxy_thinker_memo>
-Goal: {goal_here}
-Current state: {current state}
-Constraints and risks: {constraints_and_risks}
-Considered next steps:
-1. {step_option_no1}
-2. {step_option_no1}
-3. {step_option_no1}
-Recommended next step: {recommended_next_step}
-Reason: {reason}
-</proxy_thinker_memo>
+## Session Steering Memo
+- **Goal**: {goal_here}
+- **Current state**: {current state}
+- **Constraints and risks**: {constraints_and_risks}
+- **Considered next steps**:
+  1. {step_option_no1}
+  2. {step_option_no2}
+  3. {step_option_no3}
+- **Recommended next step**: {recommended_next_step}
+- **Reason**: {reason}

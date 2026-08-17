@@ -638,6 +638,16 @@ class CompositeRoutingCoordinator:
             )
 
         selected_leaf = sequence[next_index]
+        logger.info(
+            "Interleaved thinking turn selected: request_id=%s session_id=%s "
+            "role=%s cycle_index=%d/%d target=%s",
+            getattr(context, "request_id", None),
+            getattr(context, "session_id", None),
+            "thinker" if selected_leaf.leaf_selector.thinker_annotation else "executor",
+            next_index + 1,
+            len(sequence),
+            selected_leaf.leaf_selector.normalized_selector,
+        )
         persisted_state: dict[str, JsonValue] = {
             "selector": selector,
             "sequence": [child.leaf_selector.normalized_selector for child in sequence],

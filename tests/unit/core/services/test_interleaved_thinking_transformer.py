@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import MagicMock
@@ -8,7 +9,12 @@ import pytest
 from src.core.common.exceptions import ConfigurationError
 from src.core.config.models.backends import BackendSettings
 from src.core.domain.backend_target import BackendTarget
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.chat import (
+    CanonicalChatRequest,
+    ChatMessage,
+    FunctionCall,
+    ToolCall,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.domain.session import SessionState
 from src.core.services.composite_routing_state import (
@@ -112,8 +118,8 @@ def test_transformer_loads_shipped_default_thinker_prompt() -> None:
     assert transformed.messages[0].role == "system"
     prompt = str(transformed.messages[0].content)
     assert "thinker" in prompt.lower()
-    assert "<proxy_thinker_memo>" in prompt
-    assert "</proxy_thinker_memo>" in prompt
+    assert "Session Steering Memo" in prompt
+    assert "<proxy_thinker_memo>" not in prompt
 
 
 def test_transformer_caches_loaded_thinker_instructions(
@@ -183,60 +189,10 @@ def test_transformer_injects_stored_memo_into_non_thinker_request() -> None:
     session.update_state = MagicMock()
 
     context = _context(thinker=False)
-
-    transformed = transformer.transform(
-        request=_request(),
-        target=BackendTarget(backend="openrouter", model="flash", uri_params={}),
-        session=session,
-        context=context,
-    )
-
-    assert transformed.messages[0].role == "system"
-    assert "Stored thinker memo" in str(transformed.messages[0].content)
-    assert transformed.messages[0].metadata == {
-        "source": "interleaved_thinking",
-        "kind": "thinker_memo_system",
-    }
-    assert transformed.messages[-2].role == "assistant"
-    assert transformed.messages[-2].content == ""
-    assert transformed.messages[-2].reasoning_content == "Stored thinker memo"
-    assert transformed.messages[-2].metadata == {
-        "source": "interleaved_thinking",
-        "kind": "thinker_memo_reasoning",
-    }
-    assert transformed.messages[-1].role == "user"
-    updated_state = session.update_state.call_args.args[0]
-    assert updated_state.interleaved_thinking_state["injected_count"] == 1
-    diagnostic = _diagnostic(context)
-    assert diagnostic["action"] == "memo_injected"
-    assert diagnostic["target_backend"] == "openrouter"
-    assert diagnostic["target_model"] == "flash"
-    assert diagnostic["memo_chars"] == len("Stored thinker memo")
-    assert diagnostic["message_count_before"] == 1
-    assert diagnostic["message_count_after"] == 3
-
-
-def test_transformer_skips_stored_memo_when_reasoning_content_exists() -> None:
-    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
-    session = MagicMock(
-        state=SessionState(
-            interleaved_thinking_state={
-                "memo": "Stored thinker memo",
-                "source_selector": "openai:gpt-4",
-                "injected_count": 0,
-            }
-        )
-    )
-    session.update_state = MagicMock()
-    context = _context(thinker=False)
     request = CanonicalChatRequest(
         model="gpt-4",
         messages=[
-            ChatMessage(
-                role="assistant",
-                content="",
-                reasoning_content="client-carried thinker memo",
-            ),
+            ChatMessage(role="system", content="You are a helpful assistant."),
             ChatMessage(role="user", content="hello"),
         ],
     )
@@ -248,20 +204,85 @@ def test_transformer_skips_stored_memo_when_reasoning_content_exists() -> None:
         context=context,
     )
 
-    assert transformed.messages == request.messages
-    session.update_state.assert_not_called()
+    # Prefix message is 100% untouched for cache preservation
+    assert transformed.messages[0] == request.messages[0]
+    # Tail message receives the steering guidance
+    assert transformed.messages[-1].role == "user"
+    assert "hello" in str(transformed.messages[-1].content)
+    assert "[Session Steering Guidance]" in str(transformed.messages[-1].content)
+    assert "Stored thinker memo" in str(transformed.messages[-1].content)
+    metadata_last = transformed.messages[-1].metadata or {}
+    assert metadata_last.get("source") == "interleaved_thinking"
+    assert metadata_last.get("kind") == "thinker_memo_tail"
+
+    updated_state = session.update_state.call_args.args[0]
+    assert updated_state.interleaved_thinking_state["injected_count"] == 1
     diagnostic = _diagnostic(context)
-    assert diagnostic["action"] == "memo_injection_skipped"
-    assert diagnostic["reason"] == "request_already_has_reasoning_content"
-    assert diagnostic["request_reasoning_messages"] == 1
-    assert diagnostic["request_reasoning_chars"] == len("client-carried thinker memo")
+    assert diagnostic["action"] == "memo_injected"
+    assert diagnostic["target_backend"] == "openrouter"
+    assert diagnostic["target_model"] == "flash"
+    assert diagnostic["memo_chars"] == len("Stored thinker memo")
     assert diagnostic["message_count_before"] == 2
     assert diagnostic["message_count_after"] == 2
 
 
-def test_transformer_injects_deepseek_memo_as_visible_context_when_reasoning_exists() -> (
-    None
-):
+def test_transformer_injects_stored_memo_into_tool_result_message() -> None:
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    session = MagicMock(
+        state=SessionState(
+            interleaved_thinking_state={
+                "memo": "Plan next tool call",
+                "source_selector": "openai:gpt-4",
+                "injected_count": 0,
+            }
+        )
+    )
+    session.update_state = MagicMock()
+    context = _context(thinker=False)
+    request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[
+            ChatMessage(role="system", content="System base"),
+            ChatMessage(role="user", content="Read file"),
+            ChatMessage(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call-1",
+                        type="function",
+                        function=FunctionCall(name="read_file", arguments="{}"),
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                content="file content line 1",
+                tool_call_id="call-1",
+            ),
+        ],
+    )
+
+    transformed = transformer.transform(
+        request=request,
+        target=BackendTarget(backend="openrouter", model="flash", uri_params={}),
+        session=session,
+        context=context,
+    )
+
+    # Prefix (messages 0, 1, 2) is completely identical (100% cache hit)
+    assert transformed.messages[:3] == request.messages[:3]
+    # Tail tool result is augmented with guidance
+    assert transformed.messages[-1].role == "tool"
+    assert "file content line 1" in str(transformed.messages[-1].content)
+    assert "[Session Steering Guidance]" in str(transformed.messages[-1].content)
+    assert "Plan next tool call" in str(transformed.messages[-1].content)
+    tool_metadata = transformed.messages[-1].metadata or {}
+    assert tool_metadata.get("source") == "interleaved_thinking"
+    assert tool_metadata.get("kind") == "thinker_memo_tail"
+
+
+def test_transformer_injects_deepseek_memo_as_tail_context() -> None:
     transformer = InterleavedThinkingRequestTransformer(BackendSettings())
     session = MagicMock(
         state=SessionState(
@@ -277,11 +298,7 @@ def test_transformer_injects_deepseek_memo_as_visible_context_when_reasoning_exi
     request = CanonicalChatRequest(
         model="deepseek-v4-flash-free",
         messages=[
-            ChatMessage(
-                role="assistant",
-                content="",
-                reasoning_content="stale DeepSeek-incompatible reasoning",
-            ),
+            ChatMessage(role="system", content="System base prompt"),
             ChatMessage(role="user", content="hello"),
         ],
     )
@@ -297,20 +314,18 @@ def test_transformer_injects_deepseek_memo_as_visible_context_when_reasoning_exi
         context=context,
     )
 
-    assert transformed.messages[0].role == "system"
-    assert "Stored thinker memo" in str(transformed.messages[0].content)
-    assert transformed.messages[1:] == request.messages
-    assert all(
-        message.reasoning_content != "Stored thinker memo"
-        for message in transformed.messages
-    )
+    # Prefix message 0 is untouched
+    assert transformed.messages[0] == request.messages[0]
+    # Tail message has memo
+    assert "Stored thinker memo" in str(transformed.messages[-1].content)
+    assert "[Session Steering Guidance]" in str(transformed.messages[-1].content)
     updated_state = session.update_state.call_args.args[0]
     assert updated_state.interleaved_thinking_state["injected_count"] == 1
     diagnostic = _diagnostic(context)
     assert diagnostic["action"] == "memo_injected"
     assert diagnostic["memo_chars"] == len("Stored thinker memo")
     assert diagnostic["message_count_before"] == 2
-    assert diagnostic["message_count_after"] == 3
+    assert diagnostic["message_count_after"] == 2
 
 
 def test_transformer_skips_visible_memo_already_carried_by_client_context() -> None:
@@ -470,3 +485,38 @@ def test_transformer_skips_non_main_surfaces() -> None:
     )
 
     assert transformed is original
+
+
+def test_transformer_logs_memo_injection_with_turn_details(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    original = _request()
+    session = MagicMock(
+        state=SessionState(
+            interleaved_thinking_state={
+                "memo": "Stored thinker memo",
+                "source_selector": "openai:gpt-4",
+                "regular_turns_remaining": 3,
+            }
+        )
+    )
+
+    with caplog.at_level(
+        logging.INFO,
+        logger="src.core.services.interleaved_thinking.transformer",
+    ):
+        context = _context(thinker=False)
+        transformer.transform(
+            request=original,
+            target=BackendTarget(backend="openrouter", model="flash", uri_params={}),
+            session=session,
+            context=context,
+        )
+
+    assert any(
+        "Interleaved thinking memo injected:" in record.message
+        and "memo_chars=19" in record.message
+        and "turns_remaining=3" in record.message
+        for record in caplog.records
+    )

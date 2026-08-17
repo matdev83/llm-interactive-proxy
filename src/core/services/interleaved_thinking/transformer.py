@@ -10,7 +10,12 @@ from typing import Any, cast
 from src.core.common.exceptions import ConfigurationError
 from src.core.config.models.backends import BackendSettings
 from src.core.domain.backend_target import BackendTarget
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.chat import (
+    CanonicalChatRequest,
+    ChatMessage,
+    MessageContentPart,
+    MessageContentPartText,
+)
 from src.core.domain.composite_routing import RoutingSurface
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.domain_entities_interface import ISession
@@ -31,6 +36,7 @@ INTERLEAVED_THINKING_DIAGNOSTIC_KEY = "interleaved_thinking_diagnostic"
 INTERLEAVED_THINKING_SUPPRESS_MEMO_INJECTION_KEY = (
     "interleaved_thinking_suppress_memo_injection"
 )
+_DEFAULT_STEERING_INJECTION_HEADER = "[Session Steering Guidance]"
 _DEFAULT_SYSTEM_INJECTION_PREFIX = (
     "The proxy captured this thinker memo for the next executor model. "
     "Use it as planning context, but obey the user's latest request."
@@ -268,33 +274,7 @@ class InterleavedThinkingRequestTransformer:
             )
             return request
 
-        system_message = ChatMessage(
-            role="system",
-            content=f"{_DEFAULT_SYSTEM_INJECTION_PREFIX}\n\n{memo}",
-            metadata={
-                "source": "interleaved_thinking",
-                "kind": "thinker_memo_system",
-            },
-        )
-        reasoning_message = ChatMessage(
-            role="assistant",
-            content="",
-            reasoning_content=memo,
-            metadata={
-                "source": "interleaved_thinking",
-                "kind": "thinker_memo_reasoning",
-            },
-        )
-        messages = list(request.messages)
-        insert_at = self._last_user_message_index(messages)
-        visible_memo_only = self._should_inject_visible_memo_only(target)
-        if visible_memo_only:
-            messages = [system_message, *messages]
-        elif insert_at is None:
-            messages = [system_message, reasoning_message, *messages]
-        else:
-            messages.insert(insert_at, reasoning_message)
-            messages.insert(0, system_message)
+        messages = self._inject_memo_at_tail(list(request.messages), memo)
         self._increment_injected_count(session)
         self._record_diagnostic(
             context,
@@ -303,12 +283,19 @@ class InterleavedThinkingRequestTransformer:
             memo_chars=len(memo),
             message_count_before=len(request.messages),
             message_count_after=len(messages),
+            injection_mode="tail_anchored",
+        )
+        stored_state = self._get_interleaved_state(session)
+        turns_remaining = (
+            stored_state.get("regular_turns_remaining")
+            if isinstance(stored_state, dict)
+            else None
         )
         logger.info(
             "Interleaved thinking memo injected: request_id=%s session_id=%s "
             "backend=%s model=%s memo_chars=%d memo_hash=%s memo_snippet=%r "
-            "messages_before=%d "
-            "messages_after=%d injection_mode=%s insert_before_last_user=%s "
+            "turns_remaining=%s messages_before=%d "
+            "messages_after=%d injection_mode=%s "
             "tools_present=%s",
             request_id(context),
             session_id(context, session),
@@ -317,10 +304,10 @@ class InterleavedThinkingRequestTransformer:
             len(memo),
             self._text_hash(memo),
             self._snippet(memo),
+            turns_remaining,
             len(request.messages),
             len(messages),
-            "visible_system_context" if visible_memo_only else "system_and_reasoning",
-            insert_at is not None,
+            "tail_anchored",
             bool(request.tools),
         )
         return request.model_copy(update={"messages": messages})
@@ -337,6 +324,7 @@ class InterleavedThinkingRequestTransformer:
         request_reasoning: _ReasoningContentStats | None = None,
         message_count_before: int,
         message_count_after: int,
+        injection_mode: str | None = None,
     ) -> None:
         if context is None:
             return
@@ -349,6 +337,8 @@ class InterleavedThinkingRequestTransformer:
             "message_count_before": message_count_before,
             "message_count_after": message_count_after,
         }
+        if injection_mode is not None:
+            diagnostic["injection_mode"] = injection_mode
         if reason is not None:
             diagnostic["reason"] = reason
         if memo_chars is not None:
@@ -639,16 +629,68 @@ class InterleavedThinkingRequestTransformer:
         return "deepseek" in target_text
 
     @staticmethod
-    def _get_interleaved_state(session: ISession) -> dict[str, Any] | None:
+    def _get_interleaved_state(session: ISession | None) -> dict[str, Any] | None:
+        if session is None:
+            return None
         base_state = as_session_state(getattr(session, "state", None))
         if base_state is None:
             return None
         raw_state = base_state.interleaved_thinking_state
         return raw_state if isinstance(raw_state, dict) else None
 
-    @staticmethod
-    def _last_user_message_index(messages: list[ChatMessage]) -> int | None:
-        for index in range(len(messages) - 1, -1, -1):
-            if messages[index].role == "user":
-                return index
-        return None
+    @classmethod
+    def _inject_memo_at_tail(
+        cls,
+        messages: list[ChatMessage],
+        memo: str,
+    ) -> list[ChatMessage]:
+        guidance_text = f"\n\n---\n{_DEFAULT_STEERING_INJECTION_HEADER}\n{memo}"
+        if not messages:
+            return [
+                ChatMessage(
+                    role="user",
+                    content=f"{_DEFAULT_STEERING_INJECTION_HEADER}\n{memo}",
+                    metadata={
+                        "source": "interleaved_thinking",
+                        "kind": "thinker_memo_tail",
+                    },
+                )
+            ]
+
+        updated_messages = list(messages)
+        last_msg = updated_messages[-1]
+
+        if last_msg.role in ("tool", "user"):
+            new_content: str | list[MessageContentPart]
+            if isinstance(last_msg.content, str):
+                new_content = f"{last_msg.content}{guidance_text}"
+            elif isinstance(last_msg.content, list):
+                parts: list[MessageContentPart] = list(last_msg.content)
+                parts.append(MessageContentPartText(text=guidance_text))
+                new_content = parts
+            else:
+                new_content = f"{_DEFAULT_STEERING_INJECTION_HEADER}\n{memo}"
+
+            metadata = dict(last_msg.metadata or {})
+            metadata.update(
+                {
+                    "source": "interleaved_thinking",
+                    "kind": "thinker_memo_tail",
+                }
+            )
+            updated_messages[-1] = last_msg.model_copy(
+                update={"content": new_content, "metadata": metadata}
+            )
+            return updated_messages
+
+        updated_messages.append(
+            ChatMessage(
+                role="user",
+                content=f"{_DEFAULT_STEERING_INJECTION_HEADER}\n{memo}",
+                metadata={
+                    "source": "interleaved_thinking",
+                    "kind": "thinker_memo_tail",
+                },
+            )
+        )
+        return updated_messages

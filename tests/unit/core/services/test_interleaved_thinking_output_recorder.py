@@ -64,9 +64,9 @@ def test_recorder_captures_non_streaming_reasoning_content() -> None:
     assert stored["memo"] == "memo from reasoning field"
     assert stored["backend"] == "openai"
     assert stored["model"] == "gpt-4"
-    assert stored["extraction_source"] == "fallback_unstructured_output"
+    assert stored["extraction_source"] == "reasoning_content"
     diagnostic = _diagnostic(context)
-    assert diagnostic["extraction_source"] == "fallback_unstructured_output"
+    assert diagnostic["extraction_source"] == "reasoning_content"
 
 
 def test_recorder_uses_configured_regular_turns_remaining() -> None:
@@ -114,7 +114,7 @@ def test_recorder_writes_capture_diagnostic_when_memo_is_stored() -> None:
     assert diagnostic["model"] == "gpt-4"
     assert diagnostic["memo_chars"] == len("visible memo")
     assert diagnostic["source_selector"] == "openai:gpt-4"
-    assert diagnostic["extraction_source"] == "fallback_unstructured_output"
+    assert diagnostic["extraction_source"] == "content"
 
 
 def test_recorder_writes_skip_diagnostic_for_empty_memo() -> None:
@@ -155,12 +155,12 @@ def test_recorder_writes_skip_diagnostic_for_unsupported_response_shape() -> Non
     assert diagnostic["backend"] == "gemini"
 
 
-def test_recorder_falls_back_to_non_streaming_message_content() -> None:
+def test_recorder_captures_non_streaming_message_content_directly() -> None:
     session = _session()
     context = _context()
     recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
     response = ResponseEnvelope(
-        content={"choices": [{"message": {"content": "visible memo"}}]}
+        content={"choices": [{"message": {"content": "## Plan\n1. Do step"}}]}
     )
 
     recorder.capture_non_streaming(
@@ -172,8 +172,40 @@ def test_recorder_falls_back_to_non_streaming_message_content() -> None:
     )
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
-    assert stored["memo"] == "visible memo"
-    assert stored["extraction_source"] == "fallback_unstructured_output"
+    assert stored["memo"] == "## Plan\n1. Do step"
+    assert stored["extraction_source"] == "content"
+
+
+def test_recorder_handles_unclosed_proxy_thinker_memo_tag() -> None:
+    session = _session()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+    response = ResponseEnvelope(
+        content={
+            "choices": [
+                {
+                    "message": {
+                        "content": (
+                            "preamble text <proxy_thinker_memo>## Plan\n1. Recovered without closing tag"
+                        )
+                    }
+                }
+            ]
+        }
+    )
+
+    recorder.capture_non_streaming(
+        response=response,
+        session=session,
+        context=_context(),
+        backend_type="openai",
+        effective_model="gpt-4",
+    )
+
+    stored = session.update_state.call_args.args[0].interleaved_thinking_state
+    assert stored["memo"] == "## Plan\n1. Recovered without closing tag"
+    assert stored["extraction_source"] == "content_structured_xml"
+    assert "preamble text" not in stored["memo"]
+    assert "<proxy_thinker_memo>" not in stored["memo"]
 
 
 def test_recorder_strips_proxy_thinker_memo_tags_before_storing() -> None:
@@ -273,7 +305,7 @@ def test_recorder_uses_structured_reasoning_when_visible_content_has_no_xml() ->
     assert stored["extraction_source"] == "reasoning_content_structured_xml"
 
 
-def test_recorder_falls_back_to_combined_unstructured_output_and_logs(
+def test_recorder_captures_combined_content_and_reasoning_without_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     session = _session()
@@ -306,8 +338,8 @@ def test_recorder_falls_back_to_combined_unstructured_output_and_logs(
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "raw reasoning\n\nplain final answer"
-    assert stored["extraction_source"] == "fallback_unstructured_output"
-    assert any(
+    assert stored["extraction_source"] == "direct_output"
+    assert not any(
         "failed to provide valid structured XML thinker memo" in record.message
         for record in caplog.records
     )
@@ -433,7 +465,7 @@ async def test_recorder_wraps_stream_without_buffering_before_yield() -> None:
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "memo \n\nvisible done"
-    assert stored["extraction_source"] == "fallback_unstructured_output"
+    assert stored["extraction_source"] == "direct_output"
 
 
 @pytest.mark.asyncio
@@ -479,7 +511,7 @@ async def test_recorder_captures_codex_reasoning_summary_stream() -> None:
     assert len(chunks) == 2
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "Plan part from responses event"
-    assert stored["extraction_source"] == "fallback_unstructured_output"
+    assert stored["extraction_source"] == "reasoning_summary"
 
 
 @pytest.mark.asyncio
@@ -609,7 +641,7 @@ async def test_recorder_captures_codex_output_text_delta_sse_frame() -> None:
     assert len(chunks) == 3
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "first second"
-    assert stored["extraction_source"] == "fallback_unstructured_output"
+    assert stored["extraction_source"] == "delta"
 
 
 @pytest.mark.asyncio
@@ -1006,3 +1038,40 @@ def test_recorder_truncates_stored_memo() -> None:
 
     stored = session.update_state.call_args.args[0].interleaved_thinking_state
     assert stored["memo"] == "1234"
+
+
+@pytest.mark.asyncio
+async def test_recorder_logs_stream_interrupted_skip_diagnostic_when_empty(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    session = _session()
+    context = _context()
+    recorder = InterleavedThinkingOutputRecorder(max_output_chars=8000)
+
+    async def stream():
+        yield ProcessedResponse(content={"choices": [{"delta": {"content": ""}}]})
+
+    envelope = StreamingResponseEnvelope(content=stream())
+    wrapped = recorder.wrap_streaming(
+        response=envelope,
+        session=session,
+        context=context,
+        backend_type="openai",
+        effective_model="gpt-4",
+    )
+
+    with caplog.at_level(
+        logging.INFO,
+        logger="src.core.services.interleaved_thinking.output_recorder",
+    ):
+        assert wrapped.content is not None
+        await anext(wrapped.content)
+        await cast(Any, wrapped.content).aclose()
+
+    diagnostic = _diagnostic(context)
+    assert diagnostic["action"] == "memo_store_skipped"
+    assert diagnostic["reason"] == "stream_interrupted"
+    assert any(
+        "Interleaved thinking memo store skipped: stream_interrupted" in record.message
+        for record in caplog.records
+    )

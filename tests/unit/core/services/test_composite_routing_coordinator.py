@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -969,3 +970,49 @@ async def test_single_leaf_selector_respects_max_context() -> None:
 
     assert exc_info.value.details.get("reason") == "max_context_exceeded"
     assert leaf_resolver.calls == []
+
+
+@pytest.mark.asyncio
+async def test_interleaved_thinking_turn_selection_logs_cycle_position(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    parser = CompositeSelectorParser()
+    selector = "[thinker]openai:gpt-4^[weight=2]openrouter:deepseek"
+    routing_input = CompositeRoutingInput(
+        selector=selector,
+        surface=RoutingSurface.MAIN,
+    )
+    plan = parser.parse(routing_input)
+    leaf_resolver = _LeafResolverDouble(
+        outcomes={
+            "openai:gpt-4": _LeafOutcome(target=_target("openai", "gpt-4")),
+            "openrouter:deepseek": _LeafOutcome(
+                target=_target("openrouter", "deepseek")
+            ),
+        }
+    )
+    coordinator = CompositeRoutingCoordinator(
+        weighted_branch_selector=WeightedBranchSelector(
+            random_value_provider=lambda: 0.0
+        ),
+        leaf_target_resolver=leaf_resolver,
+    )
+
+    with caplog.at_level(
+        logging.INFO,
+        logger="src.core.services.composite_routing_coordinator",
+    ):
+        context = _context()
+        await coordinator.execute(
+            plan=plan,
+            routing_input=routing_input,
+            request=_request(),
+            context=context,
+        )
+
+    assert any(
+        "Interleaved thinking turn selected:" in record.message
+        and "role=executor" in record.message
+        and "cycle_index=1/3" in record.message
+        for record in caplog.records
+    )

@@ -255,28 +255,17 @@ async def test_completion_flow_swallows_thinker_stream_and_continues_with_execut
     executor_request = (
         deps["connector_invoker"].invoke.await_args_list[1].kwargs["domain_request"]
     )
-    assert executor_request.messages[0].role == "system"
-    assert "plan it" in str(executor_request.messages[0].content)
-    assert any(
-        message.reasoning_content == "plan it" for message in executor_request.messages
+    assert "plan it" in str(executor_request.messages[-1].content)
+    assert "[Session Steering Guidance]" in str(executor_request.messages[-1].content)
+    assert (
+        executor_request.messages[-1].metadata.get("source") == "interleaved_thinking"
     )
+    assert executor_request.messages[-1].metadata.get("kind") == "thinker_memo_tail"
     assert all(
         message.metadata
         != {
             "source": "interleaved_thinking",
             "kind": "visible_thinker_output",
-        }
-        for message in executor_request.messages
-    )
-    assert executor_request.messages[0].metadata == {
-        "source": "interleaved_thinking",
-        "kind": "thinker_memo_system",
-    }
-    assert any(
-        message.metadata
-        == {
-            "source": "interleaved_thinking",
-            "kind": "thinker_memo_reasoning",
         }
         for message in executor_request.messages
     )
@@ -826,10 +815,10 @@ async def test_completion_flow_injects_existing_memo_for_non_thinker() -> None:
     invoked_request = deps["connector_invoker"].invoke.call_args.kwargs[
         "domain_request"
     ]
-    assert any(
-        message.reasoning_content == "stored memo"
-        for message in invoked_request.messages
-    )
+    assert "stored memo" in str(invoked_request.messages[-1].content)
+    assert "[Session Steering Guidance]" in str(invoked_request.messages[-1].content)
+    assert invoked_request.messages[-1].metadata.get("source") == "interleaved_thinking"
+    assert invoked_request.messages[-1].metadata.get("kind") == "thinker_memo_tail"
     updated_state = session.update_state.call_args.args[0]
     assert updated_state.interleaved_thinking_state["injected_count"] == 1
 

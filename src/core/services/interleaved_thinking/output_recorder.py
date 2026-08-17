@@ -31,7 +31,7 @@ INTERLEAVED_THINKING_RECORDER_DIAGNOSTIC_KEY = (
 _THINKER_OPEN_TAG_PREFIX = "<proxy_thinker_memo"
 _THINKER_CLOSE_TAG_PREFIX = "</proxy_thinker_memo"
 _THINKER_TAG_PREFIXES = (_THINKER_OPEN_TAG_PREFIX, _THINKER_CLOSE_TAG_PREFIX)
-_UNSTRUCTURED_FALLBACK_SOURCE = "fallback_unstructured_output"
+_DIRECT_OUTPUT_SOURCE = "direct_output"
 
 
 @dataclass(frozen=True)
@@ -324,10 +324,13 @@ class InterleavedThinkingOutputRecorder:
             )
             return
         if not memo or not memo.strip():
+            skip_reason = empty_reason
+            if stream_interrupted and skip_reason == "empty_memo":
+                skip_reason = "stream_interrupted"
             self._record_diagnostic(
                 context,
                 action="memo_store_skipped",
-                reason=empty_reason,
+                reason=skip_reason,
                 backend_type=backend_type,
                 effective_model=effective_model,
                 extraction_source=extraction_source,
@@ -336,34 +339,22 @@ class InterleavedThinkingOutputRecorder:
             logger.info(
                 "Interleaved thinking memo store skipped: %s "
                 "request_id=%s session_id=%s backend=%s model=%s "
-                "extraction_source=%s",
-                empty_reason,
+                "extraction_source=%s stream_interrupted=%s",
+                skip_reason,
                 request_id(context),
                 session_id(context, session),
                 backend_type,
                 effective_model,
                 extraction_source,
+                stream_interrupted,
             )
             return
-        normalized_memo, prepared_source, used_unstructured_fallback = (
-            self._prepare_memo_for_storage(memo, extraction_source)
+        normalized_memo, prepared_source = self._prepare_memo_for_storage(
+            memo, extraction_source
         )
         normalized_memo = normalized_memo[: self._max_output_chars]
         if not normalized_memo:
             return
-        if used_unstructured_fallback:
-            logger.info(
-                "Interleaved thinking model failed to provide valid structured XML "
-                "thinker memo; storing full captured output as fallback. "
-                "request_id=%s session_id=%s backend=%s model=%s "
-                "fallback_chars=%d original_extraction_source=%s",
-                request_id(context),
-                session_id(context, session),
-                backend_type,
-                effective_model,
-                len(normalized_memo),
-                extraction_source,
-            )
 
         source_selector = None
         stored_request_id = None
@@ -644,18 +635,21 @@ class InterleavedThinkingOutputRecorder:
         cls,
         memo: str,
         extraction_source: str | None,
-    ) -> tuple[str, str | None, bool]:
+    ) -> tuple[str, str | None]:
         if extraction_source is not None and extraction_source.endswith(
             "_structured_xml"
         ):
-            return memo.strip(), extraction_source, False
+            return memo.strip(), extraction_source
         structured = cls._extract_proxy_thinker_memo_block(memo)
         if structured is not None:
             source = extraction_source or "structured_xml"
             if not source.endswith("_structured_xml"):
                 source = f"{source}_structured_xml"
-            return structured.strip(), source, False
-        return cls._normalize_memo_text(memo), _UNSTRUCTURED_FALLBACK_SOURCE, True
+            return structured.strip(), source
+        return (
+            cls._normalize_memo_text(memo),
+            extraction_source or _DIRECT_OUTPUT_SOURCE,
+        )
 
     @classmethod
     def _extract_proxy_thinker_memo_block(cls, text: str) -> str | None:
@@ -671,7 +665,7 @@ class InterleavedThinkingOutputRecorder:
             return None
         close_index = lowered.find(_THINKER_CLOSE_TAG_PREFIX, open_end + 1)
         if close_index < 0:
-            return None
+            return text[open_end + 1 :]
         return text[open_end + 1 : close_index]
 
     @staticmethod
@@ -973,11 +967,18 @@ class InterleavedThinkingOutputRecorder:
             if structured is not None:
                 return _ExtractedMemo(structured, f"{key}_structured_xml")
 
-        fallback_parts = [value for _key, value in reasoning_candidates]
-        fallback_parts.extend(value for _key, value in content_candidates)
-        if fallback_parts:
+        parts: list[str] = []
+        parts.extend(value for _key, value in reasoning_candidates)
+        parts.extend(value for _key, value in content_candidates)
+        if parts:
+            if len(reasoning_candidates) == 1 and not content_candidates:
+                source = reasoning_candidates[0][0]
+            elif len(content_candidates) == 1 and not reasoning_candidates:
+                source = content_candidates[0][0]
+            else:
+                source = _DIRECT_OUTPUT_SOURCE
             return _ExtractedMemo(
-                "\n\n".join(fallback_parts),
-                _UNSTRUCTURED_FALLBACK_SOURCE,
+                "\n\n".join(parts),
+                source,
             )
         return None
