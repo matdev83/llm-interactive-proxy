@@ -53,6 +53,7 @@ def sanitize_openai_compatible_sse_payload_inplace(payload: dict[str, Any]) -> N
     )
     if has_choices:
         sanitize_openai_chunk_tool_call_ids_inplace(payload)
+        sanitize_openai_chunk_delta_inplace(payload)
 
 
 def coerce_openai_completion_id(
@@ -125,3 +126,41 @@ def sanitize_openai_chunk_tool_call_ids_inplace(chunk: dict[str, Any]) -> None:
             for item in tcs:
                 if isinstance(item, dict):
                     normalize_tool_call_dict_id_inplace(item)
+
+
+def sanitize_openai_chunk_delta_inplace(chunk: dict[str, Any]) -> None:
+    """Normalize ``choices[].delta`` (and message) for clean streaming SSE rendering.
+
+    - Removes keys with ``None`` values (e.g. role: None, content: None, refusal: None, tool_calls: None).
+    - If ``reasoning_content`` (or ``reasoning``) or ``tool_calls`` is present, removes empty string ``content: ""``.
+    - Drops internal/duplicate reasoning aliases (such as ``reasoning_summary``) when ``reasoning_content`` is present.
+    """
+    choices = chunk.get("choices")
+    if not isinstance(choices, list):
+        return
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        for key in ("delta", "message"):
+            container = choice.get(key)
+            if not isinstance(container, dict):
+                continue
+
+            # Remove all None-valued keys to prevent polluting the delta
+            none_keys = [k for k, v in container.items() if v is None]
+            for k in none_keys:
+                del container[k]
+
+            # If reasoning or tool calls are present, omit empty string content
+            has_reasoning = bool(
+                container.get("reasoning_content")
+                or container.get("reasoning")
+                or container.get("reasoning_summary")
+            )
+            has_tools = bool(container.get("tool_calls"))
+            if (has_reasoning or has_tools) and container.get("content") == "":
+                container.pop("content", None)
+
+            # Drop internal reasoning_summary alias if reasoning_content is already present
+            if container.get("reasoning_content") and "reasoning_summary" in container:
+                container.pop("reasoning_summary", None)

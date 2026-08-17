@@ -238,3 +238,49 @@ class TestToolBlockBuffer:
         result = buffer.buffer(large_content, stream_id)
         assert len(result) >= 20000
         assert "<custom_tool>" in result
+
+    def test_allowed_tools_strictly_ignores_unallowed_tags(self) -> None:
+        """Test that unallowed tags are not tracked or buffered when allowed_tools is configured."""
+        registry = StreamingContextRegistry()
+        buffer = ToolBlockBuffer(registry=registry)
+        stream_id = "test-stream"
+
+        buffer_state = registry.get_tool_call_buffer(stream_id)
+        buffer_state.allowed_tools = ["read_file", "write_file"]
+
+        # Chunk 1 with an unallowed tag split across chunks
+        chunk1 = "Here is a table: <table name"
+        res1 = buffer.buffer(chunk1, stream_id)
+        # Should NOT be buffered because 'table' is not in allowed_tools
+        assert res1 == chunk1
+        assert "table" not in buffer_state.tracked_tags
+
+        chunk2 = "='users'> data"
+        res2 = buffer.buffer(chunk2, stream_id)
+        assert res2 == chunk2
+
+    def test_reset_clears_tracked_tags(self) -> None:
+        """Test that reset() clears tracked_tags on the buffer state."""
+        registry = StreamingContextRegistry()
+        buffer = ToolBlockBuffer(registry=registry)
+        stream_id = "test-stream"
+
+        buffer.buffer("<read_file>test</read_file>", stream_id)
+        buffer_state = registry.get_tool_call_buffer(stream_id)
+        assert "read_file" in buffer_state.tracked_tags
+
+        buffer.reset(stream_id)
+        assert len(buffer_state.tracked_tags) == 0
+
+    def test_non_tool_code_and_generics_not_buffered(self) -> None:
+        """Test that Go channel operations and generics with allowed_tools are not buffered."""
+        registry = StreamingContextRegistry()
+        buffer = ToolBlockBuffer(registry=registry)
+        stream_id = "test-stream"
+
+        buffer_state = registry.get_tool_call_buffer(stream_id)
+        buffer_state.allowed_tools = ["bash", "edit"]
+
+        code = "select { case m.wakeCh <- struct{}{}: default: }"
+        result = buffer.buffer(code, stream_id)
+        assert result == code

@@ -27,6 +27,7 @@ from src.core.domain.streaming.streaming_content import (
 from src.core.domain.translation_utils.openai_compat_ids import (
     coerce_openai_completion_id,
     normalize_tool_call_dict_id_inplace,
+    sanitize_openai_chunk_delta_inplace,
     sanitize_openai_compatible_sse_payload_inplace,
 )
 
@@ -634,6 +635,7 @@ class SSESerializer:
 
         # If is_virtual was handled above, content_copy is ready
         if is_virtual:
+            sanitize_openai_chunk_delta_inplace(content_copy)
             return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
 
         # Non-virtual: Inject tool_calls from typed metadata into the delta if present
@@ -810,12 +812,16 @@ class SSESerializer:
             merged = dict(content_payload)
             merged["usage"] = usage_from_content
             self._ensure_openai_compatible_top_level_id(merged)
+            sanitize_openai_chunk_delta_inplace(merged)
             return f"data: {json.dumps(merged)}\n\ndata: [DONE]\n\n".encode()
 
         # Usage already embedded (e.g. streaming converter merged it); never append
         # a second ``choices:[]`` usage-only chunk.
         if isinstance(content_payload.get("usage"), dict):
+            if usage_from_content is not None:
+                content_payload["usage"] = usage_from_content
             self._ensure_openai_compatible_top_level_id(content_payload)
+            sanitize_openai_chunk_delta_inplace(content_payload)
             return f"data: {json.dumps(content_payload)}\n\ndata: [DONE]\n\n".encode()
 
         usage_chunk = self._build_legacy_openai_usage_chunk(
@@ -823,6 +829,8 @@ class SSESerializer:
         )
         self._ensure_openai_compatible_top_level_id(content_payload)
         self._ensure_openai_compatible_top_level_id(usage_chunk)
+        sanitize_openai_chunk_delta_inplace(content_payload)
+        sanitize_openai_chunk_delta_inplace(usage_chunk)
         return (
             f"data: {json.dumps(content_payload)}\n\n"
             f"data: {json.dumps(usage_chunk)}\n\n"
@@ -946,6 +954,7 @@ class SSESerializer:
                 content_copy["choices"][0]["delta"] = delta
 
         self._ensure_openai_finish_reason_for_terminal_usage(content_copy, chunk)
+        sanitize_openai_chunk_delta_inplace(content_copy)
 
         parts = [f"data: {json.dumps(content_copy)}\n\n"]
         if chunk.is_done:
@@ -1157,6 +1166,7 @@ class SSESerializer:
 
         if chunk.metadata.finish_reason:
             response_data["choices"][0]["finish_reason"] = chunk.metadata.finish_reason
+        sanitize_openai_chunk_delta_inplace(response_data)
         parts = [f"data: {json.dumps(response_data)}\n\n"]
         if chunk.is_done:
             parts.append("data: [DONE]\n\n")

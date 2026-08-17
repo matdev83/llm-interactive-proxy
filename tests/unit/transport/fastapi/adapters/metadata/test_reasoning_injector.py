@@ -258,3 +258,27 @@ class TestReasoningInjector:
 
         assert isinstance(result, dict)
         assert result["content"] == "test"
+
+    def test_inject_reasoning_streaming_does_not_inject_role_when_not_in_metadata(
+        self,
+    ) -> None:
+        """Streaming deltas should not get role: assistant injected when absent."""
+        injector = ReasoningInjector()
+        content = {
+            "choices": [
+                {
+                    "delta": {
+                        "content": "Hello",
+                    }
+                }
+            ]
+        }
+        metadata = {
+            "reasoning_content": "Thinking...",
+        }
+
+        result = injector.inject_reasoning(content, metadata, streaming=True)
+
+        assert isinstance(result, dict)
+        assert "role" not in result["choices"][0]["delta"]
+        assert result["choices"][0]["delta"]["reasoning_content"] == "Thinking..."

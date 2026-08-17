@@ -50,15 +50,24 @@ def dict_to_canonical_stream_chunk(chunk_dict: dict[str, Any]) -> CanonicalStrea
         if not isinstance(delta_dict, dict):
             delta_dict = {}
         delta_dict = _normalize_reasoning_summary(delta_dict)
-        delta_data = {
-            "role": delta_dict.get("role"),
-            "content": delta_dict.get("content"),
-            "tool_calls": delta_dict.get("tool_calls"),
-            "refusal": delta_dict.get("refusal"),
-        }
+        delta_data = {}
+        for key in ("role", "content", "tool_calls", "refusal", "reasoning_content"):
+            val = delta_dict.get(key)
+            if val is not None:
+                delta_data[key] = val
         for key, value in delta_dict.items():
-            if key not in delta_data:
+            if key not in delta_data and value is not None:
                 delta_data[key] = value
+
+        # Clean empty string content if reasoning or tools are present
+        has_reasoning = bool(
+            delta_data.get("reasoning_content")
+            or delta_data.get("reasoning")
+            or delta_data.get("reasoning_summary")
+        )
+        has_tools = bool(delta_data.get("tool_calls"))
+        if (has_reasoning or has_tools) and delta_data.get("content") == "":
+            delta_data.pop("content", None)
 
         delta = StreamingChatCompletionChoiceDelta(**delta_data)
         choice = StreamingChatCompletionChoice(

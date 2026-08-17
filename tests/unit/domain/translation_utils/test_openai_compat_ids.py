@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 from src.core.domain.translation_utils.openai_compat_ids import (
     coerce_openai_completion_id,
     normalize_tool_call_dict_id_inplace,
@@ -66,7 +68,13 @@ def test_sanitize_openai_compatible_sse_payload_inplace_coerces_ids() -> None:
     }
     sanitize_openai_compatible_sse_payload_inplace(payload)
     assert payload["id"] == "4242"
-    assert payload["choices"][0]["delta"]["tool_calls"][0]["id"] == "1"
+    choices = payload["choices"]
+    assert isinstance(choices, list)
+    delta = choices[0]["delta"]
+    assert isinstance(delta, dict)
+    tcs = delta["tool_calls"]
+    assert isinstance(tcs, list)
+    assert tcs[0]["id"] == "1"
 
 
 def test_sanitize_openai_compatible_sse_payload_inplace_error_dict_numeric_id() -> None:
@@ -120,3 +128,137 @@ def test_openai_to_domain_response_coerces_numeric_id() -> None:
     }
     domain = openai_to_domain_response(body)
     assert domain.id == "1001"
+
+
+def test_sanitize_openai_chunk_delta_inplace_removes_none_fields() -> None:
+
+    chunk: dict[str, Any] = {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "role": None,
+                    "content": None,
+                    "reasoning_content": "Thinking...",
+                    "tool_calls": None,
+                    "refusal": None,
+                },
+                "finish_reason": None,
+            }
+        ]
+    }
+    from src.core.domain.translation_utils.openai_compat_ids import (
+        sanitize_openai_chunk_delta_inplace,
+    )
+
+    sanitize_openai_chunk_delta_inplace(chunk)
+    choices = cast(list[dict[str, Any]], chunk["choices"])
+    delta = cast(dict[str, Any], choices[0]["delta"])
+    assert delta == {"reasoning_content": "Thinking..."}
+    assert "role" not in delta
+    assert "content" not in delta
+    assert "tool_calls" not in delta
+    assert "refusal" not in delta
+
+
+def test_sanitize_openai_chunk_delta_inplace_strips_empty_content_when_reasoning_present() -> (
+    None
+):
+
+    chunk: dict[str, Any] = {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "role": "assistant",
+                    "reasoning_content": "Thinking...",
+                    "content": "",
+                },
+            }
+        ]
+    }
+    from src.core.domain.translation_utils.openai_compat_ids import (
+        sanitize_openai_chunk_delta_inplace,
+    )
+
+    sanitize_openai_chunk_delta_inplace(chunk)
+    choices = cast(list[dict[str, Any]], chunk["choices"])
+    delta = cast(dict[str, Any], choices[0]["delta"])
+    assert delta == {"role": "assistant", "reasoning_content": "Thinking..."}
+    assert "content" not in delta
+
+
+def test_sanitize_openai_chunk_delta_inplace_strips_empty_content_when_tools_present() -> (
+    None
+):
+
+    chunk: dict[str, Any] = {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "tool_calls": [{"index": 0, "id": "call_1", "type": "function"}],
+                    "content": "",
+                },
+            }
+        ]
+    }
+    from src.core.domain.translation_utils.openai_compat_ids import (
+        sanitize_openai_chunk_delta_inplace,
+    )
+
+    sanitize_openai_chunk_delta_inplace(chunk)
+    choices = cast(list[dict[str, Any]], chunk["choices"])
+    delta = cast(dict[str, Any], choices[0]["delta"])
+    assert "content" not in delta
+    assert "tool_calls" in delta
+
+
+def test_sanitize_openai_chunk_delta_inplace_preserves_non_empty_content() -> None:
+
+    chunk: dict[str, Any] = {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "reasoning_content": "Thinking...",
+                    "content": "Hello world",
+                },
+            }
+        ]
+    }
+    from src.core.domain.translation_utils.openai_compat_ids import (
+        sanitize_openai_chunk_delta_inplace,
+    )
+
+    sanitize_openai_chunk_delta_inplace(chunk)
+    choices = cast(list[dict[str, Any]], chunk["choices"])
+    delta = cast(dict[str, Any], choices[0]["delta"])
+    assert delta == {"reasoning_content": "Thinking...", "content": "Hello world"}
+
+
+def test_sanitize_openai_chunk_delta_inplace_cleans_duplicate_reasoning_summary() -> (
+    None
+):
+
+    chunk: dict[str, Any] = {
+        "choices": [
+            {
+                "index": 0,
+                "delta": {
+                    "reasoning_content": "Thinking...",
+                    "reasoning_summary": "Thinking...",
+                    "reasoning": "Thinking...",
+                },
+            }
+        ]
+    }
+    from src.core.domain.translation_utils.openai_compat_ids import (
+        sanitize_openai_chunk_delta_inplace,
+    )
+
+    sanitize_openai_chunk_delta_inplace(chunk)
+    choices = cast(list[dict[str, Any]], chunk["choices"])
+    delta = cast(dict[str, Any], choices[0]["delta"])
+    assert "reasoning_summary" not in delta
+    assert delta["reasoning_content"] == "Thinking..."

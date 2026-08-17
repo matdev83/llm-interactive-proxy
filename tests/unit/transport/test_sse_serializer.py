@@ -823,7 +823,7 @@ class TestSSESerializerNormalChunks:
         payload = json.loads(json_line)
         delta = payload["choices"][0]["delta"]
 
-        assert delta["content"] == ""
+        assert "content" not in delta
         assert delta["reasoning_content"] == "I'll check..."
         assert "thinking" not in delta
         assert "thought" not in delta

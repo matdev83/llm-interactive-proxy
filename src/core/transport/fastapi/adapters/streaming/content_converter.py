@@ -52,7 +52,7 @@ class StreamingContentConverter:
     metadata, tracks usage, and detects completion signals.
     """
 
-    _USAGE_RECALC_TIMEOUT_SECONDS = 0.5
+    _USAGE_RECALC_TIMEOUT_SECONDS = 5.0
 
     def __init__(
         self,
@@ -342,20 +342,54 @@ class StreamingContentConverter:
 
         return False
 
-    def _resolve_stream_key(self, metadata: dict[str, JsonValue]) -> str:
-        """Resolve stream identifier from metadata.
+    def _resolve_stream_key(
+        self,
+        metadata: dict[str, JsonValue] | None,
+        envelope_metadata: dict[str, JsonValue] | None = None,
+        request_context: RequestContext | None = None,
+    ) -> str:
+        """Resolve stream identifier from metadata, envelope metadata, or request context.
 
         Args:
-            metadata: Metadata dictionary
+            metadata: Chunk metadata dictionary
+            envelope_metadata: Optional envelope metadata dictionary
+            request_context: Optional request context
 
         Returns:
             Stream identifier
         """
-        # Priority: stream_id > session_id (NOT id, which is per-chunk)
-        for candidate_key in ("stream_id", "session_id"):
-            value = metadata.get(candidate_key)
-            if isinstance(value, str) and value:
-                return value
+        # Priority: stream_id > request_id > rid > session_id > sid > session (NOT id, which is per-chunk)
+        if metadata:
+            for candidate_key in (
+                "stream_id",
+                "request_id",
+                "rid",
+                "session_id",
+                "sid",
+                "session",
+            ):
+                value = metadata.get(candidate_key)
+                if isinstance(value, str) and value:
+                    return value
+        if envelope_metadata:
+            for candidate_key in (
+                "stream_id",
+                "request_id",
+                "rid",
+                "session_id",
+                "sid",
+                "session",
+            ):
+                value = envelope_metadata.get(candidate_key)
+                if isinstance(value, str) and value:
+                    return value
+        if request_context is not None:
+            rid = getattr(request_context, "request_id", None)
+            if isinstance(rid, str) and rid:
+                return rid
+            sid = getattr(request_context, "session_id", None)
+            if isinstance(sid, str) and sid:
+                return sid
         return "anonymous-stream"
 
     def _chunk_signals_done(
@@ -477,6 +511,9 @@ class StreamingContentConverter:
             StreamingContent chunks
         """
         chunk_count = 0
+        last_stream_key = self._resolve_stream_key(
+            None, envelope_metadata, request_context
+        )
         try:
             accumulated_text_parts: list[str] = []
             best_usage: dict[str, Any] | None = None
@@ -530,7 +567,10 @@ class StreamingContentConverter:
                         ]
 
                 # Resolve stream key and sanitize tool blocks
-                stream_key = self._resolve_stream_key(metadata)
+                stream_key = self._resolve_stream_key(
+                    metadata, envelope_metadata, request_context
+                )
+                last_stream_key = stream_key
                 self._sanitize_multiline_tool_blocks(stream_key, decoded_payload)
 
                 # Inject reasoning metadata
@@ -916,6 +956,10 @@ class StreamingContentConverter:
                 is_done=True,
             )
         finally:
+            with contextlib.suppress(Exception):
+                buffer = self._get_tool_block_buffer()
+                buffer.reset(last_stream_key)
+
             # A terminal chunk can cause this converter to break out of the
             # ``async for`` before the source generator naturally resumes.
             # Close it explicitly so connector-owned teardown (including ACP

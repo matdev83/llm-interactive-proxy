@@ -555,6 +555,8 @@ class StreamingChatCompletionChoiceDelta(DomainModel):
     role: str | None = None
     content: str | None = None
     reasoning_content: str | None = None
+    reasoning: Any = None
+    reasoning_summary: Any = None
     tool_calls: list[StreamingToolCall] | None = None
     refusal: str | None = None
 

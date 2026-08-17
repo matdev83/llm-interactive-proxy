@@ -150,6 +150,12 @@ class ToolBlockBuffer:
             buffer_key = f"tool-block:{tag}"
             registry.clear_fragment(stream_key, buffer_key)
 
+        try:
+            buffer_state = registry.get_tool_call_buffer(stream_key)
+            buffer_state.tracked_tags.clear()
+        except (KeyError, ValueError):
+            pass
+
     def _get_registry(self) -> StreamingContextRegistry:
         """Get registry instance (DI or fallback).
 
@@ -229,6 +235,8 @@ class ToolBlockBuffer:
         tags: list[str] = []
         try:
             buffer_state = registry.get_tool_call_buffer(stream_key)
+            allowed_tools = buffer_state.allowed_tools
+            allowed_set = {t.lower() for t in allowed_tools} if allowed_tools else None
             disallowed_tags = (
                 {"think", "thought"} if not buffer_state.allowed_tools else set()
             )
@@ -241,6 +249,7 @@ class ToolBlockBuffer:
                     exc_info=True,
                 )
             buffer_state = None
+            allowed_set = None
             disallowed_tags = {"think", "thought"}
 
         if not text_value:
@@ -263,9 +272,14 @@ class ToolBlockBuffer:
                 and text_value[tail_start : tail_start + 1] == "/"
             ):
                 continue
-            # Skip disallowed tags
-            if tag.lower() in disallowed_tags:
-                continue
+            # If allowed_tools is explicitly configured, only track allowed tools
+            if allowed_set is not None:
+                if tag.lower() not in allowed_set:
+                    continue
+            else:
+                # Skip disallowed tags when allowed_tools is not configured
+                if tag.lower() in disallowed_tags:
+                    continue
             tags.append(tag)
 
         if buffer_state is not None and tags:
@@ -292,7 +306,11 @@ class ToolBlockBuffer:
         try:
             buffer_state = registry.get_tool_call_buffer(stream_key)
             allowed = list(buffer_state.allowed_tools or [])
+            allowed_set = {t.lower() for t in allowed} if allowed else None
             tracked = list(buffer_state.tracked_tags)
+            disallowed_tags = (
+                {"think", "thought"} if not buffer_state.allowed_tools else set()
+            )
         except (KeyError, ValueError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
@@ -302,29 +320,19 @@ class ToolBlockBuffer:
                     exc_info=True,
                 )
             allowed = []
+            allowed_set = None
             tracked = []
+            disallowed_tags = {"think", "thought"}
+
+        # Filter tracked tags by allowed_set if allowed_tools is configured
+        if allowed_set is not None:
+            tracked = [t for t in tracked if t.lower() in allowed_set]
 
         ordered_tags: list[str] = []
 
         # Get observed tags from text (tags are already tracked by buffer() method)
         observed_in_text: list[str] = []
         if text_value:
-            # Extract tags from text without updating registry (already done in buffer())
-            try:
-                buffer_state = registry.get_tool_call_buffer(stream_key)
-                disallowed_tags = (
-                    {"think", "thought"} if not buffer_state.allowed_tools else set()
-                )
-            except (KeyError, ValueError) as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Failed to get tool call buffer state for stream %s, using default disallowed tags: %s",
-                        stream_key,
-                        e,
-                        exc_info=True,
-                    )
-                disallowed_tags = {"think", "thought"}
-
             for match in re.finditer(
                 r"<([A-Za-z_][A-Za-z0-9_\-]*)(?=[\s>/])", text_value
             ):
@@ -334,7 +342,10 @@ class ToolBlockBuffer:
                 tail = text_value[match.end() : match.end() + 2]
                 if tail.startswith("/"):
                     continue
-                if tag.lower() in disallowed_tags:
+                if allowed_set is not None:
+                    if tag.lower() not in allowed_set:
+                        continue
+                elif tag.lower() in disallowed_tags:
                     continue
                 observed_in_text.append(tag)
 
@@ -372,6 +383,8 @@ class ToolBlockBuffer:
         tags: list[str] = []
         try:
             buffer_state = registry.get_tool_call_buffer(stream_key)
+            allowed = list(buffer_state.allowed_tools or [])
+            allowed_set = {t.lower() for t in allowed} if allowed else None
             disallowed_tags = (
                 {"think", "thought"} if not buffer_state.allowed_tools else set()
             )
@@ -383,6 +396,7 @@ class ToolBlockBuffer:
                     e,
                     exc_info=True,
                 )
+            allowed_set = None
             disallowed_tags = {"think", "thought"}
 
         # Look for opening tags that might be partial
@@ -399,8 +413,10 @@ class ToolBlockBuffer:
                 and content[tail_start : tail_start + 1] == "/"
             ):
                 continue
-            # Skip disallowed tags
-            if tag.lower() in disallowed_tags:
+            if allowed_set is not None:
+                if tag.lower() not in allowed_set:
+                    continue
+            elif tag.lower() in disallowed_tags:
                 continue
             # Check if this tag has a closing tag in the content
             close_tag = f"</{tag}>"

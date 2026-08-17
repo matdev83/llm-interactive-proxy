@@ -198,12 +198,18 @@ class StreamFormattingService(IStreamFormattingService):
 
         # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict
         if hasattr(content, "model_dump") and callable(content.model_dump):
-            dumped = content.model_dump()
+            try:
+                dumped = content.model_dump(exclude_none=True)
+            except TypeError:
+                dumped = content.model_dump()
             if isinstance(dumped, dict):
                 sanitize_openai_compatible_sse_payload_inplace(dumped)
                 json_str = json.dumps(dumped)
             elif hasattr(content, "model_dump_json"):
-                json_str = content.model_dump_json()
+                try:
+                    json_str = content.model_dump_json(exclude_none=True)
+                except TypeError:
+                    json_str = content.model_dump_json()
             else:
                 json_str = json.dumps(dumped)
             return f"data: {json_str}\n\n".encode()

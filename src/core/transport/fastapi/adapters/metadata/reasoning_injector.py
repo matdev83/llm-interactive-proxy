@@ -205,9 +205,7 @@ class ReasoningInjector:
                 assigned = True
                 continue
 
-            if streaming:
-                target.setdefault("role", metadata.get("role", "assistant"))
-            elif metadata.get("role") and "role" not in target:
+            if metadata.get("role") and "role" not in target:
                 target["role"] = metadata["role"]
 
             target["reasoning_content"] = reasoning_text
@@ -263,9 +261,11 @@ class ReasoningInjector:
         }
 
         target_key = "delta" if streaming else "message"
-        target_payload: dict[str, Any] = {
-            "role": metadata.get("role", "assistant"),
-        }
+        target_payload: dict[str, Any] = {}
+        if not streaming:
+            target_payload["role"] = metadata.get("role", "assistant")
+        elif metadata.get("role"):
+            target_payload["role"] = metadata["role"]
 
         tool_calls = metadata.get("tool_calls")
         if isinstance(tool_calls, list) and tool_calls:

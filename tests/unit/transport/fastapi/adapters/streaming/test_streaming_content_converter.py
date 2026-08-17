@@ -741,3 +741,80 @@ class TestStreamingContentConverter:
         assert isinstance(results[0], StreamingContent)
         assert results[0].metadata.get("stream_id") == "test-json"
         assert results[0].metadata.get("finish_reason") == "stop"
+
+    def test_resolve_stream_key_priority(self) -> None:
+        """Test _resolve_stream_key priority across metadata, envelope_metadata, and context."""
+        converter = StreamingContentConverter()
+
+        # Resolves from sid in chunk metadata
+        assert converter._resolve_stream_key({"sid": "sid-123"}) == "sid-123"
+
+        # Resolves from stream_id over session_id
+        assert (
+            converter._resolve_stream_key(
+                {"stream_id": "stream-1", "session_id": "session-1"}
+            )
+            == "stream-1"
+        )
+
+        # Resolves from request_id over session_id
+        assert (
+            converter._resolve_stream_key(
+                {"request_id": "req-1", "session_id": "session-1"}
+            )
+            == "req-1"
+        )
+        assert (
+            converter._resolve_stream_key({"rid": "rid-1", "session_id": "session-1"})
+            == "rid-1"
+        )
+
+        # Resolves from envelope_metadata if chunk metadata has no key
+        assert (
+            converter._resolve_stream_key(
+                {}, envelope_metadata={"session_id": "env-session"}
+            )
+            == "env-session"
+        )
+        assert (
+            converter._resolve_stream_key({}, envelope_metadata={"sid": "env-sid"})
+            == "env-sid"
+        )
+
+        # Resolves from request_context (request_id over session_id)
+        mock_ctx = MagicMock()
+        mock_ctx.request_id = "ctx-req"
+        mock_ctx.session_id = "ctx-session"
+        assert converter._resolve_stream_key({}, request_context=mock_ctx) == "ctx-req"
+
+        mock_ctx_session_only = MagicMock()
+        mock_ctx_session_only.request_id = None
+        mock_ctx_session_only.session_id = "ctx-session"
+        assert (
+            converter._resolve_stream_key({}, request_context=mock_ctx_session_only)
+            == "ctx-session"
+        )
+
+        # Fallback to anonymous-stream
+        assert converter._resolve_stream_key({}) == "anonymous-stream"
+
+    @pytest.mark.asyncio
+    async def test_converter_resets_tool_block_buffer_on_completion(self) -> None:
+        """Test that tool_block_buffer.reset() is called when stream finishes."""
+        mock_buffer = MagicMock(spec=IToolBlockBuffer)
+        converter = StreamingContentConverter(tool_block_buffer=mock_buffer)
+
+        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content='data: {"choices": [{"delta": {"content": "hello"}}]}\n\n',
+                metadata={"sid": "stream-session-123"},
+            )
+            yield ProcessedResponse(
+                content="data: [DONE]\n\n",
+                metadata={"sid": "stream-session-123"},
+            )
+
+        async for _ in converter.convert_stream(raw_stream(), {}):
+            pass
+
+        mock_buffer.reset.assert_called_with("stream-session-123")
