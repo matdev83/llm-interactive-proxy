@@ -14,6 +14,9 @@ from src.connectors.contracts import (
     ConnectorResponsesRequest,
 )
 from src.connectors.openai import (
+    _LLM_PROXY_CLIENT_HOST_KEY,
+    _LLM_PROXY_REQUEST_ID_KEY,
+    _LLM_PROXY_SESSION_ID_KEY,
     _LLM_PROXY_STREAM_HEADERS_KEY,
     _LLM_PROXY_STREAM_URL_KEY,
     OpenAIConnector,
@@ -561,6 +564,12 @@ class TestOpenAICanonicalAPI:
             extra[_LLM_PROXY_STREAM_HEADERS_KEY]["Authorization"]
             == "Bearer stream-backend-key"
         )
+        # Correlation identifiers must reach the raw stream path so boundary
+        # captures (PROXY_TO_BACKEND) get real request/session ids, not the
+        # session-as-request-id fallback.
+        assert extra[_LLM_PROXY_REQUEST_ID_KEY] == "test-request-id"
+        assert extra[_LLM_PROXY_SESSION_ID_KEY] == "test-session-id"
+        assert extra[_LLM_PROXY_CLIENT_HOST_KEY] == "127.0.0.1"
 
     @pytest.mark.asyncio
     async def test_stream_completion_retries_once_on_http2_no_error_termination(

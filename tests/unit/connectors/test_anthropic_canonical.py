@@ -7,7 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from src.connectors.anthropic import AnthropicBackend
+from src.connectors.anthropic import (
+    _LLM_PROXY_CLIENT_HOST_KEY,
+    _LLM_PROXY_REQUEST_ID_KEY,
+    _LLM_PROXY_SESSION_ID_KEY,
+    AnthropicBackend,
+)
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
@@ -405,6 +410,14 @@ class TestAnthropicCanonicalAPI:
                 # Verify streaming path was taken
                 assert isinstance(result, StreamingResponseEnvelope)
                 mock_stream.assert_called_once()
+                # Correlation identifiers must reach the raw stream path so
+                # boundary captures (PROXY_TO_BACKEND) get real request/session
+                # ids, not the session-as-request-id fallback.
+                passed_request = mock_stream.call_args[0][0]
+                extra_body = dict(passed_request.extra_body or {})
+                assert extra_body[_LLM_PROXY_REQUEST_ID_KEY] == "test-request-id"
+                assert extra_body[_LLM_PROXY_SESSION_ID_KEY] == "test-session-id"
+                assert extra_body[_LLM_PROXY_CLIENT_HOST_KEY] == "127.0.0.1"
 
     @pytest.mark.asyncio
     async def test_canonical_api_non_streaming_path(

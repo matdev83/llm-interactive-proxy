@@ -97,6 +97,13 @@ class WireCaptureEosSubscriber:
                 )
                 eos_metadata["eos_error_status_code"] = event.error_status_code
 
+            # Context is unavailable in the EoS event; carry the per-request id
+            # through capture_metadata so error completion entries stay
+            # attributable (sid/rid) like every other capture entry.
+            capture_metadata: dict[str, JsonValue] = {}
+            if event.request_id:
+                capture_metadata["request_id"] = event.request_id
+
             await self._wire_capture.capture_stream_completion(
                 context=None,  # Context not available in EoS event
                 session_id=event.session_id,
@@ -105,6 +112,7 @@ class WireCaptureEosSubscriber:
                 key_name=None,
                 canonical_usage=None,  # EoS metadata is separate from usage
                 eos_metadata=eos_metadata,
+                capture_metadata=capture_metadata or None,
             )
 
             logger.debug(

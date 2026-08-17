@@ -574,7 +574,22 @@ class AnthropicBackend(LLMBackend):
                     cancel_callback=stream_handle.cancel_callback,
                 )
             try:
-                raw_stream = self.stream_completion(domain_request)
+                # Propagate correlation identifiers so stream_completion's raw
+                # request path (an opaque StreamProducer protocol) can attribute
+                # boundary captures (PROXY_TO_BACKEND) with the real
+                # request/session ids instead of falling back to the session id
+                # as request id.
+                stream_extra = dict(domain_request.extra_body or {})
+                if context:
+                    if context.request_id:
+                        stream_extra[_LLM_PROXY_REQUEST_ID_KEY] = context.request_id
+                    if context.session_id:
+                        stream_extra[_LLM_PROXY_SESSION_ID_KEY] = context.session_id
+                    if context.client_host:
+                        stream_extra[_LLM_PROXY_CLIENT_HOST_KEY] = context.client_host
+                raw_stream = self.stream_completion(
+                    domain_request.model_copy(update={"extra_body": stream_extra})
+                )
 
                 prompt_tokens = 0
                 try:

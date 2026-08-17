@@ -1008,6 +1008,17 @@ class OpenAIConnector(LLMBackend):
             stream_extra[_LLM_PROXY_STREAM_URL_KEY] = url
             if headers:
                 stream_extra[_LLM_PROXY_STREAM_HEADERS_KEY] = dict(headers)
+            # Propagate correlation identifiers so stream_completion's raw request
+            # path (an opaque StreamProducer protocol) can attribute boundary
+            # captures (PROXY_TO_BACKEND) with the real request/session ids
+            # instead of falling back to the session id as request id.
+            if context:
+                if context.request_id:
+                    stream_extra[_LLM_PROXY_REQUEST_ID_KEY] = context.request_id
+                if context.session_id:
+                    stream_extra[_LLM_PROXY_SESSION_ID_KEY] = context.session_id
+                if context.client_host:
+                    stream_extra[_LLM_PROXY_CLIENT_HOST_KEY] = context.client_host
             streaming_domain_request = domain_request.model_copy(
                 update={"extra_body": stream_extra}
             )

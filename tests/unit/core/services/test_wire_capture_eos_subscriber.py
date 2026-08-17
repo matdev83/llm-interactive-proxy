@@ -126,6 +126,7 @@ async def test_handle_eos_event_records_eos_metadata_with_error(
         reason="Connection timeout",
         error_classification=EndOfSessionErrorClassification.TRANSPORT_ERROR,
         error_status_code=504,
+        request_id="test-request-456",
         backend="openai:gpt-4",
     )
 
@@ -140,6 +141,29 @@ async def test_handle_eos_event_records_eos_metadata_with_error(
     assert eos_metadata["eos_termination_category"] == "error"
     assert eos_metadata["eos_error_classification"] == "transport_error"
     assert eos_metadata["eos_error_status_code"] == 504
+    # Error completion entries must stay attributable: the per-request id
+    # travels via capture_metadata since context is unavailable in the event.
+    assert call_args[1]["capture_metadata"] == {"request_id": "test-request-456"}
+
+
+@pytest.mark.asyncio
+async def test_handle_eos_event_without_request_id_passes_no_capture_metadata(
+    subscriber: WireCaptureEosSubscriber, mock_wire_capture: IWireCapture
+) -> None:
+    """Test that handler omits capture_metadata when the event has no request id."""
+    event = RemoteBackendConnectionEndOfSessionEvent(
+        session_id="test-session-123",
+        signal_type=EndOfSessionSignalType.DONE_SENTINEL,
+        termination_category=EndOfSessionTerminationCategory.NORMAL,
+        backend="openai:gpt-4",
+    )
+
+    await subscriber._handle_eos_event(event)
+
+    mock_wire_capture.capture_stream_completion.assert_called_once()
+    call_args = mock_wire_capture.capture_stream_completion.call_args
+    assert call_args[1]["capture_metadata"] is None
+    assert call_args[1]["session_id"] == "test-session-123"
 
 
 @pytest.mark.asyncio
