@@ -247,8 +247,11 @@ class ToolBlockBuffer:
             return tags
 
         # Find opening tags (not closing tags, not self-closing)
-        # Pattern matches: <tag_name followed by space, >, /, or end of string
-        for match in re.finditer(r"<([A-Za-z0-9_\-]+)(?=[\s>/]|$)", text_value):
+        # Pattern matches: <tag_name where tag_name MUST start with a letter or underscore
+        # followed by space, >, /, or end of string (to avoid matching <-- or <- or <3)
+        for match in re.finditer(
+            r"<([A-Za-z_][A-Za-z0-9_\-]*)(?=[\s>/]|$)", text_value
+        ):
             tag = match.group(1)
             # Skip closing tags (check if previous char is /)
             if match.start() > 0 and text_value[match.start() - 1] == "/":
@@ -322,7 +325,9 @@ class ToolBlockBuffer:
                     )
                 disallowed_tags = {"think", "thought"}
 
-            for match in re.finditer(r"<([A-Za-z0-9_\-]+)(?=[\s>/])", text_value):
+            for match in re.finditer(
+                r"<([A-Za-z_][A-Za-z0-9_\-]*)(?=[\s>/])", text_value
+            ):
                 tag = match.group(1)
                 if text_value[match.start() + 1] == "/":
                     continue
@@ -381,8 +386,8 @@ class ToolBlockBuffer:
             disallowed_tags = {"think", "thought"}
 
         # Look for opening tags that might be partial
-        # Pattern: <tag_name followed by space, >, /, or end of string
-        for match in re.finditer(r"<([A-Za-z0-9_\-]+)(?=[\s>/]|$)", content):
+        # Pattern: <tag_name where tag_name MUST start with a letter or underscore
+        for match in re.finditer(r"<([A-Za-z_][A-Za-z0-9_\-]*)(?=[\s>/]|$)", content):
             tag = match.group(1)
             # Skip closing tags
             if match.start() > 0 and content[match.start() - 1] == "/":
@@ -423,13 +428,21 @@ class ToolBlockBuffer:
         Returns:
             Text with complete blocks emitted, partial blocks buffered
         """
+        MAX_PENDING_BUFFER_BYTES = 16384
+
         buffer_key = f"tool-block:{tag_name}"
         buffer = registry.get_fragment(stream_key, buffer_key)
         combined = buffer + text_value
         emit_text, pending_tail = self._split_tag_segments(combined, tag_name)
 
         if pending_tail:
-            registry.set_fragment(stream_key, buffer_key, pending_tail)
+            if len(pending_tail) > MAX_PENDING_BUFFER_BYTES:
+                # Buffer has grown excessively without finding a closing tag.
+                # Flush it as normal text to prevent withholding stream chunks indefinitely.
+                emit_text = emit_text + pending_tail
+                registry.clear_fragment(stream_key, buffer_key)
+            else:
+                registry.set_fragment(stream_key, buffer_key, pending_tail)
         else:
             registry.clear_fragment(stream_key, buffer_key)
 

@@ -471,6 +471,10 @@ class TestBufferManagementBehavior:
                 clock.advance(0.1)
                 await sleep_task
 
+            # Await the service flush so the asynchronous write is complete
+            # before inspecting the capture file.
+            await service.shutdown()
+
             # Then - Buffer should have been flushed (file should contain entries)
             assert service._file_path is not None
             assert os.path.exists(service._file_path)

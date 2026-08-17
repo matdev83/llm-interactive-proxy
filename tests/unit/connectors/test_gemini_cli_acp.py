@@ -568,6 +568,7 @@ class TestGeminiCliAcpProcessManagement:
         mock_process.stdin = MagicMock()
         mock_process.stdout = MagicMock()
         mock_process.stderr = MagicMock()
+        mock_process.stderr.read1.return_value = b""
 
         with (
             patch(
@@ -593,6 +594,10 @@ class TestGeminiCliAcpProcessManagement:
             ]
         )
         assert runtime.process is mock_process
+        assert runtime.stderr_drain_thread is not None
+        runtime.stderr_drain_thread.join(timeout=1.0)
+        assert not runtime.stderr_drain_thread.is_alive()
+        connector._cleanup_runtime_state(runtime, mock_process)
 
     async def test_spawn_process_failure_raises_without_leaking_process(
         self, connector: GeminiCliAcpConnector, temp_workspace: Path
@@ -603,6 +608,7 @@ class TestGeminiCliAcpProcessManagement:
         mock_process.stdin = MagicMock()
         mock_process.stdout = MagicMock()
         mock_process.stderr = MagicMock()
+        mock_process.stderr.read1.return_value = b""
         mock_process.stderr.read.return_value = b"boom"
 
         with (

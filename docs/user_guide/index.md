@@ -113,6 +113,7 @@ Backend provider configuration and usage:
 
 - **[Kimi Code Backend](backends/kimi-code.md)** - Kimi For Coding via OpenAI-compatible API
 - **[OpenCode Go Backend](backends/opencode-go.md)** - OpenCode Go models behind one proxy backend with internal protocol routing
+- **[CommandCode Backends](backends/commandcode.md)** - CommandCode OpenAI- and Anthropic-compatible gateway backends
 
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access
 - **[Nvidia Backend](backends/nvidia.md)** - NVIDIA NIM OpenAI-compatible API

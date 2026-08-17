@@ -216,3 +216,25 @@ class TestToolBlockBuffer:
         # Stream-2 should still have content
         buffer_state2 = registry.get_tool_call_buffer(stream_id2)
         assert "read_file" in buffer_state2.tracked_tags
+
+    def test_arrows_and_operators_not_treated_as_tags(self) -> None:
+        """Test that arrows like <-- or comparisons like <3 are not buffered."""
+        registry = StreamingContextRegistry()
+        buffer = ToolBlockBuffer(registry=registry)
+        stream_id = "test-stream"
+
+        content = "This is an arrow <-- and another <- and comparison 3 < 5."
+        result = buffer.buffer(content, stream_id)
+        assert result == content
+
+    def test_buffer_overflow_flushes_unclosed_tag(self) -> None:
+        """Test that unclosed tags exceeding MAX_PENDING_BUFFER_BYTES are flushed."""
+        registry = StreamingContextRegistry()
+        buffer = ToolBlockBuffer(registry=registry)
+        stream_id = "test-stream"
+
+        # Buffer an unclosed tag with > 16KB payload
+        large_content = "<custom_tool>" + ("x" * 20000)
+        result = buffer.buffer(large_content, stream_id)
+        assert len(result) >= 20000
+        assert "<custom_tool>" in result
