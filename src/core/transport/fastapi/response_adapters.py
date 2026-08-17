@@ -997,7 +997,11 @@ def to_fastapi_streaming_response(
         # Wrap stream for wire capture if enabled
         if wire_capture:
             coordinator = _get_wire_capture_coordinator(wire_capture)
-            sse_bytes_iter = coordinator.wrap_stream(domain_response, sse_bytes_iter)
+            sse_bytes_iter = coordinator.wrap_stream(
+                domain_response,
+                sse_bytes_iter,
+                context=context,
+            )
 
         # Counter for chunk-based yielding to event loop
         chunk_count = 0

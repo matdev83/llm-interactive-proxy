@@ -549,6 +549,31 @@ class TestCborWireCaptureService:
         await service.shutdown()
 
     @pytest.mark.asyncio
+    async def test_extract_context_metadata_reads_request_id_from_capture_metadata(
+        self, mock_config, temp_capture_dir
+    ) -> None:
+        """request_id supplied via capture_metadata is honored without context.
+
+        Client-bound stream wrapping had no context reference, so the request id
+        must be able to flow through capture_metadata for chunk attribution.
+        """
+        service = CborWireCaptureService(
+            config=mock_config,
+            capture_dir=temp_capture_dir,
+            session_id="capture-session",
+        )
+
+        metadata = service._extract_context_metadata(
+            context=None,
+            session_id="sess-stream-1",
+            capture_metadata={"request_id": "req-stream-1"},
+        )
+
+        assert metadata.session_id == "sess-stream-1"
+        assert metadata.request_id == "req-stream-1"
+        await service.shutdown()
+
+    @pytest.mark.asyncio
     async def test_extract_context_metadata_includes_compression_correlation_fields(
         self, mock_config, temp_capture_dir
     ) -> None:
@@ -1049,8 +1074,61 @@ class TestCborWireCaptureService:
         for entry in chunk_entries:
             assert entry["meta"].get("rid") == "req-test-2"
         for entry in stream_entries:
+            assert entry["meta"].get("sid") == "outbound-stream"
             assert entry["meta"].get("ccid") == "ccid-outbound-stream"
             assert entry["meta"].get("crc") == 4
+
+    @pytest.mark.asyncio
+    async def test_wrap_outbound_stream_capture_metadata_request_id(
+        self, capture_service
+    ):
+        """Chunk entries carry sid+rid from capture_metadata when context is absent.
+
+        This mirrors the runtime coordinator path where the outbound stream is
+        wrapped without a RequestContext; the session and request ids must still
+        be attached to every PROXY_TO_CLIENT entry so streams can be attributed
+        to a session without order-based correlation.
+        """
+        chunks = [b"data: test\n\n", b"data: done\n\n"]
+
+        async def mock_stream():
+            for chunk in chunks:
+                yield chunk
+
+        wrapped = capture_service.wrap_outbound_stream(
+            context=None,
+            session_id="out-stream-meta",
+            backend="openai",
+            model="gpt-x",
+            key_name=None,
+            stream=mock_stream(),
+            capture_metadata={"request_id": "req-stream-meta"},
+        )
+
+        received = []
+        async for chunk in wrapped:
+            received.append(chunk)
+
+        assert received == chunks
+
+        capture_service.force_flush_sync()
+
+        file_path = capture_service.get_capture_file_path()
+        entries = list(_read_cbor_entries(file_path))
+
+        stream_entries = [
+            e
+            for e in entries
+            if isinstance(e, dict) and e.get("dir") == CaptureDirection.PROXY_TO_CLIENT
+        ]
+        chunk_entries = [e for e in stream_entries if e.get("data")]
+        assert chunk_entries
+        for entry in chunk_entries:
+            assert entry["meta"].get("sid") == "out-stream-meta"
+            assert entry["meta"].get("rid") == "req-stream-meta"
+        # Stream start/end markers should also carry the correlation ids.
+        for entry in stream_entries:
+            assert entry["meta"].get("sid") == "out-stream-meta"
 
     @pytest.mark.asyncio
     @pytest.mark.xdist_group(name="fake_clock")

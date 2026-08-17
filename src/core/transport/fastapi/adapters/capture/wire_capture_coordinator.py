@@ -39,6 +39,9 @@ def _extract_context_capture_metadata(
     for key in ("account_id", "retry_attempt", "is_retry"):
         if key in context.extensions:
             metadata[key] = context.extensions[key]
+    request_id = getattr(context, "request_id", None)
+    if isinstance(request_id, str) and request_id.strip():
+        metadata["request_id"] = request_id
     return metadata
 
 
@@ -113,13 +116,15 @@ class WireCaptureCoordinator:
         self,
         envelope: StreamingResponseEnvelope,
         stream: AsyncIterator[bytes],
+        context: RequestContext | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap stream for capture if enabled.
 
         Args:
             envelope: Streaming response envelope
             stream: Stream iterator to wrap
-            context: Optional request context
+            context: Optional request context (preferred source for session/
+                request correlation metadata)
 
         Yields:
             Stream chunks (potentially captured)
@@ -127,8 +132,10 @@ class WireCaptureCoordinator:
         if self._wire_capture is None or not self._wire_capture.enabled():
             return stream
 
-        # Extract context from envelope if available, or use None
-        context = getattr(envelope, "context", None)
+        # Prefer explicitly provided context; fall back to envelope attribute
+        # if a future envelope variant carries one.
+        if context is None:
+            context = getattr(envelope, "context", None)
 
         backend, model, key_name, session_id = self._infer_capture_fields(
             envelope, context

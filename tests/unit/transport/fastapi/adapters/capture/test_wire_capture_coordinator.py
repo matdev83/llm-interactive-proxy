@@ -84,7 +84,6 @@ class MockWireCapture(IWireCapture):
         )
         return stream
 
-
     async def capture_stream_completion(
         self,
         *,
@@ -98,7 +97,6 @@ class MockWireCapture(IWireCapture):
         capture_metadata=None,
     ) -> None:
         """Capture stream completion."""
-
 
     async def shutdown(self) -> None:
         """Shutdown mock capture."""
@@ -213,6 +211,48 @@ class TestWireCaptureCoordinator:
         assert chunks[1] == b"chunk2"
         assert len(mock_capture.wrapped_streams) == 1
 
+    @pytest.mark.asyncio
+    async def test_stream_wrapping_with_context(self):
+        """Stream wrapping must propagate session_id/request_id from context.
+
+        Client-bound capture entries previously lost session correlation because
+        the coordinator had no context reference. The context passed to
+        ``wrap_stream`` must surface as both ``session_id`` and
+        ``capture_metadata["request_id"]`` on the capture service call.
+        """
+        mock_capture = MockWireCapture(enabled=True)
+        coordinator = WireCaptureCoordinator(wire_capture=mock_capture)
+
+        class MockContext:
+            def __init__(self):
+                self.request_id = "req-stream-ctx"
+                self.session_id = "sess-stream-ctx"
+                self.extensions = {}
+
+        context = MockContext()
+
+        async def stream_to_wrap():
+            yield b"chunk1"
+            yield b"chunk2"
+
+        envelope = StreamingResponseEnvelope(content=stream_to_wrap())
+
+        wrapped = coordinator.wrap_stream(
+            envelope,
+            stream_to_wrap(),
+            context=context,
+        )
+
+        chunks = []
+        async for chunk in wrapped:
+            chunks.append(chunk)
+
+        assert chunks == [b"chunk1", b"chunk2"]
+        assert len(mock_capture.wrapped_streams) == 1
+        wrapped_info = mock_capture.wrapped_streams[0]
+        assert wrapped_info["session_id"] == "sess-stream-ctx"
+        assert wrapped_info["capture_metadata"]["request_id"] == "req-stream-ctx"
+
     def test_session_id_fallback_to_request_id(self):
         """Test that session_id falls back to request_id from context."""
         mock_capture = MockWireCapture(enabled=True)
@@ -225,7 +265,6 @@ class TestWireCaptureCoordinator:
                 self.extensions = {}
 
         context = MockContext()
-
 
         envelope = ResponseEnvelope(
             content={"test": "data"},

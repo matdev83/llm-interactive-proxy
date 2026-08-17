@@ -473,6 +473,7 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
                 "retry_attempt": capture_metadata.get("retry_attempt"),
                 "is_retry": capture_metadata.get("is_retry"),
                 "account_id": capture_metadata.get("account_id"),
+                "request_id": capture_metadata.get("request_id"),
                 "request_timestamp": capture_metadata.get("request_timestamp"),
                 "response_timestamp": capture_metadata.get("response_timestamp"),
                 "latency_ms": capture_metadata.get("latency_ms"),
@@ -630,6 +631,10 @@ class CborWireCaptureService(IWireCapture, IWireCaptureRecorder):
             account_val = capture_fields.get("account_id")
             if isinstance(account_val, str) and account_val:
                 account_id = account_val
+
+            request_id_val = capture_fields.get("request_id")
+            if isinstance(request_id_val, str) and request_id_val:
+                request_id = request_id_val
 
             request_ts_val = capture_fields.get("request_timestamp")
             if isinstance(request_ts_val, int | float):
