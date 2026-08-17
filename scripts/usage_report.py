@@ -59,7 +59,6 @@ async def generate_report(config_path: str | None = None) -> None:
     # Try to import CBOR inspection tools
     try:
         import cbor2
-
         from src.core.wire_capture.inspection import (
             load_capture_file,
             parse_all_sse_events,

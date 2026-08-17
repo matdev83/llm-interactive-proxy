@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Shell(powershell -Command \"Get-Content -Tail 500 'C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\var\\logs\\proxy-20260816_204711-p48476.log' | Out-String -Width 4096\")",
+      "Shell(powershell -Command \"Select-String -Path 'C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\var\\logs\\proxy-20260816_204711-p48476.log' -Pattern 'ACP runtime lookup|stale ACP|Scheduling stale|ACP process.*exited|ACP request lock' | Select-Object -Last 200 | ForEach-Object { $_.Line } | Out-String -Width 5000\")",
+      "Shell(powershell -Command \"$log='C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\var\\logs\\proxy-20260816_204711-p48476.log'; $lines=Get-Content $log; $acp=$lines | Select-String -Pattern 'ACP runtime lookup|Scheduling stale|Stale ACP|ACP process.*exited|Cancelling active ACP|ACP request lock'; Write-Host '=== Counts ==='; ($acp | Measure-Object).Count; Write-Host '=== Unique runtime keys ==='; $acp | Select-String -Pattern 'key=\\(' | ForEach-Object { $_.Line } | Sort-Object -Unique | Out-String -Width 5000; Write-Host '=== Last 30 ACP lines ==='; $acp | Select-Object -Last 30 | ForEach-Object { $_.Line } | Out-String -Width 5000\")",
+      "Shell(powershell -Command \"Select-String -Path 'C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\acp_core\\base_connector.py' -Pattern 'active_request_generation|request_generation|_runtimes' | Out-String -Width 6000\")",
+      "Shell(powershell -Command \"Get-ChildItem -Recurse -Filter '*.go' -Path 'C:\\Users\\Mateusz\\source\\repos\\go-agy-acp-wrapper' | Select-String -Pattern 'AgentSideConnection|Serve|Handle' | Select-Object -First 50 | ForEach-Object { $_.Path + ':' + $_.LineNumber + ':' + $_.Line } | Out-String -Width 8000\")",
+      "Shell(powershell -Command \"Select-String -Recurse -Path 'C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src' -Pattern 'b2bua|client_session|llm-b2bua' -Include '*.py' | Select-Object -First 30 | ForEach-Object { $_.Path + ':' + $_.LineNumber + ':' + $_.Line.Trim() } | Out-String -Width 10000\")",
+      "Shell(powershell -Command \"Select-String -Path 'C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\services\\b2bua_session_manager.py' -Pattern 'class|def |llm-b2bua' | Select-Object -First 50 | ForEach-Object { $_.Line.Trim() } | Out-String -Width 8000\")",
+      "Shell(powershell -Command \"Select-String -Path 'C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\var\\logs\\proxy-20260816_204711-p48476.log' -Pattern 'req-a88147ed4676|57dc961e|73060' | ForEach-Object { $_.Line } | Out-String -Width 6000\")",
+      "Shell(powershell -Command \"Select-String -Path 'C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\var\\logs\\proxy-20260816_204711-p48476.log' -Pattern 'ACP runtime lookup.*356|ACP runtime lookup.*366|req-a88147ed4676.*session_id|req-e467b9812e2b' | ForEach-Object { $_.Line } | Out-String -Width 8000\")",
+      "Shell(powershell -Command \"Select-String -Path 'C:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\var\\logs\\proxy-20260816_204711-p48476.log' -Pattern 'Handling chat completion.*model=.*agy|ACP runtime lookup' | ForEach-Object { $_.Line } | Out-String -Width 5000\")"
+    ],
+    "deny": [],
+    "defaultMode": "default"
+  }
+}

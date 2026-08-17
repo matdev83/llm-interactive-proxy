@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
-from src.core.simulation.capture_reader import CaptureReader
+
 from src.core.domain.cbor_capture import CaptureDirection
+from src.core.simulation.capture_reader import CaptureReader
+
 
 def main():
     capture_path = Path("var/wire_captures_cbor/proxy-20260810_153127-p74632.cbor")
@@ -14,9 +16,9 @@ def main():
         data = req.data
         text = data.decode("utf-8", errors="ignore")
         if "token-plan.ap-southeast-1.maas.aliyuncs.com" in text:
-            print(f"\n==========================================")
+            print("\n==========================================")
             print(f"Alibaba Token Plan Req {i} at timestamp {req.timestamp}")
-            print(f"==========================================")
+            print("==========================================")
             
             # Split headers and body
             parts = text.split("\r\n\r\n", 1)

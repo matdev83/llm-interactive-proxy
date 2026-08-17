@@ -29,7 +29,7 @@ def wait_ready(timeout: float = 90.0) -> None:
             if r.status_code < 500:
                 print(f"proxy ready: status={r.status_code}")
                 return
-        except Exception as exc:  # noqa: BLE001 - smoke wait loop
+        except Exception as exc:  # - smoke wait loop
             last_err = exc
         time.sleep(0.5)
     raise RuntimeError(f"proxy not ready within {timeout}s: {last_err}")

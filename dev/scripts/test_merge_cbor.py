@@ -1,5 +1,5 @@
-import json
 from typing import Any
+
 
 def _to_content_blocks(content: Any) -> list[dict[str, Any]]:
     if isinstance(content, list):

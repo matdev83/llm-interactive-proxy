@@ -11,10 +11,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from unittest.mock import Mock
+
+from src.core.common.exceptions import RoutingError
 from src.core.config.models.rewriting import ModelAliasRule
 from src.core.config.models.routing import RoutingConfig
 from src.core.services.backend_routing_service import BackendRoutingService
-from src.core.common.exceptions import RoutingError
 
 
 def test_runtime_error_with_empty_aliases():

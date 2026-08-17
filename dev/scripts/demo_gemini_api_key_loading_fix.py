@@ -43,7 +43,7 @@ def _simulate_windows_env(monkeypatch, stale_key: str | None) -> None:
             self.hive = hive
             self.subkey = subkey
 
-        def __enter__(self) -> "_Key":
+        def __enter__(self) -> _Key:
             return self
 
         def __exit__(self, exc_type, exc, tb) -> None:
@@ -83,8 +83,8 @@ def demo_broken_scenario(monkeypatch) -> None:
     if env.get("GEMINI_API_KEY"):
         picked_key = env["GEMINI_API_KEY"]
         print(f"  Raw env.get('GEMINI_API_KEY') returned: {picked_key[:30]}...")
-        print(f"  This is the LEAKED, DISABLED key!")
-        print(f"  Result: Remote API would reject this key with 403")
+        print("  This is the LEAKED, DISABLED key!")
+        print("  Result: Remote API would reject this key with 403")
         print()
         assert picked_key == OLD_LEAKED_KEY
         print(f"  FAIL: Proxy would send stale key: {picked_key[:20]}***")
@@ -108,13 +108,13 @@ def demo_fixed_scenario(monkeypatch) -> None:
     _simulate_windows_env(monkeypatch, stale_key=OLD_LEAKED_KEY)
 
     # Simulate fixed code path
-    from src.core.common.env_utils import get_env_value_with_windows_persistent_fallback
     import src.core.config.env.from_env_part3 as _part3
+    from src.core.common.env_utils import get_env_value_with_windows_persistent_fallback
 
     gemini_key, gemini_source = get_env_value_with_windows_persistent_fallback(
         "GEMINI_API_KEY", environ=env
     )
-    has_variants = _part3._has_numbered_env_variants(env, "GEMINI_API_KEY")  # noqa: SLF001
+    has_variants = _part3._has_numbered_env_variants(env, "GEMINI_API_KEY")
 
     print(f"  Windows fallback resolved key from: {gemini_source}")
     print(f"  Numbered variants exist: {has_variants}")
@@ -123,13 +123,13 @@ def demo_fixed_scenario(monkeypatch) -> None:
     if gemini_key and not has_variants:
         print(f"  Would bind base gemini with key: {gemini_key[:30]}...")
     else:
-        print(f"  Numbered variants present => skipping base key binding")
-        print(f"  Instances will be created from numbered keys instead:")
+        print("  Numbered variants present => skipping base key binding")
+        print("  Instances will be created from numbered keys instead:")
         print(f"    gemini.1 => {FRESH_KEY_1[:20]}...")
         print(f"    gemini.2 => {FRESH_KEY_2[:20]}...")
         print(f"    gemini.3 => {FRESH_KEY_3[:20]}...")
     print()
-    print(f"  PASS: Stale leaked key is correctly ignored")
+    print("  PASS: Stale leaked key is correctly ignored")
     print()
 
 
@@ -166,12 +166,12 @@ def demo_full_integration(monkeypatch) -> None:
     instance_2 = cfg.backends.lookup("gemini.2")
     instance_3 = cfg.backends.lookup("gemini.3")
 
-    print(f"  Backends discovered:")
+    print("  Backends discovered:")
 
     if base_cfg is not None:
         print(f"    gemini (base)     => api_key: {base_cfg.api_key or 'None'}")
     else:
-        print(f"    gemini (base)     => not bound (correct!)")
+        print("    gemini (base)     => not bound (correct!)")
 
     if instance_1 and instance_1.api_key:
         print(f"    gemini.1          => api_key: {instance_1.api_key[:20]}...")

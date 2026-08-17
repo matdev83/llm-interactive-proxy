@@ -1,0 +1,18 @@
+# Taste learnings
+- Prefers TDD workflow: interface/contract changes and failing tests/repros first (red phase), then implementation, with a dedicated regression test for every fix. Confidence: 0.96
+- Requires minimal, focused solution and commits: stage + commit + push only own changes, preserving other agents' dirty worktree changes (stash to branch, do not revert unrelated changes). Confidence: 0.95
+- Expects diagnosis and verification via most recent proxy log file and CBOR wire capture (scripts/inspect_cbor_capture.py --detect-issues), with runtime evidence proving exact model/backend selection and no fallback. Confidence: 0.93
+- Wants code reviews delivered as prioritized findings over staged, unstaged, and untracked changes, and prefers an outlined definite execution-ready resolution plan before implementation to avoid endless review-fix ping-pong. Confidence: 0.91
+- Prefers parallel execution via subagents with one subagent per issue/family, and prefers parallel tool calls with fff MCP grep/file search where possible. Confidence: 0.90
+- Demands exact model/backend selector preservation with no silent fallback, rewriting, or effort downgrade (e.g., cursor/grok-4.5-xhigh, glm-5.2-max), and failing clearly if unavailable. Confidence: 0.90
+- Prohibits running interactive shells (e.g., agy interactive shell) inside the session that breaks the proxy session; avoid breaking shared session. Confidence: 0.92
+- Requires cross-repo parity: after fixing Python llm-interactive-proxy, check and apply the same fix in sibling Go port go-llm-interactive-proxy (openai-codex and similar connectors). Confidence: 0.88
+- Requires safe workspace targeting: explicit absolute validated path, no prompt-text guessing, no silent fallback to proxy repository, reject nonexistent/untrusted paths, do not allow unrestricted host path selection. Confidence: 0.88
+- Expects handling of port 8000 conflicts by finding and killing running proxy instances holding the port before restart. Confidence: 0.85
+- Expects live/smoke acceptance tests after changes (spawn proxy, client request, monitor streaming for correct reasoning/tool handling) and proper Responses SSE semantics (no raw chat.completion.chunk or [DONE] leaks). Confidence: 0.87
+- Wants documentation kept in sync: update README/config examples, config schemas, and EchoesVault/daily log and changelog when behavior or limitations change, and verify model catalog via real ACP capability calls (e.g., cursor/list_available_models or agent --list-models). Confidence: 0.84
+- Prefers reusable ACP-family capability checks over broadly allowing every unknown backend; Responses allowlist must remain fail-closed for unsupported providers. Confidence: 0.83
+- Wants proper rendering of reasoning/thinking blocks with newline separators between thoughts and stripping of HTML-like comments/thinking tags, without losing content. Confidence: 0.82
+- Requires use of repository .venv Python (.\\.venv\\Scripts\\python.exe) and Linux-style paths for Bash even on Windows. Confidence: 0.88
+- Prohibits forcing additional authentication flows when backend (e.g., Cursor CLI) is already authenticated; do not introduce interactive login popups. Confidence: 0.86
+- Expects preservation of recent log and CBOR wire capture files for reproduction: do not overwrite/delete them, and avoid destructive git operations (no git reset --hard, git checkout --). Confidence: 0.85

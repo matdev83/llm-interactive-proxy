@@ -10,13 +10,11 @@ import asyncio
 import logging
 import sys
 import tempfile
-import time
 from pathlib import Path
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.connectors.acp_core.types import ACPNotification
 from src.connectors.agy_cli_acp import AgyCliAcpConnector
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.core.config.app_config import AppConfig

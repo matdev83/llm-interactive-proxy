@@ -1,11 +1,10 @@
-from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.dynamic_compression_config import (
     CompressionMarkerConfig,
     DynamicCompressionConfig,
 )
 from tests.unit.core.services.test_tool_output_compression_service import (
-    _build_tool_messages,
     _build_service_with_default_registry,
+    _build_tool_messages,
 )
 
 

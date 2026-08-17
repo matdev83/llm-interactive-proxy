@@ -10,9 +10,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import logging
-from unittest.mock import Mock
 import importlib
+import logging
 
 from src.core.config.app_config import AppConfig
 from src.core.config.models.rewriting import ModelAliasRule
