@@ -32,6 +32,9 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
             from src.connectors.cursor_cli_acp import (
                 CursorCliConfiguredModelEnumerator,
             )
+            from src.connectors.eve_acp import (
+                EveConfiguredModelEnumerator,
+            )
             from src.connectors.openai_codex.catalog.provider import (
                 CodexModelCatalogProvider,
             )
@@ -76,6 +79,11 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
             enumerators.register(
                 "agy-cli-acp",
                 AgyCliConfiguredModelEnumerator(),
+                timeout_seconds=None,
+            )
+            enumerators.register(
+                "eve-acp",
+                EveConfiguredModelEnumerator(),
                 timeout_seconds=None,
             )
             codex_catalog_provider = provider.get_service(CodexModelCatalogProvider)

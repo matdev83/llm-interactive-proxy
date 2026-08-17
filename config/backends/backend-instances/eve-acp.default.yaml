@@ -1,0 +1,36 @@
+# Optional Vercel Eve ACP backend instance.
+# Eve natively speaks Agent Client Protocol (ACP) via `eve acp`.
+# Multi User Mode: this connector is OAuth-style and is not loaded in production multi-user.
+connector: eve-acp
+extra:
+  # agent_path: Path to custom Eve agent project directory (e.g. ~/.eve/agents/eve-acp-wrapper-agent).
+  # If omitted, auto-provisions and uses ~/.eve/agents/eve-acp-wrapper-agent.
+  # agent_path: null
+  model: "zai/glm-5.2"
+  # Reasoning effort level: none | minimal | low | medium | high | xhigh (max)
+  reasoning: "xhigh"
+  models:
+    - "zai/glm-5.2"
+    - "glm-5.2"
+    - "auto"
+  # yolo: true launches `eve acp --yolo` (auto-approving permission requests).
+  # Alternatives for permission_policy: allow | deny | proxy
+  yolo: true
+  permission_policy: "allow"
+  process_timeout: 600
+  idle_timeout: 180
+  # Maximum UTF-8 bytes in one ACP prompt body; keeps Eve's compactor reachable.
+  max_prompt_bytes: 450000
+  rate_limit_backoff_delays:
+    - 5
+    - 10
+    - 30
+    - 60
+  # Pacing delays to avoid hitting free-tier burst rate limits with ultra-fast models
+  tool_pacing_ms: 2000
+  turn_pacing_delay_seconds: 2.0
+  stale_acp_agent_kill_idle_seconds: 3600
+  mcp_servers: []
+  # eve_executable: "eve"
+  # eve_extra_args: []
+  # env: {}

@@ -12,6 +12,7 @@ ACP_BACKEND_TYPES: frozenset[str] = frozenset(
         "gemini-cli-acp",
         "cursor-cli-acp",
         "agy-cli-acp",
+        "eve-acp",
         # Local-agent workspace-required backend even though it speaks the Codex
         # app-server protocol (not ACP); shares the workspace resolution policy.
         "openai-codex-app-server",

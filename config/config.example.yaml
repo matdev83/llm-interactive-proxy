@@ -14,7 +14,7 @@ command_prefix: "!/"
 # Enable via env: ENABLE_ACTIVITY_TRACKING=1
 enable_activity_tracking: false
 
-# ACP backends (gemini-cli-acp, cursor-cli-acp): after each completed chat turn, schedule
+# ACP backends (gemini-cli-acp, cursor-cli-acp, agy-cli-acp, eve-acp): after each completed chat turn, schedule
 # termination of the pooled agent subprocess after idle seconds (default 3600 = 60 minutes).
 # Disable with:
 #   CLI: --disable-stale-acp-agent-kills
@@ -432,6 +432,10 @@ backends:
   # cursor-cli-acp (Cursor CLI Agent Client Protocol): optional instance file
   # config/backends/backend-instances/cursor-cli-acp.default.yaml
   # Install Cursor CLI, run `agent login`, ensure `agent` is on PATH (Windows: agent.cmd).
+  #
+  # eve-acp (Vercel Eve Agent Client Protocol): optional instance file
+  # config/backends/backend-instances/eve-acp.default.yaml
+  # Ensure `eve` is on PATH or configure `eve_executable`.
   #
   # qwen-oauth retry tuning knobs (in that backend-instances file under `extra:`):
   #   enable_qwen_oauth_initial_rate_limit_retry: true

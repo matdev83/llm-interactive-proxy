@@ -132,6 +132,9 @@ class ACPProcessRuntime:
     model: str
     client_session_id: str = "default"
     process: Any | None = None
+    #: Working directory owned by the live subprocess, when it differs from
+    #: ``project_dir`` (for example, an isolated Eve app root).
+    process_cwd: Path | None = None
     session_id: str | None = None
     initialized: bool = False
     message_id: int = 0
@@ -167,6 +170,8 @@ class ACPProcessRuntime:
     stderr_tail_lock: Any = field(default_factory=threading.Lock)
     #: Bounded stderr tail retained for startup/exit diagnostics.
     stderr_tail: bytearray = field(default_factory=bytearray)
+    #: Last prompt params sent for session/prompt, used for automated retry on transient rate limits.
+    last_prompt_params: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

@@ -10,7 +10,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.acp_core.base_connector import BaseAcpConnector
-from src.connectors.acp_core.types import ACPError, ACPNotification, ACPProcessRuntime
+from src.connectors.acp_core.types import (
+    ACPError,
+    ACPNotification,
+    ACPProcessRuntime,
+    HistoryState,
+)
 from src.connectors.acp_core.types import AcpStreamPiece as AcpStreamPiece
 from src.connectors.acp_core.workspace_policy import ACP_MISSING_PROJECT_WORKSPACE_CODE
 from src.connectors.contracts import (
@@ -1130,6 +1135,47 @@ async def test_non_streaming_chat_completions_include_visible_thinking_blocks(
     message = response.content["choices"][0]["message"]
     assert message["content"] == "Thinking:\nplan step\n\n\nAnswer"
     assert "reasoning_content" not in message
+
+
+@pytest.mark.asyncio
+async def test_failed_non_streaming_turn_retires_runtime_before_unlock(
+    connector: DummyAcpConnector,
+) -> None:
+    connector.is_functional = True
+    connector._default_project_dir = Path("/tmp/dummy")
+    runtime = connector._create_runtime(Path("/tmp/dummy"), "dummy/model")
+    runtime.process = MagicMock()
+    runtime.process.poll.return_value = None
+    runtime.process.pid = 1234
+    runtime.history_state = HistoryState(message_count=1, prefix_hash="stale")
+    runtime.last_prompt_params = {"sessionId": "stale-session"}
+
+    async def _failing_iter(
+        _: ACPProcessRuntime, __: int, ___: str
+    ) -> AsyncGenerator[AcpStreamPiece, None]:
+        raise BackendError(message="simulated ACP turn failure")
+        if False:
+            yield AcpStreamPiece(content="unreachable")
+
+    with (
+        patch.object(connector, "_acquire_runtime", AsyncMock(return_value=runtime)),
+        patch.object(
+            connector,
+            "_prepare_turn_request_locked",
+            AsyncMock(return_value=(5, "dummy/model")),
+        ),
+        patch.object(connector, "_iter_acp_stream_pieces", side_effect=_failing_iter),
+        patch.object(connector, "_terminate_process", AsyncMock()) as terminate_mock,
+        pytest.raises(BackendError, match="simulated ACP turn failure"),
+    ):
+        await connector.chat_completions(_make_request())
+
+    terminate_mock.assert_awaited_once()
+    assert runtime.process is None
+    assert runtime.history_state is None
+    assert runtime.last_prompt_params is None
+    assert runtime.request_lock is not None
+    assert not runtime.request_lock.locked()
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,7 @@ Backend IDs are the `type:` values in YAML and the `backend_type` carried on req
 | `gemini` | Google Gemini | API Key | Metered API usage, production apps |
 | `gemini-cli-acp` | Google Gemini (ACP via Gemini CLI) | Local OAuth token | Sub-agents and tooling via Gemini CLI |
 | `cursor-cli-acp` | Cursor (ACP via Cursor CLI `agent acp`) | Local Cursor login (`agent login`); optional `CURSOR_API_KEY` discovery fallback | Cursor-hosted models through the official CLI; requires `agent` on PATH or `CURSOR_AGENT_BIN` |
+| `eve-acp` | Vercel Eve (ACP via `eve acp`) | Local Eve runtime | Agent runtime execution with native ACP protocol over stdio; requires `eve` on PATH or `EVE_BINARY` |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + GCP project | Enterprise / team billing on Vertex-style flows |
 | `openrouter` | OpenRouter | API Key | Many third-party hosted models behind one API |
 | `nvidia` | NVIDIA (NIM / OpenAI-compatible) | API Key (`NVIDIA_API_KEY`) | NVIDIA integrator or self-hosted NIM |
@@ -209,6 +210,7 @@ For detailed configuration and usage information for each backend, see:
 - [Alibaba Token Plan (International)](alibaba-token-plan-intl.md) (`alibaba-token-plan-intl`)
 - [Gemini](gemini.md) (API keys, CLI OAuth variants, `gemini-cli-acp`, and `gemini-cli-cloud-project`)
 - **Cursor CLI ACP** (`cursor-cli-acp`): same idea as Gemini CLI ACP but via Cursor’s `agent acp` CLI; install and log in with `agent login` (preferred for ACP). Optional `CURSOR_API_KEY` can help model discovery on CLI builds that reject cookie-only `--list-models`. Ensure `agent` is on `PATH` or set `CURSOR_AGENT_BIN`. There is no separate backend guide page yet.
+- **Vercel Eve ACP** (`eve-acp`): Native Agent Client Protocol backend via `eve acp`; executes Eve as an agent runtime with internal tool loops, streamed reasoning, and process-per-session isolation. Ensure `eve` is on `PATH` or configure `eve_executable` / `EVE_BINARY`.
 - [OpenRouter](openrouter.md)
 - [NVIDIA](nvidia.md)
 - [ZAI](zai.md)

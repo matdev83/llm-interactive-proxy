@@ -91,6 +91,29 @@ ACP_GRACEFUL_CANCEL_TIMEOUT_SECONDS = 12.0
 # Default idle delay after a completed chat turn before terminating the pooled ACP child.
 # Override with ``stale_acp_agent_kill_idle_seconds`` (config / env / CLI).
 DEFAULT_STALE_ACP_AGENT_KILL_IDLE_SECONDS = 3600.0
+ACP_RATE_LIMIT_BACKOFF_DELAYS: tuple[float, ...] = (5.0, 10.0, 30.0, 60.0)
+
+
+def is_rate_limit_error(message: str | None) -> bool:
+    """Detect rate limit or quota exhaustion errors across LLM gateways and ACP errors."""
+    if not message:
+        return False
+    msg = message.lower()
+    return any(
+        pattern in msg
+        for pattern in (
+            "ratelimit",
+            "rate_limit",
+            "rate-limit",
+            "rate limited",
+            "rate limit",
+            "gatewayratelimiterror",
+            "429",
+            "too many requests",
+            "quota exceeded",
+            "resource exhausted",
+        )
+    )
 
 
 def _format_acp_error(error: ACPError) -> str:
@@ -197,6 +220,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         self._process_timeout = DEFAULT_PROCESS_TIMEOUT
         self._idle_timeout = DEFAULT_IDLE_TIMEOUT
         self._acp_tool_heartbeat_seconds = DEFAULT_ACP_TOOL_HEARTBEAT_SECONDS
+        self._rate_limit_backoff_delays: tuple[float, ...] = (
+            ACP_RATE_LIMIT_BACKOFF_DELAYS
+        )
+        self._turn_pacing_delay_seconds: float = 0.0
         self._runtime_pool_lock = asyncio.Lock()
         self._runtimes: dict[tuple[str, str, str], RuntimeT] = {}
 
@@ -611,6 +638,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 self._reset_protocol_runtime_state(runtime)
                 runtime.message_id = 0
                 runtime.history_state = None
+                runtime.process_cwd = runtime.project_dir
                 runtime.acp_subprocess_identity = capture_acp_subprocess_identity(
                     new_process, cmd
                 )
@@ -623,6 +651,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 runtime.initialized = False
                 self._reset_protocol_runtime_state(runtime)
                 runtime.history_state = None
+                runtime.process_cwd = None
                 runtime.acp_subprocess_identity = None
                 with runtime.stderr_tail_lock:
                     runtime.stderr_tail.clear()
@@ -640,6 +669,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         async with runtime.process_lock:
             process = runtime.process
             if process is None:
+                # Logical runtime state must be reset even when the child has
+                # already disappeared. Otherwise a failed turn can leave a
+                # stale history/session snapshot attached to the pooled key.
+                self._cleanup_runtime_state(runtime)
                 return
 
             try:
@@ -661,6 +694,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
     def _cleanup_runtime_state(
         self, runtime: RuntimeT, process: subprocess.Popen[bytes] | None = None
     ) -> None:
+        process_cwd = runtime.process_cwd
         self._stop_stderr_drain(runtime)
         self._cleanup_process(process or runtime.process)
         self._join_stderr_drain_thread(runtime)
@@ -670,9 +704,31 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         runtime.message_id = 0
         runtime.last_activity = 0.0
         runtime.history_state = None
+        runtime.process_cwd = None
+        runtime.last_prompt_params = None
         runtime.acp_subprocess_identity = None
         with runtime.stderr_tail_lock:
             runtime.stderr_tail.clear()
+        try:
+            self._cleanup_process_working_directory(runtime, process_cwd)
+        except Exception:
+            logger.exception(
+                "Failed to clean up ACP subprocess working directory: %s",
+                process_cwd,
+            )
+
+    def _cleanup_process_working_directory(
+        self, runtime: RuntimeT, process_cwd: Path | None
+    ) -> None:
+        """Release connector-owned subprocess working-directory state.
+
+        Most ACP connectors run directly in ``runtime.project_dir``. A
+        connector that creates a disposable app root can override this hook;
+        cleanup is deliberately best-effort so it cannot hide the original
+        protocol/process failure.
+        """
+
+        del runtime, process_cwd
 
     def _cleanup_process(self, process: subprocess.Popen[bytes] | None = None) -> None:
         if process is None:
@@ -908,6 +964,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             )
             if response is None:
                 continue
+            deadline = time.monotonic() + self._process_timeout
             if response.is_server_request:
                 await self._handle_server_request(runtime, response)
                 continue
@@ -1349,8 +1406,11 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         runtime.acp_anon_tool_seq = 0
         runtime.acp_last_anon_stream_key = None
         runtime.acp_thinking_block_open = False
+        turn_start_time = time.monotonic()
+        piece_count = 0
         deadline = time.monotonic() + self._process_timeout
         read_task: asyncio.Task[ACPNotification | None] | None = None
+        rate_limit_attempt = 0
         try:
             while True:
                 remaining = deadline - time.monotonic()
@@ -1439,17 +1499,59 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 if response is None:
                     continue
 
+                # Refresh inactivity deadline on every received message from ACP
+                deadline = time.monotonic() + self._process_timeout
+
                 if response.is_server_request:
                     await self._handle_server_request(runtime, response)
                     continue
 
                 if response.id == prompt_request_id:
                     if response.is_error and response.error is not None:
+                        err_msg = _format_acp_error(response.error)
+                        delays = self._rate_limit_backoff_delays
+                        if (
+                            runtime.last_prompt_params is not None
+                            and is_rate_limit_error(err_msg)
+                            and rate_limit_attempt < len(delays)
+                        ):
+                            delay = delays[rate_limit_attempt]
+                            rate_limit_attempt += 1
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "ACP process hit rate limit (%s); backing off for %.1fs (attempt %d/%d)...",
+                                    err_msg,
+                                    delay,
+                                    rate_limit_attempt,
+                                    len(delays),
+                                )
+                            yield AcpStreamPiece(
+                                content=(
+                                    f"\n\n[Rate limit encountered from model provider ({err_msg}). "
+                                    f"Backing off for {int(delay)}s before retry (attempt {rate_limit_attempt}/{len(delays)})...]\n\n"
+                                )
+                            )
+                            if runtime.cancellation_event is not None:
+                                try:
+                                    await asyncio.wait_for(
+                                        runtime.cancellation_event.wait(), timeout=delay
+                                    )
+                                    return
+                                except asyncio.TimeoutError:
+                                    pass
+                            else:
+                                await asyncio.sleep(delay)
+
+                            new_params = dict(runtime.last_prompt_params)
+                            new_params["messageId"] = str(uuid.uuid4())
+                            prompt_request_id = await self._send_jsonrpc_message(
+                                runtime, "session/prompt", new_params
+                            )
+                            deadline = time.monotonic() + self._process_timeout
+                            continue
+
                         raise BackendError(
-                            message=(
-                                "ACP process error: "
-                                f"{_format_acp_error(response.error)}"
-                            ),
+                            message=f"ACP process error: {err_msg}",
                             details=response.error.model_dump(),
                         )
                     if runtime.acp_thinking_block_open:
@@ -1457,11 +1559,21 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                         yield AcpStreamPiece(content=self._close_thinking_block())
                     for flush_piece in self._flush_incomplete_acp_tool_streams(runtime):
                         if flush_piece.content or flush_piece.reasoning_content:
+                            piece_count += 1
                             yield flush_piece
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "ACP prompt turn completed: model=%s, session_id=%s, total_pieces=%d, duration=%.2fs",
+                            runtime.model,
+                            runtime.session_id,
+                            piece_count,
+                            time.monotonic() - turn_start_time,
+                        )
                     break
 
                 for piece in self._session_update_to_stream_pieces(response, runtime):
                     if piece.content is not None or piece.reasoning_content is not None:
+                        piece_count += 1
                         yield piece
         except asyncio.TimeoutError as exc:
             raise APITimeoutError(
@@ -1726,6 +1838,17 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         )
         return user_message, new_history_state
 
+    def _fit_prompt_to_transport_limit(
+        self,
+        runtime: RuntimeT,
+        messages: Sequence[ChatMessage],
+        user_message: str,
+    ) -> str:
+        """Allow a connector to bound protocol request text before dispatch."""
+
+        del runtime, messages
+        return user_message
+
     async def _prepare_turn_request_locked(
         self, runtime: RuntimeT, request: ConnectorChatCompletionsRequest
     ) -> tuple[int, str]:
@@ -1742,12 +1865,20 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         await self._spawn_process(runtime)
         await self._initialize_runtime(runtime)
 
+        if self._turn_pacing_delay_seconds > 0 and runtime.last_activity > 0:
+            elapsed = time.monotonic() - runtime.last_activity
+            if elapsed < self._turn_pacing_delay_seconds:
+                await asyncio.sleep(self._turn_pacing_delay_seconds - elapsed)
+
         messages = list(request.processed_messages)
         if not messages:
             raise BackendError(message="No messages found in request")
 
         user_message, new_history_state = await self._compute_history_and_user_message(
             runtime, messages
+        )
+        user_message = self._fit_prompt_to_transport_limit(
+            runtime, messages, user_message
         )
         if not user_message:
             raise BackendError(message="No user message found in request")
@@ -1760,9 +1891,18 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             "prompt": [{"type": "text", "text": user_message}],
             "messageId": str(uuid.uuid4()),
         }
+        runtime.last_prompt_params = prompt_params
         prompt_request_id = await self._send_jsonrpc_message(
             runtime, "session/prompt", prompt_params
         )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "ACP turn prompt dispatched: model=%s, session_id=%s, msg_len=%d, request_id=%d",
+                runtime.model,
+                runtime.session_id,
+                len(user_message),
+                prompt_request_id,
+            )
         runtime.history_state = new_history_state
         return prompt_request_id, requested_model
 
@@ -1957,6 +2097,37 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
 
         return process.poll() is not None
 
+    def _cancellation_in_progress(self, runtime: RuntimeT) -> bool:
+        return bool(
+            runtime.cancellation_event is not None
+            and runtime.cancellation_event.is_set()
+        )
+
+    async def _reset_runtime_after_turn_failure(self, runtime: RuntimeT) -> None:
+        """Retire a runtime after a turn fails before a response completes.
+
+        ACP sessions are stateful. Releasing the request lock while retaining a
+        child that rejected, timed out, or partially processed the turn allows
+        the next request to reuse an unknown protocol/session state. Always
+        start the next turn from a clean child instead.
+        """
+
+        if self._cancellation_in_progress(runtime):
+            return
+        try:
+            await self._kill_runtime(runtime)
+        except Exception:
+            # Preserve the original backend error while still clearing all
+            # in-memory state if process termination itself is unreliable.
+            logger.exception(
+                "Failed to retire ACP runtime after turn failure; forcing logical reset "
+                "(project=%s model=%s client_session=%s)",
+                runtime.project_dir,
+                runtime.model,
+                runtime.client_session_id,
+            )
+            self._cleanup_runtime_state(runtime)
+
     async def _cancel_active_request(
         self,
         runtime: RuntimeT,
@@ -2083,8 +2254,10 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                     prompt_request_id,
                     requested_model,
                 ) = await self._prepare_turn_request_locked(runtime, request)
-            except Exception:
-                runtime.request_lock.release()
+            except BaseException:
+                await self._reset_runtime_after_turn_failure(runtime)
+                if not self._cancellation_in_progress(runtime):
+                    await self._release_runtime_request_lock(runtime)
                 raise
 
             runtime.request_generation += 1
@@ -2128,25 +2301,31 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         # is fully torn down; releasing here too would let a follow-up request
         # acquire the lock against a half-torn-down child.
         await self._acquire_runtime_request_lock(runtime)
+        turn_succeeded = False
         try:
-            (
-                prompt_request_id,
-                requested_model,
-            ) = await self._prepare_turn_request_locked(runtime, request)
             cancellable_registered = False
-            if (
-                request.cancellation_coordinator is not None
-                and request.cancellation_token is not None
-            ):
-                cancellable = _RuntimeCancellable(self, runtime, prompt_request_id)
-                request.cancellation_coordinator.register_cancellable(
-                    request.cancellation_token, cancellable
-                )
-                cancellable_registered = True
             try:
-                return await self._collect_non_streaming_response(
+                (
+                    prompt_request_id,
+                    requested_model,
+                ) = await self._prepare_turn_request_locked(runtime, request)
+                if (
+                    request.cancellation_coordinator is not None
+                    and request.cancellation_token is not None
+                ):
+                    cancellable = _RuntimeCancellable(self, runtime, prompt_request_id)
+                    request.cancellation_coordinator.register_cancellable(
+                        request.cancellation_token, cancellable
+                    )
+                    cancellable_registered = True
+                response = await self._collect_non_streaming_response(
                     runtime, requested_model, prompt_request_id, request
                 )
+                turn_succeeded = True
+                return response
+            except BaseException:
+                await self._reset_runtime_after_turn_failure(runtime)
+                raise
             finally:
                 if (
                     cancellable_registered
@@ -2154,15 +2333,13 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                     and request.cancellation_token is not None
                 ):
                     request.cancellation_coordinator.cleanup(request.cancellation_token)
-                await self._schedule_stale_kill_after_turn(runtime)
         finally:
-            cancellation_in_progress = (
-                runtime.cancellation_event is not None
-                and runtime.cancellation_event.is_set()
-            )
+            cancellation_in_progress = self._cancellation_in_progress(runtime)
             if not cancellation_in_progress:
                 # Idempotent: no-op if a cancel callback already released and
                 # cleared the event before this finally observed it.
+                if turn_succeeded:
+                    await self._schedule_stale_kill_after_turn(runtime)
                 await self._release_runtime_request_lock(runtime)
             # else: ``_cancel_active_request`` releases after teardown.
 
