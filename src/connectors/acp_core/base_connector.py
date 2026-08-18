@@ -253,6 +253,29 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
             return float(interval)
         return 12.0
 
+    def _acp_transient_error_retry_delays(
+        self,
+        runtime: RuntimeT,
+        response_model: str,
+        error: ACPError,
+    ) -> tuple[float, ...]:
+        """Return connector-specific retry delays for transient ACP turn errors.
+
+        ACP connectors may opt into bounded retries for provider failures that
+        are safe to repeat before any assistant content has been emitted. The
+        base connector deliberately returns no extra retries; this keeps
+        provider-specific policy out of unrelated ACP backends.
+        """
+
+        del runtime, response_model, error
+        return ()
+
+    def _acp_transient_retry_label(self, runtime: RuntimeT, response_model: str) -> str:
+        """Return the user-facing label for connector-specific transient retries."""
+
+        del runtime, response_model
+        return "ACP provider"
+
     def _stale_acp_kill_enabled(self) -> bool:
         return not bool(getattr(self.config, "disable_stale_acp_agent_kills", False))
 
@@ -1411,6 +1434,7 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
         deadline = time.monotonic() + self._process_timeout
         read_task: asyncio.Task[ACPNotification | None] | None = None
         rate_limit_attempt = 0
+        transient_error_attempt = 0
         try:
             while True:
                 remaining = deadline - time.monotonic()
@@ -1509,6 +1533,54 @@ class BaseAcpConnector(LLMBackend, UsageCalculationMixin, ABC, Generic[RuntimeT]
                 if response.id == prompt_request_id:
                     if response.is_error and response.error is not None:
                         err_msg = _format_acp_error(response.error)
+                        transient_delays = self._acp_transient_error_retry_delays(
+                            runtime, response_model, response.error
+                        )
+                        if (
+                            runtime.last_prompt_params is not None
+                            and transient_delays
+                            and transient_error_attempt < len(transient_delays)
+                        ):
+                            delay = transient_delays[transient_error_attempt]
+                            transient_error_attempt += 1
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "ACP transient provider error (%s); retrying "
+                                    "in %.1fs (attempt %d/%d)...",
+                                    err_msg,
+                                    delay,
+                                    transient_error_attempt,
+                                    len(transient_delays),
+                                )
+                            retry_label = self._acp_transient_retry_label(
+                                runtime, response_model
+                            )
+                            yield AcpStreamPiece(
+                                content=(
+                                    f"\n\n[{retry_label} is temporarily unavailable "
+                                    f"({err_msg}). Retrying in {int(delay)}s "
+                                    f"(attempt {transient_error_attempt}/{len(transient_delays)})...]\n\n"
+                                )
+                            )
+                            if runtime.cancellation_event is not None:
+                                try:
+                                    await asyncio.wait_for(
+                                        runtime.cancellation_event.wait(), timeout=delay
+                                    )
+                                    return
+                                except asyncio.TimeoutError:
+                                    pass
+                            else:
+                                await asyncio.sleep(delay)
+
+                            new_params = dict(runtime.last_prompt_params)
+                            new_params["messageId"] = str(uuid.uuid4())
+                            prompt_request_id = await self._send_jsonrpc_message(
+                                runtime, "session/prompt", new_params
+                            )
+                            deadline = time.monotonic() + self._process_timeout
+                            continue
+
                         delays = self._rate_limit_backoff_delays
                         if (
                             runtime.last_prompt_params is not None

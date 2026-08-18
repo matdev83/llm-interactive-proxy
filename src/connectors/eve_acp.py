@@ -21,7 +21,7 @@ from src.connectors.acp_core.acp_subprocess_identity import (
 )
 from src.connectors.acp_core.base_connector import BaseAcpConnector
 from src.connectors.acp_core.transcript import ACPTranscriptSerializer
-from src.connectors.acp_core.types import ACPNotification, ACPProcessRuntime
+from src.connectors.acp_core.types import ACPError, ACPNotification, ACPProcessRuntime
 from src.connectors.acp_core.workspace_policy import resolve_backend_init_acp_workspace
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.contracts import ConnectorChatCompletionsRequest
@@ -36,6 +36,9 @@ ACP_PROTOCOL_VERSION = 1
 DEFAULT_EVE_MODEL = "zai/glm-5.2"
 DEFAULT_EVE_PROCESS_TIMEOUT_SECONDS = 600.0
 DEFAULT_EVE_IDLE_TIMEOUT_SECONDS = 180.0
+# Eve's GLM 5.2 promotion is served by a single provider. Retry transient
+# provider outages on that same promo path, without routing to paid providers.
+DEFAULT_EVE_PROMO_RETRY_BACKOFF_DELAYS: tuple[float, ...] = (5.0, 15.0, 30.0)
 # Keep the serialized ACP request below the body-size limits commonly applied
 # by Eve's local Nitro server and its upstream model gateway. Eve's own
 # compactor runs after this request has been accepted, so it cannot protect an
@@ -639,6 +642,9 @@ class EveAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self._tool_pacing_ms: int = 2000
         self._turn_pacing_delay_seconds: float = 2.0
         self._max_prompt_bytes: int = DEFAULT_EVE_MAX_PROMPT_BYTES
+        self._promo_retry_backoff_delays: tuple[float, ...] = (
+            DEFAULT_EVE_PROMO_RETRY_BACKOFF_DELAYS
+        )
 
     async def initialize(self, **kwargs: Any) -> None:
         try:
@@ -744,6 +750,12 @@ class EveAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                 delays = kwargs.get("rate_limit_backoff_delays")
                 if isinstance(delays, list | tuple) and delays:
                     self._rate_limit_backoff_delays = tuple(float(d) for d in delays)
+            if "promo_retry_backoff_delays" in kwargs:
+                promo_delays = kwargs.get("promo_retry_backoff_delays")
+                if isinstance(promo_delays, list | tuple) and promo_delays:
+                    self._promo_retry_backoff_delays = tuple(
+                        float(delay) for delay in promo_delays
+                    )
 
             mcp = kwargs.get("mcp_servers", [])
             self._mcp_servers = list(mcp) if isinstance(mcp, list) else []
@@ -804,6 +816,63 @@ class EveAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
             cancellation_lock=asyncio.Lock(),
             cancellation_event=asyncio.Event(),
         )
+
+    @staticmethod
+    def _contains_status_code(value: Any, expected: int) -> bool:
+        """Find a status code in nested Gateway/ACP diagnostic metadata."""
+
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if str(key).casefold().replace("_", "") == "statuscode" and (
+                    nested == expected
+                    or (isinstance(nested, str) and nested.strip() == str(expected))
+                ):
+                    return True
+                if EveAcpConnector._contains_status_code(nested, expected):
+                    return True
+            return False
+        if isinstance(value, list):
+            return any(
+                EveAcpConnector._contains_status_code(item, expected) for item in value
+            )
+        if isinstance(value, str):
+            normalized = value.casefold().replace(" ", "").replace("'", "")
+            return f'"statuscode":{expected}' in normalized or (
+                f"statuscode:{expected}" in normalized
+            )
+        return False
+
+    @staticmethod
+    def _is_transient_promo_gateway_error(error: ACPError) -> bool:
+        """Identify the temporary 503 returned by the Eve promo route."""
+
+        message = error.message.casefold()
+        if "service temporarily unavailable" not in message and (
+            "gatewayinternalservererror" not in message
+        ):
+            return False
+        return EveAcpConnector._contains_status_code(error.data, 503)
+
+    def _acp_transient_error_retry_delays(
+        self,
+        runtime: ACPProcessRuntime,
+        response_model: str,
+        error: ACPError,
+    ) -> tuple[float, ...]:
+        """Retry only transient failures for the GLM 5.2 Eve promotion."""
+
+        del response_model
+        if canonicalize_eve_model_id(runtime.model) != DEFAULT_EVE_MODEL:
+            return ()
+        if not self._is_transient_promo_gateway_error(error):
+            return ()
+        return self._promo_retry_backoff_delays
+
+    def _acp_transient_retry_label(
+        self, runtime: ACPProcessRuntime, response_model: str
+    ) -> str:
+        del runtime, response_model
+        return "Eve GLM 5.2 promo"
 
     def _subprocess_env(self, runtime: ACPProcessRuntime) -> dict[str, str]:
         env = os.environ.copy()
@@ -915,23 +984,29 @@ class EveAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         Eve's no-URL ACP mode owns and closes the dev server for its app root.
         A unique child app root gives each proxy runtime its own
         ``.eve/dev-server-state.v1.json`` and prevents one session's server or
-        failed session state from being reused by another session. The shared
-        parent ``node_modules`` remains discoverable through Node's normal
-        ancestor lookup, so dependencies are not copied per session.
+        failed session state from being reused by another session. Keeping the
+        child directly under the agent project (rather than under its ``.eve``
+        state directory) also lets Eve resolve the copied authored modules
+        correctly. The shared parent ``node_modules`` remains discoverable
+        through Node's normal ancestor lookup, so dependencies are not copied
+        per session.
         """
 
         source_root = (self._agent_path or runtime.project_dir).resolve()
 
         def _copy_agent_root() -> Path:
             runtime_root = (
-                source_root
-                / ".eve"
-                / f"{EVE_RUNTIME_DIRECTORY_PREFIX}{uuid.uuid4().hex}"
+                source_root / f"{EVE_RUNTIME_DIRECTORY_PREFIX}{uuid.uuid4().hex}"
             )
             runtime_root.mkdir(parents=True, exist_ok=False)
             try:
                 for entry in source_root.iterdir():
-                    if entry.name in {".eve", ".git", "node_modules"}:
+                    if entry.name in {
+                        ".eve",
+                        ".git",
+                        "node_modules",
+                        runtime_root.name,
+                    }:
                         continue
                     destination = runtime_root / entry.name
                     if entry.is_dir():
@@ -955,7 +1030,7 @@ class EveAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         if agent_root is None:
             return
         try:
-            expected_parent = (agent_root / ".eve").resolve()
+            expected_parent = agent_root.resolve()
             candidate = process_cwd.resolve()
         except OSError:
             return

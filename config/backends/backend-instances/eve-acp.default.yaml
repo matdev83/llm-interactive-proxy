@@ -26,6 +26,11 @@ extra:
     - 10
     - 30
     - 60
+  # Retry transient 503s on the GLM 5.2 Eve promo route only; never use paid fallback providers.
+  promo_retry_backoff_delays:
+    - 5
+    - 15
+    - 30
   # Pacing delays to avoid hitting free-tier burst rate limits with ultra-fast models
   tool_pacing_ms: 2000
   turn_pacing_delay_seconds: 2.0

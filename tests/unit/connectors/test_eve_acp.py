@@ -467,7 +467,7 @@ class TestEveAcpRuntimeAndEnv:
         assert popen_mock.call_args is not None
         assert popen_mock.call_args.args[0] == ["eve", "acp"]
         spawn_cwd = Path(popen_mock.call_args.kwargs["cwd"])
-        assert spawn_cwd.parent == (agent_root / ".eve").resolve()
+        assert spawn_cwd.parent == agent_root.resolve()
         assert spawn_cwd.name.startswith("acp-runtime-")
         assert (spawn_cwd / "agent" / "agent.ts").is_file()
         assert not (spawn_cwd / "node_modules").exists()
@@ -643,4 +643,81 @@ class TestEveAcpRateLimitHandling:
         assert any(
             piece.content and "Rate limit encountered" in piece.content
             for piece in pieces
+        )
+
+    async def test_iter_acp_stream_pieces_retries_transient_glm_promo_503(
+        self, connector: EveAcpConnector, temp_workspace: Path
+    ) -> None:
+        from src.connectors.acp_core.types import ACPProcessRuntime
+
+        runtime = ACPProcessRuntime(
+            project_dir=temp_workspace,
+            model="zai/glm-5.2",
+            session_id="sess-123",
+            last_prompt_params={
+                "sessionId": "sess-123",
+                "prompt": [{"type": "text", "text": "hello"}],
+                "messageId": "msg-1",
+            },
+        )
+        service_unavailable_response = ACPNotification(
+            id=1,
+            error=ACPError(
+                code=-32002,
+                message="Failed after 3 attempts. Last error: GatewayInternalServerError: Service temporarily unavailable. Please try again shortly.",
+                data={
+                    "code": "MODEL_CALL_FAILED",
+                    "details": {"detail": '{"statusCode":503}'},
+                },
+            ),
+        )
+        success_response = ACPNotification(id=2, result={})
+        read_queue: asyncio.Queue[ACPNotification | None] = asyncio.Queue()
+        await read_queue.put(service_unavailable_response)
+        await read_queue.put(success_response)
+
+        async def mock_read(_rt: Any) -> ACPNotification | None:
+            return await read_queue.get()
+
+        send_calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def mock_send(
+            _rt: Any, method: str, params: dict[str, Any] | None = None
+        ) -> int:
+            send_calls.append((method, params or {}))
+            return 2
+
+        connector._promo_retry_backoff_delays = (0.01,)
+        with (
+            patch.object(connector, "_read_jsonrpc_message", side_effect=mock_read),
+            patch.object(connector, "_send_jsonrpc_message", side_effect=mock_send),
+        ):
+            pieces = []
+            async for piece in connector._iter_acp_stream_pieces(
+                runtime, prompt_request_id=1, response_model="zai/glm-5.2"
+            ):
+                pieces.append(piece)
+
+        assert len(send_calls) == 1
+        assert send_calls[0][0] == "session/prompt"
+        assert send_calls[0][1]["sessionId"] == "sess-123"
+        assert any(
+            piece.content
+            and "Eve GLM 5.2 promo is temporarily unavailable" in piece.content
+            for piece in pieces
+        )
+
+    def test_promo_retry_does_not_apply_to_other_models(
+        self, connector: EveAcpConnector, temp_workspace: Path
+    ) -> None:
+        runtime = connector._create_runtime(temp_workspace, "zai/glm-5.1")
+        error = ACPError(
+            code=-32002,
+            message="GatewayInternalServerError: Service temporarily unavailable",
+            data={"details": {"statusCode": 503}},
+        )
+
+        assert (
+            connector._acp_transient_error_retry_delays(runtime, "zai/glm-5.1", error)
+            == ()
         )
