@@ -63,6 +63,28 @@ def test_transcript_serializer_with_tool_calls() -> None:
     assert "Thanks!" in result
 
 
+def test_transcript_serializer_keeps_synthetic_steering_proxy_local() -> None:
+    messages = [
+        ChatMessage(role="user", content="Run git status"),
+        ChatMessage(role="tool", content="On branch dev", tool_call_id="call_1"),
+        ChatMessage(
+            role="user",
+            content="[Session Steering Guidance]\\nplan",
+            metadata={
+                "source": "interleaved_thinking",
+                "kind": "thinker_memo_synthetic_user",
+                "non_forwardable": True,
+            },
+        ),
+    ]
+
+    transcript = ACPTranscriptSerializer.serialize(messages)
+
+    assert "[Session Steering Guidance]\\nplan" in transcript
+    assert "non_forwardable" not in transcript
+    assert "thinker_memo_synthetic_user" not in transcript
+
+
 def test_transcript_serializer_serialize_tail_appends_block() -> None:
     messages = [
         ChatMessage(role="user", content="first"),

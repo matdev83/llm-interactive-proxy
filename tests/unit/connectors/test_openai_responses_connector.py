@@ -253,7 +253,11 @@ class TestOpenAIResponsesConnector:
         }
 
         # Create processed messages
-        processed_message = ChatMessage(role="user", content="Processed message")
+        processed_message = ChatMessage(
+            role="user",
+            content="Processed message",
+            metadata={"source": "interleaved_thinking", "non_forwardable": True},
+        )
         processed_messages = [processed_message]
 
         # Call the responses method
@@ -273,6 +277,74 @@ class TestOpenAIResponsesConnector:
         payload = mock_client.build_request.call_args[1]["json"]
         assert len(payload["messages"]) == 1
         assert payload["messages"][0]["content"] == "Processed message"
+        assert "metadata" not in payload["messages"][0]
+
+    @pytest.mark.asyncio
+    async def test_native_responses_input_keeps_synthetic_steering_and_hides_metadata(
+        self, connector, mock_client
+    ):
+        """Native Responses projection must not bypass interleaved steering."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.headers = {"content-type": "application/json"}
+        mock_response.json.return_value = {
+            "id": "resp-123",
+            "object": "response",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [],
+        }
+        mock_response.aread = AsyncMock()
+        mock_client.build_request = MagicMock(return_value=MagicMock())
+        mock_client.send = AsyncMock(return_value=mock_response)
+
+        from src.core.domain.responses_native_wiring import (
+            RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY,
+        )
+
+        synthetic_memo = ChatMessage(
+            role="user",
+            content="[Session Steering Guidance]\\nplan",
+            metadata={
+                "source": "interleaved_thinking",
+                "kind": "thinker_memo_synthetic_user",
+                "non_forwardable": True,
+            },
+        )
+        request_data = CanonicalChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="placeholder")],
+            extra_body={
+                RESPONSES_NATIVE_PROJECTED_PAYLOAD_KEY: {
+                    "model": "gpt-4",
+                    "input": [
+                        {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "hello"}],
+                        }
+                    ],
+                }
+            },
+        )
+
+        await connector.responses(
+            self._make_responses_connector_request(
+                connector,
+                request_data,
+                processed_messages=[synthetic_memo],
+            )
+        )
+
+        payload = mock_client.build_request.call_args[1]["json"]
+        assert payload["input"][-1] == {
+            "type": "message",
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "[Session Steering Guidance]\\nplan"}
+            ],
+        }
+        assert "metadata" not in payload["input"][-1]
 
     @pytest.mark.asyncio
     async def test_responses_headers_override_preserves_authorization(

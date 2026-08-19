@@ -95,13 +95,71 @@ def test_transformer_adds_thinker_instructions_and_suppresses_tools(
     assert transformed.tools is None
     assert transformed.tool_choice is None
     assert transformed.parallel_tool_calls is None
+    assert transformed.stream is False
+    assert transformed.messages[-1].role == "user"
+    assert transformed.messages[-1].content == (
+        "Produce the compact steering memo now. Do not call tools, emit tool-call "
+        "markup, or continue the user's task. Return memo text only."
+    )
+    assert transformed.messages[-1].metadata == {
+        "source": "interleaved_thinking",
+        "kind": "thinker_final_directive",
+    }
     assert context.extensions[INTERLEAVED_THINKING_ACTIVE_KEY] is True
     diagnostic = _diagnostic(context)
     assert diagnostic["action"] == "thinker_prompt_injected"
     assert diagnostic["target_backend"] == "openai"
     assert diagnostic["target_model"] == "gpt-4"
     assert diagnostic["message_count_before"] == 1
-    assert diagnostic["message_count_after"] == 2
+    assert diagnostic["message_count_after"] == 3
+
+
+def test_transformer_removes_tool_loop_history_from_internal_thinker_request() -> None:
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    original = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[
+            ChatMessage(role="user", content="Inspect the repository"),
+            ChatMessage(
+                role="assistant",
+                content="I will inspect the repository.",
+                tool_calls=[
+                    ToolCall(
+                        id="call-1",
+                        type="function",
+                        function=FunctionCall(name="read", arguments="{}"),
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                content="repository summary",
+                tool_call_id="call-1",
+            ),
+            ChatMessage(
+                role="assistant",
+                content="The repository was inspected.",
+            ),
+        ],
+    )
+
+    transformed = transformer.transform(
+        request=original,
+        target=BackendTarget(
+            backend="commandcode-openai", model="thinker", uri_params={}
+        ),
+        session=MagicMock(state=SessionState()),
+        context=_context(thinker=True),
+    )
+
+    assert original.messages[1].tool_calls is not None
+    assert original.messages[2].role == "tool"
+    assert all(message.role != "tool" for message in transformed.messages)
+    assert all(not message.tool_calls for message in transformed.messages)
+    assert transformed.messages[-1].role == "user"
+    assert "Do not call tools" in str(transformed.messages[-1].content)
+    assert transformed.stream is False
+    assert transformed.tools is None
 
 
 def test_transformer_loads_shipped_default_thinker_prompt() -> None:
@@ -204,16 +262,20 @@ def test_transformer_injects_stored_memo_into_non_thinker_request() -> None:
         context=context,
     )
 
-    # Prefix message is 100% untouched for cache preservation
-    assert transformed.messages[0] == request.messages[0]
-    # Tail message receives the steering guidance
+    # Every client-provided message remains byte/content-identical for cache preservation.
+    assert transformed.messages[:2] == request.messages
+    # Steering is an isolated synthetic user turn, not part of the original user turn.
     assert transformed.messages[-1].role == "user"
-    assert "hello" in str(transformed.messages[-1].content)
+    assert transformed.messages[-1].content != request.messages[-1].content
+    assert "hello" not in str(transformed.messages[-1].content)
     assert "[Session Steering Guidance]" in str(transformed.messages[-1].content)
     assert "Stored thinker memo" in str(transformed.messages[-1].content)
     metadata_last = transformed.messages[-1].metadata or {}
-    assert metadata_last.get("source") == "interleaved_thinking"
-    assert metadata_last.get("kind") == "thinker_memo_tail"
+    assert metadata_last == {
+        "source": "interleaved_thinking",
+        "kind": "thinker_memo_synthetic_user",
+        "non_forwardable": True,
+    }
 
     updated_state = session.update_state.call_args.args[0]
     assert updated_state.interleaved_thinking_state["injected_count"] == 1
@@ -223,7 +285,52 @@ def test_transformer_injects_stored_memo_into_non_thinker_request() -> None:
     assert diagnostic["target_model"] == "flash"
     assert diagnostic["memo_chars"] == len("Stored thinker memo")
     assert diagnostic["message_count_before"] == 2
-    assert diagnostic["message_count_after"] == 2
+    assert diagnostic["message_count_after"] == 3
+    assert diagnostic["injection_mode"] == "synthetic_user"
+
+
+def test_transformer_injects_stored_memo_alongside_client_reasoning() -> None:
+    transformer = InterleavedThinkingRequestTransformer(BackendSettings())
+    session = _stateful_session(
+        SessionState(
+            interleaved_thinking_state={
+                "memo": "Fresh proxy steering memo",
+                "source_selector": "openai:gpt-4",
+                "injected_count": 0,
+            }
+        )
+    )
+    context = _context(thinker=False)
+    request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[
+            ChatMessage(
+                role="assistant",
+                content="",
+                reasoning_content="Client-carried executor reasoning",
+            ),
+            ChatMessage(role="user", content="Continue the task"),
+        ],
+    )
+
+    transformed = transformer.transform(
+        request=request,
+        target=BackendTarget(backend="opencode-zen.1", model="hy3-free", uri_params={}),
+        session=session,
+        context=context,
+    )
+
+    assert transformed.messages[:2] == request.messages
+    assert transformed.messages[-1].role == "user"
+    assert "Fresh proxy steering memo" in str(transformed.messages[-1].content)
+    assert transformed.messages[-1].metadata == {
+        "source": "interleaved_thinking",
+        "kind": "thinker_memo_synthetic_user",
+        "non_forwardable": True,
+    }
+    diagnostic = _diagnostic(context)
+    assert diagnostic["action"] == "memo_injected"
+    assert diagnostic["injection_mode"] == "synthetic_user"
 
 
 def test_transformer_injects_stored_memo_into_tool_result_message() -> None:
@@ -270,16 +377,22 @@ def test_transformer_injects_stored_memo_into_tool_result_message() -> None:
         context=context,
     )
 
-    # Prefix (messages 0, 1, 2) is completely identical (100% cache hit)
-    assert transformed.messages[:3] == request.messages[:3]
-    # Tail tool result is augmented with guidance
-    assert transformed.messages[-1].role == "tool"
-    assert "file content line 1" in str(transformed.messages[-1].content)
-    assert "[Session Steering Guidance]" in str(transformed.messages[-1].content)
-    assert "Plan next tool call" in str(transformed.messages[-1].content)
-    tool_metadata = transformed.messages[-1].metadata or {}
-    assert tool_metadata.get("source") == "interleaved_thinking"
-    assert tool_metadata.get("kind") == "thinker_memo_tail"
+    # Tool output is preserved exactly; steering is not embedded in untrusted output.
+    assert transformed.messages[:4] == request.messages
+    assert transformed.messages[3].role == "tool"
+    assert transformed.messages[3].content == "file content line 1"
+    assert transformed.messages[3].metadata is None
+    synthetic = transformed.messages[-1]
+    assert synthetic is not transformed.messages[3]
+    assert synthetic.role == "user"
+    assert "[Session Steering Guidance]" in str(synthetic.content)
+    assert "Plan next tool call" in str(synthetic.content)
+    assert synthetic.metadata == {
+        "source": "interleaved_thinking",
+        "kind": "thinker_memo_synthetic_user",
+        "non_forwardable": True,
+    }
+    assert "metadata" not in synthetic.to_dict()
 
 
 def test_transformer_injects_deepseek_memo_as_tail_context() -> None:
@@ -314,9 +427,9 @@ def test_transformer_injects_deepseek_memo_as_tail_context() -> None:
         context=context,
     )
 
-    # Prefix message 0 is untouched
-    assert transformed.messages[0] == request.messages[0]
-    # Tail message has memo
+    # Prefix messages are untouched and memo is an isolated user turn.
+    assert transformed.messages[:2] == request.messages
+    assert transformed.messages[-1].role == "user"
     assert "Stored thinker memo" in str(transformed.messages[-1].content)
     assert "[Session Steering Guidance]" in str(transformed.messages[-1].content)
     updated_state = session.update_state.call_args.args[0]
@@ -325,7 +438,7 @@ def test_transformer_injects_deepseek_memo_as_tail_context() -> None:
     assert diagnostic["action"] == "memo_injected"
     assert diagnostic["memo_chars"] == len("Stored thinker memo")
     assert diagnostic["message_count_before"] == 2
-    assert diagnostic["message_count_after"] == 2
+    assert diagnostic["message_count_after"] == 3
 
 
 def test_transformer_skips_visible_memo_already_carried_by_client_context() -> None:

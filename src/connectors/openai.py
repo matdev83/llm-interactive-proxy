@@ -1132,6 +1132,15 @@ class OpenAIConnector(LLMBackend):
                     return value
 
                 for message in processed_messages:
+                    # ChatMessage.to_dict() is the provider-boundary serializer. In
+                    # particular, it excludes proxy-only metadata such as the
+                    # non-forwardable interleaved-thinking marker.
+                    to_dict = getattr(message, "to_dict", None)
+                    if callable(to_dict):
+                        dumped = to_dict()
+                        if isinstance(dumped, dict):
+                            normalized_messages.append(dumped)
+                        continue
                     if hasattr(message, "model_dump") and callable(message.model_dump):
                         dumped = message.model_dump(exclude_none=True)
                         if isinstance(dumped, dict):
@@ -2175,6 +2184,63 @@ class OpenAIConnector(LLMBackend):
             return False
         return True
 
+    @staticmethod
+    def _append_interleaved_synthetic_messages_to_responses_input(
+        payload: dict[str, Any],
+        processed_messages: list[Any],
+    ) -> None:
+        """Append proxy-only synthetic user turns to a native Responses input.
+
+        Native Responses requests carry their provider-shaped ``input`` in an
+        internal extra-body field, so they bypass the normal chat-message
+        projection. Interleaved-thinking steering still has to reach the executor
+        and must be rendered as a plain user message without proxy metadata.
+        """
+        synthetic_items: list[dict[str, Any]] = []
+        for message in processed_messages:
+            metadata = getattr(message, "metadata", None)
+            if not isinstance(metadata, dict):
+                continue
+            if (
+                metadata.get("source") != "interleaved_thinking"
+                or metadata.get("kind") != "thinker_memo_synthetic_user"
+            ):
+                continue
+            content = getattr(message, "content", None)
+            if isinstance(content, str):
+                text = content
+            elif isinstance(content, list):
+                text_parts: list[str] = []
+                for part in content:
+                    if isinstance(part, str):
+                        text_parts.append(part)
+                    elif isinstance(part, dict) and isinstance(part.get("text"), str):
+                        text_parts.append(part["text"])
+                    else:
+                        part_text = getattr(part, "text", None)
+                        if isinstance(part_text, str):
+                            text_parts.append(part_text)
+                text = "".join(text_parts)
+            else:
+                text = "" if content is None else str(content)
+            synthetic_items.append(
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": text}],
+                }
+            )
+
+        if not synthetic_items:
+            return
+        raw_input = payload.get("input")
+        if isinstance(raw_input, list):
+            payload["input"] = [*raw_input, *synthetic_items]
+        elif raw_input is None:
+            payload["input"] = synthetic_items
+        else:
+            payload["input"] = [raw_input, *synthetic_items]
+
     async def responses(
         self, request: ConnectorResponsesRequest
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
@@ -2210,6 +2276,10 @@ class OpenAIConnector(LLMBackend):
             payload = native_payload
             if effective_model:
                 payload["model"] = effective_model
+            self._append_interleaved_synthetic_messages_to_responses_input(
+                payload,
+                processed_messages,
+            )
             domain_request = NativeResponsesContext(
                 stream=bool(getattr(request_data, "stream", False)),
                 session_id=payload.get("session_id")
@@ -2229,7 +2299,17 @@ class OpenAIConnector(LLMBackend):
                 # Normalize messages; on failure, leave whatever the converter produced (fallback)
                 normalized_messages: list[dict[str, Any]] = []
                 for m in processed_messages:
-                    # If the message is a pydantic model, use model_dump
+                    # ChatMessage.to_dict() is the provider-boundary serializer and
+                    # excludes proxy-only metadata. Preserve the explicit null content
+                    # expected by some Responses-compatible gateways.
+                    to_dict = getattr(m, "to_dict", None)
+                    if callable(to_dict):
+                        dumped = to_dict()
+                        if isinstance(dumped, dict):
+                            if "content" not in dumped:
+                                dumped["content"] = None
+                            normalized_messages.append(dumped)
+                            continue
                     if hasattr(m, "model_dump") and callable(m.model_dump):
                         dumped = m.model_dump(exclude_none=False)
                         normalized_messages.append(dumped)

@@ -19,7 +19,12 @@ from src.connectors.contracts import (
 )
 from src.core.common.exceptions import InvalidRequestError
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.chat import (
+    CanonicalChatRequest,
+    ChatMessage,
+    FunctionCall,
+    ToolCall,
+)
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.translation_service import TranslationService
 
@@ -97,14 +102,14 @@ class TestAnthropicPayloadOpenAIToolMapping:
                 role="assistant",
                 content="",
                 tool_calls=[
-                    {
-                        "id": "call_abc",
-                        "type": "function",
-                        "function": {
-                            "name": "bash",
-                            "arguments": '{"command":"git status"}',
-                        },
-                    }
+                    ToolCall(
+                        id="call_abc",
+                        type="function",
+                        function=FunctionCall(
+                            name="bash",
+                            arguments='{ "command": "git status" }',
+                        ),
+                    )
                 ],
             ),
             ChatMessage(
@@ -132,6 +137,65 @@ class TestAnthropicPayloadOpenAIToolMapping:
         assert tr["type"] == "tool_result"
         assert tr["tool_use_id"] == "call_abc"
         assert tr["content"] == "On branch dev"
+
+    def test_synthetic_steering_is_user_text_not_tool_output(
+        self, anthropic_backend
+    ) -> None:
+        request_data = CanonicalChatRequest(
+            model="claude-3-haiku-20240307",
+            messages=[ChatMessage(role="user", content="placeholder")],
+            max_tokens=256,
+        )
+        processed = [
+            ChatMessage(role="user", content="Run git status"),
+            ChatMessage(
+                role="assistant",
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        id="call_abc",
+                        type="function",
+                        function=FunctionCall(
+                            name="bash",
+                            arguments='{ "command": "git status" }',
+                        ),
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                content="On branch dev",
+                tool_call_id="call_abc",
+            ),
+            ChatMessage(
+                role="user",
+                content="[Session Steering Guidance]\\nplan",
+                metadata={
+                    "source": "interleaved_thinking",
+                    "kind": "thinker_memo_synthetic_user",
+                    "non_forwardable": True,
+                },
+            ),
+        ]
+
+        payload = anthropic_backend._prepare_anthropic_payload(
+            request_data, processed, "claude-3-haiku-20240307", None, None
+        )
+
+        user_payload = payload["messages"][-1]
+        assert user_payload["role"] == "user"
+        blocks = user_payload["content"]
+        assert any(
+            block.get("type") == "tool_result"
+            and block.get("content") == "On branch dev"
+            for block in blocks
+        )
+        assert any(
+            block.get("type") == "text"
+            and block.get("text") == "[Session Steering Guidance]\\nplan"
+            for block in blocks
+        )
+        assert "non_forwardable" not in str(payload)
 
 
 class TestAnthropicCanonicalAPI:
@@ -248,7 +312,10 @@ class TestAnthropicCanonicalAPI:
         """
         # Note: Do not import ConnectorChatCompletionsRequest locally to avoid class mismatch
         # with the module-level import used by the backend implementation.
-        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+        from src.core.domain.chat import (
+            CanonicalChatRequest,
+            ChatMessage,
+        )
 
         domain_request = CanonicalChatRequest(
             model="claude-3-haiku-20240307",

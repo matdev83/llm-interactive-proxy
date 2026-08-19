@@ -188,6 +188,69 @@ async def test_completion_flow_applies_thinker_transform_and_records_output(
 
 
 @pytest.mark.asyncio
+async def test_completion_flow_uses_internal_non_streaming_thinker_result(
+    tmp_path: Path,
+) -> None:
+    instructions_file = tmp_path / "thinker.md"
+    instructions_file.write_text("Thinker instructions", encoding="utf-8")
+    session = _stateful_session()
+    flow, deps = _build_flow(
+        session=session,
+        target=BackendTarget(
+            backend="commandcode-openai", model="thinker", uri_params={}
+        ),
+        response=ResponseEnvelope(
+            content={"choices": [{"message": {"content": "internal memo"}}]}
+        ),
+        settings=BackendSettings(
+            interleaved_thinking_instructions_file=str(instructions_file)
+        ),
+    )
+    deps["request_preparer"].prepare_request = AsyncMock(
+        side_effect=[
+            BackendTarget(
+                backend="commandcode-openai",
+                model="thinker",
+                uri_params={},
+            ),
+            BackendTarget(backend="opencode-zen", model="executor", uri_params={}),
+        ]
+    )
+    deps["connector_invoker"].invoke = AsyncMock(
+        side_effect=[
+            ResponseEnvelope(
+                content={"choices": [{"message": {"content": "internal memo"}}]}
+            ),
+            ResponseEnvelope(
+                content={"choices": [{"message": {"content": "final answer"}}]}
+            ),
+        ]
+    )
+
+    result = await flow.call_completion(
+        request=CanonicalChatRequest(
+            model="alias:hybrid",
+            messages=[ChatMessage(role="user", content="hello")],
+        ),
+        stream=True,
+        allow_failover=False,
+        context=_context(thinker=True),
+    )
+
+    assert isinstance(result, ResponseEnvelope)
+    assert deps["connector_invoker"].invoke.await_count == 2
+    thinker_request = (
+        deps["connector_invoker"].invoke.await_args_list[0].kwargs["domain_request"]
+    )
+    assert thinker_request.stream is False
+    assert thinker_request.tools is None
+    assert thinker_request.messages[-1].role == "user"
+    assert "Do not call tools" in str(thinker_request.messages[-1].content)
+    stored = session.state.interleaved_thinking_state
+    assert stored["memo"] == "internal memo"
+
+
+@pytest.mark.asyncio
 async def test_completion_flow_swallows_thinker_stream_and_continues_with_executor(
     tmp_path: Path,
 ) -> None:
@@ -255,12 +318,16 @@ async def test_completion_flow_swallows_thinker_stream_and_continues_with_execut
     executor_request = (
         deps["connector_invoker"].invoke.await_args_list[1].kwargs["domain_request"]
     )
-    assert "plan it" in str(executor_request.messages[-1].content)
-    assert "[Session Steering Guidance]" in str(executor_request.messages[-1].content)
-    assert (
-        executor_request.messages[-1].metadata.get("source") == "interleaved_thinking"
-    )
-    assert executor_request.messages[-1].metadata.get("kind") == "thinker_memo_tail"
+    synthetic_memo = executor_request.messages[-1]
+    assert synthetic_memo.role == "user"
+    assert "plan it" in str(synthetic_memo.content)
+    assert "[Session Steering Guidance]" in str(synthetic_memo.content)
+    assert synthetic_memo.metadata == {
+        "source": "interleaved_thinking",
+        "kind": "thinker_memo_synthetic_user",
+        "non_forwardable": True,
+    }
+    assert "plan it" not in str(executor_request.messages[-2].content)
     assert all(
         message.metadata
         != {
@@ -815,10 +882,13 @@ async def test_completion_flow_injects_existing_memo_for_non_thinker() -> None:
     invoked_request = deps["connector_invoker"].invoke.call_args.kwargs[
         "domain_request"
     ]
-    assert "stored memo" in str(invoked_request.messages[-1].content)
-    assert "[Session Steering Guidance]" in str(invoked_request.messages[-1].content)
-    assert invoked_request.messages[-1].metadata.get("source") == "interleaved_thinking"
-    assert invoked_request.messages[-1].metadata.get("kind") == "thinker_memo_tail"
+    synthetic_memo = invoked_request.messages[-1]
+    assert synthetic_memo.role == "user"
+    assert "stored memo" in str(synthetic_memo.content)
+    assert "[Session Steering Guidance]" in str(synthetic_memo.content)
+    assert synthetic_memo.metadata.get("source") == "interleaved_thinking"
+    assert synthetic_memo.metadata.get("kind") == "thinker_memo_synthetic_user"
+    assert "metadata" not in synthetic_memo.to_dict()
     updated_state = session.update_state.call_args.args[0]
     assert updated_state.interleaved_thinking_state["injected_count"] == 1
 

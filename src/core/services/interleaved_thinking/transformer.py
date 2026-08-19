@@ -10,12 +10,7 @@ from typing import Any, cast
 from src.core.common.exceptions import ConfigurationError
 from src.core.config.models.backends import BackendSettings
 from src.core.domain.backend_target import BackendTarget
-from src.core.domain.chat import (
-    CanonicalChatRequest,
-    ChatMessage,
-    MessageContentPart,
-    MessageContentPartText,
-)
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.composite_routing import RoutingSurface
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.domain_entities_interface import ISession
@@ -37,11 +32,16 @@ INTERLEAVED_THINKING_SUPPRESS_MEMO_INJECTION_KEY = (
     "interleaved_thinking_suppress_memo_injection"
 )
 _DEFAULT_STEERING_INJECTION_HEADER = "[Session Steering Guidance]"
+_SYNTHETIC_MEMO_MESSAGE_KIND = "thinker_memo_synthetic_user"
 _DEFAULT_SYSTEM_INJECTION_PREFIX = (
     "The proxy captured this thinker memo for the next executor model. "
     "Use it as planning context, but obey the user's latest request."
 )
 _THINKER_MEMO_MARKER = "<proxy_thinker_memo"
+_THINKER_FINAL_DIRECTIVE = (
+    "Produce the compact steering memo now. Do not call tools, emit tool-call "
+    "markup, or continue the user's task. Return memo text only."
+)
 
 
 @dataclass(frozen=True)
@@ -94,6 +94,7 @@ class InterleavedThinkingRequestTransformer:
 
         if self._is_thinker_selected(context):
             instructions = self._load_instructions()
+            thinker_history = self._history_without_tool_interactions(request.messages)
             messages = [
                 ChatMessage(
                     role="system",
@@ -103,10 +104,19 @@ class InterleavedThinkingRequestTransformer:
                         "kind": "thinker_instructions",
                     },
                 ),
-                *request.messages,
+                *thinker_history,
+                ChatMessage(
+                    role="user",
+                    content=_THINKER_FINAL_DIRECTIVE,
+                    metadata={
+                        "source": "interleaved_thinking",
+                        "kind": "thinker_final_directive",
+                    },
+                ),
             ]
             request_updates: dict[str, Any] = {
                 "messages": messages,
+                "stream": False,
                 "tools": None,
                 "tool_choice": None,
                 "parallel_tool_calls": None,
@@ -125,7 +135,7 @@ class InterleavedThinkingRequestTransformer:
                 "Interleaved thinking prompt injected: request_id=%s "
                 "session_id=%s backend=%s model=%s instructions_chars=%d "
                 "messages_before=%d messages_after=%d tools_present_before=%s "
-                "tools_forwarded=False",
+                "tools_forwarded=False stream_forwarded=False",
                 request_id(context),
                 session_id(context, session),
                 target.backend,
@@ -208,46 +218,6 @@ class InterleavedThinkingRequestTransformer:
                 )
             return request
 
-        if reasoning_stats.message_count and not self._should_inject_visible_memo_only(
-            target
-        ):
-            self._record_diagnostic(
-                context,
-                action="memo_injection_skipped",
-                reason="request_already_has_reasoning_content",
-                target=target,
-                memo_chars=len(memo),
-                request_reasoning=reasoning_stats,
-                message_count_before=len(request.messages),
-                message_count_after=len(request.messages),
-            )
-            logger.info(
-                "Interleaved thinking memo injection skipped: request already carries "
-                "reasoning_content request_id=%s session_id=%s backend=%s model=%s "
-                "stored_memo_chars=%d reasoning_messages=%d reasoning_chars=%d "
-                "reasoning_interleaved_metadata_messages=%d "
-                "reasoning_tagged_memo_messages=%d first_role=%s last_role=%s "
-                "first_hash=%s last_hash=%s first_snippet=%r last_snippet=%r "
-                "interpretation=%s",
-                request_id(context),
-                session_id(context, session),
-                target.backend,
-                target.model,
-                len(memo),
-                reasoning_stats.message_count,
-                reasoning_stats.total_chars,
-                reasoning_stats.interleaved_metadata_count,
-                reasoning_stats.tagged_memo_count,
-                reasoning_stats.first_role,
-                reasoning_stats.last_role,
-                reasoning_stats.first_hash,
-                reasoning_stats.last_hash,
-                reasoning_stats.first_snippet,
-                reasoning_stats.last_snippet,
-                self._reasoning_interpretation(reasoning_stats),
-            )
-            return request
-
         if self._stored_memo_was_visible_to_client(
             session
         ) and self._request_contains_visible_memo(request, memo):
@@ -283,7 +253,7 @@ class InterleavedThinkingRequestTransformer:
             memo_chars=len(memo),
             message_count_before=len(request.messages),
             message_count_after=len(messages),
-            injection_mode="tail_anchored",
+            injection_mode="synthetic_user",
         )
         stored_state = self._get_interleaved_state(session)
         turns_remaining = (
@@ -296,7 +266,7 @@ class InterleavedThinkingRequestTransformer:
             "backend=%s model=%s memo_chars=%d memo_hash=%s memo_snippet=%r "
             "turns_remaining=%s messages_before=%d "
             "messages_after=%d injection_mode=%s "
-            "tools_present=%s",
+            "synthetic_role=%s tools_present=%s",
             request_id(context),
             session_id(context, session),
             target.backend,
@@ -307,7 +277,8 @@ class InterleavedThinkingRequestTransformer:
             turns_remaining,
             len(request.messages),
             len(messages),
-            "tail_anchored",
+            "synthetic_user",
+            "user",
             bool(request.tools),
         )
         return request.model_copy(update={"messages": messages})
@@ -425,6 +396,37 @@ class InterleavedThinkingRequestTransformer:
             )
         self._cached_instructions = content
         return content
+
+    @staticmethod
+    def _history_without_tool_interactions(
+        messages: list[ChatMessage],
+    ) -> list[ChatMessage]:
+        """Keep the thinker in memo mode instead of continuing a tool loop.
+
+        A thinker request deliberately has no tool definitions, but historical
+        assistant tool calls and ``tool`` turns can still prime a model to emit a
+        new tool call. Remove those control-flow turns from the internal thinker
+        transcript while retaining any textual assistant reasoning.
+        """
+        filtered: list[ChatMessage] = []
+        for message in messages:
+            if message.role == "tool" or message.tool_call_id:
+                continue
+            if message.tool_calls:
+                stripped = message.model_copy(update={"tool_calls": None})
+                has_content = (
+                    isinstance(stripped.content, str) and bool(stripped.content.strip())
+                ) or bool(stripped.content)
+                has_reasoning = bool(
+                    isinstance(stripped.reasoning_content, str)
+                    and stripped.reasoning_content.strip()
+                )
+                if not has_content and not has_reasoning:
+                    continue
+                filtered.append(stripped)
+                continue
+            filtered.append(message)
+        return filtered
 
     @staticmethod
     def _get_stored_memo(session: ISession | None) -> str | None:
@@ -624,11 +626,6 @@ class InterleavedThinkingRequestTransformer:
         return "preexisting_or_client_carried_reasoning_content"
 
     @staticmethod
-    def _should_inject_visible_memo_only(target: BackendTarget) -> bool:
-        target_text = f"{target.backend}:{target.model}".lower()
-        return "deepseek" in target_text
-
-    @staticmethod
     def _get_interleaved_state(session: ISession | None) -> dict[str, Any] | None:
         if session is None:
             return None
@@ -638,59 +635,29 @@ class InterleavedThinkingRequestTransformer:
         raw_state = base_state.interleaved_thinking_state
         return raw_state if isinstance(raw_state, dict) else None
 
-    @classmethod
+    @staticmethod
     def _inject_memo_at_tail(
-        cls,
         messages: list[ChatMessage],
         memo: str,
     ) -> list[ChatMessage]:
-        guidance_text = f"\n\n---\n{_DEFAULT_STEERING_INJECTION_HEADER}\n{memo}"
-        if not messages:
-            return [
-                ChatMessage(
-                    role="user",
-                    content=f"{_DEFAULT_STEERING_INJECTION_HEADER}\n{memo}",
-                    metadata={
-                        "source": "interleaved_thinking",
-                        "kind": "thinker_memo_tail",
-                    },
-                )
-            ]
+        """Append steering as an isolated synthetic user turn.
 
-        updated_messages = list(messages)
-        last_msg = updated_messages[-1]
-
-        if last_msg.role in ("tool", "user"):
-            new_content: str | list[MessageContentPart]
-            if isinstance(last_msg.content, str):
-                new_content = f"{last_msg.content}{guidance_text}"
-            elif isinstance(last_msg.content, list):
-                parts: list[MessageContentPart] = list(last_msg.content)
-                parts.append(MessageContentPartText(text=guidance_text))
-                new_content = parts
-            else:
-                new_content = f"{_DEFAULT_STEERING_INJECTION_HEADER}\n{memo}"
-
-            metadata = dict(last_msg.metadata or {})
-            metadata.update(
-                {
-                    "source": "interleaved_thinking",
-                    "kind": "thinker_memo_tail",
-                }
-            )
-            updated_messages[-1] = last_msg.model_copy(
-                update={"content": new_content, "metadata": metadata}
-            )
-            return updated_messages
-
-        updated_messages.append(
+        Do not attach the memo to the final tool result or user message. Tool output
+        is untrusted data, and placing proxy steering inside it makes the executor
+        model interpret the steering as an instruction embedded in tool output. A
+        separate user turn is supported by the lowest common denominator of chat
+        backends, while the metadata remains proxy-local because ``ChatMessage.to_dict``
+        deliberately excludes it from provider payloads.
+        """
+        return [
+            *messages,
             ChatMessage(
                 role="user",
                 content=f"{_DEFAULT_STEERING_INJECTION_HEADER}\n{memo}",
                 metadata={
                     "source": "interleaved_thinking",
-                    "kind": "thinker_memo_tail",
+                    "kind": _SYNTHETIC_MEMO_MESSAGE_KIND,
+                    "non_forwardable": True,
                 },
-            )
-        )
-        return updated_messages
+            ),
+        ]

@@ -98,6 +98,36 @@ def canonical_request():
 class TestOpenAICanonicalAPI:
     """Tests for OpenAIConnector canonical API implementation."""
 
+    @pytest.mark.asyncio
+    async def test_payload_drops_proxy_only_message_metadata(
+        self, openai_connector
+    ) -> None:
+        synthetic_memo = ChatMessage(
+            role="user",
+            content="[Session Steering Guidance]\\nplan",
+            metadata={
+                "source": "interleaved_thinking",
+                "kind": "thinker_memo_synthetic_user",
+                "non_forwardable": True,
+            },
+        )
+        request = CanonicalChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="hello"), synthetic_memo],
+        )
+
+        payload = await openai_connector._prepare_payload(
+            request_data=request,
+            processed_messages=list(request.messages),
+            effective_model="gpt-4",
+        )
+
+        assert payload["messages"][-1] == {
+            "role": "user",
+            "content": "[Session Steering Guidance]\\nplan",
+        }
+        assert "metadata" not in payload["messages"][-1]
+
     def test_implements_canonical_protocol(self, openai_connector):
         """Test that OpenAIConnector implements ICanonicalChatCompletionsBackend."""
         import inspect

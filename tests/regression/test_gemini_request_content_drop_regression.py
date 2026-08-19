@@ -12,6 +12,56 @@ from src.core.domain.translators.gemini.request import from_domain_to_gemini_req
 class TestGeminiRequestRegression:
     """Regression tests for Gemini request translation."""
 
+    def test_regression_synthetic_steering_is_isolated_user_content(self) -> None:
+        """Steering must not be appended to a Gemini tool result."""
+        request = CanonicalChatRequest(
+            model="gemini-1.5-pro",
+            messages=[
+                ChatMessage(role="user", content="Run git status"),
+                ChatMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=[
+                        ToolCall(
+                            id="call_1",
+                            function=FunctionCall(name="bash", arguments="{}"),
+                        )
+                    ],
+                ),
+                ChatMessage(
+                    role="tool",
+                    content="On branch dev",
+                    tool_call_id="call_1",
+                ),
+                ChatMessage(
+                    role="user",
+                    content="[Session Steering Guidance]\\nplan",
+                    metadata={
+                        "source": "interleaved_thinking",
+                        "kind": "thinker_memo_synthetic_user",
+                        "non_forwardable": True,
+                    },
+                ),
+            ],
+        )
+
+        gemini_request = from_domain_to_gemini_request(request)
+
+        contents = gemini_request["contents"]
+        assert contents[-1] == {
+            "role": "user",
+            "parts": [{"text": "[Session Steering Guidance]\\nplan"}],
+        }
+        tool_result = next(
+            content
+            for content in contents
+            if any("functionResponse" in part for part in content["parts"])
+        )
+        assert tool_result["parts"][0]["functionResponse"]["response"] == {
+            "text": "On branch dev"
+        }
+        assert "non_forwardable" not in str(gemini_request)
+
     def test_regression_tool_calls_with_reasoning_content(self) -> None:
         """
         Regression test: Ensure that when an assistant message has both `tool_calls`
