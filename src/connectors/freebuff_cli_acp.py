@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import shutil
 import subprocess
 from collections.abc import Sequence
@@ -28,6 +29,22 @@ logger = logging.getLogger(__name__)
 ACP_PROTOCOL_VERSION = 1
 DEFAULT_FREEBUFF_PROCESS_TIMEOUT_SECONDS = 300.0
 DEFAULT_FREEBUFF_MODEL = "mimo/mimo-v2.5"
+CANONICAL_MODEL_ID_PATTERN = re.compile(
+    r"^[a-z0-9][a-z0-9._-]*/[a-zA-Z0-9][a-zA-Z0-9._-]*$"
+)
+
+
+def parse_freebuff_wrapper_model_catalog(stdout: str) -> list[str]:
+    """Parse canonical model IDs emitted by go-freebuff-acp-wrapper --list-models."""
+    models: list[str] = []
+    seen: set[str] = set()
+    for line in stdout.splitlines():
+        model = line.strip()
+        if not CANONICAL_MODEL_ID_PATTERN.fullmatch(model) or model in seen:
+            continue
+        seen.add(model)
+        models.append(model)
+    return models
 
 
 def resolve_freebuff_acp_wrapper_executable(configured: str | None) -> str | None:
@@ -87,6 +104,11 @@ def build_freebuff_acp_wrapper_command(
     if extra_args:
         cmd.extend(list(extra_args))
     return cmd
+
+
+def build_freebuff_model_catalog_command(executable: str) -> list[str]:
+    """Build the wrapper's non-interactive canonical catalog command."""
+    return [executable, "--list-models"]
 
 
 async def run_freebuff_wrapper_probe(
@@ -156,13 +178,32 @@ class FreebuffCliConfiguredModelEnumerator:
                 instance_pinned=True,
             )
 
-        models = [DEFAULT_FREEBUFF_MODEL]
-        configured_models = extra.get("models")
-        if isinstance(configured_models, list):
-            for m in configured_models:
-                m_str = str(m).strip()
-                if m_str and m_str not in models:
-                    models.append(m_str)
+        command = build_freebuff_model_catalog_command(executable)
+        timeout = float(extra.get("model_discovery_timeout_seconds", 15.0))
+        try:
+            returncode, stdout, _ = await run_freebuff_wrapper_probe(
+                command, timeout=timeout
+            )
+        except (TimeoutError, FileNotFoundError, OSError):
+            returncode = 1
+            stdout = b""
+
+        models = (
+            parse_freebuff_wrapper_model_catalog(
+                stdout.decode("utf-8", errors="replace")
+            )
+            if returncode == 0
+            else []
+        )
+
+        if not models:
+            models = [DEFAULT_FREEBUFF_MODEL]
+            configured_models = extra.get("models")
+            if isinstance(configured_models, list):
+                for m in configured_models:
+                    m_str = str(m).strip()
+                    if m_str and m_str not in models:
+                        models.append(m_str)
 
         return BackendModelEnumeration.available(
             instance_name=instance_name,
@@ -246,7 +287,7 @@ class FreebuffCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     if str(model).strip()
                 ]
                 if isinstance(configured_models, list)
-                else [self._model]
+                else []
             )
 
             self._process_timeout = float(
@@ -312,6 +353,9 @@ class FreebuffCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
                     details={"executable": self._wrapper_executable},
                 )
 
+            if not self._configured_models:
+                self._configured_models = await self._discover_models()
+
             self._validation_errors = []
             self._initialization_failed = False
             self.is_functional = True
@@ -325,6 +369,25 @@ class FreebuffCliAcpConnector(BaseAcpConnector[ACPProcessRuntime]):
         self, command: list[str], *, timeout: float
     ) -> tuple[int, bytes, bytes]:
         return await run_freebuff_wrapper_probe(command, timeout=timeout)
+
+    async def _discover_models(self) -> list[str]:
+        command = build_freebuff_model_catalog_command(self._wrapper_executable)
+        try:
+            returncode, stdout, stderr = await self._run_probe(command, timeout=15)
+        except (TimeoutError, FileNotFoundError, OSError):
+            logger.warning("freebuff model discovery failed", exc_info=True)
+            return [DEFAULT_FREEBUFF_MODEL]
+        if returncode != 0:
+            logger.warning(
+                "freebuff wrapper model discovery exited with code %s: %s",
+                returncode,
+                stderr.decode("utf-8", errors="replace").strip(),
+            )
+            return [DEFAULT_FREEBUFF_MODEL]
+        models = parse_freebuff_wrapper_model_catalog(
+            stdout.decode("utf-8", errors="replace")
+        )
+        return models if models else [DEFAULT_FREEBUFF_MODEL]
 
     async def _check_wrapper_available(self) -> bool:
         try:

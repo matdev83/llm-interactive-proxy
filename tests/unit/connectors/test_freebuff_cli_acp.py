@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -9,10 +10,13 @@ from pydantic.types import JsonValue
 from src.connectors.acp_core.types import ACPNotification
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.freebuff_cli_acp import (
+    DEFAULT_FREEBUFF_MODEL,
     DEFAULT_FREEBUFF_PROCESS_TIMEOUT_SECONDS,
     FreebuffCliAcpConnector,
     FreebuffCliConfiguredModelEnumerator,
     build_freebuff_acp_wrapper_command,
+    build_freebuff_model_catalog_command,
+    parse_freebuff_wrapper_model_catalog,
     resolve_freebuff_acp_wrapper_executable,
     run_freebuff_wrapper_probe,
 )
@@ -123,6 +127,32 @@ class TestFreebuffCliAcpHelpers:
         cmd = build_freebuff_acp_wrapper_command("go-freebuff-acp-wrapper")
         assert cmd == ["go-freebuff-acp-wrapper"]
 
+    def test_build_freebuff_model_catalog_command(self) -> None:
+        assert build_freebuff_model_catalog_command("go-freebuff-acp-wrapper.exe") == [
+            "go-freebuff-acp-wrapper.exe",
+            "--list-models",
+        ]
+
+    def test_parse_freebuff_wrapper_model_catalog(self) -> None:
+        sample = (
+            "mimo/mimo-v2.5\n"
+            "deepseek/deepseek-v4-flash\n"
+            "openai/gpt-5.6-luna\n"
+            "deepseek/deepseek-v4-pro\n"
+            "google/gemini-3.7-flash\n"
+            "glm/glm-5.2\n"
+            "invalid_non_canonical\n"
+        )
+        models = parse_freebuff_wrapper_model_catalog(sample)
+        assert models == [
+            "mimo/mimo-v2.5",
+            "deepseek/deepseek-v4-flash",
+            "openai/gpt-5.6-luna",
+            "deepseek/deepseek-v4-pro",
+            "google/gemini-3.7-flash",
+            "glm/glm-5.2",
+        ]
+
     def test_resolve_wrapper_prefers_existing_file(self, tmp_path: Path) -> None:
         exe = tmp_path / "go-freebuff-acp-wrapper.exe"
         exe.write_text("noop", encoding="utf-8")
@@ -144,12 +174,18 @@ class TestFreebuffCliAcpInitialization:
     ) -> None:
         fake = str(temp_workspace / "go-freebuff-acp-wrapper.exe")
         Path(fake).write_text("noop", encoding="utf-8")
-        with patch.object(connector, "_check_wrapper_available", return_value=True):
+        with (
+            patch.object(connector, "_check_wrapper_available", return_value=True),
+            patch.object(
+                connector,
+                "_discover_models",
+                AsyncMock(return_value=["mimo/mimo-v2.5", "deepseek/deepseek-v4-flash"]),
+            ),
+        ):
             await connector.initialize(
                 project_dir=str(temp_workspace),
                 wrapper_executable=fake,
                 model="mimo/mimo-v2.5",
-                models=["mimo/mimo-v2.5"],
             )
         assert connector.is_backend_functional() is True
         assert connector._default_project_dir == temp_workspace.resolve()
@@ -171,7 +207,14 @@ class TestFreebuffCliAcpInitialization:
     ) -> None:
         fake = str(temp_workspace / "go-freebuff-acp-wrapper.exe")
         Path(fake).write_text("noop", encoding="utf-8")
-        with patch.object(connector, "_check_wrapper_available", return_value=True):
+        with (
+            patch.object(connector, "_check_wrapper_available", return_value=True),
+            patch.object(
+                connector,
+                "_discover_models",
+                AsyncMock(return_value=["mimo/mimo-v2.5"]),
+            ),
+        ):
             await connector.initialize(
                 wrapper_executable=fake,
                 models=["mimo/mimo-v2.5"],
@@ -228,23 +271,36 @@ class TestFreebuffCliAcpProtocol:
 
 
 class TestFreebuffCliConfiguredModelEnumerator:
-    async def test_enumerates_wrapper_models(self, tmp_path: Path) -> None:
+    async def test_enumerates_wrapper_models_via_probe(self, tmp_path: Path) -> None:
         wrapper = tmp_path / "go-freebuff-acp-wrapper.exe"
         wrapper.write_text("fixture", encoding="utf-8")
         enumerator = FreebuffCliConfiguredModelEnumerator()
 
-        result = await enumerator.enumerate(
-            "freebuff-cli-acp.default",
-            BackendConfig(
-                connector="freebuff-cli-acp",
-                extra={
-                    "wrapper_executable": str(wrapper),
-                    "models": ["mimo/mimo-v2.5"],
-                },
+        with patch(
+            "src.connectors.freebuff_cli_acp.run_freebuff_wrapper_probe",
+            AsyncMock(
+                return_value=(
+                    0,
+                    b"mimo/mimo-v2.5\ndeepseek/deepseek-v4-flash\nopenai/gpt-5.6-luna\n",
+                    b"",
+                )
             ),
-        )
+        ):
+            result = await enumerator.enumerate(
+                "freebuff-cli-acp.default",
+                BackendConfig(
+                    connector="freebuff-cli-acp",
+                    extra={
+                        "wrapper_executable": str(wrapper),
+                    },
+                ),
+            )
 
-        assert result.models == ("mimo/mimo-v2.5",)
+        assert result.models == (
+            "mimo/mimo-v2.5",
+            "deepseek/deepseek-v4-flash",
+            "openai/gpt-5.6-luna",
+        )
         assert result.source == "freebuff_wrapper"
         assert result.instance_pinned is True
 
@@ -257,6 +313,6 @@ class TestFreebuffCliConfiguredModelEnumerator:
                 },
             )
         )
-        assert index.get_candidates("freebuff-cli-acp:mimo/mimo-v2.5") == [
+        assert index.get_candidates("freebuff-cli-acp:deepseek/deepseek-v4-flash") == [
             "freebuff-cli-acp.default"
         ]
