@@ -74,7 +74,7 @@ class RequestDeduplicationService:
     def __init__(
         self,
         window_seconds: float = 6.0,
-        streaming_window_seconds: float = 300.0,
+        streaming_window_seconds: float | None = None,
         streaming_in_flight_window_seconds: float = 600.0,
         enabled: bool = True,
         max_cache_size: int = 10000,
@@ -84,6 +84,8 @@ class RequestDeduplicationService:
         Args:
             window_seconds: Time window in seconds for duplicate detection.
                            Set to 0 or negative to disable.
+            streaming_window_seconds: Optional explicit window for completed streaming requests.
+            streaming_in_flight_window_seconds: Max window for in-flight streaming requests.
             enabled: Whether deduplication is enabled
             max_cache_size: Maximum cache entries before forced cleanup
         """
@@ -108,17 +110,8 @@ class RequestDeduplicationService:
         self, *, is_streaming: bool, status_code: int | None
     ) -> float:
         ttl = self._window_seconds
-        if is_streaming:
+        if is_streaming and self._streaming_window_seconds is not None:
             ttl = max(ttl, self._streaming_window_seconds)
-
-        # CRITICAL: Use much longer window for 403 Forbidden to prevent
-        # hitting the backend with requests that caused an account block.
-        # Also use a longer window (e.g. 1 minute) for 204 No Content (empty stream)
-        # to prevent rapid retries of requests that the model refuses to answer.
-        if status_code == 403:
-            ttl = max(ttl, 300.0)  # 5 minute block
-        elif status_code == 204:
-            ttl = max(ttl, 60.0)  # 1 minute block
 
         return max(0.0, ttl)
 

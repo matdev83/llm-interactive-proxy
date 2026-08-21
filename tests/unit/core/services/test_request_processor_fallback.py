@@ -1,7 +1,7 @@
 """
 Dedicated regression tests for RequestProcessor fallback error propagation.
 
-Ensures that when both original and replacement models fail, the resulting 
+Ensures that when both original and replacement models fail, the resulting
 errors are strongly typed (AuthenticationError, RoutingError, BackendError)
 and surface upstream metadata properly instead of throwing generic Exceptions.
 """
@@ -156,9 +156,8 @@ async def test_fallback_returns_400_raises_routing_error(
     with pytest.raises(RoutingError) as exc_info:
         await processor.process_request(request_context, request)
 
-    # Note: RoutingError hardcodes 403 on initialization.
-    # The HTTP mapper translates it to 400 based on 'unsupported_on_instance' code.
-    assert exc_info.value.status_code == 403
+    # RoutingError dynamically derives status_code=400 from 'unsupported_on_instance' code.
+    assert exc_info.value.status_code == 400
     assert "Invalid request parameters" in exc_info.value.message
     assert exc_info.value.details == {
         "code": "unsupported_on_instance",

@@ -753,3 +753,73 @@ class TestBackendRequestManagerDeduplication:
             status_code=503,
             client_disconnected=False,
         )
+
+    @pytest.mark.asyncio
+    async def test_process_backend_request_routing_error_temporarily_unavailable_records_503(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """RoutingError with temporarily_unavailable should record status_code=503 (retriable)."""
+        from src.core.common.exceptions import RoutingError
+
+        request = ChatRequest(
+            model="gpt-4", messages=[ChatMessage(role="user", content="test")]
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        mock_dedup_service.check_and_register.return_value = (False, "hash_route_err")
+        mock_backend_processor.process_backend_request = AsyncMock(
+            side_effect=RoutingError(
+                message="Backend temporarily unavailable",
+                details={
+                    "code": "temporarily_unavailable",
+                    "category": "availability",
+                    "retryable": True,
+                },
+            )
+        )
+
+        with pytest.raises(RoutingError) as exc_info:
+            await backend_request_manager.process_backend_request(
+                request, session_id, context
+            )
+
+        assert exc_info.value.status_code == 503
+        mock_dedup_service.mark_request_complete.assert_awaited_once_with(
+            "hash_route_err", session_id, status_code=503
+        )
+
+    @pytest.mark.asyncio
+    async def test_process_backend_request_unhandled_exception_records_500(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Unhandled exceptions without status_code attribute should default to status_code=500."""
+        request = ChatRequest(
+            model="gpt-4", messages=[ChatMessage(role="user", content="test")]
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        mock_dedup_service.check_and_register.return_value = (False, "hash_unhandled")
+        mock_backend_processor.process_backend_request = AsyncMock(
+            side_effect=RuntimeError("unexpected failure")
+        )
+
+        with pytest.raises(RuntimeError):
+            await backend_request_manager.process_backend_request(
+                request, session_id, context
+            )
+
+        mock_dedup_service.mark_request_complete.assert_awaited_once_with(
+            "hash_unhandled", session_id, status_code=500
+        )

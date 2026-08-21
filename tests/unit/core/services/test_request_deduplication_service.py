@@ -422,10 +422,10 @@ class TestStatusAwareDeduplication:
         assert outcome == ("success", 403)
 
     @pytest.mark.asyncio
-    async def test_retry_after_403_blocked_for_longer(
+    async def test_retry_after_403_blocked_within_window(
         self, service: RequestDeduplicationService, sample_request: ChatRequest
     ) -> None:
-        """Retry after 403 Forbidden should be blocked for an extended window (5 mins)."""
+        """Retry after 403 Forbidden should be blocked within the dedup window and allowed after expiry."""
         from tests.utils.fake_clock import FakeClockContext
 
         async with FakeClockContext() as clock:
@@ -434,30 +434,26 @@ class TestStatusAwareDeduplication:
                 sample_request, "session-1"
             )
 
-            # Mark as 403 (Forbidden/Block)
+            # Mark as 403 (Forbidden/Non-retriable)
             await service.mark_request_complete(hash1, "session-1", status_code=403)
 
-            # Advance past default window (3s) but still within 5 mins (300s)
-            clock.advance(10.0)
-
-            # Retry should STILL be blocked
+            # Within dedup window (default 6.0s)
+            clock.advance(2.0)
             is_dup, _, _ = await service.check_and_register(sample_request, "session-1")
-            assert (
-                is_dup is True
-            ), "Retry after 403 should be blocked even after default window"
+            assert is_dup is True, "Retry within dedup window should be blocked"
 
-            # Advance past 5 mins (total 310s)
-            clock.advance(300.0)
+            # Advance past dedup window (6.0s)
+            clock.advance(5.0)
 
             # Now it should be allowed (treated as new request)
             is_dup, _, _ = await service.check_and_register(sample_request, "session-1")
-            assert is_dup is False
+            assert is_dup is False, "Retry after dedup window should be allowed"
 
     @pytest.mark.asyncio
-    async def test_retry_after_204_blocked_for_longer(
+    async def test_retry_after_204_blocked_within_window(
         self, service: RequestDeduplicationService, sample_request: ChatRequest
     ) -> None:
-        """Retry after 204 No Content (empty response) should be blocked for a longer window (1 min)."""
+        """Retry after 204 No Content should be blocked within the dedup window and allowed after expiry."""
         from tests.utils.fake_clock import FakeClockContext
 
         async with FakeClockContext() as clock:
@@ -469,20 +465,16 @@ class TestStatusAwareDeduplication:
             # Mark as 204 (No Content / Empty Response)
             await service.mark_request_complete(hash1, "session-1", status_code=204)
 
-            # Advance past default window (3s) but still within 1 min (60s)
-            clock.advance(10.0)
-
-            # Retry should STILL be blocked
+            # Within dedup window (default 6.0s)
+            clock.advance(2.0)
             is_dup, _, _ = await service.check_and_register(sample_request, "session-1")
-            assert (
-                is_dup is True
-            ), "Retry after 204 should be blocked even after default window"
+            assert is_dup is True, "Retry within dedup window should be blocked"
 
-            # Advance past 1 min (total 70s)
-            clock.advance(60.0)
+            # Advance past dedup window (6.0s)
+            clock.advance(5.0)
 
             is_dup, _, _ = await service.check_and_register(sample_request, "session-1")
-            assert is_dup is False
+            assert is_dup is False, "Retry after dedup window should be allowed"
 
     @pytest.mark.asyncio
     async def test_streaming_requests_blocked_for_longer_than_base_window(self) -> None:

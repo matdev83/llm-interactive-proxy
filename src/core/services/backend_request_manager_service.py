@@ -637,6 +637,8 @@ class BackendRequestManager(IBackendRequestManager):
         except Exception as e:
             # Unexpected error - mark based on exception type
             status_code = getattr(e, "status_code", None)
+            if status_code is None:
+                status_code = 500
             if self._dedup_service and content_hash:
                 await self._dedup_service.mark_request_complete(
                     content_hash, session_id, status_code=status_code

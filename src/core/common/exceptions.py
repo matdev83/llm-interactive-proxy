@@ -341,9 +341,22 @@ class RoutingError(LLMProxyError):
         self,
         message: str = "Routing failed",
         details: dict | None = None,
+        status_code: int | None = None,
         **kwargs,
     ):
-        super().__init__(message, details, status_code=403, **kwargs)
+        if status_code is None and isinstance(details, dict):
+            code = details.get("code")
+            if code == "unknown_model":
+                status_code = 404
+            elif code == "unsupported_on_instance":
+                status_code = 400
+            elif code == "temporarily_unavailable":
+                status_code = 503
+            elif code == "policy_rejected":
+                status_code = 403
+        if status_code is None:
+            status_code = 503
+        super().__init__(message, details, status_code=status_code, **kwargs)
 
 
 class SessionCancelledError(LLMProxyError):
