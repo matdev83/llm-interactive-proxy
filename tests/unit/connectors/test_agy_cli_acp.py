@@ -108,6 +108,19 @@ class TestAgyCliAcpHelpers:
             "openai/gpt-oss-120b",
         ]
 
+    def test_parse_models_catalog_with_tsv_and_preamble(self) -> None:
+        assert parse_agy_models_catalog(
+            "Fetching available models...\n"
+            "gemini-3.7-flash-high\tGemini 3.7 Flash (High)\n"
+            "gemini-3.7-flash-medium\tGemini 3.7 Flash (Medium)\n"
+            "claude-sonnet-4-6\tClaude Sonnet 4.6 (Thinking)\n"
+            "gpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n"
+        ) == [
+            "google/gemini-3.7-flash",
+            "anthropic/claude-sonnet-4.6",
+            "openai/gpt-oss-120b",
+        ]
+
     def test_canonicalize_rejects_unknown_family(self) -> None:
         assert canonicalize_agy_model_id("future-model-high") is None
 

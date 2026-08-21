@@ -39,8 +39,10 @@ CANONICAL_MODEL_ID_PATTERN = re.compile(
 def canonicalize_agy_model_id(native_id: str) -> str | None:
     """Collapse an agy-native effort variant into a canonical provider model ID."""
     model = native_id.strip()
-    if not model or any(char.isspace() for char in model):
+    if not model:
         return None
+    if any(char.isspace() for char in model):
+        model = model.split()[0]
     for suffix in ("-low", "-medium", "-high"):
         if model.endswith(suffix):
             model = model[: -len(suffix)]
@@ -68,7 +70,10 @@ def parse_agy_models_catalog(stdout: str) -> list[str]:
     models: list[str] = []
     seen: set[str] = set()
     for line in stdout.splitlines():
-        canonical = canonicalize_agy_model_id(line)
+        line_str = line.strip()
+        if not line_str or line_str.startswith("Fetching"):
+            continue
+        canonical = canonicalize_agy_model_id(line_str)
         if canonical is None or canonical in seen:
             continue
         seen.add(canonical)
