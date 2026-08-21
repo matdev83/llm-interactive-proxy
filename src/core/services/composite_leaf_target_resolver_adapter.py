@@ -61,6 +61,13 @@ class CompositeLeafTargetResolverAdapter:
         elif leaf.uri_params:
             leaf_extra_body[RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = dict(leaf.uri_params)
 
+        if (
+            context
+            and getattr(context, "session_id", None)
+            and "session_id" not in leaf_extra_body
+        ):
+            leaf_extra_body["session_id"] = context.session_id
+
         leaf_request = request.model_copy(
             update={
                 "model": leaf_selector,

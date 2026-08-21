@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,7 +9,6 @@ from pydantic.types import JsonValue
 from src.connectors.acp_core.types import ACPNotification
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.freebuff_cli_acp import (
-    DEFAULT_FREEBUFF_MODEL,
     DEFAULT_FREEBUFF_PROCESS_TIMEOUT_SECONDS,
     FreebuffCliAcpConnector,
     FreebuffCliConfiguredModelEnumerator,

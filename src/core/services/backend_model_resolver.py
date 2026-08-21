@@ -237,9 +237,9 @@ class BackendModelResolver(IBackendModelResolver):
                             )
 
         # Extract session ID and fetch session
-        session_id = (
-            request.extra_body.get("session_id") if request.extra_body else None
-        )
+        session_id = getattr(context, "session_id", None) if context else None
+        if not session_id and isinstance(request.extra_body, dict):
+            session_id = request.extra_body.get("session_id")
         session = (
             await self._session_service.get_session(session_id) if session_id else None
         )
@@ -256,24 +256,31 @@ class BackendModelResolver(IBackendModelResolver):
             self._backend_lifecycle_manager.get_disabled_backends().keys()
         )
 
-        # Priority 1: Session backend configuration
-        backend_type: str | None = None
-        if session and session.state and session.state.backend_config:
-            backend_type = cast(
-                BackendConfiguration, session.state.backend_config
-            ).backend_type
+        composite_precheck = self._try_read_and_clear_composite_leaf_precheck(request)
 
-        # Priority 2: Request extra_body backend_type
-        if not backend_type:
-            backend_type = (
-                request.extra_body.get("backend_type") if request.extra_body else None
-            )
+        # Priority 1: Explicit backend requested in model or composite precheck
+        # Priority 2: Session backend configuration
+        # Priority 3: Request extra_body backend_type
+        backend_type: str | None = None
+        has_explicit_target_backend = (
+            composite_precheck is not None and bool(composite_precheck[0])
+        ) or request_has_explicit_backend_selector
+        if not has_explicit_target_backend:
+            if session and session.state and session.state.backend_config:
+                backend_type = cast(
+                    BackendConfiguration, session.state.backend_config
+                ).backend_type
+
+            if not backend_type:
+                backend_type = (
+                    request.extra_body.get("backend_type")
+                    if request.extra_body
+                    else None
+                )
 
         # Parse model string with URI parameters
         uri_params: dict[str, JsonValue] = {}
         preserved_uri_params = self._extract_preserved_uri_params(request, context)
-
-        composite_precheck = self._try_read_and_clear_composite_leaf_precheck(request)
 
         if not backend_type:
             # No backend type set yet - parse from model string
